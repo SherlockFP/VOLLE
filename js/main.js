@@ -1395,20 +1395,20 @@ class App {
             this._exitToMenu(reason === 'password' ? '❌ Wrong lobby password' : '❌ Kicked from lobby');
         };
         this.network.onTeamChange = (pName, team) => {
-            // Host tarafında: client kendi takımını değiştirmek istedi, host authoritative
-            // olarak uygulayıp lobbyState ile broadcast eder.
             this.game.switchPlayerTeam?.(pName, team);
-            // Host ise güncel listeyi tekrar yayınla ki diğer clientlar da görsün.
             if (this.network.isHost) this.broadcastLobbyState();
         };
         // Live lobby updates + initial welcome — host broadcasts a fresh
-        // player list whenever someone joins or leaves.
+        // player list whenever someone joins or leaves. Late-join: welcome
+        // içindeki state PLAYING/COUNTDOWN ise client otomatik startGame tetikler.
         this.network.onGameState = (data) => {
             if (data?.type === 'lobbyState' || data?.type === 'welcome') {
                 this.game.applyLobbyState(data);
+                if (data?.type === 'welcome' && data.state) {
+                    this.game.handleLateJoin?.(data);
+                }
             }
         };
-        // Host closed the lobby or dropped → bounce us back to the menu.
         this.network.onHostLeft = () => {
             this._exitToMenu('🚪 Host left — lobby closed');
         };
@@ -1698,7 +1698,7 @@ class App {
         // oyuncunun kıpırdaşmasını görsün; round start öncesi son pozisyonlar hazır olsun.
         this._p2pTimer = (this._p2pTimer || 0) - dt;
         if (this._p2pTimer <= 0 && this.network?.connected) {
-            this._p2pTimer = 0.05; // 20Hz
+            this._p2pTimer = 0.033; // 30Hz
             if (this.game.state === STATES.PLAYING
                 || this.game.state === STATES.COUNTDOWN
                 || this.game.state === STATES.LOBBY) {
@@ -1726,7 +1726,7 @@ class App {
         if (this.network?.isHost && this.game.state === STATES.PLAYING) {
             this._hostSyncTimer = (this._hostSyncTimer || 0) - dt;
             if (this._hostSyncTimer <= 0) {
-                this._hostSyncTimer = 0.05;
+                this._hostSyncTimer = 0.033; // 30Hz ballState + scoreUpdate
                 this.network.broadcast({
                     type: 'ballState',
                     x: this.game.ball.position.x, y: this.game.ball.position.y, z: this.game.ball.position.z,

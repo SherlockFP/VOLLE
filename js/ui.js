@@ -301,33 +301,42 @@ export class UI {
     }
 
     updateLobbyPlayers(players, isHost) {
-        document.getElementById('cs-team-red').innerHTML = '';
-        document.getElementById('cs-team-blue').innerHTML = '';
+        const redEl = document.getElementById('cs-team-red');
+        const blueEl = document.getElementById('cs-team-blue');
+        if (redEl) redEl.innerHTML = '';
+        if (blueEl) blueEl.innerHTML = '';
         const reds = players.filter(p => p.team === 'red');
         const blues = players.filter(p => p.team === 'blue');
         const renderCard = (p, container) => {
+            if (!container) return;
             const card = document.createElement('div');
             card.className = `cs-player-card${p.isYou ? ' you' : ''}${p.isBot ? ' bot' : ''}`;
-            card.draggable = !!isHost;
+            card.draggable = !!isHost && !p.isBot;
             card.dataset.playerName = p.name;
             card.dataset.playerTeam = p.team;
+            // P2P: Remote oyuncular kendi avatar dataURL'lerini taşır; isYou kendi local store'undan,
+            // bot karakter emoji'sini CHAR dizisinden gösterir.
             const char = CHARACTERS[p.charId] || CHARACTERS.rally;
-            const avatarData = window.__store?.get?.('customAvatar');
-            const avatarHTML = avatarData?.dataURL
-                ? `<img src="${avatarData.dataURL}">`
-                : (char?.emoji || '👤');
+            const emoji = char?.emoji || '👤';
+            const ownAvatarOnly = window.__store?.get?.('customAvatar');
+            const avatarHTML = p.isYou
+                ? (ownAvatarOnly?.dataURL ? `<img src="${ownAvatarOnly.dataURL}">` : emoji)
+                : (p.avatar ? `<img src="${p.avatar}">` : emoji);
+            const kickBtn = (isHost && !p.isYou)
+                ? `<button class="cs-btn-kick" data-kick-name="${this.escapeHTML(p.name)}" data-kick-peer="${this.escapeHTML(p.peerId || '')}" data-kick-bot="${p.isBot?1:0}" title="Kick">✕</button>`
+                : '';
             card.innerHTML = `
                 <div class="cs-player-avatar">${avatarHTML}</div>
                 <div class="cs-player-info">
                     <div class="cs-player-name${p.isYou ? ' you' : ''}${p.isBot ? ' bot' : ''}">${this.escapeHTML(p.name)} ${p.isBot ? '🤖' : ''}</div>
-                    <div class="cs-player-sub"><span class="char-emoji-sm">${char.emoji || ''}</span> ${char.name || ''}</div>
+                    <div class="cs-player-sub"><span class="char-emoji-sm">${char.emoji || ''}</span> ${this.escapeHTML(char.name || '')}</div>
                 </div>
-                ${isHost && !p.isYou ? '<button class="cs-btn-kick" data-kick-name="'+this.escapeHTML(p.name)+'" data-kick-bot="'+(p.isBot?1:0)+'" title="Kick">✕</button>' : ''}
+                ${kickBtn}
             `;
             container.appendChild(card);
         };
-        reds.forEach(p => renderCard(p, document.getElementById('cs-team-red')));
-        blues.forEach(p => renderCard(p, document.getElementById('cs-team-blue')));
+        reds.forEach(p => renderCard(p, redEl));
+        blues.forEach(p => renderCard(p, blueEl));
         // Update bot count
         const botCount = players.filter(p => p.isBot).length;
         const bc = document.getElementById('cs-bot-count');

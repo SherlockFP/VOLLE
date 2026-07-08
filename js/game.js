@@ -356,7 +356,7 @@ export class Game {
         this.ui.updateLobbyPlayers(players, isHost);
     }
 
-    startGame() {
+    startGame(skipPreGame = false) {
         this.setState(STATES.COUNTDOWN);
         this.scoreboard.reset();
         // ponytail: force full reset — clear all players and re-register from current entities
@@ -385,6 +385,16 @@ export class Game {
         this.audio.preloadSfx('sfx/');
         this.initMinimap();
 
+        // Late-join: 10 saniyelik pre-game countdown'u atla, anında round'a gir. Host oyun sırasındayken
+        // gelen client bu sayede top ve event'leri render eder.
+        if (skipPreGame || this._skipPreGame) {
+            this._skipPreGame = false;
+            this._cancelCountdown = () => {};
+            this._preGameActive = false;
+            this.startRound();
+            return;
+        }
+
         // Pre-game countdown (configurable, host can change)
         this.preGameTimer = this.preGameDuration;
         this._preGameActive = true;
@@ -392,7 +402,6 @@ export class Game {
         let cancelled = false;
         const wrap = (fn) => () => { if (!cancelled) fn(); };
         this.ui.showCountdown(this.preGameDuration, wrap(() => {
-            // After pre-game, do the classic 3-2-1
             this._preGameActive = false;
             this.ui.showCountdown(3, wrap(() => {
                 this.audio.playGo();
@@ -1402,15 +1411,22 @@ export class Game {
 
     switchTeam(forcedTeam) {
         const newTeam = forcedTeam || (this.player.team === 'red' ? 'blue' : 'red');
+        const prevTeam = this.player.team;
+        if (prevTeam === newTeam) return;
         this.player.setTeam(newTeam);
         this.scoreboard.removePlayer(this.playerName);
         this.scoreboard.addPlayer(this.playerName, newTeam, { isYou: true });
         this.ui.showMessage(`Switched to ${newTeam.toUpperCase()} team`, 1500);
         if (this.state === STATES.LOBBY) this.updateLobbyUI();
+        // Takım menüsü (M overlay) açıksa yeniden render et ki kullanıcı kendi hareketini görsün.
+        if (typeof this.ui?._renderTeamLists === 'function') {
+            try { this.ui._renderTeamLists(this); } catch (_) {}
+        }
         // P2P: bağlıysak → host'a teamChange bildir; host ise yeni liste yayınla.
         if (this.network?.connected && !this.network.isHost) {
             this.network.send({ type: 'teamChange', name: this.playerName, team: newTeam });
         } else if (this.network?.isHost) {
+            // Host kendi değişimini broadcasting lobbyState ile halleder, böylece herkes görür.
             this.network.broadcast({ type: 'lobbyState', players: this.getPlayerList() });
         }
     }
@@ -1859,15 +1875,15 @@ export class Game {
     }
 
     // Her frame'de çağrılır — remote player'ların pozisyonlarını lerp ile
-    // interpolate eder (20Hz snapshot aktarımı akıcı görülür).
+    // interpolate eder (30Hz snapshot aktarımı akıcı görülür).
     invokeRemoteSnapshots(dt) {
         if (!this.remotePlayers.size) return;
-        // 20Hz snapshot → 50ms'de bir hedef olur. Lerp hızı 0.85/sn*dt ~ %15 each frame snap.
+        // 30Hz snapshot → ~33ms'de bir hedef olur. Lerp hızı 0.85/sn*dt ~ %15 each frame snap.
         const speed = Math.min(1, dt * 18);
         for (const p of this.remotePlayers.values()) {
             if (!p.targetPos) continue;
             if (p.interpAlpha < 1) {
-                p.interpAlpha = Math.min(1, p.interpAlpha + dt * 20 * 1.05); // sweep hızı
+                p.interpAlpha = Math.min(1, p.interpAlpha + dt * 30 * 1.05); // sweep hızı (30Hz snapshot)
                 // Position teleport yerine predict: mesafe büyükse direkt atla
                 const dx = p.targetPos.x - p.position.x;
                 const dy = p.targetPos.y - p.position.y;
@@ -1924,10 +1940,8 @@ export class Game {
                 if (p) {
                     p.team = pl.team || p.team;
                     if (pl.charId) p.charId = pl.charId;
-                    // Avatar ilk defa geliyorsa, sprite'ı dataURL ile yeniden oluştur.
                     if (pl.avatar && p.avatar !== pl.avatar) {
                         p.avatar = pl.avatar;
-                        // Eski sprite materyal/map'i discard et, yeniden oluştur.
                         if (p.avatarSprite) {
                             p.group.remove(p.avatarSprite);
                             p.avatarSprite.material.map?.dispose();
@@ -1939,11 +1953,34 @@ export class Game {
                 }
             }
         }
-        // Remove players who left (present locally but absent from host's list).
         for (const peerId of [...this.remotePlayers.keys()]) {
             if (!seen.has(peerId)) this.removeRemotePlayer(peerId);
         }
         this.updateLobbyUI?.();
+    }
+    // Late-join: host oyun başlamışken yeni gelen oyuncu, aynı state'e
+    // (mode/arena/round) otomatik başlar; top ve diğer eventler render'a gelir.
+    handleLateJoin(data = {}) {
+        if (this.network?.isHost) return;
+        // Late-join: host PLAYING veya doğrudan round ortasındayken yeni gelen kişi
+        // TOP'A VURABILSIN. Pre-game countdown'u atlayıp PLAYING'e atlıyoruz.
+        // Welcome zaten scoreboard snapshot'ı ile geliyor, onu uygulayıp state'i PLAYING'e alırız.
+        if (typeof data.state === 'string' && data.state !== STATES.MENU && data.state !== STATES.LOBBY) {
+            // Mode ve map'i senkronize et (selectMode maxHp'i uygular)
+            if (data.mode) this.selectMode(data.mode);
+            if (data.map && this.arena.mapId !== data.map) this.arena.rebuild(data.map);
+            // Score snapshot — red/blue/round/time
+            if (typeof data.red === 'number') this.scoreboard.redScore = data.red;
+            if (typeof data.blue === 'number') this.scoreboard.blueScore = data.blue;
+            if (typeof data.round === 'number') this.scoreboard.roundNum = data.round;
+            if (typeof data.time === 'number') this.scoreboard.timeRemaining = data.time;
+            // Snapshot'taki players varsa, lobbyState aynı şekilde
+            if (data.snapshot?.players) this.applyLobbyState(data.snapshot);
+            else if (data.players) this.applyLobbyState(data);
+            // Direkt PLAYING: countdown yok. startGame(true) flag'i sayesinde pre-game atlıyor.
+            this._skipPreGame = true;
+            this.startGame(true);
+        }
     }
 
     startGameFromNetwork(data = {}) {
@@ -1986,7 +2023,7 @@ export class Game {
             } else {
                 const now = performance.now();
                 // Süre dolduysa yeni hedef snapshot'ı set et
-                if (now - this._ballLerpState.lastSnapshotAt >= 40) {
+                if (now - this._ballLerpState.lastSnapshotAt >= 33) {
                     this._ballLerpState.prev.x = this.ball.position.x;
                     this._ballLerpState.prev.y = this.ball.position.y;
                     this._ballLerpState.prev.z = this.ball.position.z;
@@ -2009,8 +2046,8 @@ export class Game {
             }
         }
     }
-    // Client tarafında top mesh pozisyonunu lerp ile her frame yumuşat. 20Hz snapshot ->
-    // 50ms aralıklarla top zıplamasın diye lerp uygulanır.
+    // Client tarafında top mesh pozisyonunu lerp ile her frame yumuşat. 30Hz snapshot ->
+    // ~33ms aralıklarla top zıplamasın diye lerp uygulanır.
     invokeBallLerp(dt) {
         if (!this._ballLerpState || this.network?.isHost) return;
         if (!this._ballTargetPos) {
@@ -2019,7 +2056,7 @@ export class Game {
         }
         // Son snapshot'tan beri 50ms geçtiyse snap'e doğru kapat, yoksa lerp et.
         const now = performance.now();
-        const t = (now - (this._ballLerpState.lastSnapshotAt || 0)) / 50;
+        const t = (now - (this._ballLerpState.lastSnapshotAt || 0)) / 33;
         const alpha = Math.min(1, Math.max(0, t));
         const p = this._ballLerpState.prev;
         const tg = this._ballTargetPos;

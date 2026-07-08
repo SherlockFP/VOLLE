@@ -91,11 +91,19 @@ export class Network {
             this.setupDataHandlers(conn);
             if (this.onPlayerJoin) this.onPlayerJoin(name, conn.peer);
 
-            // Send current game state
+            // Send current game state: lobby + map/mode/score/snapshot — late join
+            // için yeni gelen oyuncu tam state'te başlayabilsin.
             conn.send({
                 type: 'welcome',
                 players: this.game.getPlayerList(),
-                state: this.game.state
+                state: this.game.state,
+                mode: this.game.mode?.id,
+                map: this.game?.arena?.mapId,
+                round: this.game.scoreboard?.roundNum,
+                red: this.game.scoreboard?.redScore,
+                blue: this.game.scoreboard?.blueScore,
+                time: this.game.scoreboard?.timeRemaining,
+                snapshot: this.game.snapshotState?.() || {}
             });
         });
 
