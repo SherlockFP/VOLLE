@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Volle — 3D First-Person Dodgeball</title>
+    <meta name="description" content="A 3D first-person dodgeball game with TF2-style cartoonish graphics, P2P multiplayer, and skill-based gameplay">
+    <link rel="stylesheet" href="css/style.css">
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+        }
+    }
+    </script>
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+</head>
+<body>
+    <!-- 3D Canvas Container -->
+    <div id="game-container"></div>
+
+    <!-- Damage flash overlay -->
+    <div id="damage-flash"></div>
+
+    <!-- ===== MAIN MENU (Overwatch 2 style) ===== -->
+    <div id="main-menu" class="screen ow-screen">
+        <div class="ow-menu">
+            <!-- Top bar: profile · nav tabs · currency + settings -->
+            <header class="ow-topbar">
+                <div class="ow-profile">
+                    <div class="ow-avatar" id="ow-avatar">🏐</div>
+                    <div class="ow-profile-info">
+                        <input type="text" id="player-name-input" class="ow-name-input" value="Player" maxlength="16">
+                        <div class="ow-level">⭐ Level <span id="meta-level">1</span></div>
+                    </div>
+                </div>
+
+                <nav class="ow-tabs">
+                    <button id="btn-character" class="ow-tab">🦸 Heroes</button>
+                    <button id="btn-shop" class="ow-tab">🛒 Shop</button>
+                    <button id="btn-battlepass" class="ow-tab">🎟️ Battle Pass</button>
+                    <button id="btn-daily" class="ow-tab">📅 Challenges</button>
+                    <button id="btn-ranked" class="ow-tab">🏆 Career</button>
+                </nav>
+
+                <div class="ow-currency">
+                    <span class="ow-coin">🪙 <span id="meta-coins">0</span></span>
+                    <span class="ow-coin ow-pass">🎟️ <span id="meta-bp-tier">0</span></span>
+                    <button id="btn-settings" class="ow-gear" title="Settings">⚙</button>
+                </div>
+            </header>
+
+            <!-- Center splash -->
+            <div class="ow-splash">
+                <div class="ow-logo">🎯 VOLLE</div>
+                <div class="ow-mode-chip">Current Mode: <b>Quick Play — Solo vs Bots</b></div>
+            </div>
+
+            <!-- Bottom: big PLAY + secondary actions -->
+            <footer class="ow-bottom">
+                <div class="ow-secondary ow-secondary-left">
+                    <button id="btn-practice" class="ow-sbtn">🎯 Practice</button>
+                    <button id="btn-tutorial" class="ow-sbtn">📖 Tutorial</button>
+                    <button id="btn-avatar" class="ow-sbtn">🎨 Avatar</button>
+                </div>
+
+                <button id="btn-play-solo" class="ow-play">PLAY</button>
+
+                <div class="ow-secondary ow-secondary-right">
+                    <button id="btn-host-game" class="ow-sbtn">🌐 Host</button>
+                    <button id="btn-join-game" class="ow-sbtn">🔗 Join</button>
+                    <button id="btn-tournament" class="ow-sbtn">🥇 Tournament</button>
+                </div>
+            </footer>
+
+            <!-- Extra links (achievements, leaderboard) -->
+            <div class="ow-extralinks">
+                <button id="btn-achievements" class="ow-link">🏅 Achievements</button>
+                <button id="btn-leaderboard" class="ow-link">📊 Leaderboard</button>
+                <span class="ow-hint">WASD move · L-Click deflect · Q skill · Tab scores · Y chat</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== JOIN MENU ===== -->
+    <div id="join-menu" class="screen hidden">
+        <div class="panel">
+            <h1>🔗 Join Game</h1>
+            <h2>Enter Room Code</h2>
+
+            <input type="text" id="join-name-input" class="input" placeholder="Your name..." value="Player" maxlength="16">
+            <input type="text" id="join-code-input" class="input" placeholder="Paste room code here..." style="font-family: monospace; letter-spacing: 2px;">
+            <input type="password" id="join-pass-input" class="input" placeholder="Lobby password (if any)..." maxlength="32">
+
+            <button id="btn-join-connect" class="btn btn-primary">Connect</button>
+            <button id="btn-join-back" class="btn btn-secondary">← Back</button>
+        </div>
+    </div>
+
+    <!-- ===== CS:GO STYLE LOBBY ===== -->
+    <div id="lobby-screen" class="screen hidden">
+        <!-- Top bar -->
+        <div class="cs-topbar">
+            <div class="cs-roomcode">🏐 Room: <span id="room-code">LOCAL</span></div>
+            <div class="cs-top-info"><span id="cs-lobby-mode">Classic</span> — <span id="cs-lobby-map">Beach</span></div>
+            <button id="btn-lobby-back" class="cs-btn-back">← Leave</button>
+        </div>
+
+        <div class="cs-body">
+            <!-- RED TEAM -->
+            <div class="cs-team-col red">
+                <div class="cs-team-header red">🔴 RED</div>
+                <div class="cs-team-players" id="cs-team-red"></div>
+                <div class="cs-team-actions">
+                    <button id="btn-team-red" class="cs-btn-team red">Join Red</button>
+                    <button id="btn-add-bot-red" class="cs-btn-bot">+ Bot</button>
+                </div>
+            </div>
+
+            <!-- CENTER: Map/Mode/Settings -->
+            <div class="cs-center">
+                <!-- Map Selection Carousel -->
+                <div class="cs-section">
+                    <div class="cs-section-title">MAP</div>
+                    <div class="map-carousel">
+                        <button class="carousel-btn carousel-prev" id="carousel-prev">◀</button>
+                        <div class="carousel-card" id="carousel-card">
+                            <div class="carousel-gradient" id="carousel-gradient"></div>
+                            <div class="carousel-info">
+                                <div class="carousel-name" id="carousel-name">Beach Arena</div>
+                                <div class="carousel-meta">
+                                    <span class="carousel-weather" id="carousel-weather">☀️</span>
+                                    <span class="carousel-size" id="carousel-size">medium</span>
+                                </div>
+                            </div>
+                        </div>
+                        <button class="carousel-btn carousel-next" id="carousel-next">▶</button>
+                    </div>
+                    <div class="carousel-dots" id="carousel-dots"></div>
+                </div>
+
+                <!-- Mode select -->
+                <div class="cs-section">
+                    <div class="cs-section-title">MODE</div>
+                    <div class="cs-mode-row" id="mode-select">
+                        <button class="cs-mode-btn mode-btn selected" data-mode="classic">🏐 Classic</button>
+                        <button class="cs-mode-btn mode-btn" data-mode="speedball">⚡ Speed</button>
+                        <button class="cs-mode-btn mode-btn" data-mode="lowgrav">🌙 Low G</button>
+                        <button class="cs-mode-btn mode-btn" data-mode="instagib">💀 Insta</button>
+                        <button class="cs-mode-btn mode-btn" data-mode="tanky">🛡️ Tanky</button>
+                        <button class="cs-mode-btn mode-btn" data-mode="multiball">🏐🏐 Multi</button>
+                        <button class="cs-mode-btn mode-btn" data-mode="freeze">🧊 Freeze</button>
+                        <button class="cs-mode-btn mode-btn" data-mode="hotpotato">🥔 Potato</button>
+                    </div>
+                </div>
+
+                <!-- Settings button (opens unified modal) -->
+                <div class="cs-section cs-section-settings">
+                    <button id="btn-lobby-settings" class="cs-lobby-settings-btn">⚙ Settings</button>
+                </div>
+
+                <!-- Chat (always visible in lobby) -->
+                <div class="cs-section cs-section-chat">
+                    <div class="cs-section-title">CHAT</div>
+                    <div class="lobby-chat-log" id="lobby-chat-log"></div>
+                    <div class="lobby-chat-input-row">
+                        <input type="text" id="lobby-chat-input" maxlength="80" placeholder="Type a message…" autocomplete="off">
+                        <button id="lobby-chat-send" class="cs-btn-chat-send">➤</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- BLUE TEAM -->
+            <div class="cs-team-col blue">
+                <div class="cs-team-header blue">🔵 BLUE</div>
+                <div class="cs-team-players" id="cs-team-blue"></div>
+                <div class="cs-team-actions">
+                    <button id="btn-team-blue" class="cs-btn-team blue">Join Blue</button>
+                    <button id="btn-add-bot-blue" class="cs-btn-bot">+ Bot</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom actions bar -->
+        <div class="cs-bottom">
+            <div class="cs-bottom-left">
+                <button id="btn-remove-bot" class="cs-btn-action" title="Remove Bot">−🤖</button>
+                <button id="btn-random-map" class="cs-btn-action" title="Random Map">🎲</button>
+                <button id="btn-lobby-lock" class="cs-btn-action" title="Set lobby password (host)">🔓</button>
+            </div>
+            <button id="btn-start-game" class="cs-btn-start">▶ START GAME</button>
+            <div class="cs-bottom-right">
+                <span class="cs-bot-count" id="cs-bot-count">Bots: 4</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== UNIFIED SETTINGS MODAL (overlays main menu and lobby) ===== -->
+    <div id="unified-settings" class="settings-overlay hidden">
+        <div class="settings-modal">
+            <div class="settings-header">
+                <h2>⚙ Settings</h2>
+                <div class="settings-tabs">
+                    <button class="settings-tab selected" data-tab="0">🎮 Controls</button>
+                    <button class="settings-tab" data-tab="1">🖥️ Video</button>
+                    <button class="settings-tab" data-tab="2">🎯 Game</button>
+                </div>
+                <button id="btn-settings-close" class="settings-close-btn">✕</button>
+            </div>
+            <div class="settings-scroll">
+                <!-- Controls -->
+                <div class="settings-section">
+                    <h3>🎮 Controls</h3>
+                    <div class="settings-row">
+                        <label>Mouse Sensitivity</label>
+                        <input type="range" id="setting-sensitivity" min="1" max="10" value="2" step="0.5">
+                    </div>
+                    <div class="settings-row">
+                        <label>Volume</label>
+                        <input type="range" id="setting-volume" min="0" max="100" value="50">
+                    </div>
+                    <div class="settings-row">
+                        <label>Field of View (FOV)</label>
+                        <input type="range" id="setting-fov" min="60" max="110" value="75" step="5">
+                    </div>
+                    <div class="settings-row">
+                        <label>Crosshair Style</label>
+                        <select id="setting-crosshair">
+                            <option value="dot" selected>Dot</option>
+                            <option value="cross">Cross</option>
+                            <option value="circle">Circle</option>
+                        </select>
+                    </div>
+                    <div class="settings-row">
+                        <label>Crosshair Color</label>
+                        <input type="color" id="setting-crosshair-color" value="#00ff88">
+                    </div>
+                    <div class="settings-row">
+                        <label>Crosshair Size</label>
+                        <input type="range" id="setting-crosshair-size" min="6" max="30" value="12" step="1">
+                    </div>
+                    <div class="settings-row">
+                        <label>Crosshair Gap</label>
+                        <input type="range" id="setting-crosshair-gap" min="2" max="24" value="6" step="1">
+                    </div>
+                    <div class="settings-row">
+                        <label>Crosshair Thickness</label>
+                        <input type="range" id="setting-crosshair-thickness" min="1" max="6" value="2" step="1">
+                    </div>
+                    <div class="settings-row settings-row-toggle">
+                        <label>Crosshair Dot</label>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="setting-crosshair-dot" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                <!-- Display -->
+                <div class="settings-section">
+                    <h3>🖥️ Display</h3>
+                    <div class="settings-row"><label>VSync</label><select id="setting-vsync"><option value="off">Off</option><option value="on" selected>On</option></select></div>
+                    <div class="settings-row"><label>FPS Limit</label><select id="setting-fps-limit"><option value="0">Unlimited</option><option value="30">30</option><option value="60" selected>60</option><option value="120">120</option><option value="144">144</option><option value="240">240</option></select></div>
+                    <div class="settings-row"><label>Quality</label><select id="setting-quality"><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option></select></div>
+                    <div class="settings-row settings-row-toggle"><label>Portals</label><label class="toggle-switch"><input type="checkbox" id="setting-portals" checked><span class="toggle-slider"></span></label></div>
+                </div>
+                <!-- Gameplay -->
+                <div class="settings-section">
+                    <h3>🎯 Gameplay</h3>
+                    <div class="settings-row">
+                        <label>Bot Difficulty</label>
+                        <select id="setting-bot-difficulty">
+                            <option value="easy">Easy</option>
+                            <option value="medium" selected>Medium</option>
+                            <option value="hard">Hard</option>
+                        </select>
+                    </div>
+                    <div class="settings-row">
+                        <label>Match Time</label>
+                        <select id="setting-match-time">
+                            <option value="180">3 min</option>
+                            <option value="300" selected>5 min</option>
+                            <option value="600">10 min</option>
+                        </select>
+                    </div>
+                    <div class="settings-row">
+                        <label>Max Rounds</label>
+                        <select id="setting-max-rounds">
+                            <option value="5">5</option>
+                            <option value="10">10</option>
+                            <option value="16" selected>16</option>
+                            <option value="20">20</option>
+                        </select>
+                    </div>
+                    <div class="settings-row">
+                        <label>Damage Multiplier</label>
+                        <select id="setting-damage-mult">
+                            <option value="0.5">0.5x</option>
+                            <option value="1" selected>1x</option>
+                            <option value="1.5">1.5x</option>
+                            <option value="2">2x</option>
+                            <option value="3">3x</option>
+                        </select>
+                    </div>
+                    <div class="settings-row settings-row-toggle">
+                        <label>Enable Portals <span class="settings-hint">(on portal maps)</span></label>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="setting-portals" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="settings-row settings-row-toggle">
+                        <label>Auto Team Balance</label>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="setting-team-balance" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== CHARACTER SELECT ===== -->
+    <div id="character-screen" class="screen hidden">
+        <div class="panel wide-panel">
+            <h1>🦸 Character & Loadout</h1>
+            <h2>Pick your fighter, skill, and runes</h2>
+
+            <div class="char-grid" id="char-grid"></div>
+
+            <h3>Active Skill (Q)</h3>
+            <div class="skill-grid" id="skill-grid"></div>
+
+            <h3>Runes (4 slots)</h3>
+            <div class="rune-grid" id="rune-grid"></div>
+
+            <div class="btn-row">
+                <button id="btn-char-save" class="btn btn-primary">Save Loadout</button>
+                <button id="btn-char-back" class="btn btn-secondary">← Back</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== SHOP ===== -->
+    <div id="shop-screen" class="screen hidden">
+        <div class="panel wide-panel">
+            <h1>🛒 Shop</h1>
+            <div class="meta-stats"><span class="meta-stat">🪙 <span id="shop-coins">0</span></span></div>
+            <div class="shop-tabs" id="shop-tabs">
+                <button class="shop-tab selected" data-tab="chars">Characters</button>
+                <button class="shop-tab" data-tab="balls">Balls</button>
+                <button class="shop-tab" data-tab="skills">Skills</button>
+            </div>
+            <div class="shop-grid" id="shop-grid"></div>
+            <button id="btn-shop-back" class="btn btn-secondary" style="margin-top: 20px;">← Back</button>
+        </div>
+    </div>
+
+    <!-- ===== BATTLEPASS ===== -->
+    <div id="battlepass-screen" class="screen hidden">
+        <div class="panel wide-panel">
+            <h1>🎟️ Battle Pass</h1>
+            <div class="meta-stats">
+                <span class="meta-stat">Tier <span id="bp-tier">0</span>/50</span>
+                <span class="meta-stat">XP <span id="bp-xp">0</span>/100</span>
+            </div>
+            <div class="bp-track" id="bp-track"></div>
+            <button id="btn-bp-back" class="btn btn-secondary" style="margin-top: 20px;">← Back</button>
+        </div>
+    </div>
+
+    <!-- ===== AVATAR PAINTER ===== -->
+    <div id="avatar-screen" class="screen hidden">
+        <div class="panel wide-panel">
+            <h1>🎨 Avatar Painter</h1>
+            <h2>Draw your avatar (16×16 pixels)</h2>
+            <div class="avatar-layout">
+                <canvas id="avatar-canvas"></canvas>
+                <div class="avatar-tools">
+                    <div class="palette" id="avatar-palette"></div>
+                    <div class="btn-row">
+                        <button class="btn btn-secondary btn-small" data-tool="brush">✏️ Brush</button>
+                        <button class="btn btn-secondary btn-small" data-tool="fill">🪣 Fill</button>
+                        <button class="btn btn-secondary btn-small" data-tool="erase">🧽 Erase</button>
+                    </div>
+                    <button id="btn-avatar-clear" class="btn btn-secondary btn-small">Clear</button>
+                </div>
+            </div>
+            <button id="btn-avatar-back" class="btn btn-secondary" style="margin-top: 20px;">← Back</button>
+        </div>
+    </div>
+
+    <!-- ===== ACHIEVEMENTS ===== -->
+    <div id="achievements-screen" class="screen hidden">
+        <div class="panel wide-panel">
+            <h1>🏅 Achievements</h1>
+            <h2>Unlock rewards by playing</h2>
+            <div class="achievement-grid" id="achievement-grid"></div>
+            <button id="btn-achievements-back" class="btn btn-secondary" style="margin-top: 20px;">← Back</button>
+        </div>
+    </div>
+
+    <!-- ===== DAILY CHALLENGES ===== -->
+    <div id="daily-screen" class="screen hidden">
+        <div class="panel wide-panel">
+            <h1>📅 Daily Challenges</h1>
+            <h2>Resets every 24h — claim your rewards!</h2>
+            <div class="daily-grid" id="daily-grid"></div>
+            <button id="btn-daily-back" class="btn btn-secondary" style="margin-top: 20px;">← Back</button>
+        </div>
+    </div>
+
+    <!-- ===== RANKED PROFILE ===== -->
+    <div id="ranked-screen" class="screen hidden">
+        <div class="panel wide-panel">
+            <h1>🏆 Ranked Profile</h1>
+            <h2>Climb the ranks — espor mode</h2>
+            <div id="ranked-info"></div>
+            <button id="btn-ranked-back" class="btn btn-secondary" style="margin-top: 20px;">← Back</button>
+        </div>
+    </div>
+
+    <!-- ===== LEADERBOARD ===== -->
+    <div id="leaderboard-screen" class="screen hidden">
+        <div class="panel wide-panel">
+            <h1>📊 Leaderboard</h1>
+            <h2>Top players by ELO</h2>
+            <table class="scoreboard-table" id="leaderboard-table">
+                <thead><tr><th>#</th><th>Player</th><th>ELO</th><th>Rank</th></tr></thead>
+                <tbody id="leaderboard-body"></tbody>
+            </table>
+            <button id="btn-leaderboard-back" class="btn btn-secondary" style="margin-top: 20px;">← Back</button>
+        </div>
+    </div>
+
+    <!-- ===== TOURNAMENT ===== -->
+    <div id="tournament-screen" class="screen hidden">
+        <div class="panel wide-panel">
+            <h1>🥇 Tournament</h1>
+            <h2>Single-elimination bracket</h2>
+            <div id="tournament-setup">
+                <p>Add players (comma-separated):</p>
+                <input type="text" id="tournament-players" class="input" placeholder="Player1, Player2, Bot-1, Bot-2..." value="You, Bot-Alpha, Bot-Beta, Bot-Gamma, Bot-Delta, Bot-Epsilon, Bot-Zeta, Bot-Eta">
+                <button id="btn-tournament-start" class="btn btn-primary">Start Tournament</button>
+            </div>
+            <div id="tournament-bracket"></div>
+            <button id="btn-tournament-back" class="btn btn-secondary" style="margin-top: 20px;">← Back</button>
+        </div>
+    </div>
+
+    <!-- ===== TUTORIAL ===== -->
+    <div id="tutorial-screen" class="screen hidden">
+        <div class="panel wide-panel">
+            <h1>📖 Tutorial</h1>
+            <h2>Learn the basics</h2>
+            <div id="tutorial-steps"></div>
+            <button id="btn-tutorial-start" class="btn btn-primary">Start Tutorial</button>
+            <button id="btn-tutorial-back" class="btn btn-secondary">← Back</button>
+        </div>
+    </div>
+
+    <!-- ===== HUD ===== -->
+    <div id="hud" class="hidden">
+        <!-- Crosshair -->
+        <div class="crosshair"></div>
+
+        <!-- Top Score Panel -->
+        <div class="hud-top">
+            <div class="hud-score-panel">
+                <div class="hud-team-score red" id="hud-red-score">0</div>
+                <div class="hud-timer" id="hud-timer">5:00</div>
+                <div class="hud-team-score blue" id="hud-blue-score">0</div>
+            </div>
+        </div>
+
+        <!-- Ball speed — clean top-right text -->
+        <div id="hud-speed" class="hud-speed-text"></div>
+
+        <!-- Player vitals (bottom-left): HP + Stamina -->
+        <div id="vitals">
+            <div class="vital-row">
+                <span class="vital-label">❤</span>
+                <div class="vital-track"><div class="vital-fill hp" id="hp-fill"></div>
+                    <div class="vital-fill shield" id="shield-fill"></div></div>
+                <span class="vital-num" id="hp-num">100</span>
+            </div>
+            <div class="vital-row">
+                <span class="vital-label">⚡</span>
+                <div class="vital-track"><div class="vital-fill stamina" id="stamina-fill"></div></div>
+            </div>
+            <!-- Skill cooldown bar -->
+            <div class="vital-row skill-row">
+                <span class="vital-label" id="skill-icon">Q</span>
+                <div class="vital-track"><div class="vital-fill skill" id="skill-fill"></div></div>
+                <span class="vital-num" id="skill-cd">0s</span>
+            </div>
+        </div>
+
+        <!-- Kill feed (top-right) -->
+        <div id="kill-feed"></div>
+
+        <!-- Damage meter (top-left, below HUD) -->
+        <div id="damage-meter">
+            <div class="dm-row">DMG Dealt: <span id="dm-dealt">0</span></div>
+            <div class="dm-row">DMG Taken: <span id="dm-taken">0</span></div>
+        </div>
+
+        <!-- Minimap (bottom-right) -->
+        <div id="minimap-wrap">
+            <canvas id="minimap-canvas" width="160" height="120"></canvas>
+        </div>
+
+        <!-- Controls hint -->
+        <div id="controls-hint">WASD move · Space jump · L-Click deflect · flick ↑ lob / ↓ spike · Y chat · M teams · Tab scores · B ball skin</div>
+    </div>
+
+    <!-- Chat log + input (global, outside HUD so available in lobby too) -->
+    <div id="chat-log"></div>
+    <input type="text" id="chat-input" class="hidden" maxlength="80" placeholder="Say something… (Enter)" autocomplete="off">
+
+    <!-- Damage / hit flash vignette -->
+    <div id="hit-flash"></div>
+    <!-- Incoming indicator — red edge glow when ball is coming at you -->
+    <div id="incoming-indicator" class="hidden"></div>
+
+    <!-- Celebration weapon HUD -->
+    <div id="celeb-weapon-hud" style="display:none"></div>
+
+    <!-- Voice speaker indicator -->
+    <div id="speaker-indicator"></div>
+
+    <!-- ===== COUNTDOWN ===== -->
+    <div id="countdown" class="hidden"></div>
+
+    <!-- ===== GAME MESSAGE ===== -->
+    <div id="game-message" class="hidden"></div>
+
+    <!-- ===== COMBO DISPLAY ===== -->
+    <div id="combo-display" class="hidden"></div>
+
+    <!-- ===== TF2 STYLE KILLCAM ===== -->
+    <div id="killcam" class="hidden">
+        <div id="killcam-text">YOU FAILED!</div>
+        <div id="killcam-subtitle"></div>
+    </div>
+
+    <!-- ===== TEAM SWITCH OVERLAY (M) ===== -->
+    <div id="team-overlay" class="hidden">
+        <div class="team-popup">
+            <h3 style="text-align:center;margin-bottom:12px;color:var(--accent);">TEAMS</h3>
+            <div class="team-popup-grid">
+                <div class="team-col red">
+                    <div class="team-col-header">🔴 RED</div>
+                    <ul class="team-list" id="team-list-red"></ul>
+                </div>
+                <div class="team-col blue">
+                    <div class="team-col-header">🔵 BLUE</div>
+                    <ul class="team-list" id="team-list-blue"></ul>
+                </div>
+            </div>
+            <div class="team-popup-actions">
+                <label class="team-toggle">
+                    <input type="checkbox" id="team-balance-toggle" checked>
+                    <span>Auto-balance (teams must be equal)</span>
+                </label>
+                <div class="team-popup-btns">
+                    <button id="btn-team-popup-red" class="btn btn-red btn-small">Join Red</button>
+                    <button id="btn-team-popup-blue" class="btn btn-blue btn-small">Join Blue</button>
+                    <button id="btn-team-popup-spectate" class="btn btn-small">👁 Spectate</button>
+                </div>
+            </div>
+            <p style="text-align:center;color:#888;font-size:12px;margin-top:8px;">Click a player to switch · ESC to close · M to toggle</p>
+        </div>
+    </div>
+
+    <!-- ===== SCOREBOARD OVERLAY (Tab) ===== -->
+    <div id="scoreboard-overlay" class="hidden">
+        <h3 style="text-align: center; margin-bottom: 12px; color: var(--accent);">SCOREBOARD</h3>
+        <table class="scoreboard-table">
+            <thead>
+                <tr>
+                    <th>Player</th>
+                    <th>Team</th>
+                    <th>Rank</th>
+                    <th>Lv</th>
+                    <th>Score</th>
+                    <th>Deflects</th>
+                    <th>Hits</th>
+                </tr>
+            </thead>
+            <tbody id="scoreboard-body"></tbody>
+        </table>
+    </div>
+
+    <!-- ===== GAME OVER ===== -->
+    <div id="game-over-screen" class="screen hidden">
+        <div class="panel">
+            <h1 id="winner-text">RED Wins!</h1>
+            <h2>Final Scores</h2>
+
+            <table class="scoreboard-table">
+                <thead>
+                    <tr>
+                        <th>Player</th>
+                        <th>Team</th>
+                        <th>Rank</th>
+                        <th>Lv</th>
+                        <th>Score</th>
+                        <th>Deflects</th>
+                        <th>Hits</th>
+                    </tr>
+                </thead>
+                <tbody id="scoreboard-body-final"></tbody>
+            </table>
+
+            <button id="btn-play-again" class="btn btn-primary" style="margin-top: 20px;">🔄 Play Again</button>
+            <button id="btn-main-menu" class="btn btn-secondary">← Main Menu</button>
+        </div>
+    </div>
+
+    <!-- ===== PAUSE MENU (ESC) ===== -->
+    <div id="pause-menu" class="hidden">
+        <div class="pause-backdrop"></div>
+        <div class="pause-panel">
+            <h2>⏸ PAUSED</h2>
+            <div class="pause-buttons">
+                <button id="pause-resume" class="btn btn-primary">▶ Continue</button>
+                <button id="pause-settings" class="btn btn-secondary">⚙ Settings</button>
+                <button id="pause-exit" class="btn btn-secondary" style="color:var(--red)">← Exit to Menu</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== POST-GAME XP SCREEN ===== -->
+    <div id="post-game-screen" class="hidden">
+        <div class="pg-overlay">
+            <div class="pg-panel">
+                <h2 class="pg-title" id="pg-result"></h2>
+                <div class="pg-winner" id="pg-winner"></div>
+                <div class="pg-level" id="pg-level"></div>
+                <div class="pg-xp-bar-wrap">
+                    <div class="pg-xp-bar-fill" id="pg-xp-fill" style="width:0%"></div>
+                    <span class="pg-xp-text" id="pg-xp-text"></span>
+                </div>
+                <div class="pg-stats" id="pg-stats"></div>
+                <div class="pg-chat">
+                    <div class="pg-chat-log" id="pg-chat-log"></div>
+                    <div class="pg-chat-row">
+                        <input type="text" id="pg-chat-input" maxlength="80" placeholder="Type after-match chat..." autocomplete="off">
+                        <button id="pg-chat-send" class="btn btn-secondary">Send</button>
+                    </div>
+                </div>
+                <div class="pg-buttons">
+                    <button id="pg-play-again" class="btn btn-primary">🔄 Play Again</button>
+                    <button id="pg-lobby" class="btn btn-secondary">🏠 Lobby</button>
+                    <button id="pg-main-menu" class="btn btn-secondary">← Main Menu</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>
