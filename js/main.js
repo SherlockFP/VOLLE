@@ -50,7 +50,6 @@ class App {
         this.network = new Network(null);
         this.game = new Game(this.renderer, this.player, this.arena, this.audio, this.ui, this.network);
         this.network.game = this.game;
-        this.setupNetworkHandlers();
         this.player.audio = this.audio;
 
         // Loadout uygula
