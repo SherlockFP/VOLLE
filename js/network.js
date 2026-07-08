@@ -159,6 +159,9 @@ export class Network {
             case 'roundStart':
                 this.game.startRoundFromNetwork(data);
                 break;
+            case 'roundEnd':
+                this.game.applyRoundEnd?.(data);
+                break;
             case 'welcome':
                 if (this.onGameState) this.onGameState(data);
                 break;
@@ -179,8 +182,9 @@ export class Network {
                 }
                 break;
             case 'teamChange':
-                // Client applies a host-authoritative team move.
-                if (!this.isHost && this.onTeamChange) this.onTeamChange(data.name, data.team);
+                // Hem istemci hem host kendi callback'lerini çalıştırır.
+                // Client sadece uygular, host ise uygulayıp yeni lobbyState'i broadcast eder.
+                if (this.onTeamChange) this.onTeamChange(data.name, data.team);
                 break;
             case 'lobbyClosed':
                 // Lobby kapandı — ana menüye dön.
@@ -297,9 +301,14 @@ export class Network {
         });
     }
 
-    broadcastRoundStart() {
+    broadcastRoundStart(snapshot = {}) {
         if (!this.isHost) return;
-        this.broadcast({ type: 'roundStart' });
+        this.broadcast({ type: 'roundStart', ...snapshot });
+    }
+
+    broadcastRoundEnd(snapshot = {}) {
+        if (!this.isHost) return;
+        this.broadcast({ type: 'roundEnd', ...snapshot });
     }
 
     getConnectionCount() {

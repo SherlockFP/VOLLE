@@ -119,6 +119,9 @@ export class Ball {
         this.bounceCount = 0;
         this.active = true;
         this.state = 'falling';
+        // Ponytail fix: client tarafında update() çağrılmıyor; spawn sonrası mesh'i
+        // hemen pozisyona eşitle ki ilk frame'de görünür olsun.
+        this.mesh.position.copy(this.position);
         this.mesh.visible = true;
         this.targetPlayer = null;
         this.heldPlayer = null;

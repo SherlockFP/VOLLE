@@ -1395,7 +1395,11 @@ class App {
             this._exitToMenu(reason === 'password' ? '❌ Wrong lobby password' : '❌ Kicked from lobby');
         };
         this.network.onTeamChange = (pName, team) => {
+            // Host tarafında: client kendi takımını değiştirmek istedi, host authoritative
+            // olarak uygulayıp lobbyState ile broadcast eder.
             this.game.switchPlayerTeam?.(pName, team);
+            // Host ise güncel listeyi tekrar yayınla ki diğer clientlar da görsün.
+            if (this.network.isHost) this.broadcastLobbyState();
         };
         // Live lobby updates + initial welcome — host broadcasts a fresh
         // player list whenever someone joins or leaves.
@@ -1524,6 +1528,11 @@ class App {
                 this.broadcastLobbyState();
                 this._registerLobby(code, `Lobby`, this.network.connections.size, this.arena.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
             };
+            // Host: client kendi takımını değiştirmek isterse uygula, sonra broadcast et.
+            this.network.onTeamChange = (pName, team) => {
+                this.game.switchPlayerTeam?.(pName, team);
+                this.broadcastLobbyState();
+            };
             this.network.onGameState = (data) => {
                 if (data.type === 'welcome') this.game.applyLobbyState(data);
             };
@@ -1631,6 +1640,7 @@ class App {
         // remote player sprite'ları lerp ile akıcı hareket etsin — rakip oyuncuyu sürekli gör.
         if (this.network?.connected) {
             this.game.invokeRemoteSnapshots(dt);
+            this.game.invokeBallLerp?.(dt);
         }
 
         if (this.game.state === STATES.PLAYING || this.game.state === STATES.ROUND_END || this.game.state === STATES.COUNTDOWN || this.game.state === STATES.CELEBRATION) {
@@ -1722,7 +1732,9 @@ class App {
                     x: this.game.ball.position.x, y: this.game.ball.position.y, z: this.game.ball.position.z,
                     vx: this.game.ball.velocity.x, vy: this.game.ball.velocity.y, vz: this.game.ball.velocity.z,
                     speed: this.game.ball.currentSpeed, active: this.game.ball.active,
-                    state: this.game.ball.state, targetId: this.game.ball.targetPlayer?.peerId || null
+                    state: this.game.ball.state,
+                    targetId: this.game.ball.targetPlayer?.peerId || null,
+                    targetName: this.game.ball.targetPlayer?.name || null
                 });
                 this.network.broadcast({
                     type: 'scoreUpdate',

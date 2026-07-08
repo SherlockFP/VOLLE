@@ -443,6 +443,10 @@ export class Game {
             }, 700);
         }
         this.ui.showMessage(`Round ${this.scoreboard.roundNum}`, 1500);
+        // P2P: round start state'i tüm client'lara bildiriyoruz, böylece istemciler eşzamanlı başlar.
+        if (this.network?.isHost) {
+            this.network.broadcastRoundStart(this.snapshotState());
+        }
     }
 
     // Rebuild the arena as a different map (called from the lobby).
@@ -591,21 +595,24 @@ export class Game {
         const all = this.getAllTargets();
         const redAlive = all.filter(p => p.alive && p.team === 'red');
         const blueAlive = all.filter(p => p.alive && p.team === 'blue');
+        let winner = null;
         if (redAlive.length === 0 && blueAlive.length > 0) {
             this.scoreboard.blueScore++;
             this.ui.showMessage?.('🔵 BLUE TEAM WINS THE ROUND!', 2000);
-            return true;
-        }
-        if (blueAlive.length === 0 && redAlive.length > 0) {
+            winner = 'blue';
+        } else if (blueAlive.length === 0 && redAlive.length > 0) {
             this.scoreboard.redScore++;
             this.ui.showMessage?.('🔴 RED TEAM WINS THE ROUND!', 2000);
-            return true;
-        }
-        if (redAlive.length === 0 && blueAlive.length === 0) {
+            winner = 'red';
+        } else if (redAlive.length === 0 && blueAlive.length === 0) {
             this.ui.showMessage?.('⚔️ DOUBLE KO — DRAW!', 2000);
-            return true;
+            winner = 'draw';
+        } else return false;
+        // P2P: round bitti → client'a bildir ve sonraki round süresini paylaş.
+        if (this.network?.isHost) {
+            this.network.broadcastRoundEnd({ winner, red: this.scoreboard.redScore, blue: this.scoreboard.blueScore, round: this.scoreboard.roundNum });
         }
-        return false;
+        return true;
     }
 
     getClosestEnemy(fromPos, team) {
@@ -1400,6 +1407,12 @@ export class Game {
         this.scoreboard.addPlayer(this.playerName, newTeam, { isYou: true });
         this.ui.showMessage(`Switched to ${newTeam.toUpperCase()} team`, 1500);
         if (this.state === STATES.LOBBY) this.updateLobbyUI();
+        // P2P: bağlıysak → host'a teamChange bildir; host ise yeni liste yayınla.
+        if (this.network?.connected && !this.network.isHost) {
+            this.network.send({ type: 'teamChange', name: this.playerName, team: newTeam });
+        } else if (this.network?.isHost) {
+            this.network.broadcast({ type: 'lobbyState', players: this.getPlayerList() });
+        }
     }
 
     // --- POWER-UPS ---
@@ -1965,7 +1978,22 @@ export class Game {
     }
     updateBallFromNetwork(data) {
         if (this.network && !this.network.isHost) {
-            this.ball.position.set(data.x, data.y, data.z);
+            // Snapshot data: 20Hz gelen pozisyonu hedef olarak kaydet, render tarafı lerp ile yumuşatacak.
+            if (!this._ballLerpState) {
+                this._ballLerpState = { prev: { x: data.x, y: data.y, z: data.z }, lastSnapshotAt: performance.now() };
+                this.ball.position.set(data.x, data.y, data.z);
+                this.ball.mesh.position.copy(this.ball.position);
+            } else {
+                const now = performance.now();
+                // Süre dolduysa yeni hedef snapshot'ı set et
+                if (now - this._ballLerpState.lastSnapshotAt >= 40) {
+                    this._ballLerpState.prev.x = this.ball.position.x;
+                    this._ballLerpState.prev.y = this.ball.position.y;
+                    this._ballLerpState.prev.z = this.ball.position.z;
+                    this._ballLerpState.lastSnapshotAt = now;
+                    this._ballTargetPos = { x: data.x, y: data.y, z: data.z };
+                }
+            }
             this.ball.velocity.set(data.vx, data.vy, data.vz);
             this.ball.currentSpeed = data.speed;
             this.ball.active = data.active;
@@ -1974,8 +2002,31 @@ export class Game {
             if (data.targetId) {
                 const t = this.remotePlayers.get(data.targetId);
                 if (t) this.ball.setTarget(t);
+                else if (data.targetName === this.playerName) this.ball.setTarget(this.player);
+            }
+            if (data.targetName === this.playerName && !this.ball.targetPlayer) {
+                this.ball.setTarget(this.player);
             }
         }
+    }
+    // Client tarafında top mesh pozisyonunu lerp ile her frame yumuşat. 20Hz snapshot ->
+    // 50ms aralıklarla top zıplamasın diye lerp uygulanır.
+    invokeBallLerp(dt) {
+        if (!this._ballLerpState || this.network?.isHost) return;
+        if (!this._ballTargetPos) {
+            this.ball.mesh.position.copy(this.ball.position);
+            return;
+        }
+        // Son snapshot'tan beri 50ms geçtiyse snap'e doğru kapat, yoksa lerp et.
+        const now = performance.now();
+        const t = (now - (this._ballLerpState.lastSnapshotAt || 0)) / 50;
+        const alpha = Math.min(1, Math.max(0, t));
+        const p = this._ballLerpState.prev;
+        const tg = this._ballTargetPos;
+        this.ball.position.x = p.x + (tg.x - p.x) * alpha;
+        this.ball.position.y = p.y + (tg.y - p.y) * alpha;
+        this.ball.position.z = p.z + (tg.z - p.z) * alpha;
+        this.ball.mesh.position.copy(this.ball.position);
     }
     updateScoresFromNetwork(data) {
         if (this.network && !this.network.isHost) {
@@ -1984,6 +2035,15 @@ export class Game {
             this.scoreboard.timeRemaining = data.time;
             this.scoreboard.roundNum = data.round;
         }
+    }
+    // Client tarafında roundEnd sadece UI/IPC amaçlı: round bitti mesajını göster ve round timer'i başlat.
+    applyRoundEnd(data) {
+        if (this.network?.isHost) return;
+        this.setState(STATES.ROUND_END);
+        this.roundRestartTimer = this.roundRestartDelay;
+        if (data?.winner === 'red') this.ui.showMessage?.('🔴 RED TEAM WINS THE ROUND!', 2000);
+        else if (data?.winner === 'blue') this.ui.showMessage?.('🔵 BLUE TEAM WINS THE ROUND!', 2000);
+        else if (data?.winner === 'draw') this.ui.showMessage?.('⚔️ DOUBLE KO — DRAW!', 2000);
     }
     startRoundFromNetwork() { this.startRound(); }
     setBotDifficulty(d) { this.botDifficulty = d; }
