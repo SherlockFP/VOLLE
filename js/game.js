@@ -1829,15 +1829,27 @@ export class Game {
 
     applyLobbyState(data) {
         if (!data.players) return;
+        // Authoritative reconcile: the host's list is the source of truth.
+        // Add/refresh present peers, then drop any remote player no longer in it.
+        const myId = this.network?.peer?.id;
+        const seen = new Set();
         for (const pl of data.players) {
             if (pl.name === this.playerName) {
                 this.player.setTeam(pl.team);
                 continue;
             }
-            if (pl.peerId) {
+            if (pl.peerId && pl.peerId !== myId) {
+                seen.add(pl.peerId);
                 const p = this.addRemotePlayer(pl.peerId, pl.name, pl.team);
-                if (p && pl.charId) p.charId = pl.charId;
+                if (p) {
+                    p.team = pl.team || p.team;
+                    if (pl.charId) p.charId = pl.charId;
+                }
             }
+        }
+        // Remove players who left (present locally but absent from host's list).
+        for (const peerId of [...this.remotePlayers.keys()]) {
+            if (!seen.has(peerId)) this.removeRemotePlayer(peerId);
         }
         this.updateLobbyUI?.();
     }

@@ -18,6 +18,7 @@ export class Network {
         this.lobbyPassword = '';   // host-set; '' = open lobby
         this.onKicked = null;      // callback() when host kicks us
         this.onTeamChange = null;  // callback(name, team) applied on clients
+        this.onHostLeft = null;    // callback() when the host connection drops / lobby closes
     }
 
     async initPeer() {
@@ -65,6 +66,11 @@ export class Network {
                 this.setupDataHandlers(conn);
                 conn.send({ type: 'join', name: playerName, password });
                 resolve();
+            });
+            // Host went away (closed game / left lobby) → kick us back to menu.
+            conn.on('close', () => {
+                this.connections.delete(roomCode);
+                if (!this.isHost && this.onHostLeft) this.onHostLeft();
             });
             conn.on('error', reject);
         });
@@ -162,6 +168,18 @@ export class Network {
                 // Client applies a host-authoritative team move.
                 if (!this.isHost && this.onTeamChange) this.onTeamChange(data.name, data.team);
                 break;
+            case 'lobbyClosed':
+                // Lobby kapandı — ana menüye dön.
+                if (!this.isHost && this.onHostLeft) this.onHostLeft();
+                this.disconnect();
+                break;
+            case 'lobbyClosed':
+                // Host closed the lobby (left / back to menu). Bounce clients out.
+                if (!this.isHost) {
+                    if (this.onHostLeft) this.onHostLeft();
+                    this.disconnect();
+                }
+                break;
         }
     }
 
@@ -177,6 +195,17 @@ export class Network {
     }
 
     setLobbyPassword(pw) { this.lobbyPassword = pw || ''; }
+
+    // Host: tell everyone the lobby is closing, then tear down after the
+    // messages flush so clients get bounced to the menu instead of hanging.
+    closeLobby() {
+        if (this.isHost) {
+            try { this.broadcast({ type: 'lobbyClosed' }); } catch (e) {}
+            setTimeout(() => this.disconnect(), 200);
+        } else {
+            this.disconnect();
+        }
+    }
 
     broadcast(data) {
         this.connections.forEach(conn => {
@@ -253,7 +282,20 @@ export class Network {
         this.connections.forEach(conn => conn.close());
         this.connections.clear();
         if (this.peer) this.peer.destroy();
+        this.peer = null;
         this.connected = false;
+        this.isHost = false;
+        this.isParty = false;
+        this.readyPlayers.clear();
+        // Notify the guest UI when the host connection drops abruptly.
+        // Skipped during closeLobby() because that path already fired onHostLeft.
+    }
+
+    // Host: lobby kapanıyor — client'lara bildir, sonra bağlantıları kes.
+    closeLobby() {
+        if (!this.isHost) { this.disconnect(); return; }
+        this.broadcast({ type: 'lobbyClosed' });
+        this.disconnect();
     }
 
     // --- Party system ---

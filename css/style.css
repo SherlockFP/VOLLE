@@ -51,6 +51,63 @@ canvas { display: block; }
     background: radial-gradient(ellipse at center, rgba(10,10,30,0.92) 0%, rgba(5,5,15,0.98) 100%);
 }
 
+/* ==== MAIN MENU — Dodgeball Stadium Theme ====
+   Red/Blue takım sahası: kırmızı soldan, mavi sağdan, ortada glow.
+   Üstte yumuşak animasyonlu ışık şeridi, altta saha çizgileri. */
+#main-menu {
+    background:
+        radial-gradient(circle at 20% 30%, rgba(230,57,70,0.55) 0%, transparent 45%),
+        radial-gradient(circle at 80% 30%, rgba(69,123,202,0.55) 0%, transparent 45%),
+        radial-gradient(ellipse at center bottom, rgba(255,200,80,0.18) 0%, transparent 60%),
+        linear-gradient(180deg, #1a1040 0%, #0a0a18 60%, #0a0a12 100%);
+    overflow: hidden;
+    position: relative;
+}
+#main-menu::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+        repeating-linear-gradient(
+            90deg,
+            rgba(255,255,255,0.04) 0 1px,
+            transparent 1px 80px
+        ),
+        repeating-linear-gradient(
+            0deg,
+            rgba(255,255,255,0.03) 0 1px,
+            transparent 1px 60px
+        );
+    pointer-events: none;
+    mix-blend-mode: screen;
+    opacity: 0.6;
+}
+#main-menu::after {
+    content: "";
+    position: absolute;
+    top: 0; left: -50%;
+    width: 200%; height: 8px;
+    background: linear-gradient(90deg,
+        transparent 0%, #ff5577 30%, #ffdd55 50%, #55aaff 70%, transparent 100%);
+    opacity: 0.7;
+    filter: blur(6px);
+    animation: menuGlow 6s ease-in-out infinite alternate;
+    pointer-events: none;
+}
+@keyframes menuGlow {
+    from { transform: translateX(-10%); }
+    to   { transform: translateX(10%); }
+}
+#main-menu .ow-menu { background: rgba(10,10,30,0.55); backdrop-filter: blur(14px); border-radius: 18px; padding: 18px 22px; border: 1px solid rgba(255,255,255,0.06); }
+#main-menu .ow-logo {
+    background: linear-gradient(135deg, #ee5555 0%, #ffaa33 35%, #ffdd55 55%, #5fa8ff 80%, #3355cc 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    text-shadow: 0 0 30px rgba(255,136,0,0.35);
+    filter: drop-shadow(0 4px 18px rgba(255,100,40,0.25));
+}
+
 .panel {
     background: var(--panel);
     backdrop-filter: blur(20px);

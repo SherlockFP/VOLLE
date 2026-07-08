@@ -374,17 +374,7 @@ class App {
                 const name = document.getElementById('join-name-input')?.value || 'Player';
                 const password = document.getElementById('join-pass-input')?.value || '';
                 if (!code) return;
-                // If host kicks us or rejects our password, bounce back to the menu.
-                this.network.onKicked = (reason) => {
-                    this.ui.showScreen('mainMenu');
-                    this.ui.showMessage?.(reason === 'password' ? '❌ Wrong lobby password' : '❌ Kicked from lobby', 2500);
-                };
-                this.network.onTeamChange = (pName, team) => {
-                    this.game.switchPlayerTeam?.(pName, team);
-                };
-                this.network.onGameState = (data) => {
-                    if (data.type === 'welcome') this.game.applyLobbyState(data);
-                };
+                this._setupClientNetHandlers();
                 await this.network.joinGame(code, name, password);
                 this.game.playerName = name;
                 this.ui.showScreen('lobby');
@@ -631,14 +621,21 @@ class App {
         });
 
         bind('btn-lobby-back', () => {
-            clearInterval(this._lobbyKeepAlive);
-            if (this._lobbyCode) this._unregisterLobby(this._lobbyCode);
-            this._lobbyCode = null;
-            this.game.bots.forEach(b => b.remove());
-            this.game.bots = [];
-            this.game.botCounter = 0;
-            this.game.scoreboard.reset();
-            this.ui.showScreen('mainMenu');
+            this.leaveLobby();
+        });
+
+        // Tab close / refresh while in a lobby → free the lobby immediately
+        // instead of waiting for the 30s server TTL, and drop the P2P peer.
+        window.addEventListener('beforeunload', () => {
+            if (this.network?.isHost && this._lobbyCode) {
+                try {
+                    // sendBeacon only supports POST → server'un POST /api/lobbies/:code
+                    // handler'ı lobby'yi tek seferde siler.
+                    const url = `/api/lobbies/${encodeURIComponent(this._lobbyCode)}`;
+                    navigator.sendBeacon(url, '');
+                } catch (e) {}
+            }
+            try { this.network?.disconnect?.(); } catch (e) {}
         });
 
         // Game over
@@ -1389,6 +1386,55 @@ class App {
         this.network.broadcast({ type: 'lobbyState', players });
     }
 
+    // Wire the client-side network callbacks (used by every join path).
+    _setupClientNetHandlers() {
+        this.network.onKicked = (reason) => {
+            this._exitToMenu(reason === 'password' ? '❌ Wrong lobby password' : '❌ Kicked from lobby');
+        };
+        this.network.onTeamChange = (pName, team) => {
+            this.game.switchPlayerTeam?.(pName, team);
+        };
+        // Live lobby updates + initial welcome — host broadcasts a fresh
+        // player list whenever someone joins or leaves.
+        this.network.onGameState = (data) => {
+            if (data?.type === 'lobbyState' || data?.type === 'welcome') {
+                this.game.applyLobbyState(data);
+            }
+        };
+        // Host closed the lobby or dropped → bounce us back to the menu.
+        this.network.onHostLeft = () => {
+            this._exitToMenu('🚪 Host left — lobby closed');
+        };
+    }
+
+    // Leave the lobby cleanly. Host closes it for everyone; clients just drop.
+    leaveLobby() {
+        clearInterval(this._lobbyKeepAlive);
+        if (this.network?.isHost && this._lobbyCode) this._unregisterLobby(this._lobbyCode);
+        this._lobbyCode = null;
+        // Tell peers + tear down the P2P connection.
+        this.network?.closeLobby?.();
+        this._cleanupLobbyEntities();
+        this.ui.showScreen('mainMenu');
+    }
+
+    // Shared cleanup when returning to the menu from a lobby (host or client).
+    _exitToMenu(message) {
+        clearInterval(this._lobbyKeepAlive);
+        this._lobbyCode = null;
+        this._cleanupLobbyEntities();
+        this.ui.showScreen('mainMenu');
+        if (message) this.ui.showMessage?.(message, 2500);
+    }
+
+    _cleanupLobbyEntities() {
+        this.game.bots.forEach(b => b.remove());
+        this.game.bots = [];
+        this.game.botCounter = 0;
+        this.game.remotePlayers.forEach((p, id) => this.game.removeRemotePlayer(id));
+        this.game.scoreboard.reset();
+    }
+
     // --- Lobby Browser API helpers ---
     _lobbyApi(path, opts = {}) {
         return fetch(path, opts).then(r => r.json()).catch(() => ({}));
@@ -1439,16 +1485,7 @@ class App {
     async _quickJoin(code) {
         const name = document.getElementById('player-name-input')?.value || 'Player';
         try {
-            this.network.onKicked = (reason) => {
-                this.ui.showScreen('mainMenu');
-                this.ui.showMessage?.(reason === 'password' ? '❌ Wrong lobby password' : '❌ Kicked from lobby', 2500);
-            };
-            this.network.onTeamChange = (pName, team) => {
-                this.game.switchPlayerTeam?.(pName, team);
-            };
-            this.network.onGameState = (data) => {
-                if (data.type === 'welcome') this.game.applyLobbyState(data);
-            };
+            this._setupClientNetHandlers();
             await this.network.joinGame(code, name);
             this.game.playerName = name;
             this.ui.showScreen('lobby');

@@ -72,7 +72,7 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, { ok: true });
         return;
     }
-    if (urlPath.startsWith('/api/lobbies/') && req.method === 'DELETE') {
+    if (urlPath.startsWith('/api/lobbies/') && (req.method === 'DELETE' || req.method === 'POST')) {
         const code = decodeURIComponent(urlPath.split('/').pop());
         lobbies.delete(code);
         sendJson(res, { ok: true });
@@ -81,6 +81,13 @@ const server = http.createServer(async (req, res) => {
     if (urlPath === '/api/lobbies' && req.method === 'OPTIONS') {
         res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET,POST,DELETE', 'Access-Control-Allow-Headers': 'Content-Type' });
         res.end();
+        return;
+    }
+    // sendBeacon can only POST — used by the client's beforeunload to close a lobby.
+    if (urlPath === '/api/lobbies/close' && req.method === 'POST') {
+        const b = await readBody(req);
+        if (b.code) lobbies.delete(b.code);
+        sendJson(res, { ok: true });
         return;
     }
 
