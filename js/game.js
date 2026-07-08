@@ -1,4 +1,4 @@
-﻿// game.js — Full game: chat, team switch, death fx, minimap, aim deflection,
+// game.js — Full game: chat, team switch, death fx, minimap, aim deflection,
 // damage ramp, skill system, map ban, damage meter, portal handling.
 import * as THREE from 'three';
 import { Ball } from './ball.js';
@@ -331,7 +331,8 @@ export class Game {
             team: this.player.team,
             isBot: false,
             charId: this.player.charId,
-            isYou: true
+            isYou: true,
+            peerId: this.network?.peer?.id
         }];
         this.bots.forEach(b => players.push({
             name: b.name,
@@ -339,6 +340,14 @@ export class Game {
             isBot: true,
             charId: b.charId,
             isYou: false
+        }));
+        this.remotePlayers.forEach((p, peerId) => players.push({
+            name: p.name,
+            team: p.team,
+            isBot: false,
+            charId: p.charId || 'rally',
+            isYou: false,
+            peerId
         }));
         // Lobby leader = host, or solo (not connected to anyone) → you lead.
         const isHost = !this.network || !this.network.connected || this.network.isHost;
@@ -352,6 +361,16 @@ export class Game {
         this.scoreboard.players.clear();
         this.scoreboard.addPlayer(this.playerName, this.player.team, { isYou: true });
         this.bots.forEach(b => this.scoreboard.addPlayer(b.name, b.team, { isBot: true }));
+        this.remotePlayers.forEach((p, peerId) => {
+            this.scoreboard.addPlayer(p.name, p.team, { peerId });
+            const spawn = this.arena.getPlayerSpawn(p.team);
+            p.position.copy(spawn);
+            p.group.position.copy(p.position).add(new THREE.Vector3(0, -1.2, 0));
+            p.group.rotation.y = p.team === 'red' ? 0 : Math.PI;
+            p.alive = true;
+            p.group.visible = true;
+            p.hp = p.maxHp;
+        });
         this.rallyCount = 0;
         this.killStreak = 0;
         this._spectateTarget = null;
@@ -398,6 +417,17 @@ export class Game {
         // ponytail fix: sadece ölü oyuncuları revive et — HP'si düşenler resetlenmesin
         if (!this.player.alive) this.player.revive();
         this.bots.forEach(b => { if (!b.alive) { b.alive = true; b.respawn(); } });
+        this.remotePlayers.forEach(p => {
+            if (!p.alive) {
+                p.alive = true;
+                p.hp = p.maxHp;
+                const spawn = this.arena.getPlayerSpawn(p.team);
+                p.position.copy(spawn);
+                p.group.position.copy(p.position).add(new THREE.Vector3(0, -1.2, 0));
+                p.group.rotation.y = p.team === 'red' ? 0 : Math.PI;
+                p.group.visible = true;
+            }
+        });
 
         // First target
         const targets = this.getAllTargets();
@@ -1744,9 +1774,15 @@ export class Game {
     }
 
     getPlayerList() {
-        const list = [{ name: this.playerName, team: this.player.team, isBot: false }];
-        this.bots.forEach(b => list.push({ name: b.name, team: b.team, isBot: true }));
-        this.remotePlayers.forEach((p, peerId) => list.push({ name: p.name, team: p.team, isBot: false, peerId }));
+        const list = [{
+            name: this.playerName,
+            team: this.player.team,
+            isBot: false,
+            peerId: this.network?.peer?.id,
+            charId: this.player.charId
+        }];
+        this.bots.forEach(b => list.push({ name: b.name, team: b.team, isBot: true, charId: b.charId }));
+        this.remotePlayers.forEach((p, peerId) => list.push({ name: p.name, team: p.team, isBot: false, peerId, charId: p.charId || 'rally' }));
         return list;
     }
 
@@ -1761,6 +1797,7 @@ export class Game {
         p.alive = data.alive !== false;
         p.group.visible = p.alive;
         p.hp = data.hp ?? p.hp;
+        if (data.charId) p.charId = data.charId;
         if (data.ax !== undefined) p.aimDir.set(data.ax, data.ay, data.az).normalize();
 
         if (this.network?.isHost) {
@@ -1797,7 +1834,10 @@ export class Game {
                 this.player.setTeam(pl.team);
                 continue;
             }
-            if (pl.peerId) this.addRemotePlayer(pl.peerId, pl.name, pl.team);
+            if (pl.peerId) {
+                const p = this.addRemotePlayer(pl.peerId, pl.name, pl.team);
+                if (p && pl.charId) p.charId = pl.charId;
+            }
         }
         this.updateLobbyUI?.();
     }
@@ -1805,6 +1845,9 @@ export class Game {
     startGameFromNetwork(data = {}) {
         if (this.network?.isHost) return;
         if (data.mode) this.selectMode(data.mode);
+        if (data.map && this.arena.mapId !== data.map) {
+            this.arena.rebuild(data.map);
+        }
         this.startGame();
     }
 

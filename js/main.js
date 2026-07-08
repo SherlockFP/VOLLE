@@ -1645,7 +1645,8 @@ class App {
                 const p = this.player;
                 this.network.sendPosition(p.position, p.euler.y, {
                     name: this.game.playerName, team: p.team, alive: p.alive,
-                    hp: p.hp, ax: p.getAimDirection().x, ay: p.getAimDirection().y, az: p.getAimDirection().z
+                    hp: p.hp, ax: p.getAimDirection().x, ay: p.getAimDirection().y, az: p.getAimDirection().z,
+                    charId: p.charId
                 });
             }
         }
