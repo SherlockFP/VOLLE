@@ -32,6 +32,7 @@ export class Game {
         this.ball = new Ball(renderer, arena);
         this.scoreboard = new Scoreboard();
         this.bots = [];
+        this.remotePlayers = new Map();
 
         this.roundRestartDelay = 4.0;
         this.roundRestartTimer = 0;
@@ -230,10 +231,13 @@ export class Game {
             return;
         }
         const bot = this.bots.find(b => b.name === name);
-        if (!bot) return;
-        bot.setTeam(team);
+        const remote = [...this.remotePlayers.values()].find(p => p.name === name);
+        const target = bot || remote;
+        if (!target) return;
+        target.setTeam?.(team);
+        if (remote && !remote.setTeam) target.team = team;
         this.scoreboard.removePlayer(name);
-        this.scoreboard.addPlayer(name, team, { isBot: true });
+        this.scoreboard.addPlayer(name, team, { isBot: !!bot, peerId: remote?.peerId });
         if (this.state === STATES.LOBBY) this.updateLobbyUI();
     }
 
@@ -446,7 +450,66 @@ export class Game {
         this.emotes.show(entity, emoteId);
     }
 
-    getAllTargets() { return [this.player, ...this.bots]; }
+    getAllTargets() { return [this.player, ...this.bots, ...this.remotePlayers.values()]; }
+
+    addRemotePlayer(peerId, name = 'Player', team) {
+        if (!peerId || peerId === this.network?.peer?.id) return null;
+        let p = this.remotePlayers.get(peerId);
+        if (p) return p;
+        const counts = { red: 0, blue: 0 };
+        this.getPlayerList().forEach(pl => { counts[pl.team] = (counts[pl.team] || 0) + 1; });
+        team = team || (counts.red <= counts.blue ? 'red' : 'blue');
+        p = this._createRemotePlayer(peerId, name, team);
+        this.remotePlayers.set(peerId, p);
+        this.scoreboard.addPlayer(name, team, { peerId });
+        this.updateLobbyUI?.();
+        return p;
+    }
+
+    removeRemotePlayer(peerId) {
+        const p = this.remotePlayers.get(peerId);
+        if (!p) return;
+        this.renderer.scene.remove(p.group);
+        this.scoreboard.removePlayer(p.name);
+        this.remotePlayers.delete(peerId);
+        this.updateLobbyUI?.();
+    }
+
+    _createRemotePlayer(peerId, name, team) {
+        const group = new THREE.Group();
+        const color = team === 'red' ? 0xcc3333 : 0x3355cc;
+        const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.45, 1.2, 4, 8), new THREE.MeshBasicMaterial({ color }));
+        body.position.y = 0.8;
+        group.add(body);
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.32, 12, 12), new THREE.MeshBasicMaterial({ color: 0xffd0aa }));
+        head.position.y = 1.75;
+        group.add(head);
+        this.renderer.scene.add(group);
+        const p = {
+            peerId, name, team, group,
+            position: this.arena.getPlayerSpawn(team).clone(),
+            velocity: new THREE.Vector3(), radius: 0.7, alive: true,
+            hp: 100, maxHp: 100, shield: 0, consecutiveMisses: 0,
+            runeBonuses: {}, deflectPower: 1, passive: 'none', totalDamageDealt: 0,
+            attacking: false, attackTimer: 0, aimDir: new THREE.Vector3(0, 0, -1),
+            getPosition() { return this.position.clone(); },
+            getAimDirection() { return this.aimDir.clone(); },
+            isAttacking() { return this.attacking; },
+            recordDamageDealt(amount) { this.totalDamageDealt += amount; },
+            onMissDeflect() { this.consecutiveMisses++; },
+            onSuccessfulDeflect() { this.consecutiveMisses = 0; },
+            drawHpBar() {},
+            takeDamage(amount) { this.hp = Math.max(0, this.hp - amount); return this.hp <= 0; },
+            revive() { this.alive = true; this.hp = this.maxHp; this.consecutiveMisses = 0; this.group.visible = true; },
+            setTeam(nextTeam) {
+                this.team = nextTeam;
+                const c = nextTeam === 'red' ? 0xcc3333 : 0x3355cc;
+                body.material.color.setHex(c);
+            }
+        };
+        group.position.copy(p.position).add(new THREE.Vector3(0, -1.2, 0));
+        return p;
+    }
 
     getEnemyTargets(team, self = null) {
         if (this._ffa) return this.getAllTargets().filter(p => p !== self && p.alive);
@@ -510,6 +573,17 @@ export class Game {
     // --- MAIN LOOP ---
 
     update(dt) {
+        // P2P guard: bağlı ama host olmayan client'lar authoritative simülasyonu
+        // ÇALIŞTIRMAZ. Top fiziği, hit detection, round logic sadece host'ta.
+        // Client sadece render + remote interpolation + HUD yapar.
+        const isClient = this.network && this.network.connected && !this.network.isHost;
+        if (isClient && this.state === STATES.PLAYING) {
+            this.updateDeathParticles(dt);
+            this.updateChatBubbles(dt);
+            this.arena.update(performance.now() / 1000);
+            return;
+        }
+
         // Juice: hit-stop/slow-mo/screen shake uygula, effective dt döndür
         const effectiveDt = this.juice.update(dt);
         if (effectiveDt === 0 && this.state !== STATES.CELEBRATION) return; // hit-stop: dünya donar (ama celebration'da değil)
@@ -933,6 +1007,15 @@ export class Game {
     }
 
     handleHit(hitTarget) {
+        // P2P: host her hit'i client'lara yayınla (victim peerId ile)
+        if (this.network?.isHost) {
+            const victimPeerId = hitTarget.peerId || null;
+            const victimName = hitTarget === this.player ? this.playerName : hitTarget.name;
+            this.network.broadcast({
+                type: 'playerHit', victimPeerId, victimName,
+                hp: hitTarget.hp, alive: hitTarget.alive !== false
+            });
+        }
         const name = hitTarget === this.player ? this.playerName : hitTarget.name;
         const scorerName = this.lastDeflector
             ? (this.lastDeflector === this.player ? this.playerName : this.lastDeflector.name)
@@ -1658,11 +1741,89 @@ export class Game {
     getPlayerList() {
         const list = [{ name: this.playerName, team: this.player.team, isBot: false }];
         this.bots.forEach(b => list.push({ name: b.name, team: b.team, isBot: true }));
+        this.remotePlayers.forEach((p, peerId) => list.push({ name: p.name, team: p.team, isBot: false, peerId }));
         return list;
     }
 
-    updateRemotePlayer() {}
-    remoteAttack() {}
+    updateRemotePlayer(peerId, data) {
+        if (peerId === this.network?.peer?.id) return;
+        const p = this.addRemotePlayer(peerId, data.name || `P-${peerId.slice(0, 4)}`, data.team);
+        if (!p) return;
+        p.position.set(data.x, data.y, data.z);
+        p.group.position.copy(p.position).add(new THREE.Vector3(0, -1.2, 0));
+        p.group.rotation.y = data.ry || 0;
+        p.team = data.team || p.team;
+        p.alive = data.alive !== false;
+        p.group.visible = p.alive;
+        p.hp = data.hp ?? p.hp;
+        if (data.ax !== undefined) p.aimDir.set(data.ax, data.ay, data.az).normalize();
+
+        if (this.network?.isHost) {
+            this.network.broadcast({ ...data, type: 'position', peerId });
+        }
+    }
+
+    remoteAttack(peerId, data = {}) {
+        if (!this.network?.isHost) return;
+        const p = this.remotePlayers.get(peerId);
+        if (!p || !p.alive || !this.ball.active) return;
+        p.aimDir.set(data.ax ?? p.aimDir.x, data.ay ?? p.aimDir.y, data.az ?? p.aimDir.z).normalize();
+        p.attacking = true;
+        p.attackTimer = 0.3;
+        if (this.ball.isInAttackRange(p.getPosition())) {
+            const target = this.getAimedEnemy(p.getPosition(), p.aimDir, p.team);
+            const result = this.ball.deflectWithAim(p.getPosition(), p.aimDir, target, data.flick || { vertical: 0, horizontal: 0, power: 0 });
+            if (target) this.ball.setTarget(target);
+            this.lastDeflector = p;
+            this.lastDeflectorTeam = p.team;
+            this.ball.lastShotBy = p.name;
+            this.rallyCount++;
+            p.onSuccessfulDeflect();
+            this.scoreboard.recordDeflection(p.name);
+            this.audio.playDeflect(result.shot);
+        }
+        setTimeout(() => { if (p) p.attacking = false; }, 300);
+    }
+
+    applyLobbyState(data) {
+        if (!data.players) return;
+        for (const pl of data.players) {
+            if (pl.name === this.playerName) {
+                this.player.setTeam(pl.team);
+                continue;
+            }
+            if (pl.peerId) this.addRemotePlayer(pl.peerId, pl.name, pl.team);
+        }
+        this.updateLobbyUI?.();
+    }
+
+    startGameFromNetwork(data = {}) {
+        if (this.network?.isHost) return;
+        if (data.mode) this.selectMode(data.mode);
+        this.startGame();
+    }
+
+    applyPlayerHit(data = {}) {
+        const target = data.victimPeerId ? this.remotePlayers.get(data.victimPeerId) : (data.victimName === this.playerName ? this.player : null);
+        if (!target) return;
+        target.hp = data.hp ?? target.hp;
+        target.alive = data.alive !== false;
+        if (!target.alive) {
+            if (target === this.player) this.player.die();
+            else if (target.group) target.group.visible = false;
+        }
+    }
+
+    snapshotState() {
+        return {
+            players: this.getPlayerList(),
+            state: this.state,
+            mode: this.mode?.id,
+            map: this.arena?.mapId,
+            maxRounds: this.scoreboard.maxRounds,
+            timeLimit: this.scoreboard.timeLimit
+        };
+    }
     updateBallFromNetwork(data) {
         if (this.network && !this.network.isHost) {
             this.ball.position.set(data.x, data.y, data.z);
@@ -1670,6 +1831,11 @@ export class Game {
             this.ball.currentSpeed = data.speed;
             this.ball.active = data.active;
             this.ball.mesh.visible = data.active;
+            this.ball.state = data.state || this.ball.state;
+            if (data.targetId) {
+                const t = this.remotePlayers.get(data.targetId);
+                if (t) this.ball.setTarget(t);
+            }
         }
     }
     updateScoresFromNetwork(data) {

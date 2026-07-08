@@ -212,6 +212,7 @@ export class Player {
         this.attackCooldown = this.attackDuration;
         this.canAttack = false;
         this.swingAnim = 1.0;
+        this._p2pAttackQueued = true; // main.js P2P attack intent yollar
         return true;
     }
 

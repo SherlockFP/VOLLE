@@ -109,13 +109,26 @@ export class Network {
                 if (this.onPlayerJoin) this.onPlayerJoin(data.name, peerId);
                 break;
             case 'position':
-                this.game.updateRemotePlayer(peerId, data);
+                this.game.updateRemotePlayer(data.peerId || peerId, data);
                 break;
             case 'attack':
-                this.game.remoteAttack(peerId);
+                this.game.remoteAttack(peerId, data);
+                break;
+            case 'chat':
+                this.game.addChatMessage(data.name, data.text);
+                if (this.isHost) this.broadcast(data);
                 break;
             case 'gameState':
                 if (this.onGameState) this.onGameState(data);
+                break;
+            case 'lobbyState':
+                this.game.applyLobbyState(data);
+                break;
+            case 'gameStart':
+                this.game.startGameFromNetwork(data);
+                break;
+            case 'playerHit':
+                this.game.applyPlayerHit(data);
                 break;
             case 'ballState':
                 this.game.updateBallFromNetwork(data);
@@ -185,18 +198,19 @@ export class Network {
     }
 
     // Sync player pos at 20hz
-    sendPosition(position, rotation) {
+    sendPosition(position, rotation, extra = {}) {
         this.send({
             type: 'position',
             x: position.x,
             y: position.y,
             z: position.z,
-            ry: rotation
+            ry: rotation,
+            ...extra
         });
     }
 
-    sendAttack() {
-        this.send({ type: 'attack' });
+    sendAttack(extra = {}) {
+        this.send({ type: 'attack', ...extra });
     }
 
     broadcastBallState(ball) {

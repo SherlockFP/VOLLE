@@ -54,7 +54,7 @@
             <!-- Center splash -->
             <div class="ow-splash">
                 <div class="ow-logo">🎯 VOLLE</div>
-                <div class="ow-mode-chip">Current Mode: <b>Quick Play — Solo vs Bots</b></div>
+                <div class="ow-mode-chip">Current Mode: <b>Quick Play — Create or Join a Lobby</b></div>
             </div>
 
             <!-- Bottom: big PLAY + secondary actions -->
@@ -79,6 +79,33 @@
                 <button id="btn-achievements" class="ow-link">🏅 Achievements</button>
                 <button id="btn-leaderboard" class="ow-link">📊 Leaderboard</button>
                 <span class="ow-hint">WASD move · L-Click deflect · Q skill · Tab scores · Y chat</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== MULTIPLAYER MENU (Create / Join + Lobby Browser) ===== -->
+    <div id="multiplayer-menu" class="screen hidden">
+        <div class="mp-layout">
+            <!-- LEFT: Actions -->
+            <div class="mp-left">
+                <h1 class="mp-title">🌐 Multiplayer</h1>
+                <p class="mp-subtitle">Play with friends — P2P</p>
+                <button id="btn-mp-create" class="btn btn-primary mp-btn">🖥️ Create Lobby</button>
+                <p class="mp-hint">You host the room. Share the code with friends.</p>
+                <button id="btn-mp-join" class="btn btn-secondary mp-btn">🔗 Join by Code</button>
+                <p class="mp-hint">Enter a friend's room code to connect.</p>
+                <button id="btn-mp-solo" class="btn btn-secondary mp-btn">🤖 Solo vs Bots</button>
+                <button id="btn-mp-back" class="btn btn-secondary mp-btn">← Back to Menu</button>
+            </div>
+            <!-- RIGHT: Lobby Browser -->
+            <div class="mp-right">
+                <div class="mp-lobby-header">
+                    <h2>🖥️ Open Lobbies</h2>
+                    <button id="btn-mp-refresh" class="btn btn-small" title="Refresh">↻</button>
+                </div>
+                <div class="mp-lobby-list" id="mp-lobby-list">
+                    <div class="mp-lobby-empty">Loading...</div>
+                </div>
             </div>
         </div>
     </div>

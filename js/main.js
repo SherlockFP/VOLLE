@@ -25,6 +25,8 @@ class App {
         this.chatOpen = false;
         this.carouselIndex = 0;
         this.clock = new THREE.Clock();
+        this.netSyncTimer = 0;
+        this.netBroadcastTimer = 0;
         this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.2, 200);
         this.store = Store;
         this.store.load();
@@ -48,6 +50,7 @@ class App {
         this.network = new Network(null);
         this.game = new Game(this.renderer, this.player, this.arena, this.audio, this.ui, this.network);
         this.network.game = this.game;
+        this.setupNetworkHandlers();
         this.player.audio = this.audio;
 
         // Loadout uygula
@@ -326,27 +329,35 @@ class App {
         };
 
         bind('btn-play-solo', () => {
+            // PLAY → multiplayer seçim ekranı (create / join / solo)
+            this.ui.showScreen('multiplayerMenu');
+            this._refreshLobbyList();
+            this._mpRefreshTimer = setInterval(() => this._refreshLobbyList(), 5000);
+        });
+
+        // Multiplayer menü butonları
+        bind('btn-mp-create', () => {
+            clearInterval(this._mpRefreshTimer);
+            this._doHostGame();
+        });
+        bind('btn-mp-join', () => {
+            clearInterval(this._mpRefreshTimer);
+            this.ui.showScreen('joinMenu');
+        });
+        bind('btn-mp-solo', () => {
+            clearInterval(this._mpRefreshTimer);
             this.game.startSolo();
             this.ui.showScreen('lobby');
         });
-
-        bind('btn-host-game', async () => {
-            try {
-                const name = document.getElementById('player-name-input')?.value || 'Host';
-                this.game.playerName = name;
-                const code = await this.network.hostGame(name);
-                if (this._localLobbyPassword) this.network.setLobbyPassword(this._localLobbyPassword);
-                this.game.startSolo();
-                this.ui.setRoomCode(code);
-                this.ui.showScreen('lobby');
-                this.network.onPlayerJoin = (pName, peerId) => {
-                    this.ui.showMessage(`${pName} joined!`);
-                    this.game.updateLobbyUI();
-                };
-            } catch (e) {
-                alert('Failed to create lobby: ' + e.message);
-            }
+        bind('btn-mp-back', () => {
+            clearInterval(this._mpRefreshTimer);
+            this.ui.showScreen('mainMenu');
         });
+        bind('btn-mp-refresh', () => {
+            this._refreshLobbyList();
+        });
+
+        bind('btn-host-game', async () => { this._doHostGame(); });
 
         bind('btn-join-game', () => {
             this.ui.showScreen('joinMenu');
@@ -365,6 +376,9 @@ class App {
                 };
                 this.network.onTeamChange = (pName, team) => {
                     this.game.switchPlayerTeam?.(pName, team);
+                };
+                this.network.onGameState = (data) => {
+                    if (data.type === 'welcome') this.game.applyLobbyState(data);
                 };
                 await this.network.joinGame(code, name, password);
                 this.game.playerName = name;
@@ -561,9 +575,16 @@ class App {
         this.ui.onToggleSpectate = () => this.toggleSpectate();
 
         bind('btn-start-game', () => {
+            if (this.network.connected && !this.isLobbyHost()) {
+                this.ui.showMessage?.('Only host can start', 1500);
+                return;
+            }
             this.audio.init();
             this.player.lock();
             this.game.startGame();
+            if (this.network.connected && this.network.isHost) {
+                this.network.broadcast({ type: 'gameStart', ...this.game.snapshotState() });
+            }
             // Replay kaydı başlat
             Replay.startRecording({
                 map: this.arena.mapId,
@@ -574,14 +595,17 @@ class App {
 
         bind('btn-add-bot-red', () => {
             this.game.addBot('red');
+            this.broadcastLobbyState();
         });
 
         bind('btn-add-bot-blue', () => {
             this.game.addBot('blue');
+            this.broadcastLobbyState();
         });
 
         bind('btn-remove-bot', () => {
             this.game.removeBot();
+            this.broadcastLobbyState();
         });
 
         bind('btn-team-red', () => {
@@ -599,6 +623,9 @@ class App {
         });
 
         bind('btn-lobby-back', () => {
+            clearInterval(this._lobbyKeepAlive);
+            if (this._lobbyCode) this._unregisterLobby(this._lobbyCode);
+            this._lobbyCode = null;
             this.game.bots.forEach(b => b.remove());
             this.game.bots = [];
             this.game.botCounter = 0;
@@ -1348,6 +1375,122 @@ class App {
         this.game.updateLobbyUI?.();
     }
 
+    broadcastLobbyState() {
+        if (!(this.network?.isHost)) return;
+        const players = this.game.getPlayerList();
+        this.network.broadcast({ type: 'lobbyState', players });
+    }
+
+    // --- Lobby Browser API helpers ---
+    _lobbyApi(path, opts = {}) {
+        return fetch(path, opts).then(r => r.json()).catch(() => ({}));
+    }
+
+    async _registerLobby(code, name, players, map, mode) {
+        await this._lobbyApi('/api/lobbies', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code, name, hostName: this.game.playerName, players, map, mode })
+        });
+    }
+
+    async _unregisterLobby(code) {
+        await this._lobbyApi(`/api/lobbies/${encodeURIComponent(code)}`, { method: 'DELETE' });
+    }
+
+    async _refreshLobbyList() {
+        const list = await this._lobbyApi('/api/lobbies', { method: 'GET' });
+        const container = document.getElementById('mp-lobby-list');
+        if (!container) return;
+        if (!Array.isArray(list) || list.length === 0) {
+            container.innerHTML = '<div class="mp-lobby-empty">No open lobbies found. Create one or refresh.</div>';
+            return;
+        }
+        container.innerHTML = list.map(l => `
+            <div class="mp-lobby-card" data-code="${this._esc(l.code)}">
+                <div class="lobby-icon">🏐</div>
+                <div class="lobby-info">
+                    <div class="lobby-name">${this._esc(l.name || 'Lobby')}</div>
+                    <div class="lobby-meta">${this._esc(l.hostName)} · ${this._esc(l.map)} · ${this._esc(l.mode)}</div>
+                </div>
+                <div class="lobby-players">👤 ${l.players || 1}</div>
+                <button class="btn btn-primary btn-join btn-small">Join</button>
+            </div>
+        `).join('');
+        // Quick join click
+        container.querySelectorAll('.mp-lobby-card').forEach(card => {
+            card.querySelector('.btn-join').addEventListener('click', (e) => {
+                e.stopPropagation();
+                this._quickJoin(card.dataset.code);
+            });
+        });
+    }
+
+    _esc(s) { return String(s).replace(/[<>&"']/g, m => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[m])); }
+
+    async _quickJoin(code) {
+        const name = document.getElementById('player-name-input')?.value || 'Player';
+        try {
+            this.network.onKicked = (reason) => {
+                this.ui.showScreen('mainMenu');
+                this.ui.showMessage?.(reason === 'password' ? '❌ Wrong lobby password' : '❌ Kicked from lobby', 2500);
+            };
+            this.network.onTeamChange = (pName, team) => {
+                this.game.switchPlayerTeam?.(pName, team);
+            };
+            this.network.onGameState = (data) => {
+                if (data.type === 'welcome') this.game.applyLobbyState(data);
+            };
+            await this.network.joinGame(code, name);
+            this.game.playerName = name;
+            this.ui.showScreen('lobby');
+            this.ui.showMessage?.('🔗 Joined lobby!', 2000);
+        } catch (e) {
+            alert('Failed to join: ' + e.message);
+        }
+    }
+
+    // Host: sunucu kur (P2P oda aç)
+    async _doHostGame() {
+        try {
+            const name = document.getElementById('player-name-input')?.value || 'Host';
+            this.game.playerName = name;
+            const code = await this.network.hostGame(name);
+            if (this._localLobbyPassword) this.network.setLobbyPassword(this._localLobbyPassword);
+            this.game.startSolo();
+            this.ui.setRoomCode(code);
+            this.ui.showScreen('lobby');
+            this.network.onPlayerJoin = (pName, peerId) => {
+                this.game.addRemotePlayer(peerId, pName);
+                this.ui.showMessage(`${pName} joined!`);
+                this.game.updateLobbyUI();
+                this.broadcastLobbyState();
+                this._registerLobby(code, `Lobby`, this.network.connections.size + 1, this.arena.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
+            };
+            this.network.onPlayerLeave = (peerId) => {
+                this.game.removeRemotePlayer(peerId);
+                this.ui.showMessage?.('A player left');
+                this.game.updateLobbyUI();
+                this.broadcastLobbyState();
+                this._registerLobby(code, `Lobby`, this.network.connections.size, this.arena.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
+            };
+            this.network.onGameState = (data) => {
+                if (data.type === 'welcome') this.game.applyLobbyState(data);
+            };
+            this._registerLobby(code, `Lobby`, 1, this.arena.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
+            this.ui.showMessage?.(`🏠 Lobby created! Code: ${code}`, 3000);
+            // Auto-re-register every 12s to keep lobby alive
+            this._lobbyKeepAlive = setInterval(() => {
+                if (this.network.connected && this.network.isHost) {
+                    this._registerLobby(code, `Lobby`, this.network.connections.size + 1, this.arena?.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
+                }
+            }, 12000);
+            this._lobbyCode = code;
+        } catch (e) {
+            alert('Failed to create lobby: ' + e.message);
+        }
+    }
+
     // Open/close the M team menu. Releases pointer lock while open so you can
     // click players, re-locks on close (unless spectating).
     toggleTeamPopup() {
@@ -1481,6 +1624,51 @@ class App {
             if (this.game.rallyCount !== this._lastRally) {
                 Replay.record({ type: 'deflect', rally: this.game.rallyCount });
                 this._lastRally = this.game.rallyCount;
+            }
+        }
+
+        // P2P: lokal oyuncu pozisyonunu + attack intent'i host'a / peer'lara yolla
+        this._p2pTimer = (this._p2pTimer || 0) - dt;
+        if (this._p2pTimer <= 0 && this.network?.connected) {
+            this._p2pTimer = 0.05; // 20Hz
+            if (this.game.state === STATES.PLAYING) {
+                const p = this.player;
+                this.network.sendPosition(p.position, p.euler.y, {
+                    name: this.game.playerName, team: p.team, alive: p.alive,
+                    hp: p.hp, ax: p.getAimDirection().x, ay: p.getAimDirection().y, az: p.getAimDirection().z
+                });
+            }
+        }
+        // Attack intent: tıklayınca host'a aim bilgisiyle yolla (sadece bağlıyken)
+        if (this._p2pAttackQueued) {
+            this._p2pAttackQueued = false;
+            if (this.network?.connected && this.game.state === STATES.PLAYING) {
+                const aim = this.player.getAimDirection();
+                this.network.sendAttack({
+                    name: this.game.playerName, team: this.player.team,
+                    ax: aim.x, ay: aim.y, az: aim.z
+                });
+            }
+        }
+
+        // Host: top + skor state'ini peer'lara yayın (authoritative)
+        if (this.network?.isHost && this.game.state === STATES.PLAYING) {
+            this._hostSyncTimer = (this._hostSyncTimer || 0) - dt;
+            if (this._hostSyncTimer <= 0) {
+                this._hostSyncTimer = 0.05;
+                this.network.broadcast({
+                    type: 'ballState',
+                    x: this.game.ball.position.x, y: this.game.ball.position.y, z: this.game.ball.position.z,
+                    vx: this.game.ball.velocity.x, vy: this.game.ball.velocity.y, vz: this.game.ball.velocity.z,
+                    speed: this.game.ball.currentSpeed, active: this.game.ball.active,
+                    state: this.game.ball.state, targetId: this.game.ball.targetPlayer?.peerId || null
+                });
+                this.network.broadcast({
+                    type: 'scoreUpdate',
+                    red: this.game.scoreboard.redScore, blue: this.game.scoreboard.blueScore,
+                    time: this.game.scoreboard.timeRemaining, round: this.game.scoreboard.roundNum,
+                    players: this.game.scoreboard.getPlayerStats()
+                });
             }
         }
 
