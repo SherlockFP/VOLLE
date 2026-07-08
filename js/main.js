@@ -129,14 +129,17 @@ class App {
             }
 
             // Spectator controls — but let M still open the team menu so you can
-            // leave spectator from it.
-            if (Spectator.active) {
+            // leave spectator from it. Chat açıkken M menü açmasın.
+            if (Spectator.active && !this.chatOpen) {
                 if (e.code === 'BracketRight') Spectator.cycleTarget();
                 if (e.code === 'BracketLeft') Spectator.prevTarget();
                 if (e.code === 'KeyF') Spectator.setFreeCam(!Spectator.freeCam);
                 if (e.code === 'KeyM') { e.preventDefault(); this.toggleTeamPopup(); }
                 return;
             }
+
+            // Chat açıkken M tuşu takım menüsü açmasın.
+            if (this.chatOpen) return;
 
             // M → team popup
             if (e.code === 'KeyM' &&
@@ -1624,6 +1627,12 @@ class App {
             Spectator.update(dt);
         }
 
+        // P2P: Hâlâ simülasyon akıyor olmasa (countdown/ROUND_END/celebration) bile
+        // remote player sprite'ları lerp ile akıcı hareket etsin — rakip oyuncuyu sürekli gör.
+        if (this.network?.connected) {
+            this.game.invokeRemoteSnapshots(dt);
+        }
+
         if (this.game.state === STATES.PLAYING || this.game.state === STATES.ROUND_END || this.game.state === STATES.COUNTDOWN || this.game.state === STATES.CELEBRATION) {
             if (!Spectator.active) this.player.update(dt);
             this.game.update(dt);
@@ -1675,10 +1684,14 @@ class App {
         }
 
         // P2P: lokal oyuncu pozisyonunu + attack intent'i host'a / peer'lara yolla
+        // Önemli: COUNTDOWN ve lobby dahil tüm state'lerde gönder — rakip countdown sırasında
+        // oyuncunun kıpırdaşmasını görsün; round start öncesi son pozisyonlar hazır olsun.
         this._p2pTimer = (this._p2pTimer || 0) - dt;
         if (this._p2pTimer <= 0 && this.network?.connected) {
             this._p2pTimer = 0.05; // 20Hz
-            if (this.game.state === STATES.PLAYING) {
+            if (this.game.state === STATES.PLAYING
+                || this.game.state === STATES.COUNTDOWN
+                || this.game.state === STATES.LOBBY) {
                 const p = this.player;
                 this.network.sendPosition(p.position, p.euler.y, {
                     name: this.game.playerName, team: p.team, alive: p.alive,
@@ -1717,6 +1730,18 @@ class App {
                     time: this.game.scoreboard.timeRemaining, round: this.game.scoreboard.roundNum,
                     players: this.game.scoreboard.getPlayerStats()
                 });
+            }
+        }
+
+        // P2P: 2 saniyede bir ping göndererek RTT ölç
+        this._pingTimer = (this._pingTimer || 0) - dt;
+        if (this._pingTimer <= 0 && this.network?.connected) {
+            this._pingTimer = 2.0;
+            this.network.sendPing();
+            const pingEl = document.getElementById('scoreboard-ping-value');
+            if (pingEl) {
+                const p = this.network.getPing();
+                pingEl.textContent = p > 0 ? `${Math.round(p)} ms` : 'measuring…';
             }
         }
 

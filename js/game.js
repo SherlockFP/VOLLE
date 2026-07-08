@@ -33,6 +33,8 @@ export class Game {
         this.scoreboard = new Scoreboard();
         this.bots = [];
         this.remotePlayers = new Map();
+        // Player name → remote-Avatar Sprite cache, böylece aynı oyuncu için sprite bir kez oluşur.
+        this._avatarCache = new Map();
 
         this.roundRestartDelay = 4.0;
         this.roundRestartTimer = 0;
@@ -486,14 +488,27 @@ export class Game {
 
     getAllTargets() { return [this.player, ...this.bots, ...this.remotePlayers.values()]; }
 
-    addRemotePlayer(peerId, name = 'Player', team) {
+    addRemotePlayer(peerId, name = 'Player', team, avatarDataUrl = null) {
         if (!peerId || peerId === this.network?.peer?.id) return null;
         let p = this.remotePlayers.get(peerId);
-        if (p) return p;
+        if (p) {
+            // Re-update avatar only if it changed (first sync may have emoji fallback only).
+            if (avatarDataUrl && p.avatar !== avatarDataUrl) {
+                p.avatar = avatarDataUrl;
+                if (p.avatarSprite) {
+                    p.group.remove(p.avatarSprite);
+                    p.avatarSprite.material.map?.dispose();
+                    p.avatarSprite.material.dispose();
+                    p.avatarSprite = this._makeAvatarSprite(p.name, p.team, avatarDataUrl);
+                    p.group.add(p.avatarSprite);
+                }
+            }
+            return p;
+        }
         const counts = { red: 0, blue: 0 };
         this.getPlayerList().forEach(pl => { counts[pl.team] = (counts[pl.team] || 0) + 1; });
         team = team || (counts.red <= counts.blue ? 'red' : 'blue');
-        p = this._createRemotePlayer(peerId, name, team);
+        p = this._createRemotePlayer(peerId, name, team, avatarDataUrl);
         this.remotePlayers.set(peerId, p);
         this.scoreboard.addPlayer(name, team, { peerId });
         this.updateLobbyUI?.();
@@ -509,7 +524,7 @@ export class Game {
         this.updateLobbyUI?.();
     }
 
-    _createRemotePlayer(peerId, name, team) {
+    _createRemotePlayer(peerId, name, team, avatarDataUrl) {
         const group = new THREE.Group();
         const color = team === 'red' ? 0xcc3333 : 0x3355cc;
         const bodyGeo = new THREE.CylinderGeometry(0.35, 0.45, 1.4, 8);
@@ -519,14 +534,33 @@ export class Game {
         const head = new THREE.Mesh(new THREE.SphereGeometry(0.3, 12, 12), new THREE.MeshBasicMaterial({ color: 0xffd0aa }));
         head.position.y = 1.75;
         group.add(head);
+
+        // --- Name + Avatar Sprites (head'ın üstünde) ---
+        const labelTex = this._makeNameLabelTexture(name, team === 'red' ? 0xff5577 : 0x55aaff);
+        const labelMat = new THREE.SpriteMaterial({ map: labelTex, transparent: true, depthTest: true });
+        const labelSprite = new THREE.Sprite(labelMat);
+        labelSprite.position.y = 2.7;
+        labelSprite.scale.set(1.6, 0.45, 1);
+        group.add(labelSprite);
+
+        // Avatar sprite — kullanıcının kendi avatarı dataURL'i varsa göster,
+        // yoksa emoji fallback kullanılır.
+        const avatarSprite = this._makeAvatarSprite(name, team, avatarDataUrl);
+        group.add(avatarSprite);
+
         this.renderer.scene.add(group);
         const p = {
             peerId, name, team, group,
             position: this.arena.getPlayerSpawn(team).clone(),
+            // Interpolasyon için: snapshotlar arasında lerp. prevPos → targetPos.
+            prevPos: this.arena.getPlayerSpawn(team).clone(),
+            targetPos: this.arena.getPlayerSpawn(team).clone(),
+            interpAlpha: 1,
             velocity: new THREE.Vector3(), radius: 0.7, alive: true,
             hp: 100, maxHp: 100, shield: 0, consecutiveMisses: 0,
             runeBonuses: {}, deflectPower: 1, passive: 'none', totalDamageDealt: 0,
             attacking: false, attackTimer: 0, aimDir: new THREE.Vector3(0, 0, -1),
+            labelSprite, avatarSprite, avatar: avatarDataUrl || null,
             getPosition() { return this.position.clone(); },
             getAimDirection() { return this.aimDir.clone(); },
             isAttacking() { return this.attacking; },
@@ -1774,15 +1808,18 @@ export class Game {
     }
 
     getPlayerList() {
+        // Lokaldeki kendi avatarımızı da paylaşıyoruz ki diğer oyuncular sprite'ımızı görsün.
+        const ownAvatar = window.__store?.get?.('customAvatar')?.dataURL || null;
         const list = [{
             name: this.playerName,
             team: this.player.team,
             isBot: false,
             peerId: this.network?.peer?.id,
-            charId: this.player.charId
+            charId: this.player.charId,
+            avatar: ownAvatar
         }];
         this.bots.forEach(b => list.push({ name: b.name, team: b.team, isBot: true, charId: b.charId }));
-        this.remotePlayers.forEach((p, peerId) => list.push({ name: p.name, team: p.team, isBot: false, peerId, charId: p.charId || 'rally' }));
+        this.remotePlayers.forEach((p, peerId) => list.push({ name: p.name, team: p.team, isBot: false, peerId, charId: p.charId || 'rally', avatar: p.avatar || null }));
         return list;
     }
 
@@ -1790,8 +1827,11 @@ export class Game {
         if (peerId === this.network?.peer?.id) return;
         const p = this.addRemotePlayer(peerId, data.name || `P-${peerId.slice(0, 4)}`, data.team);
         if (!p) return;
-        p.position.set(data.x, data.y, data.z);
-        p.group.position.copy(p.position).add(new THREE.Vector3(0, -1.2, 0));
+        // Snapshot: snapshot'taki poz önceki prevPos olur, hedef targetPos olur. Render tarafı
+        // her frame invokeSnapshots(dt) ile bunlar arasında lerp ediyor — atlayış / dithering yok.
+        p.prevPos.set(p.position.x, p.position.y, p.position.z);
+        p.targetPos.set(data.x, data.y, data.z);
+        p.interpAlpha = 0;
         p.group.rotation.y = data.ry || 0;
         p.team = data.team || p.team;
         p.alive = data.alive !== false;
@@ -1802,6 +1842,33 @@ export class Game {
 
         if (this.network?.isHost) {
             this.network.broadcast({ ...data, type: 'position', peerId });
+        }
+    }
+
+    // Her frame'de çağrılır — remote player'ların pozisyonlarını lerp ile
+    // interpolate eder (20Hz snapshot aktarımı akıcı görülür).
+    invokeRemoteSnapshots(dt) {
+        if (!this.remotePlayers.size) return;
+        // 20Hz snapshot → 50ms'de bir hedef olur. Lerp hızı 0.85/sn*dt ~ %15 each frame snap.
+        const speed = Math.min(1, dt * 18);
+        for (const p of this.remotePlayers.values()) {
+            if (!p.targetPos) continue;
+            if (p.interpAlpha < 1) {
+                p.interpAlpha = Math.min(1, p.interpAlpha + dt * 20 * 1.05); // sweep hızı
+                // Position teleport yerine predict: mesafe büyükse direkt atla
+                const dx = p.targetPos.x - p.position.x;
+                const dy = p.targetPos.y - p.position.y;
+                const dz = p.targetPos.z - p.position.z;
+                const distSq = dx*dx + dy*dy + dz*dz;
+                if (distSq > 25) { // >5m teleport — büyük paket kaybında sıçrama
+                    p.position.copy(p.targetPos);
+                } else {
+                    p.position.x = p.prevPos.x + (p.targetPos.x - p.prevPos.x) * p.interpAlpha;
+                    p.position.y = p.prevPos.y + (p.targetPos.y - p.prevPos.y) * p.interpAlpha;
+                    p.position.z = p.prevPos.z + (p.targetPos.z - p.prevPos.z) * p.interpAlpha;
+                }
+                p.group.position.copy(p.position).add(new THREE.Vector3(0, -1.2, 0));
+            }
         }
     }
 
@@ -1840,10 +1907,22 @@ export class Game {
             }
             if (pl.peerId && pl.peerId !== myId) {
                 seen.add(pl.peerId);
-                const p = this.addRemotePlayer(pl.peerId, pl.name, pl.team);
+                const p = this.addRemotePlayer(pl.peerId, pl.name, pl.team, pl.avatar || null);
                 if (p) {
                     p.team = pl.team || p.team;
                     if (pl.charId) p.charId = pl.charId;
+                    // Avatar ilk defa geliyorsa, sprite'ı dataURL ile yeniden oluştur.
+                    if (pl.avatar && p.avatar !== pl.avatar) {
+                        p.avatar = pl.avatar;
+                        // Eski sprite materyal/map'i discard et, yeniden oluştur.
+                        if (p.avatarSprite) {
+                            p.group.remove(p.avatarSprite);
+                            p.avatarSprite.material.map?.dispose();
+                            p.avatarSprite.material.dispose();
+                            p.avatarSprite = this._makeAvatarSprite(p.name, p.team, pl.avatar);
+                            p.group.add(p.avatarSprite);
+                        }
+                    }
                 }
             }
         }
@@ -1908,4 +1987,118 @@ export class Game {
     }
     startRoundFromNetwork() { this.startRound(); }
     setBotDifficulty(d) { this.botDifficulty = d; }
+
+    // --- Sprite helpers for remote players ---
+    // İsim etiketi: canvas üzerinde yazı + yarı saydam arka plan.
+    _makeNameLabelTexture(name, colorHex) {
+        const c = document.createElement('canvas');
+        c.width = 256; c.height = 64;
+        const ctx = c.getContext('2d');
+        ctx.clearRect(0, 0, 256, 64);
+        // Pill background
+        const hex = '#' + colorHex.toString(16).padStart(6, '0');
+        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        this._roundRect(ctx, 8, 12, 240, 40, 20);
+        ctx.fill();
+        ctx.strokeStyle = hex;
+        ctx.lineWidth = 2;
+        this._roundRect(ctx, 8, 12, 240, 40, 20);
+        ctx.stroke();
+        // Name text
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '600 22px Outfit, Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const display = (name || 'Player').slice(0, 18);
+        ctx.fillText(display, 128, 33);
+        const tex = new THREE.CanvasTexture(c);
+        tex.needsUpdate = true;
+        return tex;
+    }
+
+    _roundRect(ctx, x, y, w, h, r) {
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.arcTo(x + w, y, x + w, y + h, r);
+        ctx.arcTo(x + w, y + h, x, y + h, r);
+        ctx.arcTo(x, y + h, x, y, r);
+        ctx.arcTo(x, y, x + w, y, r);
+        ctx.closePath();
+    }
+
+    // Local cached avatar — client'ın kendi store'undaki custom avatar.
+    // Remote name ile aynı olanı eşler (oyuncuların kendi seçtikleri avatar).
+    _makeAvatarSprite(name, team, avatarDataUrl) {
+        const cacheKey = `mpAvatar:${name}`;
+        const cached = this._avatarCache?.get(cacheKey);
+        if (cached) return cached;
+        // Avatar dataURL'i önce parametre ile gelen değerden, sonra local own avatar'dan, sonra fallback.
+        const localStore = window.__store;
+        let tex;
+        const dataUrl = avatarDataUrl || localStore?.get?.('customAvatar')?.dataURL;
+        if (dataUrl) {
+            const c = document.createElement('canvas');
+            c.width = 64; c.height = 64;
+            const ctx = c.getContext('2d');
+            const img = new Image();
+            img.onload = () => { ctx.drawImage(img, 0, 0, 64, 64); tex.needsUpdate = true; };
+            img.src = dataUrl;
+            tex = new THREE.CanvasTexture(c);
+            try { ctx.drawImage(img, 0, 0, 64, 64); } catch (e) {}
+        } else {
+            // Fallback — emoji avatar yerine baş harf sprite
+            const cb = document.createElement('canvas');
+            cb.width = 64; cb.height = 64;
+            const ctx = cb.getContext('2d');
+            const grd = ctx.createRadialGradient(32, 32, 4, 32, 32, 30);
+            grd.addColorStop(0, team === 'red' ? '#ff99aa' : '#99ccff');
+            grd.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = grd;
+            ctx.fillRect(0, 0, 64, 64);
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = team === 'red' ? '#ee5555' : '#5577dd';
+            ctx.beginPath();
+            ctx.arc(32, 32, 24, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.fillStyle = '#fff';
+            ctx.font = '700 28px Outfit';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText((name || '?').charAt(0).toUpperCase(), 32, 34);
+            tex = new THREE.CanvasTexture(cb);
+        }
+        tex.needsUpdate = true;
+        const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: true });
+        const sprite = new THREE.Sprite(mat);
+        sprite.position.y = 3.1;
+        sprite.scale.set(0.9, 0.9, 1);
+        if (!this._avatarCache) this._avatarCache = new Map();
+        this._avatarCache.set(cacheKey, sprite);
+        return sprite;
+    }
+
+    _makeEmojiAvatar(name, team) {
+        const c = document.createElement('canvas');
+        c.width = 64; c.height = 64;
+        const ctx = c.getContext('2d');
+        // background halo — takım rengi
+        const grd = ctx.createRadialGradient(32, 32, 4, 32, 32, 30);
+        grd.addColorStop(0, team === 'red' ? '#ff99aa' : '#99ccff');
+        grd.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = grd;
+        ctx.fillRect(0, 0, 64, 64);
+        // Ring
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = team === 'red' ? '#ee5555' : '#5577dd';
+        ctx.beginPath();
+        ctx.arc(32, 32, 24, 0, Math.PI * 2);
+        ctx.stroke();
+        // Initial of name
+        ctx.fillStyle = '#fff';
+        ctx.font = '700 28px Outfit';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText((name || '?').charAt(0).toUpperCase(), 32, 34);
+        return c;
+    }
 }

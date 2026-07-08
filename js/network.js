@@ -19,6 +19,8 @@ export class Network {
         this.onKicked = null;      // callback() when host kicks us
         this.onTeamChange = null;  // callback(name, team) applied on clients
         this.onHostLeft = null;    // callback() when the host connection drops / lobby closes
+        this._lastPing = 0;            // ms, son ölçülen RTT
+        this._pingAwait = null;        // güncel bekleyen nonce
     }
 
     async initPeer() {
@@ -136,6 +138,18 @@ export class Network {
             case 'playerHit':
                 this.game.applyPlayerHit(data);
                 break;
+            case 'ping':
+                // Periyodik ping alındı → pong ile geri cevap ver.
+                this._sendToConn(peerId, { type: 'pong', nonce: data.nonce, t: performance.now() });
+                break;
+            case 'pong':
+                // RTT hesaplayan client tarafında kayıtlı nonce eşleşirse ping kayıt edilir.
+                if (this._pingAwait && data.nonce === this._pingAwait.nonce) {
+                    const rtt = performance.now() - this._pingAwait.t;
+                    this._lastPing = rtt;
+                    this._pingAwait = null;
+                }
+                break;
             case 'ballState':
                 this.game.updateBallFromNetwork(data);
                 break;
@@ -238,9 +252,23 @@ export class Network {
         });
     }
 
+    _sendToConn(peerId, data) {
+        const conn = this.connections.get(peerId);
+        if (conn && conn.open) conn.send(data);
+    }
+
     sendAttack(extra = {}) {
         this.send({ type: 'attack', ...extra });
     }
+
+    // RTT ölçümü — nonce işaretlenir, periyodik olarak peer'a yollanır.
+    sendPing() {
+        if (!this.connected) return;
+        this._pingAwait = { nonce: Math.random().toString(36).slice(2), t: performance.now() };
+        this.send({ type: 'ping', nonce: this._pingAwait.nonce });
+    }
+
+    getPing() { return this._lastPing || 0; }
 
     broadcastBallState(ball) {
         if (!this.isHost) return;
