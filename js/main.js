@@ -201,6 +201,12 @@ class App {
                 }
                 if (this.game.state === STATES.PLAYING || this.game.state === STATES.COUNTDOWN) {
                     // Pause instead of hard exit
+                    if (this.game.state === STATES.COUNTDOWN && this.game._cancelCountdown) {
+                        this.game._cancelCountdown(); // countdown callback'leri iptal
+                        this.game.setState(STATES.MENU);
+                        this.ui.showScreen('mainMenu');
+                        return;
+                    }
                     this.player.unlock();
                     this.ui.setPlayerTarget(false);
                     pauseEl?.classList.remove('hidden');
@@ -578,6 +584,9 @@ class App {
                 this.ui.showMessage?.('Only host can start', 1500);
                 return;
             }
+            clearInterval(this._lobbyKeepAlive);
+            if (this._lobbyCode) this._unregisterLobby(this._lobbyCode);
+            this._lobbyCode = null;
             this.audio.init();
             this.player.lock();
             this.game.startGame();
@@ -1452,6 +1461,8 @@ class App {
     // Host: sunucu kur (P2P oda aç)
     async _doHostGame() {
         try {
+            clearInterval(this._lobbyKeepAlive); // önceki varsa durdur
+            if (this._lobbyCode) this._unregisterLobby(this._lobbyCode); // eski varsa sil
             const name = document.getElementById('player-name-input')?.value || 'Host';
             this.game.playerName = name;
             const code = await this.network.hostGame(name);

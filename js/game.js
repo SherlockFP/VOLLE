@@ -367,15 +367,19 @@ export class Game {
         // Pre-game countdown (configurable, host can change)
         this.preGameTimer = this.preGameDuration;
         this._preGameActive = true;
-        this.ui.showCountdown(this.preGameDuration, () => {
+        this._cancelCountdown = () => {};
+        let cancelled = false;
+        const wrap = (fn) => () => { if (!cancelled) fn(); };
+        this.ui.showCountdown(this.preGameDuration, wrap(() => {
             // After pre-game, do the classic 3-2-1
             this._preGameActive = false;
-            this.ui.showCountdown(3, () => {
+            this.ui.showCountdown(3, wrap(() => {
                 this.audio.playGo();
                 this.startRound();
-            });
-            [3, 2, 1].forEach((n, i) => setTimeout(() => this.audio.playBeep(440), i * 1000));
-        });
+            }));
+            [3, 2, 1].forEach((n, i) => setTimeout(() => { if (!cancelled) this.audio.playBeep(440); }, i * 1000));
+        }));
+        this._cancelCountdown = () => { cancelled = true; this._preGameActive = false; this.ui.hideMessage?.(); };
     }
 
     startRound() {
@@ -478,10 +482,11 @@ export class Game {
     _createRemotePlayer(peerId, name, team) {
         const group = new THREE.Group();
         const color = team === 'red' ? 0xcc3333 : 0x3355cc;
-        const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.45, 1.2, 4, 8), new THREE.MeshBasicMaterial({ color }));
-        body.position.y = 0.8;
+        const bodyGeo = new THREE.CylinderGeometry(0.35, 0.45, 1.4, 8);
+        const body = new THREE.Mesh(bodyGeo, new THREE.MeshBasicMaterial({ color }));
+        body.position.y = 0.9;
         group.add(body);
-        const head = new THREE.Mesh(new THREE.SphereGeometry(0.32, 12, 12), new THREE.MeshBasicMaterial({ color: 0xffd0aa }));
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.3, 12, 12), new THREE.MeshBasicMaterial({ color: 0xffd0aa }));
         head.position.y = 1.75;
         group.add(head);
         this.renderer.scene.add(group);
