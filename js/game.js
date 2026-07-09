@@ -743,9 +743,20 @@ export class Game {
         // Client sadece render + remote interpolation + HUD yapar.
         const isClient = this.network && this.network.connected && !this.network.isHost;
         if (isClient && this.state === STATES.PLAYING) {
-            // Client-side prediction: local deflection for instant feedback
+            // Process skill (Q) on client too
+            if (this.player._skillQueued) {
+                this.player._skillQueued = false;
+                const ctx = { ball: this.ball, target: this.ball.targetPlayer, game: this };
+                if (this.player.tryUseSkill(ctx)) {
+                    this.ui?.showMessage?.(`${this.player.loadout.skill.toUpperCase()}!`, 800);
+                    this.audio?.playSfx?.('tf2_medic', 0.35);
+                    if (this.player.loadout.skill === 'blackhole') this.spawnBlackHole();
+                }
+            }
+            // Client-side prediction: local deflection for instant feedback.
+            // Generous range (2.5x) so client always feels the hit; host is authoritative.
             if (this.player.alive && this.player.isAttacking() &&
-                this.ball.isInAttackRange(this.player.getPosition())) {
+                this.player.getPosition().distanceTo(this.ball.position) < this.ball.attackRange * 2.5) {
                 this._ballTargetPos = null;
                 this.handlePlayerDeflection();
             }
