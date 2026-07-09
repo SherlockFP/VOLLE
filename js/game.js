@@ -739,37 +739,6 @@ export class Game {
     // --- MAIN LOOP ---
 
     update(dt) {
-        // P2P guard: bağlı ama host olmayan client'lar authoritative simülasyonu
-        // ÇALIŞTIRMAZ. Top fiziği, hit detection, round logic sadece host'ta.
-        // Client sadece render + remote interpolation + HUD yapar.
-        const isClient = this.network && this.network.connected && !this.network.isHost;
-        if (isClient && this.state === STATES.PLAYING) {
-            // Skill (Q): apply cooldown + self-effects locally for instant HUD
-            // feedback, and send intent to host for authoritative ball/other-player
-            // effects (host also broadcasts skillEffect for the visual/sound).
-            if (this.player._skillQueued) {
-                this.player._skillQueued = false;
-                const skillId = this.player.loadout.skill;
-                useSkill(this.player, skillId, { ball: null, target: null, game: this });
-                const aim = this.player.getAimDirection();
-                this.network.sendSkillUse({
-                    skill: skillId,
-                    ax: aim.x, ay: aim.y, az: aim.z,
-                    bx: this.ball.position.x, by: this.ball.position.y, bz: this.ball.position.z
-                });
-            }
-            // Ball is purely lerped from host snapshots (smooth, no client physics divergence).
-            this.updateDeathParticles(dt);
-            this.updateChatBubbles(dt);
-            this.arena.update(performance.now() / 1000);
-            this.updateMinimap();
-            for (const pu of this.powerUps) {
-                pu.mesh.rotation.y += dt * 2;
-                pu.mesh.position.y = 0.6 + Math.sin(pu.time + performance.now() * 0.003) * 0.15;
-            }
-            return;
-        }
-
         // Juice: hit-stop/slow-mo/screen shake uygula, effective dt döndür
         const effectiveDt = this.juice.update(dt);
         if (effectiveDt === 0 && this.state !== STATES.CELEBRATION) return; // hit-stop: dünya donar (ama celebration'da değil)
@@ -982,16 +951,28 @@ export class Game {
                 this.audio.playSfx('tf2_medic', 0.35);
                 this.audio.playBeep(660);
                 if (skillId === 'blackhole') this.spawnBlackHole();
+                // Client: send skill intent to host for authoritative effects
+                if (this.network?.connected && !this.network?.isHost) {
+                    const aim = this.player.getAimDirection();
+                    this.network.sendSkillUse({
+                        skill: skillId,
+                        ax: aim.x, ay: aim.y, az: aim.z,
+                        bx: this.ball.position.x, by: this.ball.position.y, bz: this.ball.position.z
+                    });
+                }
             }
         }
 
-        this.bots.forEach(bot => {
-            bot.update(dt, this.ball);
-            if (bot._pendingBlackHole) {
-                bot._pendingBlackHole = false;
-                this.spawnBlackHole();
-            }
-        });
+        // Bot AI only on host — client lerps bots from network
+        if (!this.network?.connected || this.network?.isHost) {
+            this.bots.forEach(bot => {
+                bot.update(dt, this.ball);
+                if (bot._pendingBlackHole) {
+                    bot._pendingBlackHole = false;
+                    this.spawnBlackHole();
+                }
+            });
+        }
         if (!this.ball.active) return;
 
         // Spin-Dodge (A-D-A-D) — orbit the ball
@@ -1097,6 +1078,12 @@ export class Game {
         // (host is authoritative and still enforces it via remoteAttack).
         const ballDir = new THREE.Vector3().subVectors(this.ball.position, pos).normalize();
         if (!skipAimCheck && aimDir.dot(ballDir) < -0.2) return;
+
+        // Client-side prediction: deflect locally, ball runs its own physics
+        // until host sends new ballState (re-enables lerp).
+        if (this.network?.connected && !this.network?.isHost) {
+            this.ball._lerping = false;
+        }
 
         // Pick the enemy closest to where you're looking
         const nextTarget = this.getAimedEnemy(pos, aimDir, team);
