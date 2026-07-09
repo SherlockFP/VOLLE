@@ -744,11 +744,15 @@ export class Game {
         const isClient = this.network && this.network.connected && !this.network.isHost;
         if (isClient && this.state === STATES.PLAYING) {
             // Client-side prediction: local deflection for instant feedback
-            // Even though host is authoritative, process the swing locally so
-            // the client sees effects, hears sounds, and ball moves immediately.
             if (this.player.alive && this.player.isAttacking() &&
                 this.ball.isInAttackRange(this.player.getPosition())) {
+                this._ballTargetPos = null;
                 this.handlePlayerDeflection();
+            }
+            // Advance ball locally when lerp is paused (after local deflection)
+            // so ball flies in deflected direction until host snapshot arrives.
+            if (!this._ballTargetPos) {
+                this.ball.update(dt);
             }
             this.updateDeathParticles(dt);
             this.updateChatBubbles(dt);
