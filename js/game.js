@@ -1208,15 +1208,8 @@ export class Game {
     }
 
     handleHit(hitTarget) {
-        // P2P: host her hit'i client'lara yayınla (victim peerId ile)
-        if (this.network?.isHost) {
-            const victimPeerId = hitTarget.peerId || null;
-            const victimName = hitTarget === this.player ? this.playerName : hitTarget.name;
-            this.network.broadcast({
-                type: 'playerHit', victimPeerId, victimName,
-                hp: hitTarget.hp, alive: hitTarget.alive !== false
-            });
-        }
+        // Client: ignore local hit detection, wait for host authority
+        if (this.network?.connected && !this.network?.isHost) return;
         const name = hitTarget === this.player ? this.playerName : hitTarget.name;
         const scorerName = this.lastDeflector
             ? (this.lastDeflector === this.player ? this.playerName : this.lastDeflector.name)
@@ -1231,7 +1224,24 @@ export class Game {
         if (this._damageMul) dmg = Math.round(dmg * this._damageMul);
         if (this._oneHitKill) dmg = hitTarget.maxHp;
         const lethal = hitTarget.takeDamage(dmg);
+        if (lethal) this.killStreak++; // increment before broadcast so client gets correct combo
         if (attacker) attacker.recordDamageDealt(dmg);
+
+        // P2P: hit verisini client'lara yayınla (client-side efektler için gerekli tüm alanlar)
+        if (this.network?.isHost) {
+            const victimPeerId = hitTarget.peerId || null;
+            const hitPos = hitTarget.getPosition();
+            const missTag = hitTarget.consecutiveMisses >= 3 ? ' 💢CRITICAL' : hitTarget.consecutiveMisses >= 1 ? ` (x${hitTarget.consecutiveMisses+1} miss)` : '';
+            const perfectTag = this.ball.lastPerfectBy === attacker ? ' ✨PERFECT' : '';
+            this.network.broadcast({
+                type: 'playerHit', victimPeerId, victimName: name,
+                hp: hitTarget.hp, alive: hitTarget.alive !== false,
+                dmg, lethal, attackerName: scorerName, victimTeam: hitTarget.team,
+                hitX: hitPos.x, hitY: hitPos.y, hitZ: hitPos.z,
+                missTag, perfectTag, combo: this.juice.combo,
+                killStreak: this.killStreak, rallyCount: this.rallyCount
+            });
+        }
         // Scoreboard damage tracking
         if (scorerName) this.scoreboard.recordDamageDealt(scorerName, dmg);
         this.scoreboard.recordDamageTaken(name, dmg);
@@ -1325,7 +1335,6 @@ export class Game {
             this.ball.deactivate();
 
             // DMC-style kill combo + TF2 announcer
-            this.killStreak++;
             const comboNames = ['', 'FIRST BLOOD', 'DOUBLE KILL', 'TRIPLE KILL', 'QUADRA KILL', 'PENTA KILL', 'ACE'];
             const comboSounds = ['', 'music/1kill.sfx', 'music/2kill.sfx', 'music/3kill.sfx', 'music/4kill.sfx', 'music/4kill.sfx', 'music/ace.sfx'];
             const tf2ComboSounds = ['', 'tf2_domination', 'tf2_crit', 'tf2_victory', 'tf2_victory', 'tf2_victory', 'tf2_victory'];
@@ -2423,11 +2432,112 @@ export class Game {
     applyPlayerHit(data = {}) {
         const target = data.victimPeerId ? this.remotePlayers.get(data.victimPeerId) : (data.victimName === this.playerName ? this.player : null);
         if (!target) return;
+
+        const lethal = data.lethal === true || data.alive === false;
+        const dmg = data.dmg || 0;
+        const hitPos = (data.hitX !== undefined)
+            ? new THREE.Vector3(data.hitX, data.hitY, data.hitZ)
+            : target.getPosition();
+        const victimTeam = data.victimTeam || target.team;
+
+        // State sync
         target.hp = data.hp ?? target.hp;
         target.alive = data.alive !== false;
-        if (!target.alive) {
-            if (target === this.player) this.player.die();
-            else if (target.group) target.group.visible = false;
+
+        // HP bar update
+        if (target.drawHpBar) target.drawHpBar();
+        this.ui.updateVitals?.(this.player.hp, this.player.maxHp, this.player.shield,
+            this.player.stamina, this.player.staminaMax, this.player.exhausted);
+
+        // Visual effects (client-side)
+        // Damage flash if we're the victim
+        if (target === this.player) {
+            const df = document.getElementById('damage-flash');
+            if (df) {
+                df.classList.remove('fade');
+                df.classList.add('active');
+                requestAnimationFrame(() => requestAnimationFrame(() => {
+                    df.classList.remove('active');
+                    df.classList.add('fade');
+                }));
+            }
+        }
+
+        // Death explosion + particles
+        if (lethal) this.spawnDeathExplosion(hitPos, victimTeam);
+
+        // Sound effects
+        this.audio.playSfx('tf2_explosion', 0.5);
+        this.audio.playExplosion();
+        if (target === this.player) {
+            this.audio.playSfx('tf2_you_are_dead', 0.5);
+            this.audio.playSfx('tf2_scout_scream', 0.45);
+        }
+        this.audio.playHit();
+
+        // Floating damage number
+        const scrPos = hitPos.clone().project(this.player.camera);
+        const sx = (scrPos.x * 0.5 + 0.5) * window.innerWidth;
+        const sy = (-scrPos.y * 0.5 + 0.5) * window.innerHeight;
+        this.ui.spawnDamageNumber(sx, sy, dmg, lethal);
+
+        // Juice effects
+        this.juice.burst(hitPos, victimTeam === 'red' ? 0xff4444 : 0x4488ff, 16, 10);
+        this.juice.shockwave(hitPos, 0xff8844);
+        this.juice.shake(lethal ? 0.5 : 0.25);
+        this.juice.hitStop(lethal ? 100 : 50);
+        this.juice.flash(0.3);
+
+        // Kill feed
+        if (dmg > 0) {
+            const tag = (data.missTag || '') + (data.perfectTag || '');
+            this.killFeed.unshift({ attacker: data.attackerName, victim: data.victimName, dmg, time: performance.now()/1000, tag });
+            if (this.killFeed.length > 5) this.killFeed.pop();
+            this.ui.updateKillFeed?.(this.killFeed);
+        }
+
+        // Lethal: extra effects
+        if (lethal) {
+            this.juice.slowMo(0.25, 0.8);
+            this.juice.burst(hitPos, 0xffee44, 24, 14);
+
+            if (target === this.player) {
+                this.player.die();
+                this.player.deathTimer = 2.0; // ensure timer set
+                this.ui.flashHit();
+                this._killcamDeathPos = this.player.getPosition();
+                if (data.hitX !== undefined) {
+                    this._killcamKillerPos = new THREE.Vector3(data.hitX, data.hitY, data.hitZ);
+                }
+                this._showKillcam(data.attackerName || 'Unknown');
+                // Start spectating alive teammate
+                const aliveTeammates = this.bots.filter(b => b.alive && b.team === this.player.team);
+                if (aliveTeammates.length > 0) {
+                    this._spectateTarget = aliveTeammates[0];
+                }
+            } else {
+                target.alive = false;
+                if (target.group) target.group.visible = false;
+            }
+
+            // Combo display
+            const comboIdx = data.killStreak !== undefined ? Math.min(data.killStreak, 6) : 0;
+            const comboNames = ['', 'FIRST BLOOD', 'DOUBLE KILL', 'TRIPLE KILL', 'QUADRA KILL', 'PENTA KILL', 'ACE'];
+            const comboSounds = ['', 'music/1kill.sfx', 'music/2kill.sfx', 'music/3kill.sfx', 'music/4kill.sfx', 'music/4kill.sfx', 'music/ace.sfx'];
+            const tf2ComboSounds = ['', 'tf2_domination', 'tf2_crit', 'tf2_victory', 'tf2_victory', 'tf2_victory', 'tf2_victory'];
+            const comboName = comboNames[comboIdx] || '';
+            if (comboName) {
+                this.ui.showCombo(comboName, 8.0);
+                if (comboSounds[comboIdx]) this._playComboSound(comboSounds[comboIdx]);
+                if (tf2ComboSounds[comboIdx]) this.audio.playSfx(tf2ComboSounds[comboIdx], 0.5);
+            }
+
+            // KO message
+            const rallyMsg = data.rallyCount > 2 ? ` (${data.rallyCount} rally!)` : '';
+            this.announce(`💥 ${data.victimName} KO'd!${rallyMsg}${data.missTag || ''}${data.perfectTag || ''}`, null, 0.4, 2000);
+        } else {
+            // Non-lethal damage message
+            this.ui.showMessage(`💥 ${data.victimName} -${dmg} HP${data.missTag || ''}${data.perfectTag || ''}`, 1500);
         }
     }
 
@@ -2462,6 +2572,7 @@ export class Game {
             this.ball.currentSpeed = data.speed;
             this.ball.active = data.active;
             this.ball.mesh.visible = data.active;
+            this.ball._lerping = true;
             this.ball.state = data.state || this.ball.state;
             if (data.targetId) {
                 const t = this.remotePlayers.get(data.targetId);

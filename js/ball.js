@@ -42,6 +42,7 @@ export class Ball {
         this.spin = 0;
         this.lastShot = 'flat';
         this.heldPlayer = null;  // ponytail: catch mechanic — player holding the ball
+        this._lerping = false;   // client-side: skip physics, only visuals
         this.lastShotBy = null;  // ponytail: kill credit — who last hit the ball
         // Homing strength per rally shot. Player aim-shots use a tiny assist so the
         // ball flies where you aim (rocketdodge/Genji feel); bots keep strong homing.
@@ -138,6 +139,7 @@ export class Ball {
         this._bounceTimestamps = [];
         this.clearTrail();
         this.updateColor();
+        this._lerping = false;
     }
 
     deactivate() {
@@ -148,6 +150,7 @@ export class Ball {
         this.lastShotBy = null;
         this._homingAge = 0;
         this.clearTrail();
+        this._lerping = false;
     }
 
     update(dt) {
@@ -170,6 +173,12 @@ export class Ball {
         if (this._frozenTimer > 0) {
             // Donmuş — hareket yok, sadece mesh güncellenir
             this.mesh.position.copy(this.position);
+            return false;
+        }
+
+        // Client-side lerp: skip physics, only visual updates
+        if (this._lerping) {
+            this._clientVisualUpdate(dt);
             return false;
         }
 
@@ -694,5 +703,44 @@ export class Ball {
             t.mesh.material.dispose();
         });
         this.trail = [];
+    }
+
+    // Client-side: visual-only update when lerping from network
+    _clientVisualUpdate(dt) {
+        this.mesh.position.copy(this.position);
+
+        // Rotation
+        const baseRot = 2 + this.currentSpeed * 0.15;
+        this.mesh.rotation.x += dt * baseRot;
+        this.mesh.rotation.z += dt * baseRot * 0.6;
+        this.mesh.rotation.y += dt * this.spin * 3;
+
+        // Squash recovery
+        if (this._squashTimer > 0) {
+            this._squashTimer -= dt;
+            if (this._squashTimer <= 0) {
+                this.mesh.scale.set(1, 1, 1);
+            } else {
+                this.mesh.scale.x += (1 - this.mesh.scale.x) * 0.25;
+                this.mesh.scale.y += (1 - this.mesh.scale.y) * 0.25;
+                this.mesh.scale.z += (1 - this.mesh.scale.z) * 0.25;
+            }
+        }
+
+        // Glow
+        const srGlow = Math.min(4, this.currentSpeed / this.baseSpeed);
+        const spinGlow = Math.min(0.15, Math.abs(this.spin) * 0.02);
+        this.glowMat.opacity = Math.min(0.5, 0.06 + srGlow * 0.035 + spinGlow);
+        this.glow.scale.setScalar(Math.min(1.5, 1 + srGlow * 0.05 + spinGlow * 0.5));
+
+        // Trail
+        const sp = this.velocity.length();
+        this.trailTimer += dt;
+        const trailGap = Math.max(0.008, 0.05 - sp * 0.002);
+        if (this.trailTimer > trailGap) {
+            this.trailTimer = 0;
+            this.addTrailDot();
+        }
+        this.updateTrail(dt);
     }
 }
