@@ -743,12 +743,17 @@ export class Game {
         // Client sadece render + remote interpolation + HUD yapar.
         const isClient = this.network && this.network.connected && !this.network.isHost;
         if (isClient && this.state === STATES.PLAYING) {
+            // Client-side prediction: local deflection for instant feedback
+            // Even though host is authoritative, process the swing locally so
+            // the client sees effects, hears sounds, and ball moves immediately.
+            if (this.player.alive && this.player.isAttacking() &&
+                this.ball.isInAttackRange(this.player.getPosition())) {
+                this.handlePlayerDeflection();
+            }
             this.updateDeathParticles(dt);
             this.updateChatBubbles(dt);
             this.arena.update(performance.now() / 1000);
-            // Client yine de minimap'i güncellemeli ki remote player'ları görsün
             this.updateMinimap();
-            // Power-up pickup görseli client'ta da dönsün
             for (const pu of this.powerUps) {
                 pu.mesh.rotation.y += dt * 2;
                 pu.mesh.position.y = 0.6 + Math.sin(pu.time + performance.now() * 0.003) * 0.15;
@@ -2204,30 +2209,32 @@ export class Game {
 
     remoteAttack(peerId, data = {}) {
         if (!this.network?.isHost) return;
+        const log = (msg) => console.log(`[remoteAttack ${peerId.slice(0,6)}] ${msg}`);
+        log(`received from ${data.name}`);
         let p = this.remotePlayers.get(peerId);
         if (!p) {
-            // Attack position'dan önce geldi — remote player'ı anında oluştur
-            if (!data.name || data.x === undefined) return;
+            if (!data.name || data.x === undefined) { log('no player data'); return; }
             p = this.addRemotePlayer(peerId, data.name, data.team);
-            if (!p) return;
+            if (!p) { log('addRemotePlayer failed'); return; }
             p.position.set(data.x, data.y, data.z);
             p.targetPos?.set(data.x, data.y, data.z);
         }
-        if (!p.alive || !this.ball.active) return;
+        if (!p.alive) { log('player dead'); return; }
+        if (!this.ball.active) { log('ball inactive'); return; }
         p.aimDir.set(data.ax ?? p.aimDir.x, data.ay ?? p.aimDir.y, data.az ?? p.aimDir.z).normalize();
         p.attacking = true;
         p.attackTimer = 0.3;
-        // Gelen pozisyonu kullan (interpolated değil, client'ın o anki gerçek pozisyonu)
         const attackPos = (data.x !== undefined)
             ? new THREE.Vector3(data.x, data.y, data.z)
             : p.getPosition();
-        // Remote attack range check: use client's reported ball position (bx,by,bz)
-        // to account for latency — the host's ball is ahead of what the client saw.
         const clientBallPos = (data.bx !== undefined)
             ? new THREE.Vector3(data.bx, data.by, data.bz)
             : this.ball.position;
-        const inRange = attackPos.distanceTo(clientBallPos) < this.ball.attackRange * 1.8
+        const distToClientBall = attackPos.distanceTo(clientBallPos);
+        const distToHostBall = this.ball.position.distanceTo(attackPos);
+        const inRange = distToClientBall < this.ball.attackRange * 1.8
             || this.ball.isInAttackRange(attackPos);
+        log(`distToClientBall=${distToClientBall.toFixed(2)} distToHostBall=${distToHostBall.toFixed(2)} inRange=${inRange} range=${this.ball.attackRange}`);
         if (inRange) {
             const target = this.getAimedEnemy(attackPos, p.aimDir, p.team);
             const result = this.ball.deflectWithAim(attackPos, p.aimDir, target, data.flick || { vertical: 0, horizontal: 0, power: 0 });
