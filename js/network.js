@@ -4,6 +4,7 @@ export class Network {
         this.game = game;
         this.peer = null;
         this.connections = new Map();
+        this.hostConn = null;      // direct reference to host connection (mesh routing)
         this.isHost = false;
         this.roomCode = '';
         this.playerName = 'Player';
@@ -25,7 +26,6 @@ export class Network {
 
     async initPeer() {
         return new Promise((resolve, reject) => {
-            // Use PeerJS cloud server
             this.peer = new Peer(undefined, {
                 debug: 0
             });
@@ -38,6 +38,8 @@ export class Network {
                 console.error('Peer error:', err);
                 reject(err);
             });
+            // ALL peers accept incoming connections (mesh: P2P position relay)
+            this.peer.on('connection', (conn) => this._onIncomingConnection(conn));
         });
     }
 
@@ -45,11 +47,6 @@ export class Network {
         this.playerName = playerName;
         this.isHost = true;
         await this.initPeer();
-
-        this.peer.on('connection', conn => {
-            this.handleConnection(conn);
-        });
-
         return this.roomCode;
     }
 
@@ -64,9 +61,11 @@ export class Network {
 
         return new Promise((resolve, reject) => {
             conn.on('open', () => {
+                this.hostConn = conn;
                 this.connections.set(roomCode, conn);
                 this.setupDataHandlers(conn);
-                conn.send({ type: 'join', name: playerName, password });
+                const avatar = window.__store?.get?.('customAvatar')?.dataURL || '';
+                conn.send({ type: 'join', name: playerName, password, avatar });
                 resolve();
             });
             // Host went away (closed game / left lobby) → kick us back to menu.
@@ -78,38 +77,58 @@ export class Network {
         });
     }
 
-    handleConnection(conn) {
+    // Route incoming connections: new player join (host) vs P2P mesh (non-host peers)
+    _onIncomingConnection(conn) {
         conn.on('open', () => {
-            const name = conn.metadata?.name || 'Player';
-            // Password gate — reject wrong/missing password before admitting the peer.
-            if (this.lobbyPassword && conn.metadata?.password !== this.lobbyPassword) {
-                conn.send({ type: 'kick', name, reason: 'password' });
-                setTimeout(() => conn.close(), 200);
-                return;
+            if (conn.metadata?.isMesh) {
+                this._handleMeshConn(conn);
+            } else if (this.isHost) {
+                this._handleJoinConn(conn);
+            } else {
+                // Non-host receiving a non-mesh connection = odd; close to be safe.
+                conn.close();
             }
-            this.connections.set(conn.peer, conn);
-            this.setupDataHandlers(conn);
-            if (this.onPlayerJoin) this.onPlayerJoin(name, conn.peer);
+        });
+    }
 
-            // Send current game state: lobby + map/mode/score/snapshot — late join
-            // için yeni gelen oyuncu tam state'te başlayabilsin.
-            conn.send({
-                type: 'welcome',
-                players: this.game.getPlayerList(),
-                state: this.game.state,
-                mode: this.game.mode?.id,
-                map: this.game?.arena?.mapId,
-                round: this.game.scoreboard?.roundNum,
-                red: this.game.scoreboard?.redScore,
-                blue: this.game.scoreboard?.blueScore,
-                time: this.game.scoreboard?.timeRemaining,
-                snapshot: this.game.snapshotState?.() || {}
-            });
+    _handleJoinConn(conn) {
+        const name = conn.metadata?.name || 'Player';
+        // Password gate — reject wrong/missing password before admitting the peer.
+        if (this.lobbyPassword && conn.metadata?.password !== this.lobbyPassword) {
+            conn.send({ type: 'kick', name, reason: 'password' });
+            setTimeout(() => conn.close(), 200);
+            return;
+        }
+        this.connections.set(conn.peer, conn);
+        this.setupDataHandlers(conn);
+        if (this.onPlayerJoin) this.onPlayerJoin(name, conn.peer);
+
+        // Send current game state: lobby + map/mode/score/snapshot — late join
+        // için yeni gelen oyuncu tam state'te başlayabilsin.
+        conn.send({
+            type: 'welcome',
+            players: this.game.getPlayerList(),
+            state: this.game.state,
+            mode: this.game.mode?.id,
+            map: this.game?.arena?.mapId,
+            round: this.game.scoreboard?.roundNum,
+            red: this.game.scoreboard?.redScore,
+            blue: this.game.scoreboard?.blueScore,
+            time: this.game.scoreboard?.timeRemaining,
+            snapshot: this.game.snapshotState?.() || {}
         });
 
         conn.on('close', () => {
             this.connections.delete(conn.peer);
             if (this.onPlayerLeave) this.onPlayerLeave(conn.peer);
+        });
+    }
+
+    _handleMeshConn(conn) {
+        this.connections.set(conn.peer, conn);
+        this.setupDataHandlers(conn);
+        conn.on('close', () => {
+            this.connections.delete(conn.peer);
         });
     }
 
@@ -122,7 +141,7 @@ export class Network {
     handleMessage(data, peerId) {
         switch (data.type) {
             case 'join':
-                if (this.onPlayerJoin) this.onPlayerJoin(data.name, peerId);
+                if (this.onPlayerJoin) this.onPlayerJoin(data.name, peerId, data.avatar);
                 break;
             case 'position':
                 this.game.updateRemotePlayer(data.peerId || peerId, data);
@@ -194,17 +213,50 @@ export class Network {
                 // Client sadece uygular, host ise uygulayıp yeni lobbyState'i broadcast eder.
                 if (this.onTeamChange) this.onTeamChange(data.name, data.team);
                 break;
+            case 'remoteAttackAnim':
+                if (!this.isHost) this.game.handleRemoteAttackAnim(data);
+                break;
+            case 'botSync':
+                if (!this.isHost) this.game.applyBotSync(data);
+                break;
+            case 'mapChange':
+                if (!this.isHost) this.game.applyMapChange(data);
+                break;
+            case 'modeChange':
+                if (!this.isHost) this.game.applyModeChange(data);
+                break;
+            case 'powerUpState':
+                if (!this.isHost) this.game.applyPowerUpState(data);
+                break;
+            case 'celebrationStart':
+                if (!this.isHost) this.game.applyCelebrationStart(data);
+                break;
+            case 'gameOver':
+                if (!this.isHost) this.game.applyGameOver(data);
+                break;
+            case 'mapVoteOptions':
+                if (!this.isHost && this.game.applyMapVoteOptions) this.game.applyMapVoteOptions(data);
+                break;
+            case 'mapVote':
+                if (this.isHost && this.game.handleMapVote) this.game.handleMapVote(data, peerId);
+                break;
+            case 'mapVoteResult':
+                if (!this.isHost && this.game.applyMapVoteResult) this.game.applyMapVoteResult(data);
+                break;
+            case 'newPeer':
+                // Host tells us another client joined — establish mesh connection
+                if (!this.isHost && data.peerId && data.peerId !== this.peer?.id && data.peerId !== this.hostConn?.peer) {
+                    this.connectToPeer(data.peerId);
+                }
+                break;
+            case 'peerLeft':
+                // Host tells us a client left — clean up mesh connection
+                if (data.peerId) this.connections.delete(data.peerId);
+                break;
             case 'lobbyClosed':
                 // Lobby kapandı — ana menüye dön.
                 if (!this.isHost && this.onHostLeft) this.onHostLeft();
                 this.disconnect();
-                break;
-            case 'lobbyClosed':
-                // Host closed the lobby (left / back to menu). Bounce clients out.
-                if (!this.isHost) {
-                    if (this.onHostLeft) this.onHostLeft();
-                    this.disconnect();
-                }
                 break;
         }
     }
@@ -233,15 +285,36 @@ export class Network {
         }
     }
 
+    // Establish a direct P2P mesh connection to another peer (non-host).
+    async connectToPeer(peerId) {
+        if (this.connections.has(peerId) || peerId === this.peer?.id) return;
+        const conn = this.peer.connect(peerId, {
+            metadata: { name: this.playerName, isMesh: true }
+        });
+        return new Promise((resolve) => {
+            conn.on('open', () => {
+                this.connections.set(peerId, conn);
+                this.setupDataHandlers(conn);
+                resolve();
+            });
+            conn.on('close', () => { this.connections.delete(peerId); });
+        });
+    }
+
     broadcast(data) {
         this.connections.forEach(conn => {
             if (conn.open) conn.send(data);
         });
     }
 
+    broadcastAll(data) {
+        this.connections.forEach(conn => {
+            if (conn.open) conn.send(data);
+        });
+    }
+
     sendToHost(data) {
-        const hostConn = this.connections.values().next().value;
-        if (hostConn && hostConn.open) hostConn.send(data);
+        if (this.hostConn && this.hostConn.open) this.hostConn.send(data);
     }
 
     send(data) {
@@ -252,9 +325,9 @@ export class Network {
         }
     }
 
-    // Sync player pos at 20hz
+    // Sync player pos — goes directly to ALL peers (mesh, skip host relay)
     sendPosition(position, rotation, extra = {}) {
-        this.send({
+        this.broadcastAll({
             type: 'position',
             x: position.x,
             y: position.y,

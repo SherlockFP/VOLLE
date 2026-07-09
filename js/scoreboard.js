@@ -11,7 +11,7 @@ export class Scoreboard {
     }
 
     addPlayer(name, team, opts = {}) {
-        this.players.set(name, { score: 0, deflections: 0, hits: 0, team, ...opts });
+        this.players.set(name, { score: 0, deflections: 0, hits: 0, deaths: 0, assists: 0, damageDealt: 0, damageTaken: 0, team, ...opts });
     }
 
     removePlayer(name) {
@@ -26,6 +26,26 @@ export class Scoreboard {
     recordHit(name) {
         const p = this.players.get(name);
         if (p) p.hits++;
+    }
+
+    recordDeath(name) {
+        const p = this.players.get(name);
+        if (p) p.deaths++;
+    }
+
+    recordAssist(name) {
+        const p = this.players.get(name);
+        if (p) p.assists++;
+    }
+
+    recordDamageDealt(name, amount) {
+        const p = this.players.get(name);
+        if (p) p.damageDealt += amount;
+    }
+
+    recordDamageTaken(name, amount) {
+        const p = this.players.get(name);
+        if (p) p.damageTaken += amount;
     }
 
     recordPoint(name, amount = 1) {
@@ -83,6 +103,10 @@ export class Scoreboard {
             p.score = 0;
             p.deflections = 0;
             p.hits = 0;
+            p.deaths = 0;
+            p.assists = 0;
+            p.damageDealt = 0;
+            p.damageTaken = 0;
         });
     }
 

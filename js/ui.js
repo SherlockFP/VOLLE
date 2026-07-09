@@ -7,6 +7,7 @@ import { ACHIEVEMENTS } from './achievements.js';
 import { getRank, getRankProgress } from './ranked.js';
 import { Leaderboard } from './leaderboard.js';
 import { Tutorial, TUTORIAL_STEPS } from './tutorial.js';
+import { Arena } from './arena.js';
 
 export class UI {
     constructor() {
@@ -236,7 +237,10 @@ export class UI {
         const winnerEl = document.getElementById('pg-winner');
         if (winnerEl) winnerEl.textContent = result.winnerText || '';
         document.getElementById('pg-level').textContent = `Level ${level}`;
-        document.getElementById('pg-stats').innerHTML = `<span>💥 ${kills} kills</span><span>🏐 ${deflects} deflects</span>`;
+        // Detailed AAR stats table
+        const playerStats = result.playerStats || [];
+        const statsHTML = this._buildAARTable(playerStats, kills, deflects);
+        document.getElementById('pg-stats').innerHTML = statsHTML;
         const pgLog = document.getElementById('pg-chat-log');
         if (pgLog) pgLog.innerHTML = '';
         const perc = Math.min(100, (xpGained / 1000) * 100);
@@ -255,6 +259,66 @@ export class UI {
         document.getElementById('pg-play-again')?.addEventListener('click', () => { el.classList.add('hidden'); window._postGameAction?.('play_again'); });
         document.getElementById('pg-lobby')?.addEventListener('click', () => { el.classList.add('hidden'); window._postGameAction?.('lobby'); });
         document.getElementById('pg-main-menu')?.addEventListener('click', () => { el.classList.add('hidden'); window._postGameAction?.('main_menu'); });
+    }
+
+    _buildAARTable(playerStats, totalKills, totalDeflects) {
+        if (!playerStats.length) return `<span>💥 ${totalKills} kills</span><span>🏐 ${totalDeflects} deflects</span>`;
+        // Team totals
+        let redTot = { score:0, deaths:0, assists:0, deflections:0, damageDealt:0, damageTaken:0 };
+        let blueTot = { score:0, deaths:0, assists:0, deflections:0, damageDealt:0, damageTaken:0 };
+        playerStats.forEach(p => {
+            const t = p.team === 'blue' ? blueTot : redTot;
+            t.score += p.score || 0;
+            t.deaths += p.deaths || 0;
+            t.assists += p.assists || 0;
+            t.deflections += p.deflections || 0;
+            t.damageDealt += p.damageDealt || 0;
+            t.damageTaken += p.damageTaken || 0;
+        });
+        // Find MVP (highest score)
+        const mvp = playerStats.reduce((best, p) => (p.score > (best?.score || 0) ? p : best), null);
+        // Build table
+        let rows = '';
+        playerStats.forEach(p => {
+            const kd = (p.deaths || 1) > 0 ? ((p.score || 0) / (p.deaths || 1)).toFixed(1) : '∞';
+            const isMvp = mvp && p.name === mvp.name;
+            rows += `<tr class="${isMvp ? 'pg-mvp' : ''} ${p.team}">
+                <td class="pg-name">${this._esc(p.name)}${isMvp ? ' 👑' : ''}</td>
+                <td>${p.score || 0}</td>
+                <td>${p.deaths || 0}</td>
+                <td>${p.assists || 0}</td>
+                <td>${p.deflections || 0}</td>
+                <td>${p.damageDealt || 0}</td>
+                <td>${p.damageTaken || 0}</td>
+                <td>${kd}</td>
+            </tr>`;
+        });
+        return `
+            <table class="pg-aar-table">
+                <thead>
+                    <tr>
+                        <th>Player</th>
+                        <th>Kills</th>
+                        <th>Deaths</th>
+                        <th>Assists</th>
+                        <th>Defl</th>
+                        <th>Dmg</th>
+                        <th>Dmg↓</th>
+                        <th>K/D</th>
+                    </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+                <tfoot>
+                    <tr class="pg-team-red"><td colspan="8">🔴 RED — K:${redTot.score} D:${redTot.deaths} A:${redTot.assists} Defl:${redTot.deflections} Dmg:${redTot.damageDealt}</td></tr>
+                    <tr class="pg-team-blue"><td colspan="8">🔵 BLUE — K:${blueTot.score} D:${blueTot.deaths} A:${blueTot.assists} Defl:${blueTot.deflections} Dmg:${blueTot.damageDealt}</td></tr>
+                </tfoot>
+            </table>`;
+    }
+
+    _esc(str) {
+        const d = document.createElement('div');
+        d.textContent = str || '';
+        return d.innerHTML;
     }
 
     _playDing() {
@@ -298,6 +362,53 @@ export class UI {
             el.style.opacity = '0';
         });
         setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 800);
+    }
+
+    // --- Map Voting UI ---
+    showMapVoting(options, isHost, onVote) {
+        const container = document.getElementById('pg-map-vote');
+        if (!container) return;
+        container.classList.remove('hidden');
+        // Disable play again during voting
+        const playBtn = document.getElementById('pg-play-again');
+        if (playBtn) playBtn.disabled = true;
+        container.innerHTML = '<div class="mv-label">🗺️ VOTE FOR NEXT MAP</div>';
+        const cards = document.createElement('div');
+        cards.className = 'mv-cards';
+        options.forEach((mapId) => {
+            const config = Arena.MAPS?.[mapId];
+            const name = config?.name || mapId;
+            const card = document.createElement('div');
+            card.className = 'mv-card';
+            card.dataset.mapId = mapId;
+            card.innerHTML = `<div class="mv-card-name">${name}</div>`;
+            card.addEventListener('click', () => {
+                if (card.classList.contains('mv-voted')) return;
+                // Deselect others
+                cards.querySelectorAll('.mv-card').forEach(c => c.classList.remove('mv-voted', 'mv-selected'));
+                card.classList.add('mv-voted', 'mv-selected');
+                onVote(mapId);
+            });
+            cards.appendChild(card);
+        });
+        container.appendChild(cards);
+        if (isHost) {
+            const info = document.createElement('div');
+            info.className = 'mv-info';
+            info.textContent = 'Waiting for votes... (20s timeout)';
+            container.appendChild(info);
+        }
+    }
+
+    highlightMapVote(mapId) {
+        const cards = document.querySelectorAll('.mv-card');
+        cards.forEach(c => {
+            if (c.dataset.mapId === mapId) {
+                c.classList.add('mv-voted', 'mv-selected');
+            } else {
+                c.classList.remove('mv-selected');
+            }
+        });
     }
 
     updateLobbyPlayers(players, isHost) {

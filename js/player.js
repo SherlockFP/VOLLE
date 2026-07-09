@@ -43,6 +43,7 @@ export class Player {
         // Camera kick (recoil punch on deflect) — decays back to 0
         this.kickAmt = 0;
         this.kickTarget = 0;
+        this.killcamLock = false;
 
         // Attack + SPAM PROTECTION (stamina gate)
         this.keys = {};
@@ -440,17 +441,19 @@ export class Player {
             }
         }
 
-        this.camera.position.copy(this.position);
+        if (!this.killcamLock) {
+            this.camera.position.copy(this.position);
 
-        // Camera kick — brief upward punch that eases back out.
-        this.kickAmt *= Math.exp(-14 * dt);
-        if (this.kickAmt < 0.0005) this.kickAmt = 0;
-        if (this.kickAmt > 0) {
-            const kicked = this.euler.clone();
-            kicked.x += this.kickAmt;
-            this.camera.quaternion.setFromEuler(kicked);
-        } else {
-            this.camera.quaternion.setFromEuler(this.euler);
+            // Camera kick — brief upward punch that eases back out.
+            this.kickAmt *= Math.exp(-14 * dt);
+            if (this.kickAmt < 0.0005) this.kickAmt = 0;
+            if (this.kickAmt > 0) {
+                const kicked = this.euler.clone();
+                kicked.x += this.kickAmt;
+                this.camera.quaternion.setFromEuler(kicked);
+            } else {
+                this.camera.quaternion.setFromEuler(this.euler);
+            }
         }
 
         // Chat bubble timer

@@ -86,6 +86,19 @@ export class Game {
         this.mode = GAME_MODES.instagib; // ponytail: default instakill (HP'li seçilirse kapanır)
         this._oneHitKill = true;
         this._activeBlackHoles = [];
+        this._killcamActive = false;
+        this._killcamElapsed = 0;
+        this._killcamDuration = 2.5;
+        this._killcamKillerPos = null;
+        this._killcamDeathPos = null;
+        this._killcamKillerName = '';
+        // Map voting
+        this._mapVoteActive = false;
+        this._mapVoteOptions = [];     // 3 mapId'ler
+        this._mapVotes = new Map();    // peerId → mapId
+        this._mapVoteTimer = null;
+        this._mapVoteTimeout = 20;     // seconds
+        this._mapVoteElapsed = 0;
         this.affixes = new AffixManager(this.arena, this.renderer.scene);
 
         // Power-up pickups — spawn on map, temporary buffs
@@ -358,6 +371,10 @@ export class Game {
 
     startGame(skipPreGame = false) {
         this.setState(STATES.COUNTDOWN);
+        // Lobby'de gösterilen bot dummy'leri oyun başlamadan temizle
+        for (const [peerId, p] of this.remotePlayers) {
+            if (p.isBotEntity) this.removeRemotePlayer(peerId);
+        }
         this.scoreboard.reset();
         // ponytail: force full reset — clear all players and re-register from current entities
         this.scoreboard.players.clear();
@@ -422,6 +439,7 @@ export class Game {
         this.ball.spawn();
         this.lastDeflector = null;
         this.lastDeflectorTeam = null;
+        this._deflectHistory = []; // son 2 deflector (assist için)
         this.rallyCount = 0;
         // ponytail: killStreak sadece yeni oyunda reset — FIRST BLOOD her round'da değil
         this._spectateTarget = null;
@@ -463,10 +481,12 @@ export class Game {
         if (this.state !== STATES.LOBBY && this.state !== STATES.MENU) return;
         if (this.arena.mapId === mapId) return;
         this.arena.rebuild(mapId);
-        // Re-place everyone inside the new (differently-sized) court.
         this.player.respawn();
         this.bots.forEach(b => b.respawn());
         this.ui.showMessage(`Arena: ${this.arena.config.name}`, 1400);
+        if (this.network?.isHost) {
+            this.network.broadcast({ type: 'mapChange', mapId });
+        }
     }
 
     // Map banlama (LoL tarzı). Lobby'de her takım banlar.
@@ -492,6 +512,9 @@ export class Game {
         if (this.state !== STATES.LOBBY && this.state !== STATES.MENU) return;
         applyMode(this, modeId);
         this.ui.showMessage?.(`Mode: ${this.mode.name}`, 1400);
+        if (this.network?.isHost) {
+            this.network.broadcast({ type: 'modeChange', modeId });
+        }
     }
 
     // Emote göster (player veya bot için).
@@ -666,6 +689,13 @@ export class Game {
             this.updateDeathParticles(dt);
             this.updateChatBubbles(dt);
             this.arena.update(performance.now() / 1000);
+            // Client yine de minimap'i güncellemeli ki remote player'ları görsün
+            this.updateMinimap();
+            // Power-up pickup görseli client'ta da dönsün
+            for (const pu of this.powerUps) {
+                pu.mesh.rotation.y += dt * 2;
+                pu.mesh.position.y = 0.6 + Math.sin(pu.time + performance.now() * 0.003) * 0.15;
+            }
             return;
         }
 
@@ -825,6 +855,14 @@ export class Game {
         }
 
         this.arena.update(performance.now() / 1000);
+
+        // Map voting countdown (host-side)
+        if (this._mapVoteActive && this.network?.isHost) {
+            this._mapVoteElapsed += dt;
+            if (this._mapVoteElapsed >= this._mapVoteTimeout) {
+                this._finalizeMapVote();
+            }
+        }
     }
 
     updatePlaying(dt) {
@@ -894,6 +932,7 @@ export class Game {
                 this.player.attacking = false;
                 this.lastDeflector = this.player;
                 this.lastDeflectorTeam = this.player.team;
+                this._pushDeflectHistory(this.playerName);
                 this.ball.lastShotBy = this.playerName;
                 this.rallyCount++;
                 this.player.onSuccessfulDeflect?.();
@@ -1010,6 +1049,7 @@ export class Game {
 
         this.lastDeflector = this.player;
         this.lastDeflectorTeam = team;
+        this._pushDeflectHistory(this.playerName);
         this.ball.lastShotBy = this.playerName;
         this.rallyCount++;
         this.player.onSuccessfulDeflect();
@@ -1079,6 +1119,7 @@ export class Game {
 
         this.lastDeflector = bot;
         this.lastDeflectorTeam = bot.team;
+        this._pushDeflectHistory(bot.name);
         this.ball.lastShotBy = bot.name;
         this.rallyCount++;
         bot.onSuccessfulDeflect();
@@ -1116,6 +1157,9 @@ export class Game {
         if (this._oneHitKill) dmg = hitTarget.maxHp;
         const lethal = hitTarget.takeDamage(dmg);
         if (attacker) attacker.recordDamageDealt(dmg);
+        // Scoreboard damage tracking
+        if (scorerName) this.scoreboard.recordDamageDealt(scorerName, dmg);
+        this.scoreboard.recordDamageTaken(name, dmg);
 
         // Get hit position early — used for damage number + juice
         const hitPos = hitTarget.getPosition();
@@ -1184,7 +1228,16 @@ export class Game {
             if (hitTarget === this.player) {
                 this.player.die();
                 this.ui.flashHit();
-                // TF2 tarzı killcam — "YOU FAILED!" göster
+                // Save killer position for killcam camera
+                if (attacker) {
+                    const kp = attacker.getPosition();
+                    this._killcamKillerPos = kp instanceof THREE.Vector3 ? kp.clone() : new THREE.Vector3(kp.x, kp.y, kp.z);
+                } else {
+                    // Fallback: ball direction from death pos
+                    this._killcamKillerPos = this.ball.position.clone();
+                }
+                this._killcamDeathPos = this.player.getPosition();
+                // Killcam with camera switch + direction indicator
                 this._showKillcam(scorerName || (this.ball.lastShotBy || 'Unknown'));
                 // Start spectating a teammate
                 const aliveTeammates = this.bots.filter(b => b.alive && b.team === this.player.team);
@@ -1211,6 +1264,11 @@ export class Game {
             const rallyMsg = this.rallyCount > 2 ? ` (${this.rallyCount} rally!)` : '';
             this.ui.showMessage(`💥 ${name} KO'd!${rallyMsg}${missTag}${perfectTag}`, 2000);
             if (scorerName) this.scoreboard.recordPoint(scorerName, 1); // ponytail: kill = 1 puan
+            this.scoreboard.recordDeath(name); // victim death
+            // Assist: son 2 deflector'a (scorer dışında) assist ver
+            const assistCandidates = this._deflectHistory.filter(n => n !== scorerName);
+            const seen = new Set();
+            assistCandidates.forEach(a => { if (a && !seen.has(a)) { seen.add(a); this.scoreboard.recordAssist(a); } });
             this.juice.resetCombo();
 
             // Takım eleme kontrolü — round sadece tüm takım ölünce biter
@@ -1232,6 +1290,12 @@ export class Game {
             // ponytail: non-lethal hit — top yeniden spawn, oyun devam
             this._respawnBall();
         }
+    }
+
+    // Son 2 deflector'ı hatırla (assist credit için)
+    _pushDeflectHistory(name) {
+        this._deflectHistory.push(name);
+        if (this._deflectHistory.length > 3) this._deflectHistory.shift();
     }
 
     // ponytail: hit sonrası topu 3sn gecikmeyle doğur — üstte geri sayım
@@ -1625,6 +1689,16 @@ export class Game {
         const wh = document.getElementById('celeb-weapon-hud');
         if (wh) wh.style.display = 'block';
         this.ui.showMessage?.('🥊 STRESS RELIEF! 1 Gloves · 2 Pistol · 3 Rocket', 4000);
+
+        // P2P: celebration state'ini client'lara yayınla
+        if (this.network?.isHost) {
+            this.network.broadcast({
+                type: 'celebrationStart',
+                winner: this._winningTeam,
+                duration: 30,
+                message: `${winner} TEAM WINS!`
+            });
+        }
     }
 
     _buildCelebWeapons() {
@@ -1751,7 +1825,154 @@ export class Game {
         const winnerText = this._finalWinner === 'DRAW'
             ? `DRAW: Red ${this.scoreboard.redScore} - ${this.scoreboard.blueScore} Blue`
             : `${this._finalWinner} TEAM WINS: Red ${this.scoreboard.redScore} - ${this.scoreboard.blueScore} Blue`;
-        this.ui.showPostGame(this._won, xp, 1, kills, this.rallyCount, this.audio, { winnerText });
+        const playerStats = this.scoreboard.getPlayerStats();
+        this.ui.showPostGame(this._won, xp, 1, kills, this.rallyCount, this.audio, { winnerText, playerStats });
+        // P2P: gameOver state'ini client'lara yayınla
+        if (this.network?.isHost) {
+            this.network.broadcast({
+                type: 'gameOver',
+                winner: this._finalWinner,
+                redScore: this.scoreboard.redScore,
+                blueScore: this.scoreboard.blueScore,
+                xp, kills, rally: this.rallyCount,
+                playerStats
+            });
+        }
+        // Start map voting after a brief delay (post-game screen must render first)
+        setTimeout(() => this._startMapVoting(), 500);
+    }
+
+    // --- Map Voting ---
+    _startMapVoting() {
+        if (this._mapVoteActive) return;
+        const allMaps = Object.keys(Arena.MAPS || {});
+        if (allMaps.length < 2) return;
+        const current = this.arena?.mapId;
+        const pool = allMaps.filter(m => m !== current);
+        const shuffled = [...pool].sort(() => Math.random() - 0.5);
+        const options = shuffled.slice(0, Math.min(3, shuffled.length));
+        if (options.length < 2) return;
+        this._mapVoteActive = true;
+        this._mapVoteOptions = options;
+        this._mapVotes.clear();
+        this._mapVoteElapsed = 0;
+
+        const isMultiplayer = !!this.network?.connected;
+
+        if (isMultiplayer) {
+            if (this.network.isHost) {
+                this._mapVotes.set('host', null);
+                this.network.broadcast({ type: 'mapVoteOptions', options });
+            }
+        }
+
+        if (isMultiplayer) {
+            this.ui.showMapVoting?.(options, this.network?.isHost || false, (mapId) => {
+                this._castMapVote(mapId);
+            });
+        } else {
+            // Solo: just apply a random map directly
+            this._mapVoteActive = false;
+            const picked = options[Math.floor(Math.random() * options.length)];
+            if (this.arena?.mapId !== picked) {
+                this.arena.rebuild(picked);
+                this.player.respawn();
+                this.bots.forEach(b => b.respawn());
+                this.ui.showMessage(`🗺️ Next map: ${Arena.MAPS[picked]?.name || picked}`, 2000);
+            }
+        }
+    }
+
+    _castMapVote(mapId) {
+        if (!this._mapVoteActive) return;
+        const id = this.network?.isHost ? 'host' : (this.network?.peerId || 'local');
+        this._mapVotes.set(id, mapId);
+        // If host, broadcast vote to others (for transparency)
+        if (this.network?.isHost) {
+            this.network.broadcast({ type: 'mapVote', mapId, from: id });
+        } else if (this.network?.connected) {
+            this.network.send({ type: 'mapVote', mapId });
+        }
+        // Visual feedback: disable selected card
+        this.ui.highlightMapVote?.(mapId);
+    }
+
+    handleMapVote(data, peerId) {
+        if (!this._mapVoteActive || !this.network?.isHost) return;
+        const voter = data.from || peerId;
+        if (this._mapVotes.has(voter)) return; // already voted
+        this._mapVotes.set(voter, data.mapId);
+        // Check if all voted
+        this._checkMapVoteComplete();
+    }
+
+    applyMapVoteOptions(data) {
+        if (this.network?.isHost) return;
+        this._mapVoteActive = true;
+        this._mapVoteOptions = data.options || [];
+        this._mapVotes.clear();
+        this._mapVoteElapsed = 0;
+        this.ui.showMapVoting?.(this._mapVoteOptions, false, (mapId) => {
+            this._castMapVote(mapId);
+        });
+    }
+
+    applyMapVoteResult(data) {
+        if (this.network?.isHost) return;
+        this._mapVoteActive = false;
+        if (this._mapVoteTimer) clearTimeout(this._mapVoteTimer);
+        this._mapVoteTimer = null;
+        const winner = data?.winner;
+        if (winner && this.arena?.mapId !== winner) {
+            this.arena.rebuild(winner);
+            this.player.respawn();
+            this.bots.forEach(b => b.respawn());
+            this.ui.showMessage(`🗺️ Next map: ${Arena.MAPS[winner]?.name || winner}`, 2000);
+        }
+        // Re-enable play again button if it was disabled
+        const playBtn = document.getElementById('pg-play-again');
+        if (playBtn) playBtn.disabled = false;
+    }
+
+    _checkMapVoteComplete() {
+        if (!this.network?.isHost) return;
+        // Count connected peers + host
+        const totalVoters = this.network.connections.size + 1; // +1 for host
+        const votedCount = this._mapVotes.size;
+        if (votedCount >= totalVoters) {
+            this._finalizeMapVote();
+        }
+    }
+
+    _finalizeMapVote() {
+        this._mapVoteActive = false;
+        if (this._mapVoteTimer) clearTimeout(this._mapVoteTimer);
+        this._mapVoteTimer = null;
+        // Tally votes
+        const tally = {};
+        this._mapVoteOptions.forEach(m => tally[m] = 0);
+        this._mapVotes.forEach((vote) => {
+            if (vote && tally[vote] !== undefined) tally[vote]++;
+        });
+        // Find winner(s)
+        let maxVotes = 0;
+        let winners = [];
+        for (const [mapId, count] of Object.entries(tally)) {
+            if (count > maxVotes) { maxVotes = count; winners = [mapId]; }
+            else if (count === maxVotes && count > 0) winners.push(mapId);
+        }
+        const winningMap = winners.length > 0 ? winners[Math.floor(Math.random() * winners.length)] : this._mapVoteOptions[0];
+        // Apply
+        if (this.arena?.mapId !== winningMap) {
+            this.arena.rebuild(winningMap);
+            this.player.respawn();
+            this.bots.forEach(b => b.respawn());
+            this.ui.showMessage(`🗺️ Next map: ${Arena.MAPS[winningMap]?.name || winningMap}`, 2000);
+        }
+        this.network.broadcast({ type: 'mapVoteResult', winner: winningMap });
+        // Re-enable play again
+        const playBtn = document.getElementById('pg-play-again');
+        if (playBtn) playBtn.disabled = false;
     }
 
     _playBoo() {
@@ -1806,23 +2027,44 @@ export class Game {
         this.deathParticles.push({ mesh: ball, vel: new THREE.Vector3(), life: 0.4, gravity: 0, scaleRate: 8 });
     }
 
-    // TF2 tarzı killcam — player ölünce "YOU FAILED!" + katil adı
+    // Improved killcam — free camera + killer direction + distance
     _showKillcam(killerName) {
         const kc = document.getElementById('killcam');
         if (!kc) return;
         kc.classList.remove('hidden');
         kc.classList.add('visible');
         const sub = document.getElementById('killcam-subtitle');
-        if (sub) sub.textContent = `Killed by ${killerName}`;
-        // 1.5sn sonra gizle
+        if (sub) {
+            let info = `Killed by ${killerName}`;
+            // Show distance to killer
+            if (this._killcamKillerPos && this._killcamDeathPos) {
+                const dist = Math.round(this._killcamKillerPos.distanceTo(this._killcamDeathPos));
+                info += ` — ${dist}m`;
+            }
+            sub.textContent = info;
+        }
+        // Activate killcam camera mode
+        this._killcamActive = true;
+        this._killcamElapsed = 0;
+        this._killcamKillerName = killerName;
+        // Auto-hide after duration
         if (this._killcamTimer) clearTimeout(this._killcamTimer);
-        this._killcamTimer = setTimeout(() => this._hideKillcam(), 1500);
+        this._killcamTimer = setTimeout(() => this._hideKillcam(), this._killcamDuration * 1000);
+        // Stop player camera control
+        this.player.killcamLock = true;
+        // Save death position for camera
+        this._killcamDeathPos = this._killcamDeathPos || this.player.getPosition();
     }
     _hideKillcam() {
         const kc = document.getElementById('killcam');
         if (!kc) return;
         kc.classList.remove('visible');
         kc.classList.add('hidden');
+        if (this._killcamTimer) { clearTimeout(this._killcamTimer); this._killcamTimer = null; }
+        this._killcamActive = false;
+        this.player.killcamLock = false;
+        this._killcamKillerPos = null;
+        this._killcamDeathPos = null;
     }
 
     _playComboSound(file) {
@@ -1848,7 +2090,7 @@ export class Game {
             avatar: ownAvatar
         }];
         this.bots.forEach(b => list.push({ name: b.name, team: b.team, isBot: true, charId: b.charId }));
-        this.remotePlayers.forEach((p, peerId) => list.push({ name: p.name, team: p.team, isBot: false, peerId, charId: p.charId || 'rally', avatar: p.avatar || null }));
+        this.remotePlayers.forEach((p, peerId) => list.push({ name: p.name, team: p.team, isBot: !!p.isBotEntity, peerId, charId: p.charId || 'rally', avatar: p.avatar || null }));
         return list;
     }
 
@@ -1861,6 +2103,7 @@ export class Game {
         p.prevPos.set(p.position.x, p.position.y, p.position.z);
         p.targetPos.set(data.x, data.y, data.z);
         p.interpAlpha = 0;
+        p.lastPacketTime = data.clientTime || performance.now();
         p.group.rotation.y = data.ry || 0;
         p.team = data.team || p.team;
         p.alive = data.alive !== false;
@@ -1868,63 +2111,90 @@ export class Game {
         p.hp = data.hp ?? p.hp;
         if (data.charId) p.charId = data.charId;
         if (data.ax !== undefined) p.aimDir.set(data.ax, data.ay, data.az).normalize();
-
-        if (this.network?.isHost) {
-            this.network.broadcast({ ...data, type: 'position', peerId });
-        }
+        // Mesh: sender already broadcast to all peers directly — no host relay needed
     }
 
     // Her frame'de çağrılır — remote player'ların pozisyonlarını lerp ile
     // interpolate eder (30Hz snapshot aktarımı akıcı görülür).
     invokeRemoteSnapshots(dt) {
         if (!this.remotePlayers.size) return;
-        // 30Hz snapshot → ~33ms'de bir hedef olur. Lerp hızı 0.85/sn*dt ~ %15 each frame snap.
-        const speed = Math.min(1, dt * 18);
         for (const p of this.remotePlayers.values()) {
             if (!p.targetPos) continue;
-            if (p.interpAlpha < 1) {
-                p.interpAlpha = Math.min(1, p.interpAlpha + dt * 30 * 1.05); // sweep hızı (30Hz snapshot)
-                // Position teleport yerine predict: mesafe büyükse direkt atla
-                const dx = p.targetPos.x - p.position.x;
-                const dy = p.targetPos.y - p.position.y;
-                const dz = p.targetPos.z - p.position.z;
-                const distSq = dx*dx + dy*dy + dz*dz;
-                if (distSq > 25) { // >5m teleport — büyük paket kaybında sıçrama
-                    p.position.copy(p.targetPos);
-                } else {
-                    p.position.x = p.prevPos.x + (p.targetPos.x - p.prevPos.x) * p.interpAlpha;
-                    p.position.y = p.prevPos.y + (p.targetPos.y - p.prevPos.y) * p.interpAlpha;
-                    p.position.z = p.prevPos.z + (p.targetPos.z - p.prevPos.z) * p.interpAlpha;
-                }
-                p.group.position.copy(p.position).add(new THREE.Vector3(0, -1.2, 0));
+            const dx = p.targetPos.x - p.position.x;
+            const dy = p.targetPos.y - p.position.y;
+            const dz = p.targetPos.z - p.position.z;
+            const distSq = dx*dx + dy*dy + dz*dz;
+            if (distSq > 25) {
+                // >5m teleport: packet loss recovery
+                p.position.copy(p.targetPos);
+            } else if (distSq > 0.0001) {
+                // Exponential smoothing: position ~20% closer every frame at 60fps
+                // No stop/go stutter, handles variable packet rate naturally
+                const factor = 1 - Math.exp(-dt * 12);
+                p.position.x += dx * factor;
+                p.position.y += dy * factor;
+                p.position.z += dz * factor;
             }
+            p.group.position.copy(p.position).add(new THREE.Vector3(0, -1.2, 0));
         }
     }
 
     remoteAttack(peerId, data = {}) {
         if (!this.network?.isHost) return;
-        const p = this.remotePlayers.get(peerId);
-        if (!p || !p.alive || !this.ball.active) return;
+        let p = this.remotePlayers.get(peerId);
+        if (!p) {
+            // Attack position'dan önce geldi — remote player'ı anında oluştur
+            if (!data.name || data.x === undefined) return;
+            p = this.addRemotePlayer(peerId, data.name, data.team);
+            if (!p) return;
+            p.position.set(data.x, data.y, data.z);
+            p.targetPos?.set(data.x, data.y, data.z);
+        }
+        if (!p.alive || !this.ball.active) return;
         p.aimDir.set(data.ax ?? p.aimDir.x, data.ay ?? p.aimDir.y, data.az ?? p.aimDir.z).normalize();
         p.attacking = true;
         p.attackTimer = 0.3;
-        if (this.ball.isInAttackRange(p.getPosition())) {
-            const target = this.getAimedEnemy(p.getPosition(), p.aimDir, p.team);
-            const result = this.ball.deflectWithAim(p.getPosition(), p.aimDir, target, data.flick || { vertical: 0, horizontal: 0, power: 0 });
+        // Gelen pozisyonu kullan (interpolated değil, client'ın o anki gerçek pozisyonu)
+        const attackPos = (data.x !== undefined)
+            ? new THREE.Vector3(data.x, data.y, data.z)
+            : p.getPosition();
+        if (this.ball.isInAttackRange(attackPos)) {
+            const target = this.getAimedEnemy(attackPos, p.aimDir, p.team);
+            const result = this.ball.deflectWithAim(attackPos, p.aimDir, target, data.flick || { vertical: 0, horizontal: 0, power: 0 });
             if (target) this.ball.setTarget(target);
             this.lastDeflector = p;
             this.lastDeflectorTeam = p.team;
+            this._pushDeflectHistory(p.name);
             this.ball.lastShotBy = p.name;
             this.rallyCount++;
             p.onSuccessfulDeflect();
             this.scoreboard.recordDeflection(p.name);
             this.audio.playDeflect(result.shot);
+            // Remote attack görselini diğer client'lara yayınla
+            if (this.network?.isHost) {
+                this.network.broadcast({
+                    type: 'remoteAttackAnim',
+                    peerId,
+                    ax: p.aimDir.x, ay: p.aimDir.y, az: p.aimDir.z,
+                    attacking: true
+                });
+            }
         }
         setTimeout(() => { if (p) p.attacking = false; }, 300);
     }
 
     applyLobbyState(data) {
         if (!data.players) return;
+        // Oyun ayarlarını uygula (varsa)
+        if (data.settings) {
+            const s = data.settings;
+            const timeEl = document.getElementById('setting-match-time');
+            const roundEl = document.getElementById('setting-max-rounds');
+            const diffEl = document.getElementById('setting-bot-difficulty');
+            if (timeEl) { timeEl.value = s.matchTime; this.scoreboard.setTimeLimit(s.matchTime); }
+            if (roundEl) { roundEl.value = s.maxRounds; this.scoreboard.setMaxRounds(s.maxRounds); }
+            if (diffEl) { diffEl.value = s.botDifficulty || 'hard'; this.setBotDifficulty(s.botDifficulty || 'hard'); }
+        }
         // Authoritative reconcile: the host's list is the source of truth.
         // Add/refresh present peers, then drop any remote player no longer in it.
         const myId = this.network?.peer?.id;
@@ -1932,6 +2202,23 @@ export class Game {
         for (const pl of data.players) {
             if (pl.name === this.playerName) {
                 this.player.setTeam(pl.team);
+                continue;
+            }
+            if (pl.isBot) {
+                // Bot'lar peerId'siz gelir — bot görünümü için remote player dummy'si.
+                const botPeerId = `bot:${pl.name}`;
+                seen.add(botPeerId);
+                let p = this.remotePlayers.get(botPeerId);
+                if (!p) {
+                    p = this._createRemotePlayer(botPeerId, pl.name, pl.team, pl.avatar || null);
+                    p.isBotEntity = true;
+                    this.remotePlayers.set(botPeerId, p);
+                    this.scoreboard.addPlayer(pl.name, pl.team, { isBot: true, peerId: botPeerId });
+                } else {
+                    p.team = pl.team || p.team;
+                    const c = p.team === 'red' ? 0xcc3333 : 0x3355cc;
+                    p.group.children.forEach(ch => { if (ch.isMesh && ch.geometry.type === 'CylinderGeometry') ch.material.color.setHex(c); });
+                }
                 continue;
             }
             if (pl.peerId && pl.peerId !== myId) {
@@ -1962,24 +2249,54 @@ export class Game {
     // (mode/arena/round) otomatik başlar; top ve diğer eventler render'a gelir.
     handleLateJoin(data = {}) {
         if (this.network?.isHost) return;
-        // Late-join: host PLAYING veya doğrudan round ortasındayken yeni gelen kişi
-        // TOP'A VURABILSIN. Pre-game countdown'u atlayıp PLAYING'e atlıyoruz.
-        // Welcome zaten scoreboard snapshot'ı ile geliyor, onu uygulayıp state'i PLAYING'e alırız.
         if (typeof data.state === 'string' && data.state !== STATES.MENU && data.state !== STATES.LOBBY) {
-            // Mode ve map'i senkronize et (selectMode maxHp'i uygular)
+            // Mode ve map'i senkronize et
             if (data.mode) this.selectMode(data.mode);
             if (data.map && this.arena.mapId !== data.map) this.arena.rebuild(data.map);
-            // Score snapshot — red/blue/round/time
-            if (typeof data.red === 'number') this.scoreboard.redScore = data.red;
-            if (typeof data.blue === 'number') this.scoreboard.blueScore = data.blue;
-            if (typeof data.round === 'number') this.scoreboard.roundNum = data.round;
-            if (typeof data.time === 'number') this.scoreboard.timeRemaining = data.time;
-            // Snapshot'taki players varsa, lobbyState aynı şekilde
+            // Skoru koru — startGame reset'lemesin diye önce sakla
+            const savedScore = {
+                red: typeof data.red === 'number' ? data.red : this.scoreboard.redScore,
+                blue: typeof data.blue === 'number' ? data.blue : this.scoreboard.blueScore,
+                round: typeof data.round === 'number' ? data.round : this.scoreboard.roundNum,
+                time: typeof data.time === 'number' ? data.time : this.scoreboard.timeRemaining
+            };
             if (data.snapshot?.players) this.applyLobbyState(data.snapshot);
             else if (data.players) this.applyLobbyState(data);
-            // Direkt PLAYING: countdown yok. startGame(true) flag'i sayesinde pre-game atlıyor.
+            // Direkt PLAYING: countdown yok. skipPreGame ile pre-game atla.
+            this.setState(STATES.COUNTDOWN);
+            this.scoreboard.reset();
+            this.scoreboard.players.clear();
+            this.scoreboard.addPlayer(this.playerName, this.player.team, { isYou: true });
+            this.bots.forEach(b => this.scoreboard.addPlayer(b.name, b.team, { isBot: true }));
+            this.remotePlayers.forEach((p, peerId) => {
+                if (p.isBotEntity) return;
+                this.scoreboard.addPlayer(p.name, p.team, { peerId });
+                const spawn = this.arena.getPlayerSpawn(p.team);
+                p.position.copy(spawn);
+                p.group.position.copy(p.position).add(new THREE.Vector3(0, -1.2, 0));
+                p.group.rotation.y = p.team === 'red' ? 0 : Math.PI;
+                p.alive = true;
+                p.group.visible = true;
+                p.hp = p.maxHp;
+            });
+            // Saklanan skoru geri yükle
+            this.scoreboard.redScore = savedScore.red;
+            this.scoreboard.blueScore = savedScore.blue;
+            this.scoreboard.roundNum = savedScore.round;
+            this.scoreboard.timeRemaining = savedScore.time;
+            this.rallyCount = 0;
+            this.killStreak = 0;
+            this._spectateTarget = null;
+            this._hideKillcam();
+            this.ui.hideAll();
+            this.ui.showHUD();
+            this.player.respawn();
+            this.bots.forEach(b => b.respawn());
+            this.audio.init();
+            this.audio.preloadSfx('sfx/');
+            this.initMinimap();
             this._skipPreGame = true;
-            this.startGame(true);
+            this.startRound();
         }
     }
 
@@ -2015,22 +2332,21 @@ export class Game {
     }
     updateBallFromNetwork(data) {
         if (this.network && !this.network.isHost) {
-            // Snapshot data: 20Hz gelen pozisyonu hedef olarak kaydet, render tarafı lerp ile yumuşatacak.
-            if (!this._ballLerpState) {
-                this._ballLerpState = { prev: { x: data.x, y: data.y, z: data.z }, lastSnapshotAt: performance.now() };
+            // Her gelen snapshot'ı hedef olarak kaydet. prev = o anki pozisyon.
+            const now = performance.now();
+            if (this._ballTargetPos) {
+                // Önceki hedefi prev'e kaydır (gerçek pozisyon değil, lerp'in kaldığı yer)
+                this._ballPrevPos = { x: this.ball.position.x, y: this.ball.position.y, z: this.ball.position.z };
+            } else {
+                this._ballPrevPos = { x: data.x, y: data.y, z: data.z };
                 this.ball.position.set(data.x, data.y, data.z);
                 this.ball.mesh.position.copy(this.ball.position);
-            } else {
-                const now = performance.now();
-                // Süre dolduysa yeni hedef snapshot'ı set et
-                if (now - this._ballLerpState.lastSnapshotAt >= 33) {
-                    this._ballLerpState.prev.x = this.ball.position.x;
-                    this._ballLerpState.prev.y = this.ball.position.y;
-                    this._ballLerpState.prev.z = this.ball.position.z;
-                    this._ballLerpState.lastSnapshotAt = now;
-                    this._ballTargetPos = { x: data.x, y: data.y, z: data.z };
-                }
             }
+            this._ballTargetPos = { x: data.x, y: data.y, z: data.z };
+            this._ballLerpStart = now;
+            this._ballLerpDuration = 50; // ms — 20Hz'de 50ms aralık
+
+            // Velocity + state her zaman güncel
             this.ball.velocity.set(data.vx, data.vy, data.vz);
             this.ball.currentSpeed = data.speed;
             this.ball.active = data.active;
@@ -2046,23 +2362,30 @@ export class Game {
             }
         }
     }
-    // Client tarafında top mesh pozisyonunu lerp ile her frame yumuşat. 30Hz snapshot ->
-    // ~33ms aralıklarla top zıplamasın diye lerp uygulanır.
+    // Client tarafında top mesh pozisyonunu lerp ile her frame yumuşat.
+    // Her gelen snapshot yeni hedef olur ve pozisyon buna doğru linear interpolate edilir.
+    // Snapshot gecikmelerinde velocity extrapolation da eklenir.
     invokeBallLerp(dt) {
-        if (!this._ballLerpState || this.network?.isHost) return;
-        if (!this._ballTargetPos) {
-            this.ball.mesh.position.copy(this.ball.position);
-            return;
-        }
-        // Son snapshot'tan beri 50ms geçtiyse snap'e doğru kapat, yoksa lerp et.
-        const now = performance.now();
-        const t = (now - (this._ballLerpState.lastSnapshotAt || 0)) / 33;
-        const alpha = Math.min(1, Math.max(0, t));
-        const p = this._ballLerpState.prev;
+        if (!this._ballTargetPos || this.network?.isHost) return;
+        const p = this._ballPrevPos;
         const tg = this._ballTargetPos;
+        if (!p || !tg) { this.ball.mesh.position.copy(this.ball.position); return; }
+
+        const elapsed = performance.now() - (this._ballLerpStart || 0);
+        const alpha = Math.min(1, elapsed / (this._ballLerpDuration || 50));
+
+        // Her frame pozisyonu lerp ile güncelle
         this.ball.position.x = p.x + (tg.x - p.x) * alpha;
         this.ball.position.y = p.y + (tg.y - p.y) * alpha;
         this.ball.position.z = p.z + (tg.z - p.z) * alpha;
+
+        // Extrapolation: yeni snapshot gelmediyse velocity ile devam et
+        if (alpha >= 1) {
+            this.ball.position.x += this.ball.velocity.x * dt;
+            this.ball.position.y += this.ball.velocity.y * dt;
+            this.ball.position.z += this.ball.velocity.z * dt;
+        }
+
         this.ball.mesh.position.copy(this.ball.position);
     }
     updateScoresFromNetwork(data) {
@@ -2071,6 +2394,11 @@ export class Game {
             this.scoreboard.blueScore = data.blue;
             this.scoreboard.timeRemaining = data.time;
             this.scoreboard.roundNum = data.round;
+            // Kill feed sync
+            if (data.killFeed) {
+                this.killFeed = data.killFeed;
+                this.ui.updateKillFeed?.(this.killFeed);
+            }
         }
     }
     // Client tarafında roundEnd sadece UI/IPC amaçlı: round bitti mesajını göster ve round timer'i başlat.
@@ -2083,6 +2411,118 @@ export class Game {
         else if (data?.winner === 'draw') this.ui.showMessage?.('⚔️ DOUBLE KO — DRAW!', 2000);
     }
     startRoundFromNetwork() { this.startRound(); }
+
+    // Client: host'tan remoteAttackAnim mesajı gelince, remote player'ın
+    // saldırı animasyonunu göster (kol sallama, efekt).
+    // Client: host'tan gelen bot pozisyon verilerini bot dummy'lerine uygula.
+    applyBotSync(data) {
+        if (!data?.bots || this.network?.isHost) return;
+        for (const bd of data.bots) {
+            const peerId = `bot:${bd.name}`;
+            let p = this.remotePlayers.get(peerId);
+            if (!p) {
+                p = this._createRemotePlayer(peerId, bd.name, bd.team);
+                p.isBotEntity = true;
+                this.remotePlayers.set(peerId, p);
+            }
+            p.prevPos.set(p.position.x, p.position.y, p.position.z);
+            p.targetPos.set(bd.x, bd.y, bd.z);
+            p.interpAlpha = 0;
+            p.team = bd.team || p.team;
+            p.group.rotation.y = bd.ry || 0;
+            p.alive = bd.alive !== false;
+            p.group.visible = p.alive;
+            p.hp = bd.hp ?? p.hp;
+            if (bd.charId) p.charId = bd.charId;
+        }
+    }
+
+    handleRemoteAttackAnim(data) {
+        if (!data || this.network?.isHost) return;
+        const p = this.remotePlayers.get(data.peerId);
+        if (!p) return;
+        p.attacking = true;
+        p.attackTimer = 0.3;
+        if (data.ax !== undefined) p.aimDir.set(data.ax, data.ay, data.az).normalize();
+        // Attack sesi — uzaktan gelen top vuruşu
+        this.audio?.playSfx?.('tf2_hit', 0.15);
+        setTimeout(() => { if (p) p.attacking = false; }, 300);
+    }
+
+    // --- P2P SYNC HANDLERS ---
+
+    applyMapChange(data) {
+        if (!data?.mapId || this.network?.isHost) return;
+        if (this.arena.mapId === data.mapId) return;
+        this.arena.rebuild(data.mapId);
+        this.ui.showMessage?.(`Arena: ${this.arena.config?.name || data.mapId}`, 1400);
+        // Oyuncuları yeni haritada spawn et
+        this.player.respawn();
+        this.bots.forEach(b => b.respawn());
+        this.remotePlayers.forEach(p => {
+            if (p.position && !p.isBotEntity) {
+                p.position.copy(this.arena.getPlayerSpawn(p.team));
+                p.group.position.copy(p.position).add(new THREE.Vector3(0, -1.2, 0));
+            }
+        });
+    }
+
+    applyModeChange(data) {
+        if (!data?.modeId || this.network?.isHost) return;
+        this.selectMode(data.modeId);
+    }
+
+    applyPowerUpState(data) {
+        if (!data?.powerUps || this.network?.isHost) return;
+        // Mevcut power-up'ları temizle
+        for (const pu of this.powerUps) {
+            this.renderer.scene.remove(pu.mesh);
+            pu.mesh.geometry?.dispose();
+            pu.mesh.material?.dispose();
+        }
+        this.powerUps = [];
+        // Host'tan gelen power-up'ları oluştur
+        for (const pu of data.powerUps) {
+            const colors = { speed: 0xffee00, shield: 0x44aaff, damage: 0xff4444 };
+            const geo = new THREE.SphereGeometry(0.4, 8, 8);
+            const mat = new THREE.MeshBasicMaterial({ color: colors[pu.type] || 0xffffff, transparent: true, opacity: 0.85 });
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.set(pu.x, 1.2, pu.z);
+            this.renderer.scene.add(mesh);
+            this.powerUps.push({ type: pu.type, mesh, x: pu.x, z: pu.z, time: performance.now(), label: '' });
+        }
+    }
+
+    applyCelebrationStart(data) {
+        if (!data || this.network?.isHost) return;
+        // Client celebration state'ine gir — winner/loser UI'ı göster
+        this.state = STATES.CELEBRATION;
+        this._celebrationTimer = data.duration || 30;
+        this._winningTeam = data.winner || null;
+        this._won = this._winningTeam !== null && this.player.team === this._winningTeam;
+        this.ball.deactivate();
+        this.player.lock();
+        this.player._celebNoAttack = (this.player.team !== this._winningTeam);
+        this.ui.setPlayerTarget(false);
+        this.bots.forEach(bot => bot.setTargetOutline(false));
+        this.ui.showMessage?.(data.message || '', 3000);
+        if (this._won) {
+            this.audio?.playSfx?.('tf2_victory', 0.55);
+        } else {
+            this.audio?.playSfx?.('tf2_you_failed', 0.5);
+        }
+    }
+
+    applyGameOver(data) {
+        if (!data || this.network?.isHost) return;
+        this.state = STATES.GAME_OVER;
+        this.player.unlock();
+        this.player._celebNoAttack = false;
+        // XP / reward screen — host'tan gelen verilerle
+        const winnerText = `RED ${data.redScore} - ${data.blueScore} BLUE`;
+        this.ui.showPostGame?.(this._won, data.xp || 0, 1, data.kills || 0, data.rally || 0, this.audio, { winnerText, playerStats: data.playerStats || [] });
+    }
+
     setBotDifficulty(d) { this.botDifficulty = d; }
 
     // --- Sprite helpers for remote players ---
