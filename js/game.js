@@ -1088,7 +1088,8 @@ export class Game {
         // until host sends new ballState (re-enables lerp).
         if (this.network?.connected && !this.network?.isHost) {
             this.ball._lerping = false;
-            this._skipBallSync = 2; // skip 2 host ballState updates (~66ms) for stable local prediction
+            this._skipBallSync = 2;
+            this._lastDeflectTime = performance.now();
         }
 
         // Pick the enemy closest to where you're looking
@@ -1335,8 +1336,10 @@ export class Game {
                 } else {
                     hitTarget.alive = false;
                 }
+                if (!this._playerDeathTime) this._playerDeathTime = {};
+                this._playerDeathTime[name] = performance.now();
                 this.ball.deactivate();
-                const comboNames = ['', 'FIRST BLOOD', 'DOUBLE KILL', 'TRIPLE KILL', 'QUADRA KILL', 'PENTA KILL', 'ACE'];
+                this._ballDeactivationTime = performance.now(); = ['', 'FIRST BLOOD', 'DOUBLE KILL', 'TRIPLE KILL', 'QUADRA KILL', 'PENTA KILL', 'ACE'];
                 const comboSounds = ['', 'music/1kill.sfx', 'music/2kill.sfx', 'music/3kill.sfx', 'music/4kill.sfx', 'music/4kill.sfx', 'music/ace.sfx'];
                 const tf2ComboSounds = ['', 'tf2_domination', 'tf2_crit', 'tf2_victory', 'tf2_victory', 'tf2_victory', 'tf2_victory'];
                 const idx = Math.min(this.killStreak, 6);
@@ -1363,6 +1366,7 @@ export class Game {
                 }
             } else {
                 this.ball.deactivate();
+                this._ballDeactivationTime = performance.now();
                 if (hitTarget.drawHpBar) hitTarget.drawHpBar();
                 this.ui.updateVitals?.(this.player.hp, this.player.maxHp, this.player.shield,
                     this.player.stamina, this.player.staminaMax, this.player.exhausted);
@@ -2234,8 +2238,43 @@ export class Game {
             p.position.set(data.x, data.y, data.z);
             p.targetPos?.set(data.x, data.y, data.z);
         }
-        if (!p.alive) return;
-        if (!this.ball.active) return;
+
+        // Grace window: allow late deflects from recently-dead players (client prediction vs host latency)
+        const DEATH_GRACE = 250; // ms
+        const now = performance.now();
+        const wasRecentlyDead = !p.alive && this._playerDeathTime?.[p.name]
+            && (now - this._playerDeathTime[p.name]) < DEATH_GRACE;
+        if (!p.alive && !wasRecentlyDead) return;
+
+        // Grace window: allow deflect if ball was active recently (host deactivated it)
+        const BALL_GRACE = 200; // ms
+        const ballWasRecent = !this.ball.active && this._ballDeactivationTime
+            && (now - this._ballDeactivationTime) < BALL_GRACE;
+        if (!this.ball.active && !ballWasRecent) return;
+
+        // Late deflect: player was dead but attack arrived in time — revive
+        if (wasRecentlyDead) {
+            p.alive = true;
+            p.hp = p.maxHp;
+            p.group.visible = true;
+            delete this._playerDeathTime[p.name];
+            // Cancel pending respawn / round end
+            this._pendingHitTarget = null;
+            // Broadcast correction so clients also revive this player
+            this.network.broadcast({
+                type: 'playerHit', victimPeerId: peerId, victimName: p.name,
+                hp: p.hp, alive: true, dmg: 0, lethal: false,
+                hitX: p.position.x, hitY: p.position.y, hitZ: p.position.z,
+                victimTeam: p.team
+            });
+        }
+
+        // Reactivate ball if it was recently deactivated
+        if (ballWasRecent && !this.ball.active) {
+            this.ball.active = true;
+            this.ball.mesh.visible = true;
+        }
+
         p.aimDir.set(data.ax ?? p.aimDir.x, data.ay ?? p.aimDir.y, data.az ?? p.aimDir.z).normalize();
         p.attacking = true;
         p.attackTimer = 0.3;
@@ -2261,16 +2300,14 @@ export class Game {
             this.scoreboard.recordDeflection(p.name);
             this.audio.playDeflect(result.shot);
             // Remote attack görselini diğer client'lara yayınla
-            if (this.network?.isHost) {
-                this.network.broadcast({
-                    type: 'remoteAttackAnim',
-                    peerId,
-                    ax: p.aimDir.x, ay: p.aimDir.y, az: p.aimDir.z,
-                    attacking: true,
-                    shot: result.shot,
-                    pos: { x: attackPos.x, y: attackPos.y, z: attackPos.z }
-                });
-            }
+            this.network.broadcast({
+                type: 'remoteAttackAnim',
+                peerId,
+                ax: p.aimDir.x, ay: p.aimDir.y, az: p.aimDir.z,
+                attacking: true,
+                shot: result.shot,
+                pos: { x: attackPos.x, y: attackPos.y, z: attackPos.z }
+            });
         }
         setTimeout(() => { if (p) p.attacking = false; }, 300);
     }
@@ -2432,6 +2469,14 @@ export class Game {
         const isClient = this.network?.connected && !this.network?.isHost;
         const isLethal = data.lethal || data.alive === false;
 
+        // Client deflect immunity: if we just deflected (<150ms), ignore stale death from host
+        // Host has 250ms grace to process our late deflect — must be shorter than host window
+        if (isClient && isLethal && target === this.player && data.alive === false && this._lastDeflectTime) {
+            if (performance.now() - this._lastDeflectTime < 150) {
+                return;
+            }
+        }
+
         // Client: play effects for every playerHit (host already played them)
         if (isClient && data.hitX !== undefined) {
             const hitPos = new THREE.Vector3(data.hitX, data.hitY, data.hitZ);
@@ -2544,7 +2589,7 @@ export class Game {
             this._ballPrevPos = { x: this.ball.position.x, y: this.ball.position.y, z: this.ball.position.z };
             this._ballTargetPos = { x: data.x, y: data.y, z: data.z };
             this._ballLerpStart = now;
-            this._ballLerpDuration = this.ball._lerping ? 80 : 250;
+            this._ballLerpDuration = 60;
 
             // Velocity + state her zaman güncel
             this.ball.velocity.set(data.vx, data.vy, data.vz);
