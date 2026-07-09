@@ -1736,8 +1736,8 @@ class App {
         }
     }
     _bgProcessAttackQueue() {
-        if (this._p2pAttackQueued) {
-            this._p2pAttackQueued = false;
+        if (this.player._p2pAttackQueued) {
+            this.player._p2pAttackQueued = false;
             if (this.network?.connected && this.game.state === STATES.PLAYING) {
                 const p = this.player;
                 const aim = p.getAimDirection();
@@ -1987,8 +1987,8 @@ class App {
             }
         }
         // Attack intent: tıklayınca host'a aim + pozisyon yolla (sadece bağlıyken)
-        if (this._p2pAttackQueued) {
-            this._p2pAttackQueued = false;
+        if (this.player._p2pAttackQueued) {
+            this.player._p2pAttackQueued = false;
             if (this.network?.connected && this.game.state === STATES.PLAYING) {
                 const p = this.player;
                 const aim = p.getAimDirection();
