@@ -50,6 +50,7 @@ class App {
         this.network = new Network(null);
         this.game = new Game(this.renderer, this.player, this.arena, this.audio, this.ui, this.network);
         this.network.game = this.game;
+        this.player.game = this.game;
         this.player.audio = this.audio;
 
         // Loadout uygula
@@ -1853,10 +1854,14 @@ class App {
             this._prevCrosshairState = this.game.state;
         }
 
-        // Force pointer lock during gameplay (like m_rawinput 1)
+        // Best-effort pointer lock during gameplay (optional — game works without it).
+        // Throttled + .catch'd so it never spams WrongDocumentError to console.
         if ((this.game.state === STATES.PLAYING || this.game.state === STATES.COUNTDOWN || this.game.state === STATES.CELEBRATION)
             && !document.pointerLockElement) {
-            try { this.renderer.renderer.domElement.requestPointerLock(); } catch (_) {}
+            if (!this._plRetry || performance.now() - this._plRetry > 500) {
+                this._plRetry = performance.now();
+                try { this.renderer.renderer.domElement.requestPointerLock()?.catch?.(() => {}); } catch (_) {}
+            }
         }
 
         // Spectator mode overrides player input
@@ -2003,10 +2008,9 @@ class App {
                 });
                 // Attack burst: next 5 position sends at 30Hz for precise movement
                 this._p2pAttackBurst = 5;
-                // Lokal feedback — host yanıtını beklemeden ses/efekt oynat
-                this.audio?.playSfx?.('tf2_hit', 0.25);
+                // Instant swing feedback (whoosh only — actual hit sound + sparks
+                // come from host's remoteAttackAnim broadcast so it stays consistent).
                 this.audio?.playWhoosh?.(this.game.ball.getSpeed());
-                this.game.juice?.sparks?.(p.position.clone().add(new THREE.Vector3(0, 1, 0)), 0x88ddff, 4);
             }
         }
 

@@ -10,6 +10,7 @@ import { Juice } from './juice.js';
 import { applyMode, GAME_MODES } from './gamemodes.js';
 import { EmoteSystem } from './emotes.js';
 import { AffixManager } from './affixes.js';
+import { SKILLS, useSkill } from './skills.js';
 
 const BASE_HIT_DAMAGE = 25;
 
@@ -687,11 +688,11 @@ export class Game {
         let winner = null;
         if (redAlive.length === 0 && blueAlive.length > 0) {
             this.scoreboard.blueScore++;
-            this.ui.showMessage?.('🔵 BLUE TEAM WINS THE ROUND!', 2000);
+            this.announce('🔵 BLUE TEAM WINS THE ROUND!', 'tf2_domination', 0.5, 2000);
             winner = 'blue';
         } else if (blueAlive.length === 0 && redAlive.length > 0) {
             this.scoreboard.redScore++;
-            this.ui.showMessage?.('🔴 RED TEAM WINS THE ROUND!', 2000);
+            this.announce('🔴 RED TEAM WINS THE ROUND!', 'tf2_domination', 0.5, 2000);
             winner = 'red';
         } else if (redAlive.length === 0 && blueAlive.length === 0) {
             this.ui.showMessage?.('⚔️ DOUBLE KO — DRAW!', 2000);
@@ -743,28 +744,21 @@ export class Game {
         // Client sadece render + remote interpolation + HUD yapar.
         const isClient = this.network && this.network.connected && !this.network.isHost;
         if (isClient && this.state === STATES.PLAYING) {
-            // Process skill (Q) on client too
+            // Skill (Q): apply cooldown + self-effects locally for instant HUD
+            // feedback, and send intent to host for authoritative ball/other-player
+            // effects (host also broadcasts skillEffect for the visual/sound).
             if (this.player._skillQueued) {
                 this.player._skillQueued = false;
-                const ctx = { ball: this.ball, target: this.ball.targetPlayer, game: this };
-                if (this.player.tryUseSkill(ctx)) {
-                    this.ui?.showMessage?.(`${this.player.loadout.skill.toUpperCase()}!`, 800);
-                    this.audio?.playSfx?.('tf2_medic', 0.35);
-                    if (this.player.loadout.skill === 'blackhole') this.spawnBlackHole();
-                }
+                const skillId = this.player.loadout.skill;
+                useSkill(this.player, skillId, { ball: null, target: null, game: this });
+                const aim = this.player.getAimDirection();
+                this.network.sendSkillUse({
+                    skill: skillId,
+                    ax: aim.x, ay: aim.y, az: aim.z,
+                    bx: this.ball.position.x, by: this.ball.position.y, bz: this.ball.position.z
+                });
             }
-            // Client-side prediction: local deflection for instant feedback.
-            // Generous range (2.5x) so client always feels the hit; host is authoritative.
-            if (this.player.alive && this.player.isAttacking() &&
-                this.player.getPosition().distanceTo(this.ball.position) < this.ball.attackRange * 2.5) {
-                this._ballTargetPos = null;
-                this.handlePlayerDeflection();
-            }
-            // Advance ball locally when lerp is paused (after local deflection)
-            // so ball flies in deflected direction until host snapshot arrives.
-            if (!this._ballTargetPos) {
-                this.ball.update(dt);
-            }
+            // Ball is purely lerped from host snapshots (smooth, no client physics divergence).
             this.updateDeathParticles(dt);
             this.updateChatBubbles(dt);
             this.arena.update(performance.now() / 1000);
@@ -1093,14 +1087,16 @@ export class Game {
         this.updateMinimap();
     }
 
-    handlePlayerDeflection() {
+    handlePlayerDeflection(skipAimCheck = false) {
         const pos = this.player.getPosition();
         const aimDir = this.player.getAimDirection();
         const team = this.player.team;
 
-        // Skill check: must be roughly looking at the ball (~100° cone)
+        // Skill check: must be roughly looking at the ball (~100° cone).
+        // Client-side prediction skips this so the hit ALWAYS feels connected
+        // (host is authoritative and still enforces it via remoteAttack).
         const ballDir = new THREE.Vector3().subVectors(this.ball.position, pos).normalize();
-        if (aimDir.dot(ballDir) < -0.2) return;
+        if (!skipAimCheck && aimDir.dot(ballDir) < -0.2) return;
 
         // Pick the enemy closest to where you're looking
         const nextTarget = this.getAimedEnemy(pos, aimDir, team);
@@ -1339,9 +1335,11 @@ export class Game {
                 this._playComboSound(comboSounds[idx]);
                 if (tf2ComboSounds[idx]) this.audio.playSfx(tf2ComboSounds[idx], 0.5);
                 this.ui.showCombo(comboName, 8.0);
+                // FIRST BLOOD / DOUBLE KILL vb. combo'yu tüm client'lara yayınla
+                this.announce(`🔥 ${comboName}!`, tf2ComboSounds[idx] || null, 0.5, 2500);
             }
             const rallyMsg = this.rallyCount > 2 ? ` (${this.rallyCount} rally!)` : '';
-            this.ui.showMessage(`💥 ${name} KO'd!${rallyMsg}${missTag}${perfectTag}`, 2000);
+            this.announce(`💥 ${name} KO'd!${rallyMsg}${missTag}${perfectTag}`, null, 0.4, 2000);
             if (scorerName) this.scoreboard.recordPoint(scorerName, 1); // ponytail: kill = 1 puan
             this.scoreboard.recordDeath(name); // victim death
             // Assist: son 2 deflector'a (scorer dışında) assist ver
@@ -2224,18 +2222,16 @@ export class Game {
 
     remoteAttack(peerId, data = {}) {
         if (!this.network?.isHost) return;
-        const log = (msg) => console.log(`[remoteAttack ${peerId.slice(0,6)}] ${msg}`);
-        log(`received from ${data.name}`);
         let p = this.remotePlayers.get(peerId);
         if (!p) {
-            if (!data.name || data.x === undefined) { log('no player data'); return; }
+            if (!data.name || data.x === undefined) return;
             p = this.addRemotePlayer(peerId, data.name, data.team);
-            if (!p) { log('addRemotePlayer failed'); return; }
+            if (!p) return;
             p.position.set(data.x, data.y, data.z);
             p.targetPos?.set(data.x, data.y, data.z);
         }
-        if (!p.alive) { log('player dead'); return; }
-        if (!this.ball.active) { log('ball inactive'); return; }
+        if (!p.alive) return;
+        if (!this.ball.active) return;
         p.aimDir.set(data.ax ?? p.aimDir.x, data.ay ?? p.aimDir.y, data.az ?? p.aimDir.z).normalize();
         p.attacking = true;
         p.attackTimer = 0.3;
@@ -2246,10 +2242,8 @@ export class Game {
             ? new THREE.Vector3(data.bx, data.by, data.bz)
             : this.ball.position;
         const distToClientBall = attackPos.distanceTo(clientBallPos);
-        const distToHostBall = this.ball.position.distanceTo(attackPos);
         const inRange = distToClientBall < this.ball.attackRange * 1.8
             || this.ball.isInAttackRange(attackPos);
-        log(`distToClientBall=${distToClientBall.toFixed(2)} distToHostBall=${distToHostBall.toFixed(2)} inRange=${inRange} range=${this.ball.attackRange}`);
         if (inRange) {
             const target = this.getAimedEnemy(attackPos, p.aimDir, p.team);
             const result = this.ball.deflectWithAim(attackPos, p.aimDir, target, data.flick || { vertical: 0, horizontal: 0, power: 0 });
@@ -2275,6 +2269,25 @@ export class Game {
             }
         }
         setTimeout(() => { if (p) p.attacking = false; }, 300);
+    }
+
+    // Host: client gönderdiği skill intent'i authoritative işler.
+    // Topu/hedefi/oyuncuyu değiştirir, sonra efekti tüm client'lara yayınlar.
+    handleSkillUse(peerId, data = {}) {
+        if (!this.network?.isHost) return;
+        const p = this.remotePlayers.get(peerId);
+        if (!p || !data.skill) return;
+        const skillId = data.skill;
+        const target = this.ball.targetPlayer;
+        // Remote player bir Player instance'ı değil — useSkill fonksiyonunu doğrudan çağır.
+        const ok = useSkill(p, skillId, { ball: this.ball, target, game: this });
+        if (ok) {
+            // Black hole topu çeker — host'ta authoritative spawn (bal fiziği için).
+            if (skillId === 'blackhole') this.spawnBlackHole();
+            this.network.broadcastSkillEffect(skillId, peerId, {
+                x: p.position.x, y: p.position.y, z: p.position.z
+            });
+        }
     }
 
     applyLobbyState(data) {
@@ -2537,7 +2550,9 @@ export class Game {
 
     handleRemoteAttackAnim(data) {
         if (!data || this.network?.isHost) return;
-        const p = this.remotePlayers.get(data.peerId);
+        // Local player's own deflect also arrives here (host broadcasts to all).
+        const isLocal = data.peerId === this.network?.peer?.id;
+        const p = isLocal ? this.player : this.remotePlayers.get(data.peerId);
         if (!p) return;
         p.attacking = true;
         p.attackTimer = 0.3;
@@ -2553,6 +2568,36 @@ export class Game {
             this.juice.sparks(new THREE.Vector3(data.pos.x, data.pos.y, data.pos.z), 0x88ddff, 4);
         }
         setTimeout(() => { if (p) p.attacking = false; }, 300);
+    }
+
+    // Client: host'tan gelen skill efektini oynat (ses + mesaj + görsel).
+    handleSkillEffect(data = {}) {
+        if (!data || this.network?.isHost) return;
+        const skill = SKILLS[data.skill];
+        const name = skill ? skill.name.toUpperCase() : (data.skill || 'SKILL');
+        this.ui?.showMessage?.(`${name}!`, 800);
+        this.audio?.playSfx?.('tf2_medic', 0.35);
+        if (data.pos && this.juice?.sparks) {
+            this.juice.sparks(new THREE.Vector3(data.pos.x, data.pos.y, data.pos.z), 0x88ddff, 10);
+        }
+        if (data.skill === 'blackhole' && this.spawnBlackHole) this.spawnBlackHole();
+    }
+
+    // Host: announcement'ı hem local oynat hem tüm client'lara yayınla.
+    // first blood, KO, combo, round/team win gibi juicy mesajlar herkeste çalsın.
+    announce(text, sfx, sfxVol = 0.4, duration = 1500) {
+        this.ui?.showMessage?.(text, duration);
+        if (sfx && this.audio) this.audio.playSfx(sfx, sfxVol);
+        if (this.network?.isHost) {
+            this.network.broadcast({ type: 'announce', text, sfx, sfxVol, duration });
+        }
+    }
+
+    // Client: host'tan gelen announcement'ı oynat.
+    applyAnnounce(data = {}) {
+        if (!data || this.network?.isHost) return;
+        this.ui?.showMessage?.(data.text, data.duration || 1500);
+        if (data.sfx && this.audio) this.audio.playSfx(data.sfx, data.sfxVol || 0.4);
     }
 
     // --- P2P SYNC HANDLERS ---

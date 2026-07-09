@@ -149,6 +149,15 @@ export class Network {
             case 'attack':
                 this.game.remoteAttack(peerId, data);
                 break;
+            case 'skillUse':
+                if (this.isHost) this.game.handleSkillUse(peerId, data);
+                break;
+            case 'skillEffect':
+                if (!this.isHost) this.game.handleSkillEffect(data);
+                break;
+            case 'announce':
+                if (!this.isHost) this.game.applyAnnounce(data);
+                break;
             case 'chat':
                 this.game.addChatMessage(data.name, data.text);
                 if (this.isHost) this.broadcast(data);
@@ -344,6 +353,15 @@ export class Network {
 
     sendAttack(extra = {}) {
         this.send({ type: 'attack', ...extra });
+    }
+
+    sendSkillUse(extra = {}) {
+        this.send({ type: 'skillUse', ...extra });
+    }
+
+    broadcastSkillEffect(skillId, peerId, pos) {
+        if (!this.isHost) return;
+        this.broadcast({ type: 'skillEffect', skill: skillId, peerId, pos });
     }
 
     // RTT ölçümü — nonce işaretlenir, periyodik olarak peer'a yollanır.

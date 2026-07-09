@@ -171,7 +171,12 @@ export class Player {
         });
         document.addEventListener('keyup', e => { this.keys[e.code] = false; });
         document.addEventListener('mousemove', e => {
-            if (!this.locked) return;
+            // Pointer lock OPTIONAL: camera turns with or without it (movementX/Y works ungated).
+            // Only look during live play and when not typing in a chat/text input.
+            if (!this.alive) return;
+            const st = this.game?.state;
+            if (st !== 'PLAYING' && st !== 'COUNTDOWN') return;
+            if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) return;
             this.euler.y -= e.movementX * this.sensitivity;
             this.euler.x -= e.movementY * this.sensitivity;
             this.euler.x = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, this.euler.x));
@@ -182,15 +187,16 @@ export class Player {
             this.flickY += e.movementY; // +down, -up on screen
         });
         document.addEventListener('mousedown', e => {
-            if (e.button === 0 && this.alive &&
-                (this.locked || e.target === this.renderer.domElement || this.renderer.domElement.contains(e.target))) {
+            // Pointer lock OPTIONAL: any left-click during live play attacks.
+            // No dependency on lock state or click target (HUD sibling of canvas).
+            if (e.button === 0 && this.alive && this.game?.state === 'PLAYING') {
                 if (!this.locked) this.lock();
                 this.tryAttack();
             }
         });
         // ponytail: Q tuşu aktif skill (sadece oyun sırasında)
         document.addEventListener('keydown', e => {
-            if (e.code === 'KeyQ' && this.alive) {
+            if (e.code === 'KeyQ' && this.alive && this.game?.state === 'PLAYING') {
                 if (!this.locked) this.lock();
                 this._skillQueued = true;
             }
