@@ -150,9 +150,8 @@ class App {
             // Chat açıkken M tuşu takım menüsü açmasın.
             if (this.chatOpen) return;
 
-            // M → team popup
-            if (e.code === 'KeyM' &&
-                (this.game.state === STATES.PLAYING || this.game.state === STATES.LOBBY)) {
+            // M → team popup (only in-game, lobby has team buttons)
+            if (e.code === 'KeyM' && this.game.state === STATES.PLAYING) {
                 e.preventDefault();
                 this.toggleTeamPopup();
             }
@@ -1552,7 +1551,7 @@ class App {
                 if (v !== this._lobbyName) {
                     this._lobbyName = v;
                     this.broadcastLobbyState();
-                    this._registerLobby(code, v, this.network.connections.size + 1, this.arena.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
+                    this._registerLobby(code, v, this.network.connections.size + 1, this.arena?.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
                 }
             };
             const onLobbyNameInput = () => {
@@ -1742,11 +1741,13 @@ class App {
             if (this.network?.connected && this.game.state === STATES.PLAYING) {
                 const p = this.player;
                 const aim = p.getAimDirection();
+                const ball = this.game.ball;
                 this.network.sendAttack({
                     name: this.game.playerName, team: p.team,
                     x: p.position.x, y: p.position.y, z: p.position.z,
                     ry: p.euler.y,
                     ax: aim.x, ay: aim.y, az: aim.z,
+                    bx: ball.position.x, by: ball.position.y, bz: ball.position.z,
                     clientTime: performance.now()
                 });
                 this._p2pAttackBurst = 5;
@@ -1991,11 +1992,13 @@ class App {
             if (this.network?.connected && this.game.state === STATES.PLAYING) {
                 const p = this.player;
                 const aim = p.getAimDirection();
+                const ball = this.game.ball;
                 this.network.sendAttack({
                     name: this.game.playerName, team: p.team,
                     x: p.position.x, y: p.position.y, z: p.position.z,
                     ry: p.euler.y,
                     ax: aim.x, ay: aim.y, az: aim.z,
+                    bx: ball.position.x, by: ball.position.y, bz: ball.position.z,
                     clientTime: performance.now()
                 });
                 // Attack burst: next 5 position sends at 30Hz for precise movement

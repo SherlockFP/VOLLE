@@ -2221,7 +2221,14 @@ export class Game {
         const attackPos = (data.x !== undefined)
             ? new THREE.Vector3(data.x, data.y, data.z)
             : p.getPosition();
-        if (this.ball.isInAttackRange(attackPos)) {
+        // Remote attack range check: use client's reported ball position (bx,by,bz)
+        // to account for latency — the host's ball is ahead of what the client saw.
+        const clientBallPos = (data.bx !== undefined)
+            ? new THREE.Vector3(data.bx, data.by, data.bz)
+            : this.ball.position;
+        const inRange = attackPos.distanceTo(clientBallPos) < this.ball.attackRange * 1.8
+            || this.ball.isInAttackRange(attackPos);
+        if (inRange) {
             const target = this.getAimedEnemy(attackPos, p.aimDir, p.team);
             const result = this.ball.deflectWithAim(attackPos, p.aimDir, target, data.flick || { vertical: 0, horizontal: 0, power: 0 });
             if (target) this.ball.setTarget(target);

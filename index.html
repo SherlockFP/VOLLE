@@ -584,27 +584,19 @@
         <div class="team-popup">
             <h3 style="text-align:center;margin-bottom:12px;color:var(--accent);">TEAMS</h3>
             <div class="team-popup-grid">
-                <div class="team-col red">
-                    <div class="team-col-header">🔴 RED</div>
+                <div class="team-col red" id="team-col-red">
+                    <div class="team-col-header" id="team-header-red">🔴 RED <span class="team-click-hint">click to join</span></div>
                     <ul class="team-list" id="team-list-red"></ul>
                 </div>
-                <div class="team-col blue">
-                    <div class="team-col-header">🔵 BLUE</div>
+                <div class="team-col blue" id="team-col-blue">
+                    <div class="team-col-header" id="team-header-blue">🔵 BLUE <span class="team-click-hint">click to join</span></div>
                     <ul class="team-list" id="team-list-blue"></ul>
                 </div>
             </div>
             <div class="team-popup-actions">
-                <label class="team-toggle">
-                    <input type="checkbox" id="team-balance-toggle" checked>
-                    <span>Auto-balance (teams must be equal)</span>
-                </label>
-                <div class="team-popup-btns">
-                    <button id="btn-team-popup-red" class="btn btn-red btn-small">Join Red</button>
-                    <button id="btn-team-popup-blue" class="btn btn-blue btn-small">Join Blue</button>
-                    <button id="btn-team-popup-spectate" class="btn btn-small">👁 Spectate</button>
-                </div>
+                <button id="btn-team-popup-spectate" class="btn btn-small">👁 Spectate</button>
             </div>
-            <p style="text-align:center;color:#888;font-size:12px;margin-top:8px;">Click a player to switch · ESC to close · M to toggle</p>
+            <p style="text-align:center;color:#888;font-size:12px;margin-top:8px;">Click a team to join · Click a player to move · ESC to close · M to toggle</p>
         </div>
     </div>
 

@@ -294,43 +294,9 @@ export class Ball {
             this.spin *= Math.exp(-0.8 * dt); // was -1.5, longer-lasting curve
         }
 
-        // Source Engine-style wall bounces:
-        // - Speed-preserving reflection (angle in ≈ angle out, minimal energy loss)
-        // - Floor/ceiling same physics
-        // - Fast ball = punchy bounce; slow ball = dead bounce
-        const b = this.arena.bounds;
+        // Wall collision removed — ball goes outside map. Players chase it anywhere.
         let bounced = false;
         let bounceSpeed = 0;
-
-        const wallBounce = (v, absV) => {
-            const speed = this.velocity.length();
-            const keep = 0.95 + Math.min(0.05, speed * 0.001); // fast = less speed loss
-            bounceSpeed = Math.max(bounceSpeed, speed * keep);
-            return -absV * keep;
-        };
-
-        if (this.position.x - this.radius < b.minX) {
-            this.position.x = b.minX + this.radius;
-            this.velocity.x = wallBounce(this.velocity.x, Math.abs(this.velocity.x));
-            bounced = true;
-        }
-        if (this.position.x + this.radius > b.maxX) {
-            this.position.x = b.maxX - this.radius;
-            this.velocity.x = wallBounce(this.velocity.x, Math.abs(this.velocity.x));
-            bounced = true;
-        }
-        if (this.position.z - this.radius < b.minZ) {
-            this.position.z = b.minZ + this.radius;
-            this.velocity.z = wallBounce(this.velocity.z, Math.abs(this.velocity.z));
-            bounced = true;
-        }
-        if (this.position.z + this.radius > b.maxZ) {
-            this.position.z = b.maxZ - this.radius;
-            this.velocity.z = wallBounce(this.velocity.z, Math.abs(this.velocity.z));
-            bounced = true;
-        }
-
-        if (bounced) this.bounceCount++;
 
         // Collision with map props (trees, pillars, mecha legs, canyon rocks)
         if (this.arena.collidables) {
@@ -512,37 +478,39 @@ export class Ball {
     deflectWithAim(fromPos, aimDir, target, flick = { vertical: 0, horizontal: 0, power: 0 }, momentum = null) {
         this.deflections++;
         this.bodyZone = ['head','chest','abdomen','legs'][Math.floor(Math.random() * 4)];
-        this.currentSpeed *= this.speedMultiplier;  // no cap
+        // Speed ramp: gentle curve after 500% to avoid 6000-8000% bug
+        const speedPct = this.currentSpeed / this.baseSpeed;
+        let rampMul = this.speedMultiplier;
+        if (speedPct > 5) rampMul = 1 + (this.speedMultiplier - 1) * (5 / speedPct);
+        this.currentSpeed = Math.min(this.currentSpeed * rampMul, this.maxSpeed);
         this.state = 'rally';
         this.aimed = true;
 
         // Classify the flick.
-        const spike = flick.vertical > 25 && flick.power > 0.35;
-        const lob = flick.vertical < -25 && flick.power > 0.35;
-        const powerBonus = 1 + (flick.power || 0) * 0.15;
+        const spike = flick.vertical > 20 && flick.power > 0.25;
+        const lob = flick.vertical < -20 && flick.power > 0.25;
+        const powerBonus = 1 + (flick.power || 0) * 0.2;
         let shot = 'flat';
         let speed = this.currentSpeed * powerBonus;
 
         if (spike) {
             shot = 'spike';
-            speed = Math.min(this.currentSpeed * 1.15 * powerBonus, this.maxSpeed * 1.1);
+            speed = Math.min(this.currentSpeed * 1.2 * powerBonus, this.maxSpeed * 1.1);
             const dir = aimDir.clone();
-            dir.y = Math.min(dir.y - 0.35, -0.15);
+            dir.y = Math.min(dir.y - 0.3, -0.1);
             dir.normalize();
             this.velocity.copy(dir.multiplyScalar(speed));
         } else if (lob) {
             shot = 'lob';
             const dir = aimDir.clone();
-            dir.y = Math.max(dir.y + 0.4, 0.35);
+            dir.y = Math.max(dir.y + 0.3, 0.3);
             dir.normalize();
             this.velocity.copy(dir.multiplyScalar(speed * 0.9));
-            this.velocity.y = Math.max(this.velocity.y, 6.5);
+            this.velocity.y = Math.max(this.velocity.y, 5);
         } else {
-            // Accurate aim: use full direction (including vertical), with net clearance
-            const dir = aimDir.clone().normalize();
-            this.velocity.copy(dir.multiplyScalar(speed));
-            // Ensure ball still arcs over net
-            if (this.velocity.y < speed * 0.2) this.velocity.y = speed * 0.2;
+            // Full aim direction control — no auto-vertical minimum
+            // Player aims exactly where ball goes; walls removed so ball can fly anywhere
+            this.velocity.copy(aimDir.clone().normalize().multiplyScalar(speed));
         }
 
         // Source Engine momentum — player movement adds to ball velocity
@@ -577,7 +545,10 @@ export class Ball {
     deflect(fromPos, towardPos) {
         this.deflections++;
         this.bodyZone = ['head','chest','abdomen','legs'][Math.floor(Math.random() * 4)];
-        this.currentSpeed *= this.speedMultiplier;  // no cap
+        const speedPct = this.currentSpeed / this.baseSpeed;
+        let rampMul = this.speedMultiplier;
+        if (speedPct > 5) rampMul = 1 + (this.speedMultiplier - 1) * (5 / speedPct);
+        this.currentSpeed = Math.min(this.currentSpeed * rampMul, this.maxSpeed);
         this.state = 'rally';
         this.aimed = false;
 

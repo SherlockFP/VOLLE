@@ -137,13 +137,10 @@ export class UI {
         const blueList = document.getElementById('team-list-blue');
         if (!redList || !blueList) return;
         const players = game.getPlayerList();
-        // Lobby leader = host, or solo (not connected) → you lead.
         const isHost = !game.network || !game.network.connected || game.network.isHost;
         redList.innerHTML = '';
         blueList.innerHTML = '';
 
-        // Overwatch-style: each player is a clickable row. Clicking moves them to
-        // the OTHER team. Host can move anyone; a non-host can only move themselves.
         players.forEach(p => {
             const li = document.createElement('li');
             const isYou = p.name === game.playerName;
@@ -163,24 +160,16 @@ export class UI {
             (p.team === 'red' ? redList : blueList).appendChild(li);
         });
 
-        const balance = document.getElementById('team-balance-toggle');
-        const joinBtn = (id, team) => {
-            const btn = document.getElementById(id);
-            if (!btn) return;
-            btn.onclick = () => {
-                const autoBalance = balance?.checked ?? true;
-                const counts = { red: 0, blue: 0 };
-                players.forEach(p => counts[p.team]++);
-                if (autoBalance && counts[team] > counts[team === 'red' ? 'blue' : 'red']) return;
-                game.switchTeam(team);
-                this._renderTeamLists(game);
-            };
+        // TF2/CSGO-style: click team header to join
+        const joinTeam = (team) => {
+            game.switchTeam(team);
+            this._renderTeamLists(game);
         };
-        joinBtn('btn-team-popup-red', 'red');
-        joinBtn('btn-team-popup-blue', 'blue');
+        const headerRed = document.getElementById('team-header-red');
+        const headerBlue = document.getElementById('team-header-blue');
+        if (headerRed) headerRed.onclick = () => joinTeam('red');
+        if (headerBlue) headerBlue.onclick = () => joinTeam('blue');
 
-        // Spectator enter/leave — wired by main.js via callbacks so ui.js stays
-        // free of the Spectator import. Label reflects current spectator state.
         const specBtn = document.getElementById('btn-team-popup-spectate');
         if (specBtn && this.onToggleSpectate) {
             specBtn.textContent = this.spectating ? '↩ Leave Spectator' : '👁 Spectate';
