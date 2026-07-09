@@ -1276,6 +1276,31 @@ canvas { display: block; }
     font-weight: 600;
 }
 .cs-top-info span { color: var(--text); }
+.cs-lobby-name {
+    flex: 1;
+    text-align: center;
+    margin: 0 12px;
+}
+.cs-lobby-name-input {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 6px;
+    color: #fff;
+    font-family: var(--font);
+    font-size: 1em;
+    padding: 4px 10px;
+    text-align: center;
+    width: 200px;
+    outline: none;
+    transition: border-color 0.2s;
+}
+.cs-lobby-name-input:focus {
+    border-color: var(--accent);
+}
+.cs-lobby-name-input:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
 .cs-btn-back {
     background: rgba(255,255,255,0.06);
     border: 1px solid rgba(255,255,255,0.1);

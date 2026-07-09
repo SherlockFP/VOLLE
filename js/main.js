@@ -1301,6 +1301,7 @@ class App {
         };
         lock('setting-max-rounds');
         lock('setting-match-time');
+        lock('lobby-name-input');
     }
 
     closeSettingsModal() {
@@ -1391,8 +1392,10 @@ class App {
     broadcastLobbyState() {
         if (!(this.network?.isHost)) return;
         const players = this.game.getPlayerList();
+        const name = document.getElementById('lobby-name-input')?.value || 'Lobby';
+        this._lobbyName = name;
         this.network.broadcast({
-            type: 'lobbyState', players,
+            type: 'lobbyState', players, lobbyName: name,
             settings: {
                 matchTime: parseInt(document.getElementById('setting-match-time')?.value || 300),
                 maxRounds: parseInt(document.getElementById('setting-max-rounds')?.value || 16),
@@ -1539,6 +1542,24 @@ class App {
             this.game.startSolo();
             this.ui.setRoomCode(code);
             this.ui.showScreen('lobby');
+            const nameInput = document.getElementById('lobby-name-input');
+            if (nameInput) { nameInput.disabled = false; nameInput.value = 'Lobby'; }
+            this._lobbyName = 'Lobby';
+            // Lobby name change handler
+            const onLobbyNameChange = () => {
+                if (!this.network?.isHost) return;
+                const v = document.getElementById('lobby-name-input')?.value?.trim() || 'Lobby';
+                if (v !== this._lobbyName) {
+                    this._lobbyName = v;
+                    this.broadcastLobbyState();
+                    this._registerLobby(code, v, this.network.connections.size + 1, this.arena.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
+                }
+            };
+            const onLobbyNameInput = () => {
+                if (this._lobbyNameTimeout) clearTimeout(this._lobbyNameTimeout);
+                this._lobbyNameTimeout = setTimeout(onLobbyNameChange, 400);
+            };
+            if (nameInput) nameInput.addEventListener('input', onLobbyNameInput);
             this.network.onPlayerJoin = (pName, peerId, avatar) => {
                 this.game.addRemotePlayer(peerId, pName, null, avatar);
                 this.ui.showMessage(`${pName} joined!`);
@@ -1546,7 +1567,7 @@ class App {
                 // Mesh: tell existing clients to P2P-connect to the new peer
                 this.network.broadcast({ type: 'newPeer', peerId, name: pName });
                 this.broadcastLobbyState();
-                this._registerLobby(code, `Lobby`, this.network.connections.size + 1, this.arena.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
+                this._registerLobby(code, this._lobbyName, this.network.connections.size + 1, this.arena.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
             };
             this.network.onPlayerLeave = (peerId) => {
                 this.game.removeRemotePlayer(peerId);
@@ -1555,7 +1576,7 @@ class App {
                 // Mesh: tell remaining clients to drop P2P connection
                 this.network.broadcast({ type: 'peerLeft', peerId });
                 this.broadcastLobbyState();
-                this._registerLobby(code, `Lobby`, this.network.connections.size, this.arena.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
+                this._registerLobby(code, this._lobbyName, this.network.connections.size, this.arena.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
             };
             // Host: client kendi takımını değiştirmek isterse uygula, sonra broadcast et.
             this.network.onTeamChange = (pName, team) => {
@@ -1565,12 +1586,12 @@ class App {
             this.network.onGameState = (data) => {
                 if (data.type === 'welcome') this.game.applyLobbyState(data);
             };
-            this._registerLobby(code, `Lobby`, 1, this.arena.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
+            this._registerLobby(code, this._lobbyName, 1, this.arena.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
             this.ui.showMessage?.(`🏠 Lobby created! Code: ${code}`, 3000);
             // Auto-re-register every 12s to keep lobby alive
             this._lobbyKeepAlive = setInterval(() => {
                 if (this.network.connected && this.network.isHost) {
-                    this._registerLobby(code, `Lobby`, this.network.connections.size + 1, this.arena?.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
+                    this._registerLobby(code, this._lobbyName, this.network.connections.size + 1, this.arena?.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
                 }
             }, 12000);
             this._lobbyCode = code;

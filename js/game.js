@@ -2239,7 +2239,9 @@ export class Game {
                     type: 'remoteAttackAnim',
                     peerId,
                     ax: p.aimDir.x, ay: p.aimDir.y, az: p.aimDir.z,
-                    attacking: true
+                    attacking: true,
+                    shot: result.shot,
+                    pos: { x: attackPos.x, y: attackPos.y, z: attackPos.z }
                 });
             }
         }
@@ -2248,6 +2250,11 @@ export class Game {
 
     applyLobbyState(data) {
         if (!data.players) return;
+        // Lobby name
+        if (data.lobbyName) {
+            const el = document.getElementById('lobby-name-input');
+            if (el) el.value = data.lobbyName;
+        }
         // Oyun ayarlarını uygula (varsa)
         if (data.settings) {
             const s = data.settings;
@@ -2353,7 +2360,12 @@ export class Game {
             this.audio.preloadSfx('sfx/');
             this.initMinimap();
             this._skipPreGame = true;
-            this.startRound();
+            // Don't call startRound() — that spawns ball locally and desyncs from host.
+            // Match host state; ball position comes from ballState broadcast.
+            this.clearBlackHoles();
+            this._clearAllPowerUps();
+            const hostState = data.state === STATES.COUNTDOWN ? STATES.PLAYING : data.state;
+            this.setState(hostState || STATES.PLAYING);
         }
     }
 
@@ -2503,6 +2515,14 @@ export class Game {
         if (data.ax !== undefined) p.aimDir.set(data.ax, data.ay, data.az).normalize();
         // Attack sesi — uzaktan gelen top vuruşu
         this.audio?.playSfx?.('tf2_hit', 0.15);
+        // Play full deflect sound on client
+        if (data.shot && this.audio?.playDeflect) {
+            this.audio.playDeflect(data.shot);
+        }
+        // Visual effect at deflection point
+        if (data.pos && this.juice?.sparks) {
+            this.juice.sparks(new THREE.Vector3(data.pos.x, data.pos.y, data.pos.z), 0x88ddff, 4);
+        }
         setTimeout(() => { if (p) p.attacking = false; }, 300);
     }
 
