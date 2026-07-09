@@ -108,5 +108,77 @@ export class AvatarPainter {
         return tmp.toDataURL();
     }
 
+    // 3D karakter önizlemesi (Minecraft-style, canvas 2D)
+    renderPreview(previewCanvas, teamColor = '#cc3333') {
+        if (!previewCanvas) return;
+        const S = 10; // scale: her avatar pikseli = 10px
+        const W = 16 * S;  // 160
+        const H = 22 * S;  // 220
+        previewCanvas.width = W;
+        previewCanvas.height = H;
+        const ctx = previewCanvas.getContext('2d');
+        ctx.imageSmoothingEnabled = false;
+        // Bg
+        ctx.fillStyle = '#1a1a2e';
+        ctx.fillRect(0, 0, W, H);
+        const cx = W / 2; // center x
+
+        // Head (avatar yüzü)
+        const headW = 16 * S / 10 * 8; // avatar'ı 80% scale ile kafaya oturt
+        const headH = 16 * S / 10 * 8;
+        const headX = cx - headW / 2;
+        const headY = 0;
+        for (let y = 0; y < 16; y++) {
+            for (let x = 0; x < 16; x++) {
+                const c = this.pixels[y * this.size + x];
+                if (c) {
+                    ctx.fillStyle = c;
+                    const px = headX + (x / 16) * headW;
+                    const py = headY + (y / 16) * headH;
+                    const pw = Math.ceil((x + 1) / 16 * headW) - Math.ceil(x / 16 * headW);
+                    const ph = Math.ceil((y + 1) / 16 * headH) - Math.ceil(y / 16 * headH);
+                    ctx.fillRect(Math.round(px), Math.round(py), pw || 1, ph || 1);
+                }
+            }
+        }
+        // Head outline
+        ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(Math.round(headX), Math.round(headY), Math.round(headW), Math.round(headH));
+
+        // Body
+        const bW = 10 * S / 10 * 8;
+        const bH = 8 * S / 10 * 8;
+        const bX = cx - bW / 2;
+        const bY = 9 * S / 10 * 8;
+        ctx.fillStyle = teamColor;
+        ctx.fillRect(Math.round(bX), Math.round(bY), Math.round(bW), Math.round(bH));
+        ctx.strokeRect(Math.round(bX), Math.round(bY), Math.round(bW), Math.round(bH));
+
+        // Arms
+        const aW = 2 * S / 10 * 8;
+        const aH = 7 * S / 10 * 8;
+        // Left arm
+        ctx.fillStyle = teamColor;
+        ctx.fillRect(Math.round(bX - aW), Math.round(bY), Math.round(aW), Math.round(aH));
+        ctx.strokeRect(Math.round(bX - aW), Math.round(bY), Math.round(aW), Math.round(aH));
+        // Right arm
+        ctx.fillRect(Math.round(bX + bW), Math.round(bY), Math.round(aW), Math.round(aH));
+        ctx.strokeRect(Math.round(bX + bW), Math.round(bY), Math.round(aW), Math.round(aH));
+
+        // Legs
+        const lW = 3 * S / 10 * 8;
+        const lH = 5 * S / 10 * 8;
+        const lY = bY + bH;
+        ctx.fillStyle = teamColor;
+        // Left leg
+        const lLX = cx - lW - 1;
+        ctx.fillRect(Math.round(lLX), Math.round(lY), Math.round(lW), Math.round(lH));
+        ctx.strokeRect(Math.round(lLX), Math.round(lY), Math.round(lW), Math.round(lH));
+        // Right leg
+        ctx.fillRect(Math.round(cx + 1), Math.round(lY), Math.round(lW), Math.round(lH));
+        ctx.strokeRect(Math.round(cx + 1), Math.round(lY), Math.round(lW), Math.round(lH));
+    }
+
     static getPalette() { return PALETTE; }
 }

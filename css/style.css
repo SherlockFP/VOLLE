@@ -1872,6 +1872,28 @@ canvas { display: block; }
 }
 .palette-swatch:hover { transform: scale(1.15); }
 
+.avatar-preview-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+.avatar-preview-wrap h3 {
+    margin: 0;
+    font-size: 14px;
+    color: rgba(255,255,255,0.6);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+#avatar-preview {
+    border: 2px solid rgba(255,255,255,0.15);
+    border-radius: 8px;
+    image-rendering: pixelated;
+    width: 180px;
+    height: 240px;
+    background: #1a1a2e;
+}
+
 /* ===== SKILL COOLDOWN BAR ===== */
 .skill-row .vital-label {
     background: rgba(255,136,0,0.2);

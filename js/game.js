@@ -537,14 +537,6 @@ export class Game {
                 p.avatar = avatarDataUrl;
                 // Update Minecraft head texture
                 if (p.setAvatarTexture) p.setAvatarTexture(avatarDataUrl);
-                // Update floating avatar sprite
-                if (p.avatarSprite) {
-                    p.group.remove(p.avatarSprite);
-                    p.avatarSprite.material.map?.dispose();
-                    p.avatarSprite.material.dispose();
-                    p.avatarSprite = this._makeAvatarSprite(p.name, p.team, avatarDataUrl);
-                    p.group.add(p.avatarSprite);
-                }
             }
             return p;
         }
@@ -625,10 +617,6 @@ export class Game {
         labelSprite.scale.set(1.6, 0.45, 1);
         group.add(labelSprite);
 
-        // Avatar sprite — floating above head as nameplate
-        const avatarSprite = this._makeAvatarSprite(name, team, avatarDataUrl);
-        group.add(avatarSprite);
-
         this.renderer.scene.add(group);
         const p = {
             peerId, name, team, group,
@@ -642,7 +630,7 @@ export class Game {
             hp: 100, maxHp: 100, shield: 0, consecutiveMisses: 0,
             runeBonuses: {}, deflectPower: 1, passive: 'none', totalDamageDealt: 0,
             attacking: false, attackTimer: 0, aimDir: new THREE.Vector3(0, 0, -1),
-            labelSprite, avatarSprite, avatar: avatarDataUrl || null,
+            labelSprite, avatar: avatarDataUrl || null,
             getPosition() { return this.position.clone(); },
             getAimDirection() { return this.aimDir.clone(); },
             isAttacking() { return this.attacking; },
@@ -2303,13 +2291,6 @@ export class Game {
                     if (pl.avatar && p.avatar !== pl.avatar) {
                         p.avatar = pl.avatar;
                         if (p.setAvatarTexture) p.setAvatarTexture(pl.avatar);
-                        if (p.avatarSprite) {
-                            p.group.remove(p.avatarSprite);
-                            p.avatarSprite.material.map?.dispose();
-                            p.avatarSprite.material.dispose();
-                            p.avatarSprite = this._makeAvatarSprite(p.name, p.team, pl.avatar);
-                            p.group.add(p.avatarSprite);
-                        }
                     }
                 }
             }
@@ -2643,10 +2624,9 @@ export class Game {
         const cacheKey = `mpAvatar:${name}`;
         const cached = this._avatarCache?.get(cacheKey);
         if (cached) return cached;
-        // Avatar dataURL'i önce parametre ile gelen değerden, sonra local own avatar'dan, sonra fallback.
-        const localStore = window.__store;
+        // Only use the provided avatarDataUrl from network. No local fallback.
         let tex;
-        const dataUrl = avatarDataUrl || localStore?.get?.('customAvatar')?.dataURL;
+        const dataUrl = avatarDataUrl;
         if (dataUrl) {
             const c = document.createElement('canvas');
             c.width = 64; c.height = 64;

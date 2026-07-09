@@ -1195,7 +1195,15 @@ class App {
     initAvatarPainter() {
         const canvas = document.getElementById('avatar-canvas');
         if (!canvas || this.avatarPainter) return;
+        const preview = document.getElementById('avatar-preview');
         this.avatarPainter = new AvatarPainter(canvas, this.store);
+        // Live 3D preview update on every stroke
+        const updatePreview = () => {
+            const teamColor = this.game?.player?.team === 'red' ? '#cc3333' : '#3355cc';
+            this.avatarPainter.renderPreview(preview, teamColor);
+        };
+        this.avatarPainter.onchange = updatePreview;
+        updatePreview(); // initial render
         // Palette
         const paletteEl = document.getElementById('avatar-palette');
         if (paletteEl) {
@@ -1688,6 +1696,8 @@ class App {
         // Remote player lerp always
         this.game.invokeRemoteSnapshots(dt);
         this.game.invokeBallLerp?.(dt);
+        // Process attack queue (bg tab hidden icin — main loop calismaz)
+        this._bgProcessAttackQueue();
         // Game simulation only for host
         if (this.network?.isHost) {
             if (this.game.state === STATES.PLAYING) {
@@ -1698,9 +1708,30 @@ class App {
                 this.game.update(dt);
             }
         } else {
-            // Client: just keep lerping
-            this.game.invokeRemoteSnapshots(dt);
-            this.game.invokeBallLerp?.(dt);
+            // Client: send position when alt-tabbed
+            if (this.game.state === STATES.PLAYING) {
+                this._bgSendPosition(dt);
+            }
+        }
+    }
+    _bgProcessAttackQueue() {
+        if (this._p2pAttackQueued) {
+            this._p2pAttackQueued = false;
+            if (this.network?.connected && this.game.state === STATES.PLAYING) {
+                const p = this.player;
+                const aim = p.getAimDirection();
+                this.network.sendAttack({
+                    name: this.game.playerName, team: p.team,
+                    x: p.position.x, y: p.position.y, z: p.position.z,
+                    ry: p.euler.y,
+                    ax: aim.x, ay: aim.y, az: aim.z,
+                    clientTime: performance.now()
+                });
+                this._p2pAttackBurst = 5;
+                this.audio?.playSfx?.('tf2_hit', 0.25);
+                this.audio?.playWhoosh?.(this.game.ball.getSpeed());
+                this.game.juice?.sparks?.(p.position.clone().add(new THREE.Vector3(0, 1, 0)), 0x88ddff, 4);
+            }
         }
     }
     // Host position with delta filter — sadece threshold aşınca gönder
