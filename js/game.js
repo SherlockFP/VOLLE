@@ -1005,7 +1005,11 @@ export class Game {
         // Player deflection — aim-based
         if (this.player.alive && this.player.isAttacking() &&
             this.ball.isInAttackRange(this.player.getPosition())) {
-            this.handlePlayerDeflection();
+            // Client: skip aim cone check for instant responsive feel
+            // (host validates via remoteAttack — authoritative)
+            this.handlePlayerDeflection(
+                this.network?.connected && !this.network?.isHost
+            );
         }
 
         // Bot deflections — before ball moves
@@ -2467,19 +2471,14 @@ export class Game {
     }
     updateBallFromNetwork(data) {
         if (this.network && !this.network.isHost) {
-            // Her gelen snapshot'ı hedef olarak kaydet. prev = o anki pozisyon.
             const now = performance.now();
-            if (this._ballTargetPos) {
-                // Önceki hedefi prev'e kaydır (gerçek pozisyon değil, lerp'in kaldığı yer)
-                this._ballPrevPos = { x: this.ball.position.x, y: this.ball.position.y, z: this.ball.position.z };
-            } else {
-                this._ballPrevPos = { x: data.x, y: data.y, z: data.z };
-                this.ball.position.set(data.x, data.y, data.z);
-                this.ball.mesh.position.copy(this.ball.position);
-            }
+            // Snap to host position directly (reconcile after client prediction)
+            this._ballPrevPos = { x: data.x, y: data.y, z: data.z };
+            this.ball.position.set(data.x, data.y, data.z);
+            this.ball.mesh.position.copy(this.ball.position);
             this._ballTargetPos = { x: data.x, y: data.y, z: data.z };
             this._ballLerpStart = now;
-            this._ballLerpDuration = 50; // ms — 20Hz'de 50ms aralık
+            this._ballLerpDuration = 50;
 
             // Velocity + state her zaman güncel
             this.ball.velocity.set(data.vx, data.vy, data.vz);
@@ -2502,7 +2501,8 @@ export class Game {
     // Her gelen snapshot yeni hedef olur ve pozisyon buna doğru linear interpolate edilir.
     // Snapshot gecikmelerinde velocity extrapolation da eklenir.
     invokeBallLerp(dt) {
-        if (!this._ballTargetPos || this.network?.isHost) return;
+        // _lerping=false → client runs its own physics → don't overwrite with lerp
+        if (!this.ball._lerping || !this._ballTargetPos || this.network?.isHost) return;
         const p = this._ballPrevPos;
         const tg = this._ballTargetPos;
         if (!p || !tg) { this.ball.mesh.position.copy(this.ball.position); return; }
