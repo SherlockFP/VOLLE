@@ -182,11 +182,16 @@ export class Player {
             this.flickY += e.movementY; // +down, -up on screen
         });
         document.addEventListener('mousedown', e => {
-            if (e.button === 0 && this.locked && this.alive) this.tryAttack();
+            if (e.button === 0 && this.alive &&
+                (this.locked || e.target === this.renderer.domElement || this.renderer.domElement.contains(e.target))) {
+                if (!this.locked) { this.lock(); return; }
+                this.tryAttack();
+            }
         });
         // ponytail: Q tuşu aktif skill (sadece oyun sırasında)
         document.addEventListener('keydown', e => {
-            if (e.code === 'KeyQ' && this.locked && this.alive) {
+            if (e.code === 'KeyQ' && this.alive) {
+                if (!this.locked) { this.lock(); return; }
                 this._skillQueued = true;
             }
         });
