@@ -1701,18 +1701,16 @@ class App {
         this.game.invokeBallLerp?.(dt);
         // Process attack queue (bg tab hidden icin — main loop calismaz)
         this._bgProcessAttackQueue();
-        // Game simulation only for host
+        // Game simulation only for host (all states need update — round timing, celebration, etc.)
         if (this.network?.isHost) {
-            if (this.game.state === STATES.PLAYING) {
-                this.game.update(dt);
-                // Host position to clients (delta filtered)
+            this.game.update(dt);
+            // Host position to clients (delta filtered) — player can move during these states
+            if (this.game.state === STATES.PLAYING || this.game.state === STATES.CELEBRATION) {
                 this._bgSendPosition(dt);
-            } else if (this.game.state === STATES.COUNTDOWN) {
-                this.game.update(dt);
             }
         } else {
             // Client: send position when alt-tabbed
-            if (this.game.state === STATES.PLAYING) {
+            if (this.game.state === STATES.PLAYING || this.game.state === STATES.COUNTDOWN) {
                 this._bgSendPosition(dt);
             }
         }
