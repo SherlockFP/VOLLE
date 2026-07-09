@@ -234,6 +234,9 @@ export class Network {
             case 'modeChange':
                 if (!this.isHost) this.game.applyModeChange(data);
                 break;
+            case 'hitNotify':
+                if (this.isHost) this.game.handleHitNotify(data, peerId);
+                break;
             case 'powerUpState':
                 if (!this.isHost) this.game.applyPowerUpState(data);
                 break;
