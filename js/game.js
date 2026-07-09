@@ -341,20 +341,23 @@ export class Game {
     }
 
     updateLobbyUI() {
+        const ownAvatar = window.__store?.get?.('customAvatar')?.dataURL || null;
         const players = [{
             name: this.playerName,
             team: this.player.team,
             isBot: false,
             charId: this.player.charId,
             isYou: true,
-            peerId: this.network?.peer?.id
+            peerId: this.network?.peer?.id,
+            avatar: ownAvatar
         }];
         this.bots.forEach(b => players.push({
             name: b.name,
             team: b.team,
             isBot: true,
             charId: b.charId,
-            isYou: false
+            isYou: false,
+            avatar: null
         }));
         this.remotePlayers.forEach((p, peerId) => players.push({
             name: p.name,
@@ -362,7 +365,8 @@ export class Game {
             isBot: false,
             charId: p.charId || 'rally',
             isYou: false,
-            peerId
+            peerId,
+            avatar: p.avatar || null
         }));
         // Lobby leader = host, or solo (not connected to anyone) → you lead.
         const isHost = !this.network || !this.network.connected || this.network.isHost;
@@ -531,6 +535,9 @@ export class Game {
             // Re-update avatar only if it changed (first sync may have emoji fallback only).
             if (avatarDataUrl && p.avatar !== avatarDataUrl) {
                 p.avatar = avatarDataUrl;
+                // Update Minecraft head texture
+                if (p.setAvatarTexture) p.setAvatarTexture(avatarDataUrl);
+                // Update floating avatar sprite
                 if (p.avatarSprite) {
                     p.group.remove(p.avatarSprite);
                     p.avatarSprite.material.map?.dispose();
@@ -563,15 +570,54 @@ export class Game {
     _createRemotePlayer(peerId, name, team, avatarDataUrl) {
         const group = new THREE.Group();
         const color = team === 'red' ? 0xcc3333 : 0x3355cc;
-        const bodyGeo = new THREE.CylinderGeometry(0.35, 0.45, 1.4, 8);
-        const body = new THREE.Mesh(bodyGeo, new THREE.MeshBasicMaterial({ color }));
-        body.position.y = 0.9;
-        group.add(body);
-        const head = new THREE.Mesh(new THREE.SphereGeometry(0.3, 12, 12), new THREE.MeshBasicMaterial({ color: 0xffd0aa }));
-        head.position.y = 1.75;
-        group.add(head);
 
-        // --- Name + Avatar Sprites (head'ın üstünde) ---
+        // Avatar texture for head (Minecraft-style)
+        let headTexture = null;
+        if (avatarDataUrl) {
+            const img = new Image();
+            img.src = avatarDataUrl;
+            headTexture = new THREE.Texture(img);
+            headTexture.magFilter = THREE.NearestFilter;
+            headTexture.minFilter = THREE.NearestFilter;
+            img.onload = () => { headTexture.needsUpdate = true; };
+        }
+
+        // Head — cube with avatar texture (Minecraft style)
+        const headMat = new THREE.MeshBasicMaterial({
+            map: headTexture,
+            color: headTexture ? 0xffffff : 0xffd0aa
+        });
+        const headMesh = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 0.6), headMat);
+        headMesh.position.y = 1.7;
+        group.add(headMesh);
+
+        // Body — stretched box, team color
+        const bodyMat = new THREE.MeshBasicMaterial({ color });
+        const bodyMesh = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.7, 0.35), bodyMat);
+        bodyMesh.position.y = 1.05;
+        group.add(bodyMesh);
+
+        // Arms
+        const armMat = new THREE.MeshBasicMaterial({ color });
+        const armGeo = new THREE.BoxGeometry(0.15, 0.55, 0.15);
+        const leftArm = new THREE.Mesh(armGeo, armMat);
+        leftArm.position.set(-0.4, 1.1, 0);
+        group.add(leftArm);
+        const rightArm = new THREE.Mesh(armGeo, armMat);
+        rightArm.position.set(0.4, 1.1, 0);
+        group.add(rightArm);
+
+        // Legs
+        const legMat = new THREE.MeshBasicMaterial({ color });
+        const legGeo = new THREE.BoxGeometry(0.2, 0.5, 0.2);
+        const leftLeg = new THREE.Mesh(legGeo, legMat);
+        leftLeg.position.set(-0.15, 0.25, 0);
+        group.add(leftLeg);
+        const rightLeg = new THREE.Mesh(legGeo, legMat);
+        rightLeg.position.set(0.15, 0.25, 0);
+        group.add(rightLeg);
+
+        // Name label
         const labelTex = this._makeNameLabelTexture(name, team === 'red' ? 0xff5577 : 0x55aaff);
         const labelMat = new THREE.SpriteMaterial({ map: labelTex, transparent: true, depthTest: true });
         const labelSprite = new THREE.Sprite(labelMat);
@@ -579,14 +625,14 @@ export class Game {
         labelSprite.scale.set(1.6, 0.45, 1);
         group.add(labelSprite);
 
-        // Avatar sprite — kullanıcının kendi avatarı dataURL'i varsa göster,
-        // yoksa emoji fallback kullanılır.
+        // Avatar sprite — floating above head as nameplate
         const avatarSprite = this._makeAvatarSprite(name, team, avatarDataUrl);
         group.add(avatarSprite);
 
         this.renderer.scene.add(group);
         const p = {
             peerId, name, team, group,
+            headMesh, bodyMesh, leftArm, rightArm, leftLeg, rightLeg,
             position: this.arena.getPlayerSpawn(team).clone(),
             // Interpolasyon için: snapshotlar arasında lerp. prevPos → targetPos.
             prevPos: this.arena.getPlayerSpawn(team).clone(),
@@ -609,7 +655,30 @@ export class Game {
             setTeam(nextTeam) {
                 this.team = nextTeam;
                 const c = nextTeam === 'red' ? 0xcc3333 : 0x3355cc;
-                body.material.color.setHex(c);
+                if (this.bodyMesh) this.bodyMesh.material.color.setHex(c);
+                if (this.leftArm) this.leftArm.material.color.setHex(c);
+                if (this.rightArm) this.rightArm.material.color.setHex(c);
+                if (this.leftLeg) this.leftLeg.material.color.setHex(c);
+                if (this.rightLeg) this.rightLeg.material.color.setHex(c);
+            },
+            // Update head texture when avatar changes (mesh sync)
+            setAvatarTexture(dataUrl) {
+                this.avatar = dataUrl || null;
+                if (!this.headMesh) return;
+                if (dataUrl) {
+                    const img = new Image();
+                    img.src = dataUrl;
+                    const tex = new THREE.Texture(img);
+                    tex.magFilter = THREE.NearestFilter;
+                    tex.minFilter = THREE.NearestFilter;
+                    img.onload = () => { tex.needsUpdate = true; };
+                    this.headMesh.material.map = tex;
+                    this.headMesh.material.color.setHex(0xffffff);
+                } else {
+                    this.headMesh.material.map = null;
+                    this.headMesh.material.color.setHex(0xffd0aa);
+                }
+                this.headMesh.material.needsUpdate = true;
             }
         };
         group.position.copy(p.position).add(new THREE.Vector3(0, -1.2, 0));
@@ -2111,7 +2180,11 @@ export class Game {
         p.hp = data.hp ?? p.hp;
         if (data.charId) p.charId = data.charId;
         if (data.ax !== undefined) p.aimDir.set(data.ax, data.ay, data.az).normalize();
-        // Mesh: sender already broadcast to all peers directly — no host relay needed
+        // Fallback relay: client sends position via mesh, but host ALWAYS relays
+        // so positions arrive even if mesh fails.
+        if (this.network?.isHost) {
+            this.network.broadcast({ ...data, type: 'position', peerId });
+        }
     }
 
     // Her frame'de çağrılır — remote player'ların pozisyonlarını lerp ile
@@ -2229,6 +2302,7 @@ export class Game {
                     if (pl.charId) p.charId = pl.charId;
                     if (pl.avatar && p.avatar !== pl.avatar) {
                         p.avatar = pl.avatar;
+                        if (p.setAvatarTexture) p.setAvatarTexture(pl.avatar);
                         if (p.avatarSprite) {
                             p.group.remove(p.avatarSprite);
                             p.avatarSprite.material.map?.dispose();
