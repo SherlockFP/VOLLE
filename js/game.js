@@ -1223,22 +1223,21 @@ export class Game {
         if (this._damageMul) dmg = Math.round(dmg * this._damageMul);
         if (this._oneHitKill) dmg = hitTarget.maxHp;
 
-        // State mutations only on host — client plays effects but doesn't change state
+        // Client-side prediction: apply state locally, server may correct later
+        const lethal = hitTarget.takeDamage(dmg);
+        if (lethal) this.killStreak++;
+        if (attacker) attacker.recordDamageDealt(dmg);
+        hitTarget.onMissDeflect();
+        if (hitTarget.runeBonuses?.thorns && attacker && attacker !== hitTarget) {
+            attacker.takeDamage(hitTarget.runeBonuses.thorns);
+            if (attacker.drawHpBar) attacker.drawHpBar();
+        }
         if (!isClient) {
-            const lethal = hitTarget.takeDamage(dmg);
-            if (lethal) this.killStreak++;
-            if (attacker) attacker.recordDamageDealt(dmg);
-            hitTarget.onMissDeflect();
-            if (hitTarget.runeBonuses?.thorns && attacker && attacker !== hitTarget) {
-                attacker.takeDamage(hitTarget.runeBonuses.thorns);
-                if (attacker.drawHpBar) attacker.drawHpBar();
-            }
+            // Host: scoreboard tracking (authoritative)
             this.scoreboard.recordHit(name);
             if (scorerName) this.scoreboard.recordDamageDealt(scorerName, dmg);
             this.scoreboard.recordDamageTaken(name, dmg);
         }
-
-        const lethal = !isClient ? (hitTarget.hp <= 0) : (hitTarget.hp <= dmg);
 
         // P2P: host broadcasts authoritative hit to all clients
         if (this.network?.isHost) {
@@ -1302,20 +1301,9 @@ export class Game {
         }
         this.audio.playHit();
 
-        // Client reports hit to host so other clients get notified
-        if (isClient && this.network?.sendToHost) {
-            this.network.sendToHost({
-                type: 'hitNotify',
-                victimName: name,
-                dmg, lethal: isLethal,
-                attackerName: scorerName,
-                victimTeam: hitTarget.team,
-                hitX: hitPos.x, hitY: hitPos.y, hitZ: hitPos.z,
-                missTag, perfectTag,
-                killStreak: this.killStreak,
-                rallyCount: this.rallyCount,
-                hp: hitTarget.hp
-            });
+        // Client-side non-lethal hit message
+        if (isClient && !isLethal) {
+            this.ui.showMessage(`💥 ${name} -${dmg} HP${missTag}${perfectTag}`, 1500);
         }
 
         // Client-side lethal effects (predicted — host authority may override)
@@ -2448,46 +2436,36 @@ export class Game {
         if (!target) target = data.victimName === this.playerName ? this.player : this.bots.find(b => b.name === data.victimName);
         if (!target) return;
 
-        // State sync from host (authoritative)
-        target.hp = data.hp ?? target.hp;
-        target.alive = data.alive !== false;
-        if (!target.alive) {
-            if (target === this.player) this.player.die();
-            else if (target.group) target.group.visible = false;
-        } else if (target === this.player && !this.player.alive) {
-            // Host says we're alive — revive if we predicted death locally
-            this.player.revive();
-            this.player.respawn();
-        }
-    }
-
-    // Host: client'tan gelen hit bildirimini doğrula ve diğer client'lara yayınla
-    handleHitNotify(data, peerId) {
-        // Sadece host bu metodu çağırır
-        const victim = data.victimName === this.playerName ? this.player : this.bots.find(b => b.name === data.victimName);
-        if (!victim) return;
-
-        // Broadcast to all OTHER clients (skip sender)
-        if (!this.network) return;
-        this.network.connections.forEach(conn => {
-            if (conn.open && conn.peer !== peerId) {
-                conn.send({
-                    type: 'playerHit',
-                    victimName: data.victimName,
-                    hp: data.hp ?? victim.hp,
-                    alive: data.lethal ? false : victim.alive,
-                    dmg: data.dmg,
-                    lethal: data.lethal,
-                    attackerName: data.attackerName,
-                    victimTeam: data.victimTeam,
-                    hitX: data.hitX, hitY: data.hitY, hitZ: data.hitZ,
-                    missTag: data.missTag || '',
-                    perfectTag: data.perfectTag || '',
-                    killStreak: data.killStreak || 0,
-                    rallyCount: data.rallyCount || 0
-                });
+        // Reconcile: host is authoritative
+        const hostAlive = data.alive !== false;
+        if (hostAlive) {
+            // Host says alive — undo our local prediction if we killed
+            target.hp = data.hp ?? target.maxHp;
+            if (!target.alive) {
+                target.alive = true;
+                if (target === this.player) {
+                    this.player.revive();
+                    this.player.respawn();
+                } else if (target.group) {
+                    target.group.visible = true;
+                }
             }
-        });
+        } else {
+            // Host says dead
+            target.hp = 0;
+            target.alive = false;
+            if (target === this.player) {
+                if (this.player.alive) {
+                    // We missed the hit locally — die now
+                    this.player.die();
+                    this.ui.flashHit();
+                    this._killcamDeathPos = this.player.getPosition();
+                    this._showKillcam(data.attackerName || 'Unknown');
+                } // else already dead from prediction — no-op
+            } else if (target.group) {
+                target.group.visible = false;
+            }
+        }
     }
 
     snapshotState() {
