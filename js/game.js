@@ -34,6 +34,7 @@ export class Game {
         this.scoreboard = new Scoreboard();
         this.bots = [];
         this.remotePlayers = new Map();
+        this._skipBallSync = 0;
         // Player name → remote-Avatar Sprite cache, böylece aynı oyuncu için sprite bir kez oluşur.
         this._avatarCache = new Map();
 
@@ -1087,6 +1088,7 @@ export class Game {
         // until host sends new ballState (re-enables lerp).
         if (this.network?.connected && !this.network?.isHost) {
             this.ball._lerping = false;
+            this._skipBallSync = 2; // skip 2 host ballState updates (~66ms) for stable local prediction
         }
 
         // Pick the enemy closest to where you're looking
@@ -2427,6 +2429,62 @@ export class Game {
         if (!target) target = data.victimName === this.playerName ? this.player : this.bots.find(b => b.name === data.victimName);
         if (!target) return;
 
+        const isClient = this.network?.connected && !this.network?.isHost;
+        const isLethal = data.lethal || data.alive === false;
+
+        // Client: play effects for every playerHit (host already played them)
+        if (isClient && data.hitX !== undefined) {
+            const hitPos = new THREE.Vector3(data.hitX, data.hitY, data.hitZ);
+
+            // Damage number (project to local player's screen)
+            const scrPos = hitPos.clone().project(this.player.camera);
+            const sx = (scrPos.x * 0.5 + 0.5) * window.innerWidth;
+            const sy = (-scrPos.y * 0.5 + 0.5) * window.innerHeight;
+            this.ui.spawnDamageNumber(sx, sy, data.dmg || 0, isLethal);
+
+            // Explosion at hit position (visible to everyone)
+            this.spawnDeathExplosion(hitPos, data.victimTeam);
+            this.audio.playSfx('tf2_explosion', 0.5);
+            this.juice.burst(hitPos, data.victimTeam === 'red' ? 0xff4444 : 0x4488ff, 16, 10);
+            this.juice.shockwave(hitPos, 0xff8844);
+            this.juice.shake(isLethal ? 0.5 : 0.25);
+            this.juice.hitStop(isLethal ? 100 : 50);
+
+            // Kill feed
+            const tag = (data.missTag || '') + (data.perfectTag || '');
+            this.killFeed.unshift({ attacker: data.attackerName, victim: data.victimName, dmg: data.dmg || 0, time: performance.now() / 1000, tag });
+            if (this.killFeed.length > 5) this.killFeed.pop();
+            this.ui.updateKillFeed?.(this.killFeed);
+
+            // Local player hit effects
+            if (target === this.player) {
+                const df = document.getElementById('damage-flash');
+                if (df) {
+                    df.classList.remove('fade');
+                    df.classList.add('active');
+                    requestAnimationFrame(() => requestAnimationFrame(() => {
+                        df.classList.remove('active');
+                        df.classList.add('fade');
+                    }));
+                }
+                this.audio.playSfx('tf2_scout_scream', 0.45);
+                if (isLethal) {
+                    // Only play death effects if not already dead (prediction may have handled it)
+                    if (this.player.alive) {
+                        this.audio.playSfx('tf2_you_are_dead', 0.5);
+                        this.player.die();
+                        this.ui.flashHit();
+                        this._killcamDeathPos = this.player.getPosition();
+                        this._showKillcam(data.attackerName || 'Unknown');
+                        this.juice.slowMo(0.25, 0.8);
+                        this.juice.burst(hitPos, 0xffee44, 24, 14);
+                        const aliveTeammates = this.bots.filter(b => b.alive && b.team === this.player.team);
+                        if (aliveTeammates.length > 0) this._spectateTarget = aliveTeammates[0];
+                    }
+                }
+            }
+        }
+
         // Reconcile: host is authoritative
         const hostAlive = data.alive !== false;
         if (hostAlive) {
@@ -2471,14 +2529,22 @@ export class Game {
     }
     updateBallFromNetwork(data) {
         if (this.network && !this.network.isHost) {
+            // Skip N host snapshots after client deflect for stable prediction
+            if (this._skipBallSync > 0) {
+                this._skipBallSync--;
+                return;
+            }
             const now = performance.now();
-            // Snap to host position directly (reconcile after client prediction)
-            this._ballPrevPos = { x: data.x, y: data.y, z: data.z };
-            this.ball.position.set(data.x, data.y, data.z);
-            this.ball.mesh.position.copy(this.ball.position);
+            // If lerping (not in client prediction), snap to host position
+            // If client is predicting (just deflected), start lerp from current pos
+            if (this.ball._lerping) {
+                this.ball.position.set(data.x, data.y, data.z);
+                this.ball.mesh.position.copy(this.ball.position);
+            }
+            this._ballPrevPos = { x: this.ball.position.x, y: this.ball.position.y, z: this.ball.position.z };
             this._ballTargetPos = { x: data.x, y: data.y, z: data.z };
             this._ballLerpStart = now;
-            this._ballLerpDuration = 50;
+            this._ballLerpDuration = this.ball._lerping ? 80 : 250;
 
             // Velocity + state her zaman güncel
             this.ball.velocity.set(data.vx, data.vy, data.vz);
@@ -2575,20 +2641,21 @@ export class Game {
 
     handleRemoteAttackAnim(data) {
         if (!data || this.network?.isHost) return;
-        // Local player's own deflect also arrives here (host broadcasts to all).
         const isLocal = data.peerId === this.network?.peer?.id;
         const p = isLocal ? this.player : this.remotePlayers.get(data.peerId);
         if (!p) return;
         p.attacking = true;
         p.attackTimer = 0.3;
         if (data.ax !== undefined) p.aimDir.set(data.ax, data.ay, data.az).normalize();
+        // Track deflector so hit detection candidates work on client
+        this.lastDeflector = p;
+        this.lastDeflectorTeam = p.team;
+        this.rallyCount = Math.max(this.rallyCount, data.rally ?? this.rallyCount);
         // Attack sesi — uzaktan gelen top vuruşu
         this.audio?.playSfx?.('tf2_hit', 0.15);
-        // Play full deflect sound on client
         if (data.shot && this.audio?.playDeflect) {
             this.audio.playDeflect(data.shot);
         }
-        // Visual effect at deflection point
         if (data.pos && this.juice?.sparks) {
             this.juice.sparks(new THREE.Vector3(data.pos.x, data.pos.y, data.pos.z), 0x88ddff, 4);
         }
