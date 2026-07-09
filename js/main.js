@@ -1439,6 +1439,7 @@ class App {
     // Leave the lobby cleanly. Host closes it for everyone; clients just drop.
     leaveLobby() {
         clearInterval(this._lobbyKeepAlive);
+        this._stopBgLoop();
         if (this.network?.isHost && this._lobbyCode) this._unregisterLobby(this._lobbyCode);
         this._lobbyCode = null;
         // Tell peers + tear down the P2P connection.
@@ -1450,6 +1451,7 @@ class App {
     // Shared cleanup when returning to the menu from a lobby (host or client).
     _exitToMenu(message) {
         clearInterval(this._lobbyKeepAlive);
+        this._stopBgLoop();
         this._lobbyCode = null;
         this._cleanupLobbyEntities();
         this.ui.showScreen('mainMenu');
@@ -1457,6 +1459,7 @@ class App {
     }
 
     _cleanupLobbyEntities() {
+        this.game._avatarCache?.clear();
         this.game.bots.forEach(b => b.remove());
         this.game.bots = [];
         this.game.botCounter = 0;

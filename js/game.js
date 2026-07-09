@@ -877,7 +877,8 @@ export class Game {
                 bot.update(dt, null);
             });
 
-            if (this._celebrationTimer <= 0) this._onCelebrationEnd();
+            const isClient = this.network?.connected && !this.network?.isHost;
+            if (!isClient && this._celebrationTimer <= 0) this._onCelebrationEnd();
         } else if (this.state === STATES.ROUND_END) {
             this.roundRestartTimer -= dt;
             const curSec = Math.ceil(this.roundRestartTimer);
@@ -885,7 +886,8 @@ export class Game {
                 this._lastRoundEndSec = curSec;
                 this.ui.showMessage?.(`⏳ Next round in ${curSec}s`, 500);
             }
-            if (this.roundRestartTimer <= 0) {
+            const isClient = this.network?.connected && !this.network?.isHost;
+            if (!isClient && this.roundRestartTimer <= 0) {
                 if (this.scoreboard.isTimeUp() || this.scoreboard.isMaxRounds()) {
                     this.endGame();
                 } else {
