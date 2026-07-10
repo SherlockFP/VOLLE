@@ -110,7 +110,7 @@ export function useSkill(entity, skillId, context = {}) {
     switch (skillId) {
         case 'slow':
             // ponytail fix: kalıcı currentSpeed yerine anlık velocity yavaşlat — tek atışlık
-            if (ball) ball.velocity.multiplyScalar(0.5);
+            if (ball) { ball.currentSpeed *= 0.5; ball.velocity.multiplyScalar(0.5); }
             break;
         case 'freeze':
             if (ball) { ball._frozenTimer = 1.5; ball.velocity.multiplyScalar(0.01); }

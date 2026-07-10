@@ -482,7 +482,7 @@ export class Ball {
     // Genji-style deflection — ball goes EXACTLY where you aim, flick adds spike/lob.
     // flick.vertical: -up (lob) / +down (spike); flick.power 0..1
     // Returns a shot descriptor so the caller can play the right sound / FX.
-    deflectWithAim(fromPos, aimDir, target, flick = { vertical: 0, horizontal: 0, power: 0 }, momentum = null) {
+    deflectWithAim(fromPos, aimDir, target, flick = { vertical: 0, horizontal: 0, power: 0 }, momentum = null, deflectPower = 1.0) {
         this.deflections++;
         this.bodyZone = ['head','chest','abdomen','legs'][Math.floor(Math.random() * 4)];
         // Speed ramp: gentle curve after 500% to avoid 6000-8000% bug
@@ -496,13 +496,13 @@ export class Ball {
         // Classify the flick.
         const spike = flick.vertical > 20 && flick.power > 0.25;
         const lob = flick.vertical < -20 && flick.power > 0.25;
-        const powerBonus = 1 + (flick.power || 0) * 0.2;
+        const powerBonus = (1 + (flick.power || 0) * 0.2) * deflectPower;
         let shot = 'flat';
         let speed = this.currentSpeed * powerBonus;
 
         if (spike) {
             shot = 'spike';
-            speed = Math.min(this.currentSpeed * 1.2 * powerBonus, this.maxSpeed * 1.1);
+            speed = Math.min(this.currentSpeed * 1.2 * powerBonus, this.maxSpeed * 1.1 * deflectPower);
             const dir = aimDir.clone();
             dir.y = Math.min(dir.y - 0.3, -0.1);
             dir.normalize();
@@ -542,20 +542,20 @@ export class Ball {
             this.spin = Math.min(1.5, Math.max(-1.5, hSpin + vSpin));
         }
 
-        this.currentSpeed = speed;
+        this.currentSpeed = Math.min(speed, this.maxSpeed * 1.2 * deflectPower);
         this.lastShot = shot; // ponytail fix: game.handleHit reads this for spike dmg bonus
         this.updateColor();
-        return { shot, speed };
+        return { shot, speed: this.currentSpeed };
     }
 
     // Simple deflect (for bots) — keeps homing so bots still track targets.
-    deflect(fromPos, towardPos) {
+    deflect(fromPos, towardPos, deflectPower = 1.0) {
         this.deflections++;
         this.bodyZone = ['head','chest','abdomen','legs'][Math.floor(Math.random() * 4)];
         const speedPct = this.currentSpeed / this.baseSpeed;
         let rampMul = this.speedMultiplier;
         if (speedPct > 5) rampMul = 1 + (this.speedMultiplier - 1) * (5 / speedPct);
-        this.currentSpeed = Math.min(this.currentSpeed * rampMul, this.maxSpeed);
+        this.currentSpeed = Math.min(this.currentSpeed * rampMul * deflectPower, this.maxSpeed * deflectPower);
         this.state = 'rally';
         this.aimed = false;
 

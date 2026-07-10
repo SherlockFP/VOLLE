@@ -1138,13 +1138,9 @@ export class Game {
         const nextTarget = this.getAimedEnemy(pos, aimDir, team);
         const flick = this.player.getFlick();
         const momentum = this.player._frameVel;
-        const result = this.ball.deflectWithAim(pos, aimDir, nextTarget, flick, momentum);
+        const result = this.ball.deflectWithAim(pos, aimDir, nextTarget, flick, momentum, this.player.deflectPower);
         if (nextTarget) this.ball.setTarget(nextTarget);
 
-        // DeflectPower uygula (karakter + rune)
-        if (this.player.deflectPower) {
-            this.ball.velocity.multiplyScalar(this.player.deflectPower);
-        }
 
         // Blazer pasif: top hedefi yakar
         if (nextTarget && this.player.passive === 'burn_touch') {
@@ -1182,14 +1178,15 @@ export class Game {
         const isPerfect = this.ball.isPerfectCatch();
         if (isPerfect) {
             this.ball.lastPerfectBy = this.player;
+            this.ball.currentSpeed *= 1.3;
             this.ball.velocity.multiplyScalar(1.3); // perfect = +30% hız
-            this.juice.hitStop(60);      // kısa donma
-            this.juice.shake(0.2);       // hafif shake
-            this.juice.sparks(this.ball.position.clone(), 0xffee44, 12);
+            this.juice.hitStop(100);     // 100ms donma (daha vurucu impact)
+            this.juice.shake(0.35);      // daha güçlü shake
+            this.juice.sparks(this.ball.position.clone(), 0xffbb00, 16);
+            this.juice.shockwave(this.ball.position.clone(), 0xffbb00); // Altın şok dalgası!
             this.juice.addCombo();
-            const comboMul = this.juice.getComboMultiplier();
-            this.ui.showMessage(`✨ PERFECT! x${this.juice.combo} combo`, 2500);
-            this.audio.playSfx('tf2_crit', 0.55);
+            this.ui.showMessage(`✨ PERFECT DEFLECT! x${this.juice.combo} combo`, 2500);
+            this.audio.playSfx('tf2_crit', 0.65);
         } else {
             // Normal deflect — küçük spark
             this.juice.sparks(this.ball.position.clone(), 0xff8844, 6);
@@ -1217,12 +1214,11 @@ export class Game {
                 horizontal: (Math.random() - 0.5) * 20,
                 power: 0.4 + Math.random() * 0.4
             };
-            this.ball.deflectWithAim(pos, aimDir, nextTarget, fakeFlick);
+            this.ball.deflectWithAim(pos, aimDir, nextTarget, fakeFlick, null, bot.deflectPower);
         } else {
-            this.ball.deflect(pos, nextTarget.getPosition());
+            this.ball.deflect(pos, nextTarget.getPosition(), bot.deflectPower);
         }
         this.ball.setTarget(nextTarget);
-        if (bot.deflectPower) this.ball.velocity.multiplyScalar(bot.deflectPower);
 
         // Bot pasifleri
         if (bot.passive === 'burn_touch') nextTarget._burnTimer = 2;
@@ -1304,7 +1300,7 @@ export class Game {
 
         // P2P: host broadcasts authoritative hit to all clients
         if (this.network?.isHost) {
-            const victimPeerId = hitTarget.peerId || null;
+            const victimPeerId = hitTarget.peerId || (hitTarget === this.player ? this.network?.peer?.id : null);
             const hitPos = hitTarget.getPosition();
             const missTag = hitTarget.consecutiveMisses >= 3 ? ' 💢CRITICAL' : hitTarget.consecutiveMisses >= 1 ? ` (x${hitTarget.consecutiveMisses+1} miss)` : '';
             const perfectTag = this.ball.lastPerfectBy === attacker ? ' ✨PERFECT' : '';
@@ -2340,10 +2336,14 @@ export class Game {
         if (attackPos.distanceTo(clientBallPos) < this.ball.attackRange * 2) {
             this.ball.position.copy(clientBallPos);
             const target = this.getAimedEnemy(attackPos, p.aimDir, p.team);
-            const result = this.ball.deflectWithAim(attackPos, p.aimDir, target, data.flick || { vertical: 0, horizontal: 0, power: 0 });
+            const isPerfect = this.ball.isPerfectCatch();
+            let finalDeflectPower = p.deflectPower || 1.0;
+            if (isPerfect) {
+                this.ball.lastPerfectBy = p;
+                finalDeflectPower *= 1.3;
+            }
+            const result = this.ball.deflectWithAim(attackPos, p.aimDir, target, data.flick || { vertical: 0, horizontal: 0, power: 0 }, null, finalDeflectPower);
             if (target) this.ball.setTarget(target);
-            // ponytail: remote deflectPower — same as host-side handlePlayerDeflection, no currentSpeed resync (maxSpeed cap)
-            if (p.deflectPower) this.ball.velocity.multiplyScalar(p.deflectPower);
             this.lastDeflector = p;
             this.lastDeflectorTeam = p.team;
             this._pushDeflectHistory(p.name);
@@ -2358,7 +2358,8 @@ export class Game {
                 ax: p.aimDir.x, ay: p.aimDir.y, az: p.aimDir.z,
                 attacking: true,
                 shot: result.shot,
-                pos: { x: attackPos.x, y: attackPos.y, z: attackPos.z }
+                pos: { x: attackPos.x, y: attackPos.y, z: attackPos.z },
+                perfect: isPerfect
             });
         }
         setTimeout(() => { if (p) p.attacking = false; }, 300);
@@ -2645,10 +2646,8 @@ export class Game {
     // ponytail: client-side ball smoothing toward host snapshot.
     // Velocity-extrapolated so fast balls don't lag behind host.
     invokeBallSmoothing(dt) {
-        if (this.network?.isHost || !this._ballTarget || this._ballPredicting || !this.ball.active) return;
-        const now = performance.now();
-        const elapsed = (now - (this._ballTargetTime || now)) / 1000;
-        this._ballTargetTime = now;
+        if (this.network?.isHost || !this._ballTarget || !this._ballTargetTime || this._ballPredicting || !this.ball.active) return;
+        const elapsed = (performance.now() - this._ballTargetTime) / 1000;
         // ponytail: extrapolate target forward by velocity × elapsed since snapshot
         const tx = this._ballTarget.x + this._ballTarget.vx * elapsed;
         const ty = this._ballTarget.y + this._ballTarget.vy * elapsed;
@@ -2747,7 +2746,13 @@ export class Game {
         if (data.shot && this.audio?.playDeflect) {
             this.audio.playDeflect(data.shot);
         }
-        if (data.pos && this.juice?.sparks) {
+        if (data.perfect && this.juice) {
+            const hitPos = data.pos ? new THREE.Vector3(data.pos.x, data.pos.y, data.pos.z) : p.getPosition();
+            this.juice.sparks(hitPos, 0xffbb00, 16);
+            this.juice.shockwave(hitPos, 0xffbb00);
+            this.audio?.playSfx?.('tf2_crit', 0.55);
+            this.juice.shake(0.2);
+        } else if (data.pos && this.juice?.sparks) {
             this.juice.sparks(new THREE.Vector3(data.pos.x, data.pos.y, data.pos.z), 0x88ddff, 4);
         }
         setTimeout(() => { if (p) p.attacking = false; }, 300);

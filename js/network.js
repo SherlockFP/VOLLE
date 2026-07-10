@@ -47,6 +47,7 @@ export class Network {
         this.playerName = playerName;
         this.isHost = true;
         await this.initPeer();
+        if (this.game?.player) this.game.player.peerId = this.roomCode;
         return this.roomCode;
     }
 
@@ -54,6 +55,7 @@ export class Network {
         this.playerName = playerName;
         this.isHost = false;
         await this.initPeer();
+        if (this.game?.player && this.peer) this.game.player.peerId = this.peer.id;
 
         const conn = this.peer.connect(roomCode, {
             metadata: { name: playerName, password }

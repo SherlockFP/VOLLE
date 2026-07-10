@@ -1,6 +1,8 @@
 // gamemodes.js — Game modes & mutators for variety/replayability.
 // ponytail: tek dosya, basit config objeleri, game.js'e uygulanır.
 // Knockout City / Rocket League tarzı mod çeşitliliği.
+import { applyCharacter } from './characters.js';
+import { applyRunes } from './skills.js';
 
 export const GAME_MODES = {
     classic: {
@@ -64,6 +66,56 @@ export const GAME_MODES = {
 export function applyMode(game, modeId) {
     const mode = GAME_MODES[modeId] || GAME_MODES.classic;
     const m = mode.mutators;
+
+    // Reset stats to defaults to avoid compounding speed/HP bugs
+    game.ball.baseSpeed = 17 * (game.ball.skinConfig?.speedBonus || 1);
+    game.ball.speedMultiplier = 1.08;
+    game.ball.maxSpeed = 80;
+
+    game.player.gravity = -20;
+    game.player.jumpForce = 8;
+
+    // Reset player HP using character/rune bases
+    const p = game.player;
+    if (p.loadout && p.loadout.char) {
+        applyCharacter(p, p.loadout.char);
+        if (p.loadout.runes) {
+            applyRunes(p, p.loadout.runes);
+        }
+    } else {
+        p.maxHp = 100;
+        p.hp = 100;
+        p.speed = 10;
+        p.deflectPower = 1.0;
+        p.staminaMax = 100;
+        p.stamina = 100;
+        p.passive = 'none';
+    }
+
+    // Reset bots HP using character/rune bases
+    game.bots.forEach(bot => {
+        if (bot.charId) {
+            applyCharacter(bot, bot.charId);
+            if (bot.loadout && bot.loadout.runes) {
+                applyRunes(bot, bot.loadout.runes);
+            }
+        } else {
+            bot.maxHp = bot._baseMaxHp || 100;
+            bot.hp = bot.maxHp;
+            bot.drawHpBar();
+        }
+    });
+
+    // Reset flags
+    game._damageMul = 1.0;
+    game._oneHitKill = false;
+    game._freezeOnHit = false;
+    game._ballExplodeTimer = 0;
+    game._ballCount = 1;
+    game._courtScale = 1;
+    game._ffa = false;
+    game._noNet = false;
+    game._noTeams = false;
 
     // Ball speed
     if (m.ballSpeedMul) {
