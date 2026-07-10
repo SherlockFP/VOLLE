@@ -42,7 +42,6 @@ export class Ball {
         this.spin = 0;
         this.lastShot = 'flat';
         this.heldPlayer = null;  // ponytail: catch mechanic — player holding the ball
-        this._lerping = false;   // client-side: skip physics, only visuals
         this.lastShotBy = null;  // ponytail: kill credit — who last hit the ball
         // Homing strength per rally shot. Player aim-shots use a tiny assist so the
         // ball flies where you aim (rocketdodge/Genji feel); bots keep strong homing.
@@ -154,6 +153,11 @@ export class Ball {
     }
 
     update(dt) {
+        // ponytail: client just plays visuals — host runs authoritative physics.
+        if (this._clientOnly) {
+            this.mesh.position.copy(this.position);
+            return false;
+        }
         if (!this.active) return;
 
         // NaN guard — position bozulursa topu resetle
@@ -173,12 +177,6 @@ export class Ball {
         if (this._frozenTimer > 0) {
             // Donmuş — hareket yok, sadece mesh güncellenir
             this.mesh.position.copy(this.position);
-            return false;
-        }
-
-        // Client-side: when lerping from host, skip ALL physics + visual updates.
-        // invokeBallLerp (main loop) handles position + mesh via forward extrapolation.
-        if (this._lerping) {
             return false;
         }
 

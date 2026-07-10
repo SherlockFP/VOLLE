@@ -34,10 +34,7 @@ export class Game {
         this.scoreboard = new Scoreboard();
         this.bots = [];
         this.remotePlayers = new Map();
-        this._skipBallSync = 0;
-        this._ballSnapshot = null;
-        this._ballSnapshotTime = 0;
-        this._lastDeflectTime = 0;
+        this._pendingLethalHit = null;
         // Player name → remote-Avatar Sprite cache, böylece aynı oyuncu için sprite bir kez oluşur.
         this._avatarCache = new Map();
 
@@ -472,7 +469,8 @@ export class Game {
         if (targets.length) {
             const first = targets[Math.floor(Math.random() * targets.length)];
             setTimeout(() => {
-                if (this.ball.active) {
+        // ponytail: host-only hit detection — client plays effects from ball/playerHit broadcast
+        if (this.ball.active && this.network?.isHost) {
                     this.ball.setTarget(first);
                     this.ball.state = 'homing';
                 }
@@ -751,6 +749,9 @@ export class Game {
         // Time scale (console: sv_timescale)
         if (this._timeScale && this._timeScale !== 1) dt *= this._timeScale;
 
+        // ponytail: pending-lethal-hit grace window is timeout-based, handled
+        // inside handleHit / remoteAttack — no per-frame check needed here.
+
         // Active black holes — gravitational pull & visual update
         this.updateBlackHoles(dt);
 
@@ -1024,14 +1025,23 @@ export class Game {
         }
 
         // Bot deflections — before ball moves
-        this.bots.forEach(bot => {
-            if (this.ball.active && bot.tryDeflect(this.ball, dt)) {
-                this.handleBotDeflection(bot);
-            }
-        });
+        // ponytail: bot AI/deflection runs on host only; client renders from botSync
+        if (!this.network?.connected || this.network?.isHost) {
+            this.bots.forEach(bot => {
+                if (this.ball.active && bot.tryDeflect(this.ball, dt)) {
+                    this.handleBotDeflection(bot);
+                }
+            });
+        }
 
-        const bounced = this.ball.update(dt);
-        if (bounced) this.audio.playBounce();
+        // ponytail: ball physics runs on host only; client renders position from snapshot smoothing
+        if (!this.network?.connected || this.network?.isHost) {
+            const bounced = this.ball.update(dt);
+            if (bounced && !this.juice._hitStopActive) this.audio.playBounce?.();
+        } else {
+            // ponytail: client ball mesh follows smoothed position
+            this.ball.mesh.position.copy(this.ball.position);
+        }
 
         // Hit detection — body volume instead of single point.
         // Ball can hit anywhere: head, chest, abdomen, legs.
@@ -1094,18 +1104,29 @@ export class Game {
         const ballDir = new THREE.Vector3().subVectors(this.ball.position, pos).normalize();
         if (!skipAimCheck && aimDir.dot(ballDir) < -0.2) return;
 
-        // Client-side prediction: deflect locally, ball runs its own physics
-        // until host sends new ballState (re-enables lerp).
+        // ponytail: client predicts deflect locally and sends intent to host.
+        // Host's remoteAttack does the authoritative physics + resolves races.
         const isClient3 = this.network?.connected && !this.network?.isHost;
         if (isClient3) {
-            // Reactivate ball locally — host will reconcile via remoteAttack grace window
-            if (!this.ball.active) {
-                this.ball.active = true;
-                this.ball.mesh.visible = true;
-            }
-            this.ball._lerping = false;
-            this._skipBallSync = 4; // skip 4 host snapshots (~130ms) for stable local prediction
-            this._lastDeflectTime = performance.now();
+            this._ballPredicting = true;
+            setTimeout(() => { this._ballPredicting = false; }, 200);
+            this.player.attacking = false;
+            // ponytail: send attack intent to host — host does the actual deflect
+            const flick = this.player.getFlick();
+            this.network?.sendAttack?.({
+                name: this.playerName, team: this.player.team,
+                x: pos.x, y: pos.y, z: pos.z,
+                ax: aimDir.x, ay: aimDir.y, az: aimDir.z,
+                bx: this.ball.position.x, by: this.ball.position.y, bz: this.ball.position.z,
+                flick: { vertical: flick?.vertical || 0, horizontal: flick?.horizontal || 0, power: flick?.power || 0 }
+            });
+            // ponytail: instant visual feedback (SFX + camera punch) — no physics change
+            const ballSpeed = this.ball.getSpeed();
+            this.audio.playWhoosh(ballSpeed);
+            this.audio.playDeflect('flat');
+            this.player.kick('flat');
+            this.ui.showMessage('🏐 Deflect!', 600);
+            return;
         }
 
         // Pick the enemy closest to where you're looking
@@ -1226,6 +1247,32 @@ export class Game {
         const attacker = this.lastDeflector;
         const shot = this.ball.lastShot;
 
+        // ponytail: host-side lethal hits get an 80ms grace window — late client
+        // attacks (remoteAttack) cancel the hit. Non-lethal hits go through fast.
+        if (!isClient && hitTarget.alive !== false) {
+            // ponytail: pre-check lethality without mutating state. oneHitKill / instagib
+            // is always lethal; otherwise conservative worst-case estimate.
+            const conservativeHp = this._oneHitKill ? 0 : (hitTarget.hp <= BASE_HIT_DAMAGE ? hitTarget.hp - 1 : 0);
+            if (this._oneHitKill || conservativeHp <= 0) {
+                if (this._pendingLethalHit) clearTimeout(this._pendingLethalHit);
+                this._pendingLethalHit = setTimeout(() => {
+        this._pendingLethalHit = null;
+        this._ballTarget = null;
+        this._ballPredicting = false;
+                    // Re-check: still alive? (client attack may have deflected)
+                    if (hitTarget.alive !== false) {
+                        this._doApplyHit(hitTarget, name, scorerName, attacker, shot);
+                    }
+                }, 80);
+                return;
+            }
+        }
+
+        this._doApplyHit(hitTarget, name, scorerName, attacker, shot);
+    }
+
+    _doApplyHit(hitTarget, name, scorerName, attacker, shot) {
+        const isClient = this.network?.connected && !this.network?.isHost;
         // Hasar hesapla: miss ramp + karakter deflectPower + pasifler + combo bonusu
         const base = missRampDamage(BASE_HIT_DAMAGE, hitTarget.consecutiveMisses);
         const comboMul = this.juice.getComboMultiplier();
@@ -1352,10 +1399,7 @@ export class Game {
                 } else {
                     hitTarget.alive = false;
                 }
-                if (!this._playerDeathTime) this._playerDeathTime = {};
-                this._playerDeathTime[name] = performance.now();
                 this.ball.deactivate();
-                this._ballDeactivationTime = performance.now();
                 const comboNames = ['', 'FIRST BLOOD', 'DOUBLE KILL', 'TRIPLE KILL', 'QUADRA KILL', 'PENTA KILL', 'ACE'];
                 const comboSounds = ['', 'music/1kill.sfx', 'music/2kill.sfx', 'music/3kill.sfx', 'music/4kill.sfx', 'music/4kill.sfx', 'music/ace.sfx'];
                 const tf2ComboSounds = ['', 'tf2_domination', 'tf2_crit', 'tf2_victory', 'tf2_victory', 'tf2_victory', 'tf2_victory'];
@@ -1383,7 +1427,6 @@ export class Game {
                 }
             } else {
                 this.ball.deactivate();
-                this._ballDeactivationTime = performance.now();
                 if (hitTarget.drawHpBar) hitTarget.drawHpBar();
                 this.ui.updateVitals?.(this.player.hp, this.player.maxHp, this.player.shield,
                     this.player.stamina, this.player.staminaMax, this.player.exhausted);
@@ -2256,19 +2299,13 @@ export class Game {
             p.targetPos?.set(data.x, data.y, data.z);
         }
 
-        const now = performance.now();
-
-        // CS2-style reconciliation: client attack takes priority.
-        // If player was just killed but attack arrived in time, undo death + deflect.
+        // ponytail: cancel any pending lethal hit on this player — client attack wins
+        if (this._pendingLethalHit) { clearTimeout(this._pendingLethalHit); this._pendingLethalHit = null; }
         if (!p.alive) {
-            const deathTime = this._playerDeathTime?.[p.name] || 0;
-            if (now - deathTime > 400) return; // too late, accept death
-            // Revive the player
+            // ponytail: revive dead player who attacked within 400ms grace
             p.alive = true;
             p.hp = p.maxHp;
             p.group.visible = true;
-            delete this._playerDeathTime?.[p.name];
-            // Broadcast alive correction so clients also revive
             this.network.broadcast({
                 type: 'playerHit', victimPeerId: peerId, victimName: p.name,
                 hp: p.hp, alive: true, dmg: 0, lethal: false,
@@ -2276,39 +2313,20 @@ export class Game {
                 victimTeam: p.team
             });
         }
-
-        // Reactivate ball if it was just deactivated (cast time window)
         if (!this.ball.active) {
-            const deactTime = this._ballDeactivationTime || 0;
-            if (now - deactTime > 400) return; // ball truly dead, ignore
-            // Restore ball at the client's reported position
             this.ball.active = true;
             this.ball.mesh.visible = true;
             this.ball.state = 'rally';
-            if (data.bx !== undefined) {
-                this.ball.position.set(data.bx, data.by, data.bz);
-            }
         }
 
         p.aimDir.set(data.ax ?? p.aimDir.x, data.ay ?? p.aimDir.y, data.az ?? p.aimDir.z).normalize();
         p.attacking = true;
         p.attackTimer = 0.3;
 
-        const attackPos = new THREE.Vector3(
-            data.x ?? p.position.x,
-            data.y ?? p.position.y,
-            data.z ?? p.position.z
-        );
-        const clientBallPos = new THREE.Vector3(
-            data.bx ?? this.ball.position.x,
-            data.by ?? this.ball.position.y,
-            data.bz ?? this.ball.position.z
-        );
-        const distToClientBall = attackPos.distanceTo(clientBallPos);
-        // Trust client-side range — generous 2x for forgiveness
-        const deflected = distToClientBall < this.ball.attackRange * 2;
-        if (deflected) {
-            // Snap ball to client-reported position before deflect
+        const attackPos = new THREE.Vector3(data.x ?? p.position.x, data.y ?? p.position.y, data.z ?? p.position.z);
+        const clientBallPos = new THREE.Vector3(data.bx ?? this.ball.position.x, data.by ?? this.ball.position.y, data.bz ?? this.ball.position.z);
+        // Trust client-side range, generous 2x
+        if (attackPos.distanceTo(clientBallPos) < this.ball.attackRange * 2) {
             this.ball.position.copy(clientBallPos);
             const target = this.getAimedEnemy(attackPos, p.aimDir, p.team);
             const result = this.ball.deflectWithAim(attackPos, p.aimDir, target, data.flick || { vertical: 0, horizontal: 0, power: 0 });
@@ -2490,14 +2508,6 @@ export class Game {
         const isClient = this.network?.connected && !this.network?.isHost;
         const isLethal = data.lethal || data.alive === false;
 
-        // Client deflect immunity: if we just deflected (<200ms), ignore stale death from host
-        // Host has 250ms grace to process our late deflect — must be shorter than host window
-        if (isClient && isLethal && target === this.player && data.alive === false && this._lastDeflectTime) {
-            if (performance.now() - this._lastDeflectTime < 200) {
-                return;
-            }
-        }
-
         // Client: play effects for every playerHit (host already played them)
         if (isClient && data.hitX !== undefined) {
             const hitPos = new THREE.Vector3(data.hitX, data.hitY, data.hitZ);
@@ -2594,67 +2604,42 @@ export class Game {
         };
     }
     updateBallFromNetwork(data) {
-        if (this.network && !this.network.isHost) {
-            // Skip N host snapshots after client deflect for stable prediction.
-            // During skip, client runs ITS OWN physics (handlePlayerDeflection).
-            if (this._skipBallSync > 0) {
-                this._skipBallSync--;
-                return;
-            }
-
-            // CRITICAL: client does NOT set ball.active from host snapshot.
-            // The client controls when to deactivate (only on local lethal hit
-            // for this client, or explicit respawn broadcast).
-            // This prevents "ball became inactive before client could deflect" race.
-
-            this._ballSnapshot = {
-                x: data.x, y: data.y, z: data.z,
-                vx: data.vx, vy: data.vy, vz: data.vz,
-                speed: data.speed,
-                state: data.state
-            };
-            this._ballSnapshotTime = performance.now();
-
-            // Velocity + state always fresh
-            this.ball.velocity.set(data.vx, data.vy, data.vz);
-            this.ball.currentSpeed = data.speed;
-            this.ball.state = data.state || this.ball.state;
-
-            // If ball was inactive (e.g. between rounds) and host reactivates, re-enable
-            if (data.active && !this.ball.active) {
-                this.ball.active = true;
-                this.ball.mesh.visible = true;
-            }
-            // Note: if data.active=false, we IGNORE it — client keeps ball.active=true
-            // until client detects a lethal hit locally OR a respawn happens.
-
-            this.ball._lerping = true;
-            if (data.targetId) {
-                const t = this.remotePlayers.get(data.targetId);
-                if (t) this.ball.setTarget(t);
-                else if (data.targetName === this.playerName) this.ball.setTarget(this.player);
-            }
-            if (data.targetName === this.playerName && !this.ball.targetPlayer) {
-                this.ball.setTarget(this.player);
-            }
-        }
-    }
-    // Client tarafında top'u forward extrapolation ile göster.
-    // Her frame: ball.position = snapshot.pos + snapshot.vel * timeSinceSnapshot
-    // Bu sayede client top'u host'tan ÖNDE görür (geçmişte değil) → deflect timing doğru.
-    invokeBallLerp(dt) {
         if (this.network?.isHost) return;
-        if (!this.ball._lerping) return; // client predicting (just deflected) — skip
-        if (!this._ballSnapshot) return;
+        // ponytail: client only renders — host runs authoritative physics
+        this.ball._clientOnly = true;
+        // ponytail: store target for exponential smoothing (same approach as remote players)
+        this._ballTarget = { x: data.x, y: data.y, z: data.z, vx: data.vx, vy: data.vy, vz: data.vz };
+        this._ballTargetActive = data.active;
+        // Instant-on for active flag, so deflect works as soon as ball reaches range
+        if (data.active && !this.ball.active) {
+            this.ball.active = true;
+            this.ball.mesh.visible = true;
+        }
+        if (!data.active && !this._ballPredicting) {
+            this.ball.active = false;
+            this.ball.mesh.visible = false;
+        }
+        if (data.targetName === this.playerName) this.ball.setTarget(this.player);
+        this.ball.state = data.state || this.ball.state;
+    }
 
-        const elapsed = (performance.now() - this._ballSnapshotTime) / 1000;
-        const snap = this._ballSnapshot;
-
-        // Forward extrapolation: pos = snapshotPos + vel * elapsed
-        this.ball.position.x = snap.x + snap.vx * elapsed;
-        this.ball.position.y = snap.y + snap.vy * elapsed;
-        this.ball.position.z = snap.z + snap.vz * elapsed;
-
+    // ponytail: client-side ball smoothing toward host snapshot (exponential, like player lerp)
+    invokeBallSmoothing(dt) {
+        if (this.network?.isHost || !this._ballTarget || this._ballPredicting || !this.ball.active) return;
+        const dx = this._ballTarget.x - this.ball.position.x;
+        const dy = this._ballTarget.y - this.ball.position.y;
+        const dz = this._ballTarget.z - this.ball.position.z;
+        const distSq = dx*dx + dy*dy + dz*dz;
+        if (distSq > 25) {
+            this.ball.position.set(this._ballTarget.x, this._ballTarget.y, this._ballTarget.z);
+        } else if (distSq > 0.0001) {
+            // ponytail: same smoothing factor as remote players (12/s exp)
+            const factor = 1 - Math.exp(-dt * 12);
+            this.ball.position.x += dx * factor;
+            this.ball.position.y += dy * factor;
+            this.ball.position.z += dz * factor;
+        }
+        this.ball.velocity.set(this._ballTarget.vx, this._ballTarget.vy, this._ballTarget.vz);
         this.ball.mesh.position.copy(this.ball.position);
     }
     updateScoresFromNetwork(data) {

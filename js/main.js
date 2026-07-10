@@ -1699,7 +1699,7 @@ class App {
             if (steps === 0) {
                 // Remote lerp even if no full step
                 this.game.invokeRemoteSnapshots(dt);
-                this.game.invokeBallLerp?.(dt);
+                this.game.invokeBallSmoothing?.(dt);
             }
             // Host slow-rate broadcasts
             if (this.game.state === STATES.PLAYING) {
@@ -1719,7 +1719,7 @@ class App {
     _bgTick(dt) {
         // Remote player lerp always
         this.game.invokeRemoteSnapshots(dt);
-        this.game.invokeBallLerp?.(dt);
+        this.game.invokeBallSmoothing?.(dt);
         // Process attack queue (bg tab hidden icin — main loop calismaz)
         this._bgProcessAttackQueue();
         // Game simulation only for host (all states need update — round timing, celebration, etc.)
@@ -1873,7 +1873,7 @@ class App {
         // remote player sprite'ları lerp ile akıcı hareket etsin — rakip oyuncuyu sürekli gör.
         if (this.network?.connected) {
             this.game.invokeRemoteSnapshots(dt);
-            this.game.invokeBallLerp?.(dt);
+            this.game.invokeBallSmoothing?.(dt);
         }
 
         if (this.game.state === STATES.PLAYING || this.game.state === STATES.ROUND_END || this.game.state === STATES.COUNTDOWN || this.game.state === STATES.CELEBRATION) {
