@@ -11,6 +11,7 @@ import { applyMode, GAME_MODES } from './gamemodes.js';
 import { EmoteSystem } from './emotes.js';
 import { AffixManager } from './affixes.js';
 import { SKILLS, useSkill } from './skills.js';
+import { outlineVertexShader } from './shaders/toon.vert.js';
 
 const BASE_HIT_DAMAGE = 25;
 
@@ -620,10 +621,37 @@ export class Game {
         labelSprite.scale.set(1.6, 0.45, 1);
         group.add(labelSprite);
 
+        // Target outline — bright red, pulses when this player is the ball's target
+        const outlineGeo = new THREE.BoxGeometry(0.9, 2.0, 0.7);
+        const outlineMat = new THREE.ShaderMaterial({
+            vertexShader: outlineVertexShader,
+            fragmentShader: `
+                uniform float uPulse;
+                void main() {
+                    float alpha = 0.3 + 0.3 * uPulse;
+                    gl_FragColor = vec4(1.0, 0.0, 0.0, alpha);
+                }
+            `,
+            uniforms: { outlineThickness: { value: 0.08 }, uPulse: { value: 0 } },
+            side: THREE.BackSide,
+            transparent: true,
+            depthWrite: false
+        });
+        const targetOutline = new THREE.Mesh(outlineGeo, outlineMat);
+        targetOutline.position.y = 1.25; // center of torso-head group
+        targetOutline.visible = false;
+        group.add(targetOutline);
+
         this.renderer.scene.add(group);
         const p = {
             peerId, name, team, group,
             headMesh, bodyMesh, leftArm, rightArm, leftLeg, rightLeg,
+            targetOutline,
+            _outlineActive: false,
+            setTargetOutline(show) {
+                if (this.targetOutline) this.targetOutline.visible = show;
+                this._outlineActive = show;
+            },
             position: this.arena.getPlayerSpawn(team).clone(),
             // Interpolasyon için: snapshotlar arasında lerp. prevPos → targetPos.
             prevPos: this.arena.getPlayerSpawn(team).clone(),
@@ -942,6 +970,10 @@ export class Game {
         this.bots.forEach(bot => {
             const isTarget = bot === target && this.ball.active;
             bot.setTargetOutline(isTarget);
+        });
+        this.remotePlayers.forEach(p => {
+            const isTarget = p === target && this.ball.active;
+            p.setTargetOutline?.(isTarget);
         });
         // Player target indicator — incoming!
         this.ui.setPlayerTarget(target === this.player && this.ball.active);
@@ -1563,10 +1595,73 @@ export class Game {
         }
     }
 
+    _broadcastTaunt(tauntId) {
+        if (this.network?.connected && this.network?.isHost) {
+            this.network.broadcast({ type: 'taunt', tauntId, peerId: this.network.peer?.id });
+        } else if (this.network?.connected) {
+            this.network.send({ type: 'taunt', tauntId, peerId: this.network.peer?.id });
+        }
+    }
+
+    handleRemoteTaunt(data) {
+        if (!data?.tauntId) return;
+        const isLocal = data.peerId === this.network?.peer?.id;
+        if (isLocal) return;
+        const p = this.remotePlayers.get(data.peerId);
+        const entity = p || this.player;
+        if (data.tauntId === 'loop') {
+            this.ui.showMessage?.('🔄 LOOP!', 1000);
+            let count = 0;
+            const taunts = ['flex', 'laugh', 'nice', 'heart'];
+            const loop = () => {
+                if (count >= 4) return;
+                this.showEmote(entity, taunts[count % taunts.length]);
+                count++;
+                setTimeout(loop, 500);
+            };
+            loop();
+        } else if (data.tauntId === 'daymissin') {
+            this.ui.showMessage?.('💪 Dayı mısın?!', 2000);
+            this.showEmote(entity, 'flex');
+            this.audio?.playSfx?.('tf2_domination', 0.35);
+        }
+    }
+
+    executeChatCommand(text) {
+        const args = text.slice(1).trim().split(/\s+/);
+        const cmd = args[0].toLowerCase();
+        if (cmd === 'loop') {
+            const sub = args.slice(1).join(' ');
+            if (sub === 'daymissin' || sub === 'dayı mısın') {
+                this.ui.showMessage?.('💪 Dayı mısın?!', 2000);
+                this.showEmote(this.player, 'flex');
+                this.audio?.playSfx?.('tf2_domination', 0.45);
+                this._broadcastTaunt('daymissin');
+            } else {
+                let count = 0;
+                const taunts = ['flex', 'laugh', 'nice', 'heart'];
+                const loop = () => {
+                    if (count >= 4) return;
+                    this.showEmote(this.player, taunts[count % taunts.length]);
+                    this.audio?.playSfx?.('tf2_notification', 0.25);
+                    count++;
+                    setTimeout(loop, 500);
+                };
+                loop();
+                this.ui.showMessage?.('🔄 LOOP!', 1000);
+                this._broadcastTaunt('loop');
+            }
+            return true;
+        }
+        return false;
+    }
+
     sendChat(text) {
         if (!text.trim()) return;
+        if (text.startsWith('/')) {
+            if (this.executeChatCommand(text)) return;
+        }
         this.addChatMessage(this.playerName, text);
-        // Bubble above the local player's head (visible in 3rd person / to others).
         this.showSpeechBubble(this.player, text);
         if (this.network && this.network.connected) {
             this.network.send({ type: 'chat', name: this.playerName, text });
@@ -1823,6 +1918,7 @@ export class Game {
         this.player._celebNoAttack = (this.player.team !== this._winningTeam);
         this.ui.setPlayerTarget(false);
         this.bots.forEach(bot => bot.setTargetOutline(false));
+        this.remotePlayers.forEach(p => p.setTargetOutline?.(false));
 
         // Show first-person glove viewmodel for the punch/weapon fun
         this._celebWeapon = 'fists';
@@ -2292,6 +2388,12 @@ export class Game {
                 p.position.z += dz * factor;
             }
             p.group.position.copy(p.position).add(new THREE.Vector3(0, -1.2, 0));
+
+            // Target outline pulse
+            if (p._outlineActive && p.targetOutline?.visible) {
+                const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 300);
+                p.targetOutline.material.uniforms.uPulse.value = pulse;
+            }
         }
     }
 
@@ -2746,6 +2848,12 @@ export class Game {
         if (data.shot && this.audio?.playDeflect) {
             this.audio.playDeflect(data.shot);
         }
+        // Trail burst on deflect — client-side visual: dump extra trail dots for smooth comet
+        if (this.ball?.active && !this.network?.isHost) {
+            for (let i = 0; i < 8; i++) {
+                setTimeout(() => this.ball?.addTrailDot?.(), i * 20);
+            }
+        }
         if (data.perfect && this.juice) {
             const hitPos = data.pos ? new THREE.Vector3(data.pos.x, data.pos.y, data.pos.z) : p.getPosition();
             this.juice.sparks(hitPos, 0xffbb00, 16);
@@ -2844,6 +2952,7 @@ export class Game {
         this.player._celebNoAttack = (this.player.team !== this._winningTeam);
         this.ui.setPlayerTarget(false);
         this.bots.forEach(bot => bot.setTargetOutline(false));
+        this.remotePlayers.forEach(p => p.setTargetOutline?.(false));
         this.ui.showMessage?.(data.message || '', 3000);
         if (this._won) {
             this.audio?.playSfx?.('tf2_victory', 0.55);

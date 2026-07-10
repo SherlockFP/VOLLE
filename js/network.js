@@ -264,6 +264,9 @@ export class Network {
                 // Host tells us a client left — clean up mesh connection
                 if (data.peerId) this.connections.delete(data.peerId);
                 break;
+            case 'taunt':
+                if (this.game) this.game.handleRemoteTaunt(data);
+                break;
             case 'lobbyClosed':
                 // Lobby kapandı — ana menüye dön.
                 if (!this.isHost && this.onHostLeft) this.onHostLeft();

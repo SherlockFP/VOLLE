@@ -650,12 +650,13 @@ export class Ball {
     }
 
     addTrailDot() {
-        const sr = Math.min(4, this.currentSpeed / this.baseSpeed); // cap sr at 4x
+        const sr = Math.min(4, this.currentSpeed / this.baseSpeed);
         const spinFactor = Math.min(1, Math.abs(this.spin) * 0.3);
-        const r = Math.min(0.15, 0.04 * (1 + sr * 0.4 + spinFactor * 0.3)); // cap radius
+        const r = Math.min(0.15, 0.04 * (1 + sr * 0.4 + spinFactor * 0.3));
         const geo = new THREE.SphereGeometry(r, 4, 4);
+        const trailColor = this.skinConfig?.trail || 0xff2222;
         const mat = new THREE.MeshBasicMaterial({
-            color: 0xff2222,
+            color: trailColor,
             transparent: true, opacity: 0.6
         });
         const dot = new THREE.Mesh(geo, mat);
