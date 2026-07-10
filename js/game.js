@@ -1007,13 +1007,17 @@ export class Game {
         }
 
         // Player deflection — aim-based
-        if (this.player.alive && this.player.isAttacking() &&
-            this.ball.active) {
+        // CS2-style: never block deflect on ball.active check alone.
+        // Host's late-deflect grace window in remoteAttack handles reactivation.
+        if (this.player.alive && this.player.isAttacking()) {
             // Client: use larger range for forgiving prediction (host validates authoritatively)
             const isClient2 = this.network?.connected && !this.network?.isHost;
+            const ballPos = this.ball.position;
+            const playerPos = this.player.getPosition();
+            const dist = ballPos.distanceTo(playerPos);
             const rangeCheck = isClient2
-                ? this.ball.distanceTo(this.player.getPosition()) < this.ball.attackRange * 1.5
-                : this.ball.isInAttackRange(this.player.getPosition());
+                ? dist < this.ball.attackRange * 2.0
+                : dist < this.ball.attackRange;
             if (rangeCheck) {
                 this.handlePlayerDeflection(isClient2);
             }
@@ -1092,7 +1096,13 @@ export class Game {
 
         // Client-side prediction: deflect locally, ball runs its own physics
         // until host sends new ballState (re-enables lerp).
-        if (this.network?.connected && !this.network?.isHost) {
+        const isClient3 = this.network?.connected && !this.network?.isHost;
+        if (isClient3) {
+            // Reactivate ball locally — host will reconcile via remoteAttack grace window
+            if (!this.ball.active) {
+                this.ball.active = true;
+                this.ball.mesh.visible = true;
+            }
             this.ball._lerping = false;
             this._skipBallSync = 4; // skip 4 host snapshots (~130ms) for stable local prediction
             this._lastDeflectTime = performance.now();
@@ -2246,28 +2256,19 @@ export class Game {
             p.targetPos?.set(data.x, data.y, data.z);
         }
 
-        // Grace window: allow late deflects from recently-dead players (client prediction vs host latency)
-        const DEATH_GRACE = 250; // ms
         const now = performance.now();
-        const wasRecentlyDead = !p.alive && this._playerDeathTime?.[p.name]
-            && (now - this._playerDeathTime[p.name]) < DEATH_GRACE;
-        if (!p.alive && !wasRecentlyDead) return;
 
-        // Grace window: allow deflect if ball was active recently (host deactivated it)
-        const BALL_GRACE = 200; // ms
-        const ballWasRecent = !this.ball.active && this._ballDeactivationTime
-            && (now - this._ballDeactivationTime) < BALL_GRACE;
-        if (!this.ball.active && !ballWasRecent) return;
-
-        // Late deflect: player was dead but attack arrived in time — revive
-        if (wasRecentlyDead) {
+        // CS2-style reconciliation: client attack takes priority.
+        // If player was just killed but attack arrived in time, undo death + deflect.
+        if (!p.alive) {
+            const deathTime = this._playerDeathTime?.[p.name] || 0;
+            if (now - deathTime > 400) return; // too late, accept death
+            // Revive the player
             p.alive = true;
             p.hp = p.maxHp;
             p.group.visible = true;
-            delete this._playerDeathTime[p.name];
-            // Cancel pending respawn / round end
-            this._pendingHitTarget = null;
-            // Broadcast correction so clients also revive this player
+            delete this._playerDeathTime?.[p.name];
+            // Broadcast alive correction so clients also revive
             this.network.broadcast({
                 type: 'playerHit', victimPeerId: peerId, victimName: p.name,
                 hp: p.hp, alive: true, dmg: 0, lethal: false,
@@ -2276,26 +2277,39 @@ export class Game {
             });
         }
 
-        // Reactivate ball if it was recently deactivated
-        if (ballWasRecent && !this.ball.active) {
+        // Reactivate ball if it was just deactivated (cast time window)
+        if (!this.ball.active) {
+            const deactTime = this._ballDeactivationTime || 0;
+            if (now - deactTime > 400) return; // ball truly dead, ignore
+            // Restore ball at the client's reported position
             this.ball.active = true;
             this.ball.mesh.visible = true;
             this.ball.state = 'rally';
+            if (data.bx !== undefined) {
+                this.ball.position.set(data.bx, data.by, data.bz);
+            }
         }
 
         p.aimDir.set(data.ax ?? p.aimDir.x, data.ay ?? p.aimDir.y, data.az ?? p.aimDir.z).normalize();
         p.attacking = true;
         p.attackTimer = 0.3;
-        const attackPos = (data.x !== undefined)
-            ? new THREE.Vector3(data.x, data.y, data.z)
-            : p.getPosition();
-        const clientBallPos = (data.bx !== undefined)
-            ? new THREE.Vector3(data.bx, data.by, data.bz)
-            : this.ball.position;
+
+        const attackPos = new THREE.Vector3(
+            data.x ?? p.position.x,
+            data.y ?? p.position.y,
+            data.z ?? p.position.z
+        );
+        const clientBallPos = new THREE.Vector3(
+            data.bx ?? this.ball.position.x,
+            data.by ?? this.ball.position.y,
+            data.bz ?? this.ball.position.z
+        );
         const distToClientBall = attackPos.distanceTo(clientBallPos);
-        const inRange = distToClientBall < this.ball.attackRange * 1.8
-            || this.ball.isInAttackRange(attackPos);
-        if (inRange) {
+        // Trust client-side range — generous 2x for forgiveness
+        const deflected = distToClientBall < this.ball.attackRange * 2;
+        if (deflected) {
+            // Snap ball to client-reported position before deflect
+            this.ball.position.copy(clientBallPos);
             const target = this.getAimedEnemy(attackPos, p.aimDir, p.team);
             const result = this.ball.deflectWithAim(attackPos, p.aimDir, target, data.flick || { vertical: 0, horizontal: 0, power: 0 });
             if (target) this.ball.setTarget(target);
@@ -2307,7 +2321,6 @@ export class Game {
             p.onSuccessfulDeflect();
             this.scoreboard.recordDeflection(p.name);
             this.audio.playDeflect(result.shot);
-            // Remote attack görselini diğer client'lara yayınla
             this.network.broadcast({
                 type: 'remoteAttackAnim',
                 peerId,
@@ -2582,34 +2595,40 @@ export class Game {
     }
     updateBallFromNetwork(data) {
         if (this.network && !this.network.isHost) {
-            // Skip N host snapshots after client deflect for stable prediction
+            // Skip N host snapshots after client deflect for stable prediction.
+            // During skip, client runs ITS OWN physics (handlePlayerDeflection).
             if (this._skipBallSync > 0) {
                 this._skipBallSync--;
-                // Still update active flag + velocity so hit detection has fresh data
-                this.ball.active = data.active;
-                this.ball.velocity.set(data.vx, data.vy, data.vz);
-                this.ball.currentSpeed = data.speed;
-                this.ball.state = data.state || this.ball.state;
-                if (data.targetName === this.playerName) this.ball.setTarget(this.player);
                 return;
             }
 
-            // Store snapshot for forward extrapolation
+            // CRITICAL: client does NOT set ball.active from host snapshot.
+            // The client controls when to deactivate (only on local lethal hit
+            // for this client, or explicit respawn broadcast).
+            // This prevents "ball became inactive before client could deflect" race.
+
             this._ballSnapshot = {
                 x: data.x, y: data.y, z: data.z,
                 vx: data.vx, vy: data.vy, vz: data.vz,
-                speed: data.speed, active: data.active,
+                speed: data.speed,
                 state: data.state
             };
             this._ballSnapshotTime = performance.now();
 
-            // Update ball state (but NOT position — extrapolation handles that)
+            // Velocity + state always fresh
             this.ball.velocity.set(data.vx, data.vy, data.vz);
             this.ball.currentSpeed = data.speed;
-            this.ball.active = data.active;
-            this.ball.mesh.visible = data.active;
-            this.ball._lerping = true;
             this.ball.state = data.state || this.ball.state;
+
+            // If ball was inactive (e.g. between rounds) and host reactivates, re-enable
+            if (data.active && !this.ball.active) {
+                this.ball.active = true;
+                this.ball.mesh.visible = true;
+            }
+            // Note: if data.active=false, we IGNORE it — client keeps ball.active=true
+            // until client detects a lethal hit locally OR a respawn happens.
+
+            this.ball._lerping = true;
             if (data.targetId) {
                 const t = this.remotePlayers.get(data.targetId);
                 if (t) this.ball.setTarget(t);
