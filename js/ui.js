@@ -58,7 +58,7 @@ export class UI {
         if (el('hud-red-score')) el('hud-red-score').textContent = redScore;
         if (el('hud-blue-score')) el('hud-blue-score').textContent = blueScore;
         if (el('hud-speed')) {
-            const pct = Math.round((ballSpeed / 14) * 100);
+            const pct = Math.round((ballSpeed / 17) * 100);
             el('hud-speed').textContent = `🏐 ${pct}%`;
             if (pct > 250) el('hud-speed').style.color = '#ff00ff';
             else if (pct > 160) el('hud-speed').style.color = '#ff5555';

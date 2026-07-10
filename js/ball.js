@@ -25,7 +25,7 @@ export class Ball {
         this.baseSpeed = 17;
         this.currentSpeed = this.baseSpeed;
         this.speedMultiplier = 1.08;            // her deflect %6 ramp
-        this.maxSpeed = 999;                    // no cap
+        this.maxSpeed = 80;                     // ponytail: real cap — 999 was no cap, caused runaway
         this.deflections = 0;
         this.radius = 0.45;
         this.attackRange = 2.0;

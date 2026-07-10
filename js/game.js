@@ -1039,8 +1039,8 @@ export class Game {
             const bounced = this.ball.update(dt);
             if (bounced && !this.juice._hitStopActive) this.audio.playBounce?.();
         } else {
-            // ponytail: client ball mesh follows smoothed position
-            this.ball.mesh.position.copy(this.ball.position);
+            // ponytail: client ball visual update — trail, glow, rotation, squash
+            this.ball._clientVisualUpdate(dt);
         }
 
         // Hit detection — body volume instead of single point.
@@ -2262,10 +2262,15 @@ export class Game {
         p.hp = data.hp ?? p.hp;
         if (data.charId) p.charId = data.charId;
         if (data.ax !== undefined) p.aimDir.set(data.ax, data.ay, data.az).normalize();
-        // Fallback relay: client sends position via mesh, but host ALWAYS relays
-        // so positions arrive even if mesh fails.
+        // ponytail: peer-to-peer mesh handles position directly. Host only relays as fallback if peer silent >500ms.
         if (this.network?.isHost) {
-            this.network.broadcast({ ...data, type: 'position', peerId });
+            const now = performance.now();
+            const lastSeen = this._peerLastSeen?.get(peerId) || 0;
+            if (now - lastSeen > 500) {
+                this.network.broadcast({ ...data, type: 'position', peerId });
+            }
+            if (!this._peerLastSeen) this._peerLastSeen = new Map();
+            this._peerLastSeen.set(peerId, now);
         }
     }
 
@@ -2337,6 +2342,8 @@ export class Game {
             const target = this.getAimedEnemy(attackPos, p.aimDir, p.team);
             const result = this.ball.deflectWithAim(attackPos, p.aimDir, target, data.flick || { vertical: 0, horizontal: 0, power: 0 });
             if (target) this.ball.setTarget(target);
+            // ponytail: remote deflectPower — same as host-side handlePlayerDeflection, no currentSpeed resync (maxSpeed cap)
+            if (p.deflectPower) this.ball.velocity.multiplyScalar(p.deflectPower);
             this.lastDeflector = p;
             this.lastDeflectorTeam = p.team;
             this._pushDeflectHistory(p.name);
@@ -2617,6 +2624,8 @@ export class Game {
         this._ballTarget = { x: data.x, y: data.y, z: data.z, vx: data.vx, vy: data.vy, vz: data.vz };
         this._ballTargetTime = performance.now();
         this._ballTargetActive = data.active;
+        // ponytail: sync currentSpeed from host — prevents client scalar drift
+        if (data.speed !== undefined) this.ball.currentSpeed = data.speed;
         // ponytail: client keeps ball active until host sends explicit respawn (state='idle' or new spawn).
         // This prevents "ball became inactive before client could deflect" race.
         if (data.active) {
@@ -2648,12 +2657,16 @@ export class Game {
         const dy = ty - this.ball.position.y;
         const dz = tz - this.ball.position.z;
         const distSq = dx*dx + dy*dy + dz*dz;
-        // ponytail: stuck detection — if ball hasn't moved toward target for 1s, snap
-        if (distSq > 25) {
+        // ponytail: adaptive smoothing — high-speed balls need faster convergence
+        const speed = Math.sqrt(this._ballTarget.vx**2 + this._ballTarget.vy**2 + this._ballTarget.vz**2);
+        const smoothK = 12 + Math.min(40, speed * 0.8);  // 12 at rest → 52 at 50 m/s
+        // ponytail: snap threshold scales with speed — fast balls cover more ground per frame
+        const snapThreshold = 25 + speed * speed * 0.04;  // 25 at rest → 125 at 50 m/s
+        if (distSq > snapThreshold) {
             this.ball.position.set(tx, ty, tz);
             this._ballStuckTimer = 0;
         } else if (distSq > 0.0001) {
-            const factor = 1 - Math.exp(-dt * 12);
+            const factor = 1 - Math.exp(-dt * smoothK);
             this.ball.position.x += dx * factor;
             this.ball.position.y += dy * factor;
             this.ball.position.z += dz * factor;
@@ -2666,7 +2679,7 @@ export class Game {
             }
         }
         this.ball.velocity.set(this._ballTarget.vx, this._ballTarget.vy, this._ballTarget.vz);
-        this.ball.mesh.position.copy(this.ball.position);
+        // ponytail: mesh position handled by _clientVisualUpdate in game.update — not here
     }
     updateScoresFromNetwork(data) {
         if (this.network && !this.network.isHost) {
