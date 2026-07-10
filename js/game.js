@@ -1339,7 +1339,8 @@ export class Game {
                 if (!this._playerDeathTime) this._playerDeathTime = {};
                 this._playerDeathTime[name] = performance.now();
                 this.ball.deactivate();
-                this._ballDeactivationTime = performance.now(); = ['', 'FIRST BLOOD', 'DOUBLE KILL', 'TRIPLE KILL', 'QUADRA KILL', 'PENTA KILL', 'ACE'];
+                this._ballDeactivationTime = performance.now();
+                const comboNames
                 const comboSounds = ['', 'music/1kill.sfx', 'music/2kill.sfx', 'music/3kill.sfx', 'music/4kill.sfx', 'music/4kill.sfx', 'music/ace.sfx'];
                 const tf2ComboSounds = ['', 'tf2_domination', 'tf2_crit', 'tf2_victory', 'tf2_victory', 'tf2_victory', 'tf2_victory'];
                 const idx = Math.min(this.killStreak, 6);
