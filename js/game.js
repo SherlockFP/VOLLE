@@ -35,6 +35,9 @@ export class Game {
         this.bots = [];
         this.remotePlayers = new Map();
         this._skipBallSync = 0;
+        this._ballSnapshot = null;
+        this._ballSnapshotTime = 0;
+        this._lastDeflectTime = 0;
         // Player name → remote-Avatar Sprite cache, böylece aynı oyuncu için sprite bir kez oluşur.
         this._avatarCache = new Map();
 
@@ -1005,12 +1008,15 @@ export class Game {
 
         // Player deflection — aim-based
         if (this.player.alive && this.player.isAttacking() &&
-            this.ball.isInAttackRange(this.player.getPosition())) {
-            // Client: skip aim cone check for instant responsive feel
-            // (host validates via remoteAttack — authoritative)
-            this.handlePlayerDeflection(
-                this.network?.connected && !this.network?.isHost
-            );
+            this.ball.active) {
+            // Client: use larger range for forgiving prediction (host validates authoritatively)
+            const isClient2 = this.network?.connected && !this.network?.isHost;
+            const rangeCheck = isClient2
+                ? this.ball.distanceTo(this.player.getPosition()) < this.ball.attackRange * 1.5
+                : this.ball.isInAttackRange(this.player.getPosition());
+            if (rangeCheck) {
+                this.handlePlayerDeflection(isClient2);
+            }
         }
 
         // Bot deflections — before ball moves
@@ -1088,7 +1094,7 @@ export class Game {
         // until host sends new ballState (re-enables lerp).
         if (this.network?.connected && !this.network?.isHost) {
             this.ball._lerping = false;
-            this._skipBallSync = 2;
+            this._skipBallSync = 4; // skip 4 host snapshots (~130ms) for stable local prediction
             this._lastDeflectTime = performance.now();
         }
 
@@ -2274,6 +2280,7 @@ export class Game {
         if (ballWasRecent && !this.ball.active) {
             this.ball.active = true;
             this.ball.mesh.visible = true;
+            this.ball.state = 'rally';
         }
 
         p.aimDir.set(data.ax ?? p.aimDir.x, data.ay ?? p.aimDir.y, data.az ?? p.aimDir.z).normalize();
@@ -2470,10 +2477,10 @@ export class Game {
         const isClient = this.network?.connected && !this.network?.isHost;
         const isLethal = data.lethal || data.alive === false;
 
-        // Client deflect immunity: if we just deflected (<150ms), ignore stale death from host
+        // Client deflect immunity: if we just deflected (<200ms), ignore stale death from host
         // Host has 250ms grace to process our late deflect — must be shorter than host window
         if (isClient && isLethal && target === this.player && data.alive === false && this._lastDeflectTime) {
-            if (performance.now() - this._lastDeflectTime < 150) {
+            if (performance.now() - this._lastDeflectTime < 200) {
                 return;
             }
         }
@@ -2578,21 +2585,25 @@ export class Game {
             // Skip N host snapshots after client deflect for stable prediction
             if (this._skipBallSync > 0) {
                 this._skipBallSync--;
+                // Still update active flag + velocity so hit detection has fresh data
+                this.ball.active = data.active;
+                this.ball.velocity.set(data.vx, data.vy, data.vz);
+                this.ball.currentSpeed = data.speed;
+                this.ball.state = data.state || this.ball.state;
+                if (data.targetName === this.playerName) this.ball.setTarget(this.player);
                 return;
             }
-            const now = performance.now();
-            // If lerping (not in client prediction), snap to host position
-            // If client is predicting (just deflected), start lerp from current pos
-            if (this.ball._lerping) {
-                this.ball.position.set(data.x, data.y, data.z);
-                this.ball.mesh.position.copy(this.ball.position);
-            }
-            this._ballPrevPos = { x: this.ball.position.x, y: this.ball.position.y, z: this.ball.position.z };
-            this._ballTargetPos = { x: data.x, y: data.y, z: data.z };
-            this._ballLerpStart = now;
-            this._ballLerpDuration = 60;
 
-            // Velocity + state her zaman güncel
+            // Store snapshot for forward extrapolation
+            this._ballSnapshot = {
+                x: data.x, y: data.y, z: data.z,
+                vx: data.vx, vy: data.vy, vz: data.vz,
+                speed: data.speed, active: data.active,
+                state: data.state
+            };
+            this._ballSnapshotTime = performance.now();
+
+            // Update ball state (but NOT position — extrapolation handles that)
             this.ball.velocity.set(data.vx, data.vy, data.vz);
             this.ball.currentSpeed = data.speed;
             this.ball.active = data.active;
@@ -2609,30 +2620,21 @@ export class Game {
             }
         }
     }
-    // Client tarafında top mesh pozisyonunu lerp ile her frame yumuşat.
-    // Her gelen snapshot yeni hedef olur ve pozisyon buna doğru linear interpolate edilir.
-    // Snapshot gecikmelerinde velocity extrapolation da eklenir.
+    // Client tarafında top'u forward extrapolation ile göster.
+    // Her frame: ball.position = snapshot.pos + snapshot.vel * timeSinceSnapshot
+    // Bu sayede client top'u host'tan ÖNDE görür (geçmişte değil) → deflect timing doğru.
     invokeBallLerp(dt) {
-        // _lerping=false → client runs its own physics → don't overwrite with lerp
-        if (!this.ball._lerping || !this._ballTargetPos || this.network?.isHost) return;
-        const p = this._ballPrevPos;
-        const tg = this._ballTargetPos;
-        if (!p || !tg) { this.ball.mesh.position.copy(this.ball.position); return; }
+        if (this.network?.isHost) return;
+        if (!this.ball._lerping) return; // client predicting (just deflected) — skip
+        if (!this._ballSnapshot) return;
 
-        const elapsed = performance.now() - (this._ballLerpStart || 0);
-        const alpha = Math.min(1, elapsed / (this._ballLerpDuration || 50));
+        const elapsed = (performance.now() - this._ballSnapshotTime) / 1000;
+        const snap = this._ballSnapshot;
 
-        // Her frame pozisyonu lerp ile güncelle
-        this.ball.position.x = p.x + (tg.x - p.x) * alpha;
-        this.ball.position.y = p.y + (tg.y - p.y) * alpha;
-        this.ball.position.z = p.z + (tg.z - p.z) * alpha;
-
-        // Extrapolation: yeni snapshot gelmediyse velocity ile devam et
-        if (alpha >= 1) {
-            this.ball.position.x += this.ball.velocity.x * dt;
-            this.ball.position.y += this.ball.velocity.y * dt;
-            this.ball.position.z += this.ball.velocity.z * dt;
-        }
+        // Forward extrapolation: pos = snapshotPos + vel * elapsed
+        this.ball.position.x = snap.x + snap.vx * elapsed;
+        this.ball.position.y = snap.y + snap.vy * elapsed;
+        this.ball.position.z = snap.z + snap.vz * elapsed;
 
         this.ball.mesh.position.copy(this.ball.position);
     }

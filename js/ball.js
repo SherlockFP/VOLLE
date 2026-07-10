@@ -176,9 +176,9 @@ export class Ball {
             return false;
         }
 
-        // Client-side lerp: skip physics, only visual updates
+        // Client-side: when lerping from host, skip ALL physics + visual updates.
+        // invokeBallLerp (main loop) handles position + mesh via forward extrapolation.
         if (this._lerping) {
-            this._clientVisualUpdate(dt);
             return false;
         }
 
