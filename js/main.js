@@ -1854,10 +1854,12 @@ class App {
             this._prevCrosshairState = this.game.state;
         }
 
-        // Best-effort pointer lock during gameplay (optional — game works without it).
-        // Throttled + .catch'd so it never spams WrongDocumentError to console.
-        if ((this.game.state === STATES.PLAYING || this.game.state === STATES.COUNTDOWN || this.game.state === STATES.CELEBRATION)
-            && !document.pointerLockElement) {
+        // ponytail: pointer lock only when actively playing (no menus, no chat, no pause)
+        const pauseOpen = !document.getElementById('pause-menu')?.classList.contains('hidden');
+        const settingsOpen = !document.getElementById('unified-settings')?.classList.contains('hidden');
+        const canLock = (this.game.state === STATES.PLAYING || this.game.state === STATES.COUNTDOWN || this.game.state === STATES.CELEBRATION)
+            && !pauseOpen && !settingsOpen && !this.chatOpen;
+        if (canLock && !document.pointerLockElement) {
             if (!this._plRetry || performance.now() - this._plRetry > 500) {
                 this._plRetry = performance.now();
                 try { this.renderer.renderer.domElement.requestPointerLock()?.catch?.(() => {}); } catch (_) {}

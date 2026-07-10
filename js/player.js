@@ -259,6 +259,10 @@ export class Player {
     update(dt) {
         if (!this.alive) {
             this.deathTimer -= dt;
+            // ponytail: auto-respawn after death timer expires (round-mid death)
+            if (this.deathTimer <= 0 && this.game?.state === 'PLAYING') {
+                this.respawn();
+            }
             return;
         }
 

@@ -1120,11 +1120,16 @@ export class Game {
                 bx: this.ball.position.x, by: this.ball.position.y, bz: this.ball.position.z,
                 flick: { vertical: flick?.vertical || 0, horizontal: flick?.horizontal || 0, power: flick?.power || 0 }
             });
-            // ponytail: instant visual feedback (SFX + camera punch) — no physics change
+            // ponytail: full local feedback (SFX + juice + slash) — host will broadcast authoritative version too
             const ballSpeed = this.ball.getSpeed();
-            this.audio.playWhoosh(ballSpeed);
+            this.audio.playSfx('tf2_hit', 0.35);
             this.audio.playDeflect('flat');
+            this.audio.playWhoosh(ballSpeed);
             this.player.kick('flat');
+            const slashDir = new THREE.Vector3().subVectors(this.ball.position, pos).normalize();
+            this.juice.slashEffect(pos.clone().add(new THREE.Vector3(0, 1, 0)), slashDir, 0x00ffee);
+            this.juice.sparks(this.ball.position.clone(), 0xff8844, 6);
+            this.juice.shake(0.08);
             this.ui.showMessage('🏐 Deflect!', 600);
             return;
         }
@@ -1258,6 +1263,7 @@ export class Game {
                 this._pendingLethalHit = setTimeout(() => {
         this._pendingLethalHit = null;
         this._ballTarget = null;
+        this._ballTargetTime = 0;
         this._ballPredicting = false;
                     // Re-check: still alive? (client attack may have deflected)
                     if (hitTarget.alive !== false) {
@@ -2609,13 +2615,17 @@ export class Game {
         this.ball._clientOnly = true;
         // ponytail: store target for exponential smoothing (same approach as remote players)
         this._ballTarget = { x: data.x, y: data.y, z: data.z, vx: data.vx, vy: data.vy, vz: data.vz };
+        this._ballTargetTime = performance.now();
         this._ballTargetActive = data.active;
-        // Instant-on for active flag, so deflect works as soon as ball reaches range
-        if (data.active && !this.ball.active) {
-            this.ball.active = true;
-            this.ball.mesh.visible = true;
-        }
-        if (!data.active && !this._ballPredicting) {
+        // ponytail: client keeps ball active until host sends explicit respawn (state='idle' or new spawn).
+        // This prevents "ball became inactive before client could deflect" race.
+        if (data.active) {
+            if (!this.ball.active) {
+                this.ball.active = true;
+                this.ball.mesh.visible = true;
+            }
+        } else if (data.state === 'idle' || data.state === 'falling') {
+            // ponytail: explicit respawn — only deactivate on idle/falling state
             this.ball.active = false;
             this.ball.mesh.visible = false;
         }
@@ -2623,21 +2633,37 @@ export class Game {
         this.ball.state = data.state || this.ball.state;
     }
 
-    // ponytail: client-side ball smoothing toward host snapshot (exponential, like player lerp)
+    // ponytail: client-side ball smoothing toward host snapshot.
+    // Velocity-extrapolated so fast balls don't lag behind host.
     invokeBallSmoothing(dt) {
         if (this.network?.isHost || !this._ballTarget || this._ballPredicting || !this.ball.active) return;
-        const dx = this._ballTarget.x - this.ball.position.x;
-        const dy = this._ballTarget.y - this.ball.position.y;
-        const dz = this._ballTarget.z - this.ball.position.z;
+        const now = performance.now();
+        const elapsed = (now - (this._ballTargetTime || now)) / 1000;
+        this._ballTargetTime = now;
+        // ponytail: extrapolate target forward by velocity × elapsed since snapshot
+        const tx = this._ballTarget.x + this._ballTarget.vx * elapsed;
+        const ty = this._ballTarget.y + this._ballTarget.vy * elapsed;
+        const tz = this._ballTarget.z + this._ballTarget.vz * elapsed;
+        const dx = tx - this.ball.position.x;
+        const dy = ty - this.ball.position.y;
+        const dz = tz - this.ball.position.z;
         const distSq = dx*dx + dy*dy + dz*dz;
+        // ponytail: stuck detection — if ball hasn't moved toward target for 1s, snap
         if (distSq > 25) {
-            this.ball.position.set(this._ballTarget.x, this._ballTarget.y, this._ballTarget.z);
+            this.ball.position.set(tx, ty, tz);
+            this._ballStuckTimer = 0;
         } else if (distSq > 0.0001) {
-            // ponytail: same smoothing factor as remote players (12/s exp)
             const factor = 1 - Math.exp(-dt * 12);
             this.ball.position.x += dx * factor;
             this.ball.position.y += dy * factor;
             this.ball.position.z += dz * factor;
+            this._ballStuckTimer = 0;
+        } else {
+            this._ballStuckTimer = (this._ballStuckTimer || 0) + dt;
+            if (this._ballStuckTimer > 1.0) {
+                this.ball.position.set(tx, ty, tz);
+                this._ballStuckTimer = 0;
+            }
         }
         this.ball.velocity.set(this._ballTarget.vx, this._ballTarget.vy, this._ballTarget.vz);
         this.ball.mesh.position.copy(this.ball.position);
