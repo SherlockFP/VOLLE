@@ -1722,63 +1722,98 @@ class App {
     }
 
     refreshFriendsSidebar() {
-        const players = [];
+        const allOnline = [];
         if (this.game) {
-            players.push({ name: this.game.playerName });
-            this.game.bots.forEach(b => players.push({ name: b.name }));
-            this.game.remotePlayers.forEach(p => players.push({ name: p.name }));
+            allOnline.push({ name: this.game.playerName, isMe: true });
+            this.game.bots.forEach(b => allOnline.push({ name: b.name }));
+            this.game.remotePlayers.forEach(p => allOnline.push({ name: p.name }));
         }
-        const online = Friends.getOnline(players);
+        const friendSet = new Set(Friends.friends.map(f => f.toLowerCase()));
         const onlineEl = document.getElementById('fbar-online');
         const offlineList = document.getElementById('fbar-offline-list');
         const offSub = document.querySelector('.friends-sidebar-subtitle');
         const countEl = document.getElementById('fbar-count');
-        if (countEl) countEl.textContent = online.length ? `${online.length} online` : '';
-
         if (!onlineEl) return;
-        const allFriends = Friends.friends;
-        const onlineNames = new Set(online.map(n => n.toLowerCase()));
 
-        // Online
-        if (!online.length) {
-            onlineEl.innerHTML = '<div class="friends-sidebar-empty">No friends online</div>';
+        // Separate: friend online vs non-friend online
+        const onlineFriends = allOnline.filter(p => friendSet.has(p.name.toLowerCase()) && !p.isMe);
+        const onlineOthers = allOnline.filter(p => !friendSet.has(p.name.toLowerCase()) && !p.isMe);
+        if (countEl) countEl.textContent = onlineFriends.length ? `${onlineFriends.length} online` : '';
+
+        // Online friends
+        if (!onlineFriends.length && !onlineOthers.length) {
+            onlineEl.innerHTML = '<div class="friends-sidebar-empty">No players online</div>';
         } else {
-            onlineEl.innerHTML = online.map(n =>
-                `<div class="fbar-friend" data-name="${n}">
-                    <span class="fbar-dot online"></span>
-                    <span class="fbar-name">${n}</span>
-                    <button class="fbar-remove" data-name="${n}">✕</button>
-                </div>`
-            ).join('');
+            let html = '';
+            // Friend section
+            if (onlineFriends.length) {
+                html += `<div class="friends-sidebar-subtitle">FRIENDS • ${onlineFriends.length}</div>`;
+                html += onlineFriends.map(n =>
+                    `<div class="fbar-friend" data-name="${n.name}">
+                        <div class="fbar-avatar online-avatar">${n.name.charAt(0).toUpperCase()}<span class="fbar-status-dot online"></span></div>
+                        <span class="fbar-name">${this._escapeHTML(n.name)}</span>
+                        <div class="fbar-actions">
+                            <button class="fbar-msg-btn" title="Message">💬</button>
+                            <button class="fbar-remove-btn" title="Remove">✕</button>
+                        </div>
+                    </div>`
+                ).join('');
+            }
+            // Other online players (not friends)
+            if (onlineOthers.length) {
+                html += `<div class="friends-sidebar-subtitle">IN LOBBY • ${onlineOthers.length}</div>`;
+                html += onlineOthers.map(n =>
+                    `<div class="fbar-friend" data-name="${n.name}">
+                        <div class="fbar-avatar online-avatar">${n.name.charAt(0).toUpperCase()}<span class="fbar-status-dot online"></span></div>
+                        <span class="fbar-name">${this._escapeHTML(n.name)}</span>
+                        <div class="fbar-actions">
+                            <button class="fbar-add-btn" title="Add friend">＋</button>
+                        </div>
+                    </div>`
+                ).join('');
+            }
+            onlineEl.innerHTML = html;
+
             onlineEl.querySelectorAll('.fbar-friend').forEach(el => {
                 const name = el.dataset.name;
                 el.addEventListener('click', e => {
-                    if (e.target.closest('.fbar-remove')) return;
+                    if (e.target.closest('.fbar-actions')) return;
                     this._openChatWith(name);
                 });
-                el.querySelector('.fbar-remove')?.addEventListener('click', e => {
+                el.querySelector('.fbar-msg-btn')?.addEventListener('click', e => {
+                    e.stopPropagation();
+                    this._openChatWith(name);
+                });
+                el.querySelector('.fbar-remove-btn')?.addEventListener('click', e => {
                     e.stopPropagation();
                     Friends.remove(name);
+                    this.refreshFriendsSidebar();
+                });
+                el.querySelector('.fbar-add-btn')?.addEventListener('click', e => {
+                    e.stopPropagation();
+                    Friends.add(name);
                     this.refreshFriendsSidebar();
                 });
             });
         }
 
-        // Offline
-        const offline = allFriends.filter(f => !onlineNames.has(f.toLowerCase()));
+        // Offline friends
+        const offline = Friends.friends.filter(f => !allOnline.some(p => p.name.toLowerCase() === f.toLowerCase()));
         if (offSub) offSub.style.display = offline.length ? '' : 'none';
         if (!offline.length) {
             if (offlineList) offlineList.innerHTML = '';
         } else if (offlineList) {
             offlineList.innerHTML = offline.map(n =>
                 `<div class="fbar-friend" data-name="${n}">
-                    <span class="fbar-dot offline"></span>
-                    <span class="fbar-name" style="opacity:0.5">${n}</span>
-                    <button class="fbar-remove" data-name="${n}">✕</button>
+                    <div class="fbar-avatar offline-avatar">${n.charAt(0).toUpperCase()}<span class="fbar-status-dot offline"></span></div>
+                    <span class="fbar-name offline-name">${this._escapeHTML(n)}</span>
+                    <div class="fbar-actions">
+                        <button class="fbar-remove-btn" title="Remove">✕</button>
+                    </div>
                 </div>`
             ).join('');
             offlineList.querySelectorAll('.fbar-friend').forEach(el => {
-                el.querySelector('.fbar-remove')?.addEventListener('click', e => {
+                el.querySelector('.fbar-remove-btn')?.addEventListener('click', e => {
                     e.stopPropagation();
                     Friends.remove(el.dataset.name);
                     this.refreshFriendsSidebar();
@@ -1800,10 +1835,11 @@ class App {
         const log = document.getElementById('fbar-chat-log');
         if (!log) return;
         const msgs = Friends.getDMs(name);
-        if (!msgs.length) { log.innerHTML = '<div style="opacity:0.4;padding:8px 0;font-style:italic">No messages</div>'; return; }
+        const me = this.game?.playerName || 'You';
+        if (!msgs.length) { log.innerHTML = '<div style="opacity:0.3;padding:12px 0;font-style:italic;text-align:center;font-size:0.85em">No messages yet</div>'; return; }
         log.innerHTML = msgs.map(m =>
-            `<div class="friends-chat-msg">
-                <span class="msg-from">${m.from}:</span>
+            `<div class="friends-chat-msg ${m.from === me ? 'msg-mine' : ''}">
+                <span class="msg-from">${this._escapeHTML(m.from)}</span>
                 <span class="msg-text">${this._escapeHTML(m.text)}</span>
             </div>`
         ).join('');
