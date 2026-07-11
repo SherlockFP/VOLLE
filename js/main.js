@@ -65,6 +65,8 @@ class App {
             }
         };
 
+        this.initFriendsSidebar();
+
         // Loadout uygula
         this.applyLoadout();
 
@@ -539,17 +541,6 @@ class App {
         document.getElementById('lobby-chat-send')?.addEventListener('click', () => lobbySend());
         document.getElementById('lobby-chat-input')?.addEventListener('keydown', e => {
             if (e.code === 'Enter') lobbySend();
-        });
-
-        document.getElementById('friends-add-btn')?.addEventListener('click', () => {
-            const input = document.getElementById('friends-input');
-            const name = input?.value.trim();
-            if (name && name.length >= 2) {
-                if (Friends.add(name)) { this.refreshFriendsUI(); input.value = ''; }
-            }
-        });
-        document.getElementById('friends-input')?.addEventListener('keydown', e => {
-            if (e.code === 'Enter') document.getElementById('friends-add-btn')?.click();
         });
 
         // Lobby team card drag — host drags player cards to switch teams
@@ -1433,35 +1424,6 @@ class App {
         this.game.updateLobbyUI?.();
     }
 
-    refreshFriendsUI() {
-        const players = [];
-        if (this.game) {
-            players.push({ name: this.game.playerName });
-            this.game.bots.forEach(b => players.push({ name: b.name }));
-            this.game.remotePlayers.forEach(p => players.push({ name: p.name }));
-        }
-        const online = Friends.getOnline(players);
-        const el = document.getElementById('friends-list');
-        const countEl = document.getElementById('friends-count');
-        if (!el) return;
-        if (countEl) countEl.textContent = online.length ? `(${online.length} online)` : '';
-        if (!online.length) {
-            el.innerHTML = '<span class="friends-empty">No friends online</span>';
-            return;
-        }
-        el.innerHTML = online.map(n =>
-            `<span class="friend-tag" data-name="${n}">🟢 ${n}</span>`
-        ).join('');
-        el.querySelectorAll('.friend-tag').forEach(tag => {
-            tag.addEventListener('click', () => {
-                const name = tag.dataset.name;
-                if (confirm(`Remove ${name} from friends?`)) {
-                    Friends.remove(name);
-                    this.refreshFriendsUI();
-                }
-            });
-        });
-    }
 
     broadcastLobbyState() {
         if (!(this.network?.isHost)) return;
@@ -1638,7 +1600,7 @@ class App {
                 this.game.addRemotePlayer(peerId, pName, null, avatar);
                 this.ui.showMessage(`${pName} joined!`);
                 this.game.updateLobbyUI();
-                this.refreshFriendsUI();
+                this.refreshFriendsSidebar();
                 // Mesh: tell existing clients to P2P-connect to the new peer
                 this.network.broadcast({ type: 'newPeer', peerId, name: pName });
                 this.broadcastLobbyState();
@@ -1648,7 +1610,7 @@ class App {
                 this.game.removeRemotePlayer(peerId);
                 this.ui.showMessage?.('A player left');
                 this.game.updateLobbyUI();
-                this.refreshFriendsUI();
+                this.refreshFriendsSidebar();
                 // Mesh: tell remaining clients to drop P2P connection
                 this.network.broadcast({ type: 'peerLeft', peerId });
                 this.broadcastLobbyState();
@@ -1703,6 +1665,159 @@ class App {
         }
         // Refresh the menu so the button label + clickability update.
         if (this.ui.isTeamPopupOpen()) this.ui._renderTeamLists(this.game);
+    }
+
+    initFriendsSidebar() {
+        Friends.onChange = () => this.refreshFriendsSidebar();
+        this._chattingWith = null;
+
+        document.getElementById('fbar-toggle')?.addEventListener('click', () => {
+            document.getElementById('friends-sidebar')?.classList.toggle('collapsed');
+        });
+
+        document.getElementById('fbar-add-input')?.addEventListener('keydown', e => {
+            if (e.code !== 'Enter') return;
+            const input = document.getElementById('fbar-add-input');
+            const name = input?.value.trim();
+            if (name && name.length >= 2) {
+                Friends.add(name);
+                input.value = '';
+                this.refreshFriendsSidebar();
+            }
+        });
+
+        document.getElementById('fbar-chat-send')?.addEventListener('click', () => this._sendFriendDM());
+        document.getElementById('fbar-chat-input')?.addEventListener('keydown', e => {
+            if (e.code === 'Enter') this._sendFriendDM();
+        });
+        document.getElementById('fbar-chat-close')?.addEventListener('click', () => {
+            this._chattingWith = null;
+            document.getElementById('fbar-chat')?.classList.add('hidden');
+        });
+
+        Friends.onDM = (friendName, from, text) => {
+            if (this._chattingWith === friendName) this._renderChatThread(friendName);
+        };
+
+        if (this.network) {
+            this.network.onFriendDM = (from, text) => {
+                Friends.addDM(from, from, text);
+            };
+        }
+    }
+
+    refreshFriendsSidebar() {
+        const players = [];
+        if (this.game) {
+            players.push({ name: this.game.playerName });
+            this.game.bots.forEach(b => players.push({ name: b.name }));
+            this.game.remotePlayers.forEach(p => players.push({ name: p.name }));
+        }
+        const online = Friends.getOnline(players);
+        const onlineEl = document.getElementById('fbar-online');
+        const offlineList = document.getElementById('fbar-offline-list');
+        const offSub = document.querySelector('.friends-sidebar-subtitle');
+        const countEl = document.getElementById('fbar-count');
+        if (countEl) countEl.textContent = online.length ? `${online.length} online` : '';
+
+        if (!onlineEl) return;
+        const allFriends = Friends.friends;
+        const onlineNames = new Set(online.map(n => n.toLowerCase()));
+
+        // Online
+        if (!online.length) {
+            onlineEl.innerHTML = '<div class="friends-sidebar-empty">No friends online</div>';
+        } else {
+            onlineEl.innerHTML = online.map(n =>
+                `<div class="fbar-friend" data-name="${n}">
+                    <span class="fbar-dot online"></span>
+                    <span class="fbar-name">${n}</span>
+                    <button class="fbar-remove" data-name="${n}">✕</button>
+                </div>`
+            ).join('');
+            onlineEl.querySelectorAll('.fbar-friend').forEach(el => {
+                const name = el.dataset.name;
+                el.addEventListener('click', e => {
+                    if (e.target.closest('.fbar-remove')) return;
+                    this._openChatWith(name);
+                });
+                el.querySelector('.fbar-remove')?.addEventListener('click', e => {
+                    e.stopPropagation();
+                    Friends.remove(name);
+                    this.refreshFriendsSidebar();
+                });
+            });
+        }
+
+        // Offline
+        const offline = allFriends.filter(f => !onlineNames.has(f.toLowerCase()));
+        if (offSub) offSub.style.display = offline.length ? '' : 'none';
+        if (!offline.length) {
+            if (offlineList) offlineList.innerHTML = '';
+        } else if (offlineList) {
+            offlineList.innerHTML = offline.map(n =>
+                `<div class="fbar-friend" data-name="${n}">
+                    <span class="fbar-dot offline"></span>
+                    <span class="fbar-name" style="opacity:0.5">${n}</span>
+                    <button class="fbar-remove" data-name="${n}">✕</button>
+                </div>`
+            ).join('');
+            offlineList.querySelectorAll('.fbar-friend').forEach(el => {
+                el.querySelector('.fbar-remove')?.addEventListener('click', e => {
+                    e.stopPropagation();
+                    Friends.remove(el.dataset.name);
+                    this.refreshFriendsSidebar();
+                });
+            });
+        }
+
+        if (this._chattingWith) this._renderChatThread(this._chattingWith);
+    }
+
+    _openChatWith(name) {
+        this._chattingWith = name;
+        document.getElementById('fbar-chat')?.classList.remove('hidden');
+        document.getElementById('fbar-chat-name').textContent = name;
+        this._renderChatThread(name);
+    }
+
+    _renderChatThread(name) {
+        const log = document.getElementById('fbar-chat-log');
+        if (!log) return;
+        const msgs = Friends.getDMs(name);
+        if (!msgs.length) { log.innerHTML = '<div style="opacity:0.4;padding:8px 0;font-style:italic">No messages</div>'; return; }
+        log.innerHTML = msgs.map(m =>
+            `<div class="friends-chat-msg">
+                <span class="msg-from">${m.from}:</span>
+                <span class="msg-text">${this._escapeHTML(m.text)}</span>
+            </div>`
+        ).join('');
+        log.scrollTop = log.scrollHeight;
+    }
+
+    _sendFriendDM() {
+        const input = document.getElementById('fbar-chat-input');
+        const text = input?.value.trim();
+        if (!text || !this._chattingWith) return;
+        input.value = '';
+        const me = this.game?.playerName || 'You';
+        Friends.addDM(this._chattingWith, me, text);
+        this._renderChatThread(this._chattingWith);
+        const peer = this.game?.remotePlayers?.forEach(p => {
+            if (p.name === this._chattingWith && p.peerId && this.network) {
+                this.network.sendDM(p.peerId, text);
+            }
+        });
+        // Also try host relay for non-peer-connected friends
+        if (this.network?.hostConn && this.network.hostConn.peer !== this._chattingWith) {
+            this.network.sendDM(this.network.hostConn.peer, text);
+        }
+    }
+
+    _escapeHTML(str) {
+        const d = document.createElement('div');
+        d.textContent = str;
+        return d.innerHTML;
     }
 
     openChat() {

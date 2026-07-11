@@ -212,6 +212,9 @@ export class Network {
             case 'partyChat':
                 if (this.onPartyChat) this.onPartyChat(data.name, data.text);
                 break;
+            case 'friendDM':
+                if (this.onFriendDM) this.onFriendDM(data.from, data.text);
+                break;
             case 'kick':
                 // Host told us (or the named player) to leave the lobby.
                 if (!this.isHost && (data.name === this.playerName || !data.name)) {
@@ -485,5 +488,16 @@ export class Network {
 
     sendPartyChat(text) {
         this.broadcast({ type: 'partyChat', name: this.playerName, text });
+    }
+
+    // --- Friend DM ---
+
+    sendDM(peerId, text) {
+        this.sendTo(peerId, { type: 'friendDM', from: this.playerName, text });
+    }
+
+    sendTo(peerId, data) {
+        const conn = this.connections.get(peerId) || this.hostConn;
+        if (conn && conn.open) conn.send(data);
     }
 }

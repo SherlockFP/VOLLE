@@ -1928,20 +1928,24 @@ export class Arena {
         for (let i = 0; i < this.portals.length; i++) {
             const p = this.portals[i];
             if (p.cooldown > 0) continue;
-            const dx = ballPos.x - p.pos.x;
-            const dz = ballPos.z - p.pos.z;
-            const dy = Math.abs(ballPos.y - p.pos.y);
+            const pp = p.pos || p.mesh?.position;
+            if (!pp) continue;
+            const dx = ballPos.x - pp.x;
+            const dz = ballPos.z - pp.z;
+            const dy = Math.abs(ballPos.y - pp.y);
             if (Math.hypot(dx, dz) < 1.2 + ballRadius && dy < 2) {
                 const other = this.portals[1 - i];
-                ballPos.x = other.pos.x;
-                ballPos.y = other.pos.y + 1;
-                ballPos.z = other.pos.z;
+                const op = other.pos || other.mesh?.position;
+                if (!op) return false;
+                ballPos.x = op.x;
+                ballPos.y = op.y + 1;
+                ballPos.z = op.z;
                 p.cooldown = 1.5;
                 other.cooldown = 1.5;
-                // Visual flash on both portals
+                // Visual flash on both portals (if core/light exist)
                 [p, other].forEach(portal => {
-                    portal.core.material.opacity = 0.8;
-                    portal.light.scale.setScalar(3);
+                    if (portal.core) portal.core.material.opacity = 0.8;
+                    if (portal.light) portal.light.scale.setScalar(3);
                 });
                 return true;
             }
@@ -2250,16 +2254,7 @@ export class Arena {
     }
 
     buildPortals() {
-        const portalGeo = new THREE.TorusGeometry(2, 0.3, 8, 24);
-        const blueMat = new THREE.MeshBasicMaterial({ color: 0x4488ff, transparent: true, opacity: 0.7 });
-        const orangeMat = new THREE.MeshBasicMaterial({ color: 0xff8800, transparent: true, opacity: 0.7 });
-        const halfX = (this.config?.size?.x || 78) / 2 - 5;
-        const p1 = new THREE.Mesh(portalGeo, blueMat);
-        p1.position.set(-halfX, 3, 0); p1.rotation.y = Math.PI / 2;
-        const p2 = new THREE.Mesh(portalGeo, orangeMat);
-        p2.position.set(halfX, 3, 0); p2.rotation.y = Math.PI / 2;
-        this.scene.add(p1); this.scene.add(p2);
-        this.portals = [{ mesh: p1, exit: p2 }, { mesh: p2, exit: p1 }];
+        this.portals = null;
     }
 
     updatePortals(dt) {
