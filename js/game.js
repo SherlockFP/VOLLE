@@ -1184,10 +1184,10 @@ export class Game {
                 bx: this.ball.position.x, by: this.ball.position.y, bz: this.ball.position.z,
                 flick: { vertical: flick?.vertical || 0, horizontal: flick?.horizontal || 0, power: flick?.power || 0 }
             });
-            // ponytail: full local feedback (SFX + juice + slash) — host will broadcast authoritative version too
+            // Prevent duplicate sends from bg loop / main loop
+            this.player._p2pAttackQueued = false;
+            // ponytail: minimal local feedback — host broadcasts authoritative hit sound
             const ballSpeed = this.ball.getSpeed();
-            this.audio.playSfx('tf2_hit', 0.35);
-            this.audio.playDeflect('flat');
             this.audio.playWhoosh(ballSpeed);
             this.player.kick('flat');
             const slashDir = new THREE.Vector3().subVectors(this.ball.position, pos).normalize();

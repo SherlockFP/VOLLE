@@ -7,28 +7,28 @@ import { WeatherSystem } from './weather.js';
 export const MAPS = {
     beach: {
         name: '🏖️ Beach Arena',
-        courtWidth: 115, courtLength: 130, wallHeight: 24, ceilingHeight: 34,
+        courtWidth: 106, courtLength: 120, wallHeight: 22, ceilingHeight: 31,
         floorRed: 0xf0b878, floorBlue: 0x7fd0e8, wallColor: 0xeaf2ff,
         skyTop: 0x3aa5ff, skyBottom: 0xcfeeff, fogColor: 0xcfeeff,
         hasOcean: true, hasGlass: true, size: 'medium', weather: 'clear', openSides: true
     },
     beach_open: {
         name: '🏐 Beach Volleyball',
-        courtWidth: 82, courtLength: 84, wallHeight: 10, ceilingHeight: 0,
+        courtWidth: 76, courtLength: 77, wallHeight: 9, ceilingHeight: 0,
         floorRed: 0xf0d090, floorBlue: 0xd0b878, wallColor: 0xf0d090,
         skyTop: 0x3aa5ff, skyBottom: 0xcfeeff, fogColor: 0xcfeeff,
         hasOcean: true, hasGlass: false, openAir: true, isBeachOpen: true, size: 'small', weather: 'clear', noSides: true
     },
     industrial: {
         name: '🏭 Factory',
-        courtWidth: 110, courtLength: 121, wallHeight: 22, ceilingHeight: 30,
+        courtWidth: 101, courtLength: 112, wallHeight: 21, ceilingHeight: 28,
         floorRed: 0xd85c5c, floorBlue: 0x5c7fe0, wallColor: 0xaac0d8,
         skyTop: 0x6a90c8, skyBottom: 0xe6eefc, fogColor: 0xdde6f5,
         hasOcean: false, hasGlass: true, size: 'medium', weather: 'clear'
     },
     space: {
         name: '🚀 Space Station',
-        courtWidth: 125, courtLength: 136, wallHeight: 26, ceilingHeight: 38,
+        courtWidth: 115, courtLength: 125, wallHeight: 24, ceilingHeight: 34,
         floorRed: 0xd04080, floorBlue: 0x4080d0, wallColor: 0x8090b0,
         skyTop: 0x1a2050, skyBottom: 0x3a4080, fogColor: 0x2a3060,
         hasOcean: false, hasGlass: true, isSpace: true, size: 'large',
@@ -36,7 +36,7 @@ export const MAPS = {
     },
     neon: {
         name: '🌆 Neon City',
-        courtWidth: 115, courtLength: 130, wallHeight: 24, ceilingHeight: 34,
+        courtWidth: 106, courtLength: 120, wallHeight: 22, ceilingHeight: 31,
         floorRed: 0xff3d81, floorBlue: 0x2de2e6, wallColor: 0x4a3a7a,
         skyTop: 0x4a2a8a, skyBottom: 0x8a5acc, fogColor: 0x5a3a9a,
         hasOcean: false, hasGlass: true, isNeon: true, size: 'medium',
@@ -44,14 +44,14 @@ export const MAPS = {
     },
     dojo: {
         name: '🥋 Dojo',
-        courtWidth: 118, courtLength: 132, wallHeight: 19, ceilingHeight: 26,
+        courtWidth: 108, courtLength: 122, wallHeight: 17, ceilingHeight: 24,
         floorRed: 0xc9925a, floorBlue: 0xa8784a, wallColor: 0xd4a86a,
         skyTop: 0xff9a52, skyBottom: 0xffd8a8, fogColor: 0xffd8a8,
         hasOcean: false, hasGlass: false, isDojo: true, size: 'medium', weather: 'clear'
     },
     colosseum: {
         name: '🏛️ Colosseum',
-        courtWidth: 144, courtLength: 156, wallHeight: 29, ceilingHeight: 0,
+        courtWidth: 132, courtLength: 144, wallHeight: 26, ceilingHeight: 0,
         floorRed: 0xc9a878, floorBlue: 0xa89060, wallColor: 0xe8d8b0,
         skyTop: 0x6aa5ff, skyBottom: 0xffe8c8, fogColor: 0xffd8a8,
         hasOcean: false, hasGlass: false, isColosseum: true, size: 'large',
@@ -59,14 +59,14 @@ export const MAPS = {
     },
     volcano: {
         name: '🌋 Volcano',
-        courtWidth: 125, courtLength: 138, wallHeight: 26, ceilingHeight: 36,
+        courtWidth: 115, courtLength: 126, wallHeight: 24, ceilingHeight: 33,
         floorRed: 0x6a2020, floorBlue: 0x4040a0, wallColor: 0x4a2020,
         skyTop: 0xff5a22, skyBottom: 0xffa844, fogColor: 0xff8844,
         hasOcean: false, hasGlass: true, isVolcano: true, size: 'large', weather: 'clear', openSides: true
     },
     ice: {
         name: '❄️ Ice Palace',
-        courtWidth: 118, courtLength: 130, wallHeight: 24, ceilingHeight: 34,
+        courtWidth: 108, courtLength: 120, wallHeight: 22, ceilingHeight: 31,
         floorRed: 0xa8d8f0, floorBlue: 0xd8f0ff, wallColor: 0xc8e8ff,
         skyTop: 0x88c8ff, skyBottom: 0xe0f4ff, fogColor: 0xe0f4ff,
         hasOcean: false, hasGlass: true, isIce: true, size: 'medium',
@@ -74,7 +74,7 @@ export const MAPS = {
     },
     cloud: {
         name: '☁️ Cloud Realm',
-        courtWidth: 130, courtLength: 144, wallHeight: 22, ceilingHeight: 31,
+        courtWidth: 120, courtLength: 132, wallHeight: 21, ceilingHeight: 29,
         floorRed: 0xffd8e8, floorBlue: 0xd8e8ff, wallColor: 0xffffff,
         skyTop: 0xaaddff, skyBottom: 0xffeef8, fogColor: 0xffeef8,
         hasOcean: false, hasGlass: true, isCloud: true, size: 'large',
@@ -82,14 +82,14 @@ export const MAPS = {
     },
     jungle: {
         name: '🌴 Jungle',
-        courtWidth: 125, courtLength: 136, wallHeight: 26, ceilingHeight: 36,
+        courtWidth: 115, courtLength: 125, wallHeight: 24, ceilingHeight: 33,
         floorRed: 0x6a8a3a, floorBlue: 0x3a6a5a, wallColor: 0x8a7a5a,
         skyTop: 0x88cc66, skyBottom: 0xeef8c8, fogColor: 0xddeec0,
         hasOcean: false, hasGlass: false, isJungle: true, size: 'medium', weather: 'rain'
     },
     cyber: {
         name: '🤖 Cyber Grid',
-        courtWidth: 110, courtLength: 124, wallHeight: 24, ceilingHeight: 34,
+        courtWidth: 101, courtLength: 114, wallHeight: 22, ceilingHeight: 31,
         floorRed: 0xff2266, floorBlue: 0x22ddff, wallColor: 0x334455,
         skyTop: 0x00ddff, skyBottom: 0x66ffee, fogColor: 0x44ccdd,
         hasOcean: false, hasGlass: true, isCyber: true, size: 'medium',
@@ -97,21 +97,21 @@ export const MAPS = {
     },
     canyon: {
         name: '🏜️ Canyon',
-        courtWidth: 178, courtLength: 84, wallHeight: 34, ceilingHeight: 42,
+        courtWidth: 163, courtLength: 77, wallHeight: 31, ceilingHeight: 39,
         floorRed: 0xd4a06a, floorBlue: 0xb8885a, wallColor: 0xc89868,
         skyTop: 0x3a88cc, skyBottom: 0xeec888, fogColor: 0xeec888,
         hasOcean: false, hasGlass: false, isCanyon: true, size: 'xl', weather: 'clear'
     },
     pillar: {
         name: '🏛️ Pillar Hall',
-        courtWidth: 134, courtLength: 144, wallHeight: 24, ceilingHeight: 34,
+        courtWidth: 123, courtLength: 132, wallHeight: 22, ceilingHeight: 31,
         floorRed: 0x887a6a, floorBlue: 0x6a7a8a, wallColor: 0x9a8a7a,
         skyTop: 0x6a80a0, skyBottom: 0xd0c8b8, fogColor: 0xc8c0b0,
         hasOcean: false, hasGlass: true, isPillar: true, size: 'large', weather: 'clear'
     },
     lava: {
         name: '🌋 Lava Pit',
-        courtWidth: 120, courtLength: 136, wallHeight: 24, ceilingHeight: 0,
+        courtWidth: 110, courtLength: 125, wallHeight: 22, ceilingHeight: 0,
         floorRed: 0xff3300, floorBlue: 0xff5500, wallColor: 0x4a2020,
         skyTop: 0xff4422, skyBottom: 0x662200, fogColor: 0x442200,
         hasOcean: false, hasGlass: false, isLava: true, size: 'medium',
@@ -119,7 +119,7 @@ export const MAPS = {
     },
     crystal: {
         name: '💎 Crystal Cave',
-        courtWidth: 115, courtLength: 130, wallHeight: 22, ceilingHeight: 29,
+        courtWidth: 106, courtLength: 120, wallHeight: 21, ceilingHeight: 26,
         floorRed: 0x88aacc, floorBlue: 0x6688bb, wallColor: 0x7799bb,
         skyTop: 0x4488aa, skyBottom: 0x88ccee, fogColor: 0x88ccee,
         hasOcean: false, hasGlass: false, isCrystal: true, size: 'medium',
@@ -127,7 +127,7 @@ export const MAPS = {
     },
     mecha: {
         name: '🤖 Mecha Hangar',
-        courtWidth: 156, courtLength: 158, wallHeight: 31, ceilingHeight: 41,
+        courtWidth: 144, courtLength: 145, wallHeight: 29, ceilingHeight: 38,
         floorRed: 0x556677, floorBlue: 0x445566, wallColor: 0x667788,
         skyTop: 0x334455, skyBottom: 0x8899aa, fogColor: 0x778899,
         hasOcean: false, hasGlass: true, isMecha: true, size: 'xxl',
@@ -135,7 +135,7 @@ export const MAPS = {
     },
     atlantis: {
         name: '🌊 Atlantis',
-        courtWidth: 125, courtLength: 139, wallHeight: 26, ceilingHeight: 36,
+        courtWidth: 115, courtLength: 128, wallHeight: 24, ceilingHeight: 33,
         floorRed: 0x14758f, floorBlue: 0x125f91, wallColor: 0x59c7d4,
         skyTop: 0x003c5a, skyBottom: 0x1490a8, fogColor: 0x0b6680,
         hasOcean: false, hasGlass: true, isAtlantis: true, size: 'large',
@@ -143,7 +143,7 @@ export const MAPS = {
     },
     minecraft: {
         name: '⛏️ Minecraft',
-        courtWidth: 110, courtLength: 124, wallHeight: 19, ceilingHeight: 36,
+        courtWidth: 101, courtLength: 114, wallHeight: 17, ceilingHeight: 33,
         floorRed: 0x7cb342, floorBlue: 0x5a8a2a, wallColor: 0x8a6a3a,
         skyTop: 0x88ddff, skyBottom: 0xcceeff, fogColor: 0xcceeff,
         hasOcean: false, hasGlass: false, size: 'medium', weather: 'clear',
@@ -151,14 +151,14 @@ export const MAPS = {
     },
     esport_arena: {
         name: '🏟️ Esport Arena',
-        courtWidth: 72, courtLength: 48, wallHeight: 19, ceilingHeight: 26,
+        courtWidth: 67, courtLength: 44, wallHeight: 17, ceilingHeight: 24,
         floorRed: 0xcc3333, floorBlue: 0x3355cc, wallColor: 0xcccccc,
         skyTop: 0x88bbff, skyBottom: 0xddddee, fogColor: 0xccccdd,
         hasOcean: false, hasGlass: true, isEsport: true, size: 'medium', weather: 'indoor', openSides: true
     },
     temple_sym: {
         name: '🏛️ Temple',
-        courtWidth: 67, courtLength: 43, wallHeight: 19, ceilingHeight: 26,
+        courtWidth: 62, courtLength: 39, wallHeight: 17, ceilingHeight: 24,
         floorRed: 0xc9a878, floorBlue: 0xa89060, wallColor: 0xe8d8b0,
         skyTop: 0x6aa5ff, skyBottom: 0xffe8c8, fogColor: 0xffd8a8,
         hasOcean: false, hasGlass: false, isTemple: true, size: 'medium', weather: 'clear'
@@ -2226,3 +2226,5 @@ export class Arena {
         }
     }
 }
+
+
