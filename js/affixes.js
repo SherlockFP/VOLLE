@@ -194,11 +194,7 @@ export class AffixManager {
     startRound() {
         this.clearRound();
         this.active = true;
-        const count = this.getZoneCount();
-        for (let i = 0; i < count; i++) {
-            this.spawnZone();
-        }
-        // 20% chance for a random ball affix
+        // Ball affix — 4% chance per round
         if (Math.random() < 0.04) {
             const list = AffixManager.BALL_AFFIXES;
             this.currentBallAffix = list[Math.floor(Math.random() * list.length)];
@@ -208,40 +204,7 @@ export class AffixManager {
     }
 
     update(dt, players) {
-        if (!this.active || this.zones.length === 0) return;
-        const now = performance.now() / 1000;
-
-        for (let i = this.zones.length - 1; i >= 0; i--) {
-            const zone = this.zones[i];
-
-            // Lifetime countdown
-            zone.timer -= dt;
-
-            // Pulse opacity: circle pulses, ring glows steadily with a subtle wobble
-            const pulse = 0.15 + Math.sin(now * 4) * 0.12;
-            zone.circle.material.opacity = Math.max(0.03, pulse);
-            zone.ring.material.opacity = 0.5 + Math.sin(now * 4 + 1) * 0.25;
-
-            // Damage players inside the zone
-            for (const player of players) {
-                if (player.alive === false) continue;
-                const p = player.getPosition();
-                const dx = p.x - zone.position.x;
-                const dz = p.z - zone.position.z;
-                if (Math.sqrt(dx * dx + dz * dz) < zone.radius) {
-                    const lastHit = zone.damageTimers.get(player) || 0;
-                    if (now - lastHit >= DAMAGE_INTERVAL) {
-                        player.takeDamage(DAMAGE_PER_TICK);
-                        zone.damageTimers.set(player, now);
-                    }
-                }
-            }
-
-            // Expired → respawn at a new position
-            if (zone.timer <= 0) {
-                this.respawnZone(zone);
-            }
-        }
+        // zones removed
     }
 
     clearRound() {

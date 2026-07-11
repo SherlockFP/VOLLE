@@ -1143,12 +1143,16 @@ class App {
             }
         }, { passive: false });
 
-        // Click to lock pointer during game
+        // Click to lock pointer during game (not when pause/settings open)
         const gameContainer = document.getElementById('game-container');
         gameContainer.addEventListener('click', () => {
-            if (this.game.state === STATES.PLAYING && !this.player.locked && !this.chatOpen) {
-                this.player.lock();
-            }
+            if (this.game.state !== STATES.PLAYING || this.player.locked) return;
+            if (this.chatOpen) return;
+            const pauseEl = document.getElementById('pause-menu');
+            if (pauseEl && !pauseEl.classList.contains('hidden')) return;
+            const settingsEl = document.getElementById('unified-settings');
+            if (settingsEl && !settingsEl.classList.contains('hidden')) return;
+            this.player.lock();
         });
 
         // Click backdrop to close settings modal

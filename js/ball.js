@@ -296,6 +296,18 @@ export class Ball {
             this._clampSpeed();
             this.position.add(this.velocity.clone().multiplyScalar(dt));
 
+            // Source Engine-style curve from flick spin — only affects rally state
+            if (Math.abs(this.spin) > 0.001) {
+                const speed = this.velocity.length();
+                const vx = this.velocity.x, vz = this.velocity.z;
+                const s = this.spin * dt * (1 + speed * 0.02);
+                this.velocity.x = vx * Math.cos(s) - vz * Math.sin(s);
+                this.velocity.z = vx * Math.sin(s) + vz * Math.cos(s);
+                const magnus = this.spin * speed * 0.8 * dt;
+                this.velocity.y += magnus;
+                this.spin *= Math.exp(-0.3 * dt);
+            }
+
             // Ricochet waypoint cleanup
             if (this.ricochetTarget && this.targetPlayer) {
                 const toRic = new THREE.Vector3().subVectors(this.ricochetTarget, this.position);
@@ -309,25 +321,6 @@ export class Ball {
             const w = this._affixWobble;
             this.position.x += Math.sin(t * w.freq) * w.amp * dt;
             this.position.z += Math.cos(t * w.freq * 0.7) * w.amp * dt;
-        }
-
-        // Source Engine-style curve from flick spin:
-        // - Horizontal spin bends the ball mid-flight (like a curveball)
-        // - Magnus effect lifts/drops ball based on spin direction
-        // - Spin fades gradually so curve tapers naturally
-        if (Math.abs(this.spin) > 0.001) {
-            const speed = this.velocity.length();
-            const vx = this.velocity.x, vz = this.velocity.z;
-            const s = this.spin * dt * (1 + speed * 0.025);
-            this.velocity.x = vx * Math.cos(s) - vz * Math.sin(s);
-            this.velocity.z = vx * Math.sin(s) + vz * Math.cos(s);
-
-            // Magnus vertical lift — spin × speed curves ball up/down
-            const magnus = this.spin * speed * 1.0 * dt;
-            this.velocity.y += magnus;
-
-            // Spin decay — longer fade = shapelier curve
-            this.spin *= Math.exp(-0.3 * dt);
         }
 
         // Wall collision removed — ball goes outside map. Players chase it anywhere.
