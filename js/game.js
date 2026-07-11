@@ -982,34 +982,43 @@ export class Game {
                 }
                 this.player.attacking = false;
             }
-            // Bots participate during celebration
+            // Bots participate during celebration — everyone moves freely
             this.bots.forEach(bot => {
                 if (!bot.alive) return;
-                const isWinner = bot.team === this._winningTeam;
-                // Find nearest opposite team bot
-                const enemies = this.bots.filter(b => b.alive && b.team !== bot.team);
-                if (enemies.length > 0) {
-                    const closest = enemies.reduce((a, b) => {
-                        const da = bot.position.distanceTo(a.getPosition());
-                        const db = bot.position.distanceTo(b.getPosition());
-                        return da < db ? a : b;
-                    });
-                    const dist = bot.position.distanceTo(closest.getPosition());
-                    if (isWinner) {
-                        // Winners chase
-                        bot.position.lerp(closest.getPosition(), Math.min(1, 3 * dt / Math.max(dist, 1)));
-                        if (dist < 2.5 && closest.takeDamage?.(6)) {
-                            closest.alive = false;
-                            closest.group.visible = false;
-                            this.spawnDeathExplosion(closest.getPosition(), closest.team);
+                // Periodic random wander target so bots visibly move
+                if (!bot._celebTarget || bot.position.distanceTo(bot._celebTarget) < 2) {
+                    const b = this.arena.bounds;
+                    bot._celebTarget = new THREE.Vector3(
+                        b.minX + 2 + Math.random() * (b.maxX - b.minX - 4),
+                        0,
+                        b.minZ + 2 + Math.random() * (b.maxZ - b.minZ - 4)
+                    );
+                }
+                const dir = new THREE.Vector3().subVectors(bot._celebTarget, bot.position).normalize();
+                bot.position.add(dir.multiplyScalar(bot.moveSpeed * 0.6 * dt));
+                bot.position.y = 0;
+                // Turn to face movement direction
+                if (dir.lengthSq() > 0.01) {
+                    bot.group.rotation.y = Math.atan2(dir.x, dir.z);
+                }
+                bot.group.position.copy(bot.position);
+                // Attack cooldown
+                if (bot.attackTimer > 0) {
+                    bot.attackTimer -= dt;
+                    if (bot.attackTimer <= 0) bot.attacking = false;
+                }
+                // Winners damage nearby enemies
+                if (bot.team === this._winningTeam) {
+                    const targets = this.bots.filter(b => b.alive && b.team !== bot.team);
+                    for (const t of targets) {
+                        if (bot.position.distanceTo(t.getPosition()) < 2.5) {
+                            t.takeDamage?.(6);
+                            t.alive = false;
+                            t.group.visible = false;
+                            this.spawnDeathExplosion(t.getPosition(), t.team);
                         }
-                    } else {
-                        // Losers flee
-                        const away = new THREE.Vector3().subVectors(bot.position, closest.getPosition()).normalize();
-                        bot.position.add(away.multiplyScalar(8 * dt));
                     }
                 }
-                bot.update(dt, null);
             });
 
             const isClient = this.network?.connected && !this.network?.isHost;
@@ -1588,7 +1597,7 @@ export class Game {
                 if (comboName) {
                     this._playComboSound(comboSounds[idx]);
                     if (tf2ComboSounds[idx]) this.audio.playSfx(tf2ComboSounds[idx], 0.5);
-                    this.ui.showCombo(comboName, 8.0);
+                    this.ui.showCombo(idx, 8.0);
                     this.announce(`🔥 ${comboName}!`, tf2ComboSounds[idx] || null, 0.5, 2500);
                 }
                 const rallyMsg = this.rallyCount > 2 ? ` (${this.rallyCount} rally!)` : '';
@@ -2600,14 +2609,14 @@ export class Game {
             p.targetPos?.set(data.x, data.y, data.z);
         }
 
+        // ponytail: cancel any pending lethal hit FIRST — client attack wins even if rate-limited
+        if (this._pendingLethalHit) { clearTimeout(this._pendingLethalHit); this._pendingLethalHit = null; }
+
         // ponytail: rate limit — max one attack per peer per 200ms
         const now = performance.now();
         if (this._lastRemoteAttack && this._lastRemoteAttack[peerId] && now - this._lastRemoteAttack[peerId] < 200) return;
         if (!this._lastRemoteAttack) this._lastRemoteAttack = {};
         this._lastRemoteAttack[peerId] = now;
-
-        // ponytail: cancel any pending lethal hit on this player — client attack wins
-        if (this._pendingLethalHit) { clearTimeout(this._pendingLethalHit); this._pendingLethalHit = null; }
         if (!p.alive) {
             // ponytail: revive dead player who attacked within 400ms grace
             p.alive = true;

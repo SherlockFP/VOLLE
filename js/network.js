@@ -291,17 +291,6 @@ export class Network {
 
     setLobbyPassword(pw) { this.lobbyPassword = pw || ''; }
 
-    // Host: tell everyone the lobby is closing, then tear down after the
-    // messages flush so clients get bounced to the menu instead of hanging.
-    closeLobby() {
-        if (this.isHost) {
-            try { this.broadcast({ type: 'lobbyClosed' }); } catch (e) {}
-            setTimeout(() => this.disconnect(), 200);
-        } else {
-            this.disconnect();
-        }
-    }
-
     // Establish a direct P2P mesh connection to another peer (non-host).
     async connectToPeer(peerId) {
         if (this.connections.has(peerId) || peerId === this.peer?.id) return;

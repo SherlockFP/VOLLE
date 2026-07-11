@@ -533,6 +533,8 @@ class App {
             this.game.bots = [];
             this.game.botCounter = 0;
             this.game.ball.deactivate();
+            this.game.clearBlackHoles?.();
+            this.game.clearSplitBalls?.();
             if (this.game.affixes) this.game.affixes.clearRound();
             this.game.setState(STATES.MENU);
             this.ui.showScreen('mainMenu');
@@ -675,6 +677,8 @@ class App {
             this.game.bots = [];
             this.game.botCounter = 0;
             this.game.ball.deactivate();
+            this.game.clearBlackHoles?.();
+            this.game.clearSplitBalls?.();
             if (this.game.affixes) this.game.affixes.clearRound();
             this.ui.setPlayerTarget(false);
             this.game.setState(STATES.MENU);
@@ -708,6 +712,8 @@ class App {
                 this.game.bots = [];
                 this.game.botCounter = 0;
                 this.game.ball.deactivate();
+                this.game.clearBlackHoles?.();
+                this.game.clearSplitBalls?.();
                 if (this.game.affixes) this.game.affixes.clearRound();
                 this.ui.setPlayerTarget(false);
                 this.game.setState(STATES.MENU);
@@ -2113,7 +2119,7 @@ class App {
         // Hide friends sidebar during gameplay
         const sidebar = document.getElementById('friends-sidebar');
         if (sidebar) {
-            const inGame = this.game.state === STATES.PLAYING || this.game.state === STATES.COUNTDOWN || this.game.state === STATES.CELEBRATION || this.game.state === STATES.ROUND_END || this.game.state === STATES.GAME_OVER;
+            const inGame = this.game.state === STATES.LOBBY || this.game.state === STATES.PLAYING || this.game.state === STATES.COUNTDOWN || this.game.state === STATES.CELEBRATION || this.game.state === STATES.ROUND_END || this.game.state === STATES.GAME_OVER;
             sidebar.classList.toggle('hidden', inGame);
         }
 
@@ -2291,6 +2297,7 @@ class App {
                         else this._ballSendSkipCount = 0;
                     }
                     if (shouldSend) {
+                        this._ballSeq = (this._ballSeq || 0) + 1;
                         this._lastSentBall = {
                             x: ball.position.x, y: ball.position.y, z: ball.position.z,
                             vx: ball.velocity.x, vy: ball.velocity.y, vz: ball.velocity.z,
@@ -2298,6 +2305,7 @@ class App {
                         };
                         this.network.broadcast({
                             type: 'ballState',
+                            seq: this._ballSeq,
                             x: ball.position.x, y: ball.position.y, z: ball.position.z,
                             vx: ball.velocity.x, vy: ball.velocity.y, vz: ball.velocity.z,
                             speed: ball.currentSpeed, active: ball.active,

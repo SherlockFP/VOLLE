@@ -590,7 +590,6 @@ export class UI {
 
     // Combo göstergesi — ortada büyük sayı (juice).
     updateCombo(combo, multiplier) {
-        // Update #combo-display (legacy)
         let el = document.getElementById('combo-display');
         if (!el) {
             el = document.createElement('div');
@@ -598,25 +597,25 @@ export class UI {
             el.className = 'combo-display';
             document.body.appendChild(el);
         }
-        // Update #combo-meter (new)
-        const meter = document.getElementById('combo-meter');
         if (combo >= 2) {
-            el.textContent = `${combo}x COMBO`;
-            el.style.opacity = '1';
-            el.style.transform = `scale(${1 + Math.min(0.5, combo * 0.05)})`;
-            if (meter) {
-                const prev = meter.textContent;
-                meter.textContent = `${combo}x COMBO (×${multiplier.toFixed(1)})`;
-                meter.classList.add('visible');
-                if (prev !== meter.textContent) {
-                    meter.classList.remove('pulse');
-                    void meter.offsetWidth;
-                    meter.classList.add('pulse');
-                }
+            if (this._lastCombo !== combo) {
+                // New combo level — random position, show briefly
+                this._comboPos = {
+                    top: (15 + Math.random() * 50) + '%',
+                    left: (15 + Math.random() * 60) + '%'
+                };
+                el.innerHTML = `<div class="combo-count">${combo}x</div><div class="combo-label">COMBO</div>`;
+                el.style.top = this._comboPos.top;
+                el.style.left = this._comboPos.left;
+                el.style.transform = `translate(-50%, -50%) scale(${1 + Math.min(0.5, combo * 0.05)})`;
+                el.style.opacity = '1';
+                clearTimeout(this._comboHideTimer);
+                this._comboHideTimer = setTimeout(() => { el.style.opacity = '0'; }, 1200);
             }
+            this._lastCombo = combo;
         } else {
             el.style.opacity = '0';
-            if (meter) meter.classList.remove('visible');
+            clearTimeout(this._comboHideTimer);
         }
     }
 
