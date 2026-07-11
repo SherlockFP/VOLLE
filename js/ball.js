@@ -202,6 +202,8 @@ export class Ball {
             return false;
         }
         if (!this.active) return;
+        // ponytail: store previous position for swept sphere hit detection
+        this._prevPosition = this.position.clone();
         if (this._noHitTimer > 0) this._noHitTimer -= dt;
 
         // NaN guard — position bozulursa topu resetle
@@ -264,10 +266,14 @@ export class Ball {
                 if (dist > 0.5) {
                     const targetDir = toTarget.clone().normalize();
                     const velDir = this.velocity.clone().normalize();
-                    // ponytail: close range (<3) → steer DIRECTLY at target, no orbit blending
+                    // ponytail: graduated approach — slowing near target for fair deflect window
                     let desired;
-                    if (dist < 3) {
-                        desired = targetDir.clone(); // no lerp — straight at target
+                    if (dist < 1.5) {
+                        // Very close: mostly momentum (slows approach, player can react)
+                        desired = targetDir.clone().lerp(velDir, 0.6).normalize();
+                    } else if (dist < 3) {
+                        // Close: moderate blend — direct but not instant
+                        desired = targetDir.clone().lerp(velDir, 0.3).normalize();
                     } else {
                         const momentum = 0.30;
                         const aimW = Math.min(dist / 10, 1) * momentum;
@@ -279,7 +285,8 @@ export class Ball {
                         : 1;
                     this._homingAge = (this._homingAge || 0) + dt;
                     const ageBoost = this._homingAge > 0 ? 1 + Math.floor(this._homingAge / 2) * 0.5 : 1;
-                    const s = dist < 3 ? 30.0 : 11.4;
+                    // ponytail: softer steer at close range — prevents aggressive snap
+                    const s = dist < 1.5 ? 12.0 : dist < 3 ? 20.0 : 11.4;
                     const steer = Math.min(s * speedFactor * ageBoost * dt, 1);
                     const newDir = velDir.lerp(desired, steer).normalize();
                     this.velocity.copy(newDir.multiplyScalar(this.currentSpeed));
@@ -297,10 +304,12 @@ export class Ball {
                 if (dist > 0.5) {
                     const targetDir = toTarget.clone().normalize();
                     const velDir = this.velocity.clone().normalize();
-                    // ponytail: close range (<3) → steer DIRECTLY at target, no orbit blending
+                    // ponytail: graduated approach — slowing near target for fair deflect window
                     let desired;
-                    if (dist < 3) {
-                        desired = targetDir.clone(); // no lerp — straight at target
+                    if (dist < 1.5) {
+                        desired = targetDir.clone().lerp(velDir, 0.6).normalize();
+                    } else if (dist < 3) {
+                        desired = targetDir.clone().lerp(velDir, 0.3).normalize();
                     } else {
                         const momentum = this.aimed ? 0.55 : 0.30;
                         const aimW = Math.min(dist / 10, 1) * momentum;
@@ -312,7 +321,7 @@ export class Ball {
                         : 1;
                     this._homingAge = (this._homingAge || 0) + dt;
                     const ageBoost = this._homingAge > 0 ? 1 + Math.floor(this._homingAge / 2) * 0.5 : 1;
-                    const s = dist < 3 ? 30.0 : 11.4;
+                    const s = dist < 1.5 ? 12.0 : dist < 3 ? 20.0 : 11.4;
                     const steer = Math.min(s * speedFactor * ageBoost * dt, 1);
                     const newDir = velDir.lerp(desired, steer).normalize();
                     this.velocity.copy(newDir.multiplyScalar(this.currentSpeed));

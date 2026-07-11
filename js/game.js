@@ -1278,11 +1278,17 @@ export class Game {
             const ballPos = this.ball.position;
             const playerPos = this.player.getPosition();
             const dist = ballPos.distanceTo(playerPos);
-            const rangeCheck = isClient2
-                ? dist < this.ball.attackRange * 2.0
-                : dist < this.ball.attackRange + Math.min(this.ball.currentSpeed * 0.003, 3.0);
-            if (rangeCheck) {
+            const deflectionRange = isClient2
+                ? this.ball.attackRange * 2.0
+                : this.ball.attackRange + Math.min(this.ball.currentSpeed * 0.003, 3.0);
+            if (dist < deflectionRange) {
                 this.handlePlayerDeflection(isClient2);
+            } else if (this.ball._prevPosition && this.ball.currentSpeed > 20) {
+                // ponytail: swept deflection check — ball trajectory might cross deflection range
+                const prevDist = this.ball._prevPosition.distanceTo(playerPos);
+                if (prevDist < deflectionRange) {
+                    this.handlePlayerDeflection(isClient2);
+                }
             }
         }
 
@@ -1326,6 +1332,19 @@ export class Game {
                 if (this.capsuleHitTest(ballPos, headPos, 1.7, 0.4 + hitBonus)) {
                     this.handleHit(target);
                     return;
+                }
+                // ponytail: swept sphere check — test ball trajectory for tunneling prevention
+                // Check 2 intermediate positions between last frame and current frame
+                if (this.ball._prevPosition && this.ball.currentSpeed > 20) {
+                    const steps = Math.min(4, Math.ceil(this.ball.currentSpeed * 0.02));
+                    for (let s = 1; s <= steps; s++) {
+                        const t = s / (steps + 1);
+                        const interpPos = new THREE.Vector3().lerpVectors(this.ball._prevPosition, ballPos, t);
+                        if (this.capsuleHitTest(interpPos, headPos, 1.7, 0.4 + hitBonus)) {
+                            this.handleHit(target);
+                            return;
+                        }
+                    }
                 }
                 // ponytail: proximity forced-hit — top hedefe çok yakınken oyuncu
                 // vurmazsa zorunlu hit. Sonsuz döngü engeli + tunneling fix.
@@ -1683,7 +1702,8 @@ export class Game {
                 dmg, lethal: hitTarget.hp <= 0, attackerName: scorerName, victimTeam: hitTarget.team,
                 hitX: hitPos.x, hitY: hitPos.y, hitZ: hitPos.z,
                 missTag, perfectTag, combo: this.juice.combo,
-                killStreak: this.killStreak, rallyCount: this.rallyCount
+                killStreak: this.killStreak, rallyCount: this.rallyCount,
+                hitZone: hitZone.label, hitZoneId: hitZone.zone
             });
         }
 
@@ -3120,15 +3140,26 @@ export class Game {
             const scrPos = hitPos.clone().project(this.player.camera);
             const sx = (scrPos.x * 0.5 + 0.5) * window.innerWidth;
             const sy = (-scrPos.y * 0.5 + 0.5) * window.innerHeight;
-            this.ui.spawnDamageNumber(sx, sy, data.dmg || 0, isLethal);
+            this.ui.spawnDamageNumber(sx, sy, data.dmg || 0, isLethal, data.hitZone || null);
+
+            // Hit marker — show when the local player lands a hit
+            if (data.attackerName === this.playerName) {
+                this.ui.showHitMarker(data.hitZoneId === 'head');
+            }
 
             // Explosion at hit position (visible to everyone)
             this.spawnDeathExplosion(hitPos, data.victimTeam);
             this.audio.playSfx('tf2_explosion', 0.5);
-            this.juice.burst(hitPos, data.victimTeam === 'red' ? 0xff4444 : 0x4488ff, 16, 10);
-            this.juice.shockwave(hitPos, 0xff8844);
-            this.juice.shake(isLethal ? 0.5 : 0.25);
+            if (isLethal) {
+                this.juice.killBurst(hitPos);
+                this.juice.sparks(hitPos.clone().add(new THREE.Vector3(0, 0.3, 0)), 0xffffff, 8);
+            } else {
+                this.juice.hitBurst(hitPos);
+            }
+            this.juice.shockwave(hitPos, isLethal ? 0xff3333 : 0xff8844);
+            this.juice.shake(isLethal ? 0.6 : 0.25);
             this.juice.hitStop(isLethal ? 100 : 50);
+            this.juice.flash(isLethal ? 0.4 : 0.2);
 
             // Kill feed
             const tag = (data.missTag || '') + (data.perfectTag || '');
@@ -3148,6 +3179,20 @@ export class Game {
                     }));
                 }
                 this.audio.playSfx('tf2_scout_scream', 0.45);
+                // Directional damage indicator
+                if (data.attackerName && data.attackerName !== this.playerName) {
+                    const attacker = this.getAllTargets().find(t => t.name === data.attackerName);
+                    if (attacker) {
+                        const attackerPos = attacker.getPosition();
+                        const playerPos = this.player.getPosition();
+                        const dx = attackerPos.x - playerPos.x;
+                        const dz = attackerPos.z - playerPos.z;
+                        const damageAngle = Math.atan2(dx, dz) * (180 / Math.PI);
+                        const camYaw = this.player.camera?.rotation?.y || 0;
+                        const screenAngle = damageAngle - (camYaw * 180 / Math.PI);
+                        this.ui.showDamageDirection(screenAngle);
+                    }
+                }
                 if (isLethal) {
                     // Only play death effects if not already dead (prediction may have handled it)
                     if (this.player.alive) {
