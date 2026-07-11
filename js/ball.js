@@ -139,6 +139,7 @@ export class Ball {
         this.clearTrail();
         this.updateColor();
         this._lerping = false;
+        this._noHitTimer = 0.3;
         // Reset affix state
         this.affix = null;
         this._affixTrailColor = null;
@@ -174,6 +175,7 @@ export class Ball {
         this._affixReturnTimer = 0;
         this._pinballBounce = false;
         this._warmup = false;
+        this._noHitTimer = 0;
         this._affixSplit = false;
         this._affixShrink = false;
         this._affixGrow = false;
@@ -188,6 +190,7 @@ export class Ball {
             return false;
         }
         if (!this.active) return;
+        if (this._noHitTimer > 0) this._noHitTimer -= dt;
 
         // NaN guard — position bozulursa topu resetle
         if (isNaN(this.position.x) || isNaN(this.position.y) || isNaN(this.position.z)) {

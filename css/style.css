@@ -847,7 +847,7 @@ canvas { display: block; }
 
 .ow-menu {
     display: grid;
-    grid-template-columns: 1fr 260px;
+    grid-template-columns: 1fr auto;
     grid-template-rows: auto 1fr auto auto;
     width: 100%;
     height: 100%;
@@ -3267,18 +3267,24 @@ canvas { display: block; }
 .friends-sidebar {
     grid-column: 2;
     grid-row: 1 / -1;
+    width: 260px;
+    min-width: 30px;
     background: rgba(10, 10, 15, 0.88);
     backdrop-filter: blur(12px);
     border-left: 1px solid rgba(255,255,255,0.06);
     border-radius: 0;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
-    transition: transform 0.25s ease;
+    transition: width 0.25s ease;
 }
 .friends-sidebar.hidden { display: none; }
-.friends-sidebar.collapsed { transform: translateX(220px); }
-.friends-sidebar.collapsed .friends-sidebar-body { display: none; }
+.friends-sidebar.collapsed { width: 30px; min-width: 30px; border-left: none; }
+.friends-sidebar.collapsed .friends-sidebar-body,
+.friends-sidebar.collapsed .friends-sidebar-add,
+.friends-sidebar.collapsed .friends-chat-thread,
+.friends-sidebar.collapsed .friends-sidebar-header .friends-sidebar-count,
+.friends-sidebar.collapsed .friends-sidebar-header span { display: none; }
+.friends-sidebar.collapsed .friends-sidebar-header { border-bottom: none; padding: 10px 4px; justify-content: center; }
 .friends-sidebar-header {
     display: flex;
     align-items: center;
@@ -3292,15 +3298,15 @@ canvas { display: block; }
 }
 .friends-sidebar-count { font-weight: 400; opacity: 0.5; font-size: 0.85em; }
 .fbar-toggle-btn {
-    margin-left: auto;
     background: none;
     border: 1px solid rgba(255,255,255,0.1);
     border-radius: 4px;
     color: #fff;
     cursor: pointer;
     width: 22px; height: 22px;
-    font-size: 0.8em;
+    font-size: 0.7em;
     display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
 }
 .friends-sidebar-body {
     flex: 1;

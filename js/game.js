@@ -1209,7 +1209,7 @@ export class Game {
         // Aimed shots fly straight, so check EVERY enemy of the thrower's team in the
         // ball's path — you damage whoever you actually hit, not just an assigned target.
         // Ghost affix: skip player collision entirely.
-        if (this.ball.active && !this.ball._affixGhost && !this.ball._warmup) {
+        if (this.ball.active && !this.ball._affixGhost && !this.ball._warmup && this.ball._noHitTimer <= 0) {
             const ballPos = this.ball.position;
             const throwerTeam = this.lastDeflectorTeam;
             // Candidates: enemies of the thrower (or just the assigned target as fallback).
@@ -1444,6 +1444,7 @@ export class Game {
     }
 
     _doApplyHit(hitTarget, name, scorerName, attacker, shot) {
+        if (hitTarget.alive === false) return;
         const isClient = this.network?.connected && !this.network?.isHost;
         // Hasar hesapla: miss ramp + karakter deflectPower + pasifler + combo bonusu
         const base = missRampDamage(BASE_HIT_DAMAGE, hitTarget.consecutiveMisses);
@@ -2596,10 +2597,9 @@ export class Game {
             p.targetPos?.set(data.x, data.y, data.z);
         }
 
-        // ponytail: rate limit — max one attack per peer per 500ms
-        // Prevents speed compounding from duplicate messages (alt-tab packet pileup, race conditions)
+        // ponytail: rate limit — max one attack per peer per 200ms
         const now = performance.now();
-        if (this._lastRemoteAttack && this._lastRemoteAttack[peerId] && now - this._lastRemoteAttack[peerId] < 500) return;
+        if (this._lastRemoteAttack && this._lastRemoteAttack[peerId] && now - this._lastRemoteAttack[peerId] < 200) return;
         if (!this._lastRemoteAttack) this._lastRemoteAttack = {};
         this._lastRemoteAttack[peerId] = now;
 

@@ -528,8 +528,15 @@ class App {
             document.getElementById('pause-menu')?.classList.add('hidden');
             this.player.unlock();
             this.ui.setPlayerTarget(false);
-            this.ui.showScreen('mainMenu');
+            this.network?.closeLobby();
+            this.game.bots.forEach(b => b.remove());
+            this.game.bots = [];
+            this.game.botCounter = 0;
+            this.game.ball.deactivate();
+            if (this.game.affixes) this.game.affixes.clearRound();
             this.game.setState(STATES.MENU);
+            this.ui.showScreen('mainMenu');
+            this.refreshMetaStats();
         });
 
         // Lobby chat send
@@ -663,6 +670,7 @@ class App {
 
         bind('btn-main-menu', () => {
             this.awardMatchRewards();
+            this.network?.closeLobby();
             this.game.bots.forEach(b => b.remove());
             this.game.bots = [];
             this.game.botCounter = 0;
@@ -695,6 +703,7 @@ class App {
                 this.refreshMetaStats();
             } else if (action === 'main_menu') {
                 this.awardMatchRewards();
+                this.network?.closeLobby();
                 this.game.bots.forEach(b => b.remove());
                 this.game.bots = [];
                 this.game.botCounter = 0;
@@ -1492,7 +1501,10 @@ class App {
         clearInterval(this._lobbyKeepAlive);
         this._stopBgLoop();
         this._lobbyCode = null;
+        this.network?.disconnect();
         this._cleanupLobbyEntities();
+        this.game.ball.deactivate();
+        this.game.setState(STATES.MENU);
         this.ui.showScreen('mainMenu');
         if (message) this.ui.showMessage?.(message, 2500);
     }
@@ -1672,7 +1684,10 @@ class App {
         this._chattingWith = null;
 
         document.getElementById('fbar-toggle')?.addEventListener('click', () => {
-            document.getElementById('friends-sidebar')?.classList.toggle('collapsed');
+            const sidebar = document.getElementById('friends-sidebar');
+            if (!sidebar) return;
+            sidebar.classList.toggle('collapsed');
+            document.getElementById('fbar-toggle').textContent = sidebar.classList.contains('collapsed') ? '▶' : '◀';
         });
 
         document.getElementById('fbar-add-input')?.addEventListener('keydown', e => {
