@@ -91,18 +91,54 @@ export class Juice {
     burst(pos, color = 0xff8844, count = 12, speed = 8) {
         if (!this.scene) return;
         for (let i = 0; i < count && this.particles.length < this.maxParticles; i++) {
-            const geo = new THREE.BoxGeometry(0.15, 0.15, 0.15);
-            const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1 });
+            const size = 0.08 + Math.random() * 0.14;
+            // ponytail: mixed shapes — cubes, spheres, and tetrahedrons for variety
+            const shapeRoll = Math.random();
+            let geo;
+            if (shapeRoll > 0.7) {
+                geo = new THREE.TetrahedronGeometry(size * 0.7);
+            } else if (shapeRoll > 0.35) {
+                geo = new THREE.BoxGeometry(size, size, size);
+            } else {
+                geo = new THREE.SphereGeometry(size * 0.6, 4, 4);
+            }
+            // ponytail: slight color variation per particle for richness
+            const colorVar = new THREE.Color(color);
+            colorVar.offsetHSL((Math.random() - 0.5) * 0.05, 0, (Math.random() - 0.5) * 0.1);
+            const mat = new THREE.MeshBasicMaterial({
+                color: colorVar,
+                transparent: true,
+                opacity: 1,
+            });
             const p = new THREE.Mesh(geo, mat);
             p.position.copy(pos);
+            const angle = Math.random() * Math.PI * 2;
+            const elevation = (Math.random() - 0.3) * Math.PI;
+            const spd = speed * (0.5 + Math.random() * 0.5);
             const vel = new THREE.Vector3(
-                (Math.random() - 0.5) * speed,
-                Math.random() * speed * 0.7 + 2,
-                (Math.random() - 0.5) * speed
+                Math.cos(angle) * Math.cos(elevation) * spd,
+                Math.sin(elevation) * spd * 0.7 + 3,
+                Math.sin(angle) * Math.cos(elevation) * spd
             );
             this.scene.add(p);
-            this.particles.push({ mesh: p, vel, life: 0.8, maxLife: 0.8, gravity: -12 });
+            this.particles.push({ mesh: p, vel, life: 0.6 + Math.random() * 0.4, maxLife: 1 });
         }
+    }
+
+    hitBurst(pos) {
+        this.burst(pos, 0xffaa44, 20, 12);
+        this.shake(0.35);
+        this.sparks(pos, 0xffee44, 6);
+    }
+
+    killBurst(pos) {
+        // ponytail: layered burst — red core + orange ring + gold sparks
+        this.burst(pos, 0xff3333, 35, 16);
+        this.burst(pos.clone().add(new THREE.Vector3(0, 0.5, 0)), 0xffaa00, 20, 10);
+        this.burst(pos.clone().add(new THREE.Vector3(0, 0.3, 0)), 0xffdd44, 12, 8);
+        this.sparks(pos, 0xff6644, 12);
+        this.shake(0.7);
+        this.slowMo(0.25, 0.5);
     }
 
     // Spark patlaması — ince uzun çizgiler (deflect anı).
@@ -127,12 +163,20 @@ export class Juice {
     shockwave(pos, color = 0xff8844) {
         if (!this.scene) return;
         const geo = new THREE.RingGeometry(0.3, 0.5, 24);
-        const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.8, side: THREE.DoubleSide });
+        const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, side: THREE.DoubleSide });
         const ring = new THREE.Mesh(geo, mat);
         ring.position.copy(pos);
         ring.rotation.x = -Math.PI / 2;
         this.scene.add(ring);
         this.particles.push({ mesh: ring, vel: new THREE.Vector3(), life: 0.5, maxLife: 0.5, gravity: 0, ring: true, scaleRate: 20 });
+        // ponytail: secondary smaller ring for layered effect
+        const geo2 = new THREE.RingGeometry(0.2, 0.35, 16);
+        const mat2 = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6, side: THREE.DoubleSide });
+        const ring2 = new THREE.Mesh(geo2, mat2);
+        ring2.position.copy(pos);
+        ring2.rotation.x = -Math.PI / 2;
+        this.scene.add(ring2);
+        this.particles.push({ mesh: ring2, vel: new THREE.Vector3(), life: 0.35, maxLife: 0.35, gravity: 0, ring: true, scaleRate: 15 });
     }
 
     // Genji-tarzı deflect slash — dikey yarım halka, hızla genişler ve solar
@@ -238,6 +282,13 @@ export class Juice {
                 this.particles.splice(i, 1);
             }
         }
+    }
+
+    updateVignette(playerHp, playerMaxHp) {
+        if (!this.renderer) return;
+        const hpPct = playerHp / playerMaxHp;
+        const intensity = hpPct < 0.3 ? (0.3 - hpPct) * 5 : 0;
+        this.renderer.setVignette(intensity);
     }
 
     // Combo UI için durum

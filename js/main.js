@@ -222,11 +222,13 @@ class App {
                 if (pauseEl && !pauseEl.classList.contains('hidden')) {
                     // ESC while paused → resume
                     pauseEl.classList.add('hidden');
+                    this.game.setState(STATES.PLAYING);
                     this.player.lock();
                     return;
                 }
                 if (this.game.state === STATES.PLAYING || this.game.state === STATES.COUNTDOWN) {
                     // Countdown'da ESC → özel menü değil, direkt pause
+                    this.game.setState(STATES.PAUSED);
                     this.player.unlock();
                     this.ui.setPlayerTarget(false);
                     pauseEl?.classList.remove('hidden');
@@ -519,6 +521,7 @@ class App {
         // Pause menu
         bind('pause-resume', () => {
             document.getElementById('pause-menu')?.classList.add('hidden');
+            this.game.setState(STATES.PLAYING);
             this.player.lock();
         });
         bind('pause-settings', () => {
@@ -2072,7 +2075,7 @@ class App {
         if (this._bgPowerUpTimer >= 0.5) {
             this._bgPowerUpTimer = 0;
             if (this.game.powerUps.length > 0) {
-                const puData = this.game.powerUps.map(pu => ({ x: pu.x, z: pu.z, type: pu.type }));
+                const puData = this.game.powerUps.map(pu => ({ x: pu.pos.x, z: pu.pos.z, type: pu.type.id }));
                 this.network.broadcast({ type: 'powerUpState', powerUps: puData });
             } else {
                 this.network.broadcast({ type: 'powerUpState', powerUps: [] });
@@ -2349,7 +2352,7 @@ class App {
             if (this._hostPuTimer <= 0) {
                 this._hostPuTimer = 0.5;
                 if (this.game.powerUps.length > 0) {
-                    const puData = this.game.powerUps.map(pu => ({ x: pu.x, z: pu.z, type: pu.type }));
+                    const puData = this.game.powerUps.map(pu => ({ x: pu.pos.x, z: pu.pos.z, type: pu.type.id }));
                     this.network.broadcast({ type: 'powerUpState', powerUps: puData });
                 }
             }

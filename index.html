@@ -23,7 +23,7 @@
     <!-- Damage flash overlay -->
     <div id="damage-flash"></div>
 
-    <!-- ===== MAIN MENU (Overwatch 2 style) ===== -->
+    <!-- ===== MAIN MENU (Premium Esport Theme) ===== -->
     <div id="main-menu" class="screen ow-screen">
         <div class="ow-menu">
             <!-- Top bar: profile · nav tabs · currency + settings -->
@@ -32,16 +32,16 @@
                     <div class="ow-avatar" id="ow-avatar">🏐</div>
                     <div class="ow-profile-info">
                         <input type="text" id="player-name-input" class="ow-name-input" value="Player" maxlength="16">
-                        <div class="ow-level">⭐ Level <span id="meta-level">1</span></div>
+                        <div class="ow-level">Level <span id="meta-level">1</span></div>
                     </div>
                 </div>
 
                 <nav class="ow-tabs">
-                    <button id="btn-character" class="ow-tab">🦸 Heroes</button>
-                    <button id="btn-shop" class="ow-tab">🛒 Shop</button>
-                    <button id="btn-battlepass" class="ow-tab">🎟️ Battle Pass</button>
-                    <button id="btn-daily" class="ow-tab">📅 Challenges</button>
-                    <button id="btn-ranked" class="ow-tab">🏆 Career</button>
+                    <button id="btn-character" class="ow-tab">Heroes</button>
+                    <button id="btn-shop" class="ow-tab">Shop</button>
+                    <button id="btn-battlepass" class="ow-tab">Battle Pass</button>
+                    <button id="btn-daily" class="ow-tab">Challenges</button>
+                    <button id="btn-ranked" class="ow-tab">Career</button>
                 </nav>
 
                 <div class="ow-currency">
@@ -53,7 +53,8 @@
 
             <!-- Center splash -->
             <div class="ow-splash">
-                <div class="ow-logo">🎯 VOLLE</div>
+                <div class="ow-logo">VOLLE</div>
+                <div class="ow-tagline">FIRST PERSON DODGEBALL</div>
                 <div class="ow-mode-chip">Current Mode: <b>Quick Play — Create or Join a Lobby</b></div>
             </div>
 
@@ -596,6 +597,18 @@
             <canvas id="minimap-canvas" width="160" height="120"></canvas>
         </div>
 
+        <!-- Ball Speed Indicator (bottom-right, above minimap) -->
+        <div id="ball-speed">
+            <div class="speed-value" id="speed-val">0</div>
+            <div class="speed-label">BALL SPEED</div>
+        </div>
+
+        <!-- Ultimate Charge HUD -->
+        <div id="ultimate-hud" class="hidden">
+            <div class="ult-ring"><div class="ult-fill" id="ult-fill"></div><div class="ult-text" id="ult-pct">0</div></div>
+            <div class="ult-ready hidden" id="ult-ready">Q — ULTIMATE</div>
+        </div>
+
         <!-- Controls hint -->
         <div id="controls-hint">WASD move · Space jump · L-Click deflect · flick ↑ lob / ↓ spike · Y chat · M teams · Tab scores · B ball skin</div>
     </div>
@@ -603,6 +616,11 @@
     <!-- Chat log + input (global, outside HUD so available in lobby too) -->
     <div id="chat-log"></div>
     <input type="text" id="chat-input" class="hidden" maxlength="80" placeholder="Say something… (Enter)" autocomplete="off">
+
+    <!-- Hit marker (crosshair flash on successful hit) -->
+    <div id="hit-marker">✕</div>
+    <!-- Directional damage indicator (red arc showing hit direction) -->
+    <div id="dmg-direction"></div>
 
     <!-- Damage / hit flash vignette -->
     <div id="hit-flash"></div>
@@ -618,11 +636,24 @@
     <!-- ===== COUNTDOWN ===== -->
     <div id="countdown" class="hidden"></div>
 
+    <!-- ===== ROUND BANNER ===== -->
+    <div id="round-banner" class="hidden">
+        <div class="round-label">Round</div>
+        <div class="round-number">1</div>
+        <div class="round-teams">RED vs BLUE</div>
+    </div>
+
     <!-- ===== GAME MESSAGE ===== -->
     <div id="game-message" class="hidden"></div>
 
+    <!-- ===== KILL STREAK BANNER ===== -->
+    <div id="streak-banner"><div class="streak-text"></div></div>
+
     <!-- ===== COMBO DISPLAY ===== -->
-    <div id="combo-display" class="hidden"></div>
+    <div id="combo-display">
+        <div class="combo-num">0</div>
+        <div class="combo-label">COMBO</div>
+    </div>
     <div id="combo-meter"></div>
 
     <!-- ===== TF2 STYLE KILLCAM ===== -->
@@ -701,6 +732,29 @@
         </div>
     </div>
 
+    <!-- ===== SETTINGS PANEL (tabbed) ===== -->
+    <div id="settings-panel" class="hidden">
+        <div class="settings-box">
+            <div class="settings-tabs">
+                <button class="active" data-tab="gameplay">GAMEPLAY</button>
+                <button data-tab="audio">AUDIO</button>
+                <button data-tab="graphics">GRAPHICS</button>
+            </div>
+            <div class="settings-content" id="settings-gameplay">
+                <div class="settings-row"><label>FOV</label><input type="range" min="60" max="120" value="75" id="set-fov"><span class="value">75</span></div>
+                <div class="settings-row"><label>Sensitivity</label><input type="range" min="1" max="10" value="5" id="set-sens"><span class="value">5</span></div>
+            </div>
+            <div class="settings-content hidden" id="settings-audio">
+                <div class="settings-row"><label>Music</label><input type="range" min="0" max="100" value="50" id="set-music"><span class="value">50</span></div>
+                <div class="settings-row"><label>SFX</label><input type="range" min="0" max="100" value="70" id="set-sfx"><span class="value">70</span></div>
+            </div>
+            <div class="settings-content hidden" id="settings-graphics">
+                <div class="settings-row"><label>Bloom</label><input type="range" min="0" max="100" value="15" id="set-bloom"><span class="value">15</span></div>
+            </div>
+            <button class="btn btn-primary" style="margin: 0 24px 24px;" onclick="document.getElementById('settings-panel').classList.add('hidden')">CLOSE</button>
+        </div>
+    </div>
+
     <!-- ===== PAUSE MENU (ESC) ===== -->
     <div id="pause-menu" class="hidden">
         <div class="pause-backdrop"></div>
@@ -711,6 +765,19 @@
                 <button id="pause-settings" class="btn btn-secondary">⚙ Settings</button>
                 <button id="pause-exit" class="btn btn-secondary" style="color:var(--red)">← Exit to Menu</button>
             </div>
+        </div>
+    </div>
+
+    <!-- ===== VICTORY / DEFEAT OVERLAY ===== -->
+    <div id="match-result" class="hidden">
+        <div class="result-text victory">VICTORY</div>
+        <div class="result-stats">
+            <div class="stat-card"><div class="stat-value" id="mr-kills">0</div><div class="stat-label">KILLS</div></div>
+            <div class="stat-card"><div class="stat-value" id="mr-deaths">0</div><div class="stat-label">DEATHS</div></div>
+            <div class="stat-card"><div class="stat-value" id="mr-damage">0</div><div class="stat-label">DAMAGE</div></div>
+        </div>
+        <div class="result-buttons">
+            <button class="btn btn-primary" onclick="location.reload()">PLAY AGAIN</button>
         </div>
     </div>
 

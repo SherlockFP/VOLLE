@@ -32,6 +32,40 @@ export class UI {
             tutorial: document.getElementById('tutorial-screen'),
             profile: document.getElementById('screen-profile')
         };
+        this.initSettings();
+    }
+
+    initSettings() {
+        const tabs = document.querySelectorAll('#settings-panel .settings-tabs button');
+        tabs.forEach(t => t.addEventListener('click', () => {
+            tabs.forEach(b => b.classList.remove('active'));
+            t.classList.add('active');
+            document.querySelectorAll('#settings-panel .settings-content').forEach(c => c.classList.add('hidden'));
+            document.getElementById('settings-' + t.dataset.tab)?.classList.remove('hidden');
+        }));
+        document.querySelectorAll('#settings-panel input[type="range"]').forEach(inp => {
+            const val = inp.parentElement.querySelector('.value');
+            inp.addEventListener('input', () => { if (val) val.textContent = inp.value; });
+        });
+        document.getElementById('set-fov')?.addEventListener('input', e => {
+            if (window._game?.player?.camera) window._game.player.camera.fov = +e.target.value;
+        });
+        document.getElementById('set-music')?.addEventListener('input', e => {
+            window._game?.setMusicVolume?.(+e.target.value / 100);
+        });
+        document.getElementById('set-bloom')?.addEventListener('input', e => {
+            window._game?.renderer?.bloomStrength?.(+e.target.value / 100);
+        });
+    }
+
+    showSettings() {
+        const panel = document.getElementById('settings-panel');
+        if (panel) panel.classList.remove('hidden');
+    }
+
+    hideSettings() {
+        const panel = document.getElementById('settings-panel');
+        if (panel) panel.classList.add('hidden');
     }
 
     showScreen(name) {
@@ -66,6 +100,25 @@ export class UI {
             else if (pct > 160) el('hud-speed').style.color = '#ff5555';
             else if (pct > 120) el('hud-speed').style.color = '#ffaa33';
             else el('hud-speed').style.color = '#55ff88';
+            // ponytail: danger pulse when ball is very fast
+            if (pct > 200) {
+                el('hud-speed').style.textShadow = `0 0 ${Math.min(20, (pct - 200) * 0.2)}px #ff4444`;
+            } else {
+                el('hud-speed').style.textShadow = 'none';
+            }
+        }
+        // Ball speed indicator (bottom-right)
+        const speedEl = document.getElementById('speed-val');
+        if (speedEl && ballSpeed !== undefined) {
+            speedEl.textContent = Math.round(ballSpeed);
+            const ratio = ballSpeed / 17;
+            speedEl.style.color = ratio > 3 ? '#ff4444' : ratio > 2 ? '#ffaa22' : 'var(--accent)';
+            // ponytail: glow effect at high speed
+            if (ratio > 2) {
+                speedEl.style.textShadow = `0 0 ${Math.min(15, (ratio - 2) * 5)}px ${ratio > 3 ? '#ff0000' : '#ffaa00'}`;
+            } else {
+                speedEl.style.textShadow = 'none';
+            }
         }
     }
 
@@ -207,6 +260,17 @@ export class UI {
         }, 1000);
     }
 
+    showRoundBanner(round, redScore, blueScore) {
+        const el = document.getElementById('round-banner');
+        if (!el) return;
+        el.querySelector('.round-number').textContent = round;
+        el.querySelector('.round-teams').textContent = `RED ${redScore} - ${blueScore} BLUE`;
+        el.classList.remove('hidden', 'show');
+        void el.offsetWidth; // force reflow
+        el.classList.add('show');
+        setTimeout(() => el.classList.add('hidden'), 2500);
+    }
+
     showMessage(text, duration = 2000) {
         const el = document.getElementById('game-message');
         if (!el) return;
@@ -329,14 +393,28 @@ export class UI {
         if (!el || combo < 2) { el?.classList.remove('active'); return; }
         const labels = ['', '', 'DOUBLE!', 'TRIPLE!', 'QUAD!', 'PENTA!', 'HEXA!', 'ULTRA!', 'MEGA!'];
         const label = labels[Math.min(combo, labels.length - 1)] || 'GODLIKE!';
-        el.innerHTML = `<div class="combo-count">${combo}x</div><div class="combo-label">${label}</div>`;
+        const numEl = el.querySelector('.combo-num') || el.querySelector('.combo-count');
+        const lblEl = el.querySelector('.combo-label');
+        if (numEl) numEl.textContent = combo + 'x';
+        if (lblEl) lblEl.textContent = label;
         el.classList.add('active');
         el.classList.remove('hidden');
         clearTimeout(this._comboHideTimer);
         this._comboHideTimer = setTimeout(() => el.classList.remove('active'), 1500);
     }
 
-    spawnDamageNumber(screenX, screenY, dmg, lethal = false) {
+    showStreak(text, cls) {
+        const el = document.getElementById('streak-banner');
+        if (!el) return;
+        const textEl = el.querySelector('.streak-text');
+        textEl.textContent = text;
+        textEl.className = 'streak-text ' + (cls || '');
+        el.classList.remove('show');
+        void el.offsetWidth;
+        el.classList.add('show');
+    }
+
+    spawnDamageNumber(screenX, screenY, dmg, lethal = false, zoneLabel = null) {
         const existing = document.querySelectorAll('.dmg-num');
         if (existing.length > 8) {
             const oldest = existing[0];
@@ -344,7 +422,11 @@ export class UI {
         }
         const el = document.createElement('div');
         el.className = 'dmg-num' + (lethal ? ' lethal' : '');
-        el.textContent = '-' + dmg;
+        if (zoneLabel) {
+            el.innerHTML = `<span class="dmg-value">-${dmg}</span><span class="dmg-zone">${zoneLabel}</span>`;
+        } else {
+            el.textContent = '-' + dmg;
+        }
         el.style.left = screenX + 'px';
         el.style.top = screenY + 'px';
         document.body.appendChild(el);
@@ -505,17 +587,29 @@ export class UI {
 
     // Update HP / shield / stamina bars for the local player.
     updateVitals(hp, maxHp, shield, stamina, staminaMax, exhausted) {
+        const hpPct = Math.max(0, hp / maxHp * 100);
+        const stPct = Math.max(0, stamina / staminaMax * 100);
         const hpFill = document.getElementById('hp-fill');
         const shieldFill = document.getElementById('shield-fill');
         const staFill = document.getElementById('stamina-fill');
         const hpNum = document.getElementById('hp-num');
-        if (hpFill) hpFill.style.width = `${Math.max(0, hp / maxHp * 100)}%`;
+        if (hpFill) {
+            hpFill.style.width = hpPct + '%';
+            hpFill.className = 'vital-fill hp' + (hpPct < 30 ? ' low' : hpPct < 60 ? ' mid' : '');
+        }
         if (shieldFill) shieldFill.style.width = `${Math.max(0, (shield || 0) / maxHp * 100)}%`;
         if (staFill) {
-            staFill.style.width = `${Math.max(0, stamina / staminaMax * 100)}%`;
+            staFill.style.width = stPct + '%';
             staFill.classList.toggle('exhausted', !!exhausted);
+            // Dynamic stamina color gradient: green→yellow→red
+            if (!exhausted) {
+                const r = stPct < 50 ? 255 : Math.round(68 + (stPct - 50) / 50 * (255 - 68));
+                const g = stPct > 50 ? 170 : Math.round(170 * stPct / 50);
+                const b = 0;
+                staFill.style.background = `linear-gradient(90deg, rgb(${Math.round(r * 0.8)},${Math.round(g * 0.8)},${b}), rgb(${r},${g},${b}))`;
+            }
         }
-        if (hpNum) hpNum.textContent = Math.ceil(hp);
+        if (hpNum) hpNum.textContent = Math.ceil(hp) + (shield > 0 ? ' +' + Math.ceil(shield) : '');
     }
 
     // Red damage vignette flash (when the local player is hit)
@@ -525,6 +619,41 @@ export class UI {
         el.classList.remove('flash');
         void el.offsetWidth; // restart animation
         el.classList.add('flash');
+    }
+
+    showHitMarker(headshot = false) {
+        const el = document.getElementById('hit-marker');
+        if (!el) return;
+        el.style.color = headshot ? '#ffdd00' : 'white';
+        el.style.fontSize = headshot ? '2em' : '1.5em';
+        el.classList.remove('show');
+        void el.offsetWidth;
+        el.classList.add('show');
+    }
+
+    showDamageDirection(angle) {
+        const el = document.getElementById('dmg-direction');
+        if (!el) return;
+        el.innerHTML = '';
+        const arc = document.createElement('div');
+        arc.className = 'dmg-arc';
+        arc.style.transform = `rotate(${angle}deg)`;
+        el.appendChild(arc);
+        el.classList.remove('show');
+        void el.offsetWidth;
+        el.classList.add('show');
+    }
+
+    // Ultimate charge HUD
+    updateUltimate(charge, isReady) {
+        const hud = document.getElementById('ultimate-hud');
+        const fill = document.getElementById('ult-fill');
+        const pct = document.getElementById('ult-pct');
+        const ready = document.getElementById('ult-ready');
+        if (hud) hud.classList.remove('hidden');
+        if (fill) fill.style.setProperty('--pct', charge + '%');
+        if (pct) pct.textContent = Math.round(charge);
+        if (ready) ready.classList.toggle('hidden', !isReady);
     }
 
     showKillCamOverlay(killerName, duration = 2.5) {
@@ -550,20 +679,33 @@ export class UI {
         fill.classList.toggle('ready', remaining <= 0);
     }
 
-    // Kill feed — auto-fade entries after 5 seconds.
+    // Kill feed — animated entries, max 5, slide in, fade out after 5s.
     renderKillFeed(killFeed) {
         const el = document.getElementById('kill-feed');
         if (!el) return;
-        el.innerHTML = '';
         const now = performance.now();
-        killFeed.forEach(entry => {
-            if (now - entry.time > 5000) return;
-            const div = document.createElement('div');
-            div.className = 'kill-entry';
-            div.innerHTML = `<span class="killer">${this.escapeHTML(entry.killer || entry.attacker || 'Ball')}</span> 
-                <span class="weapon">[${entry.weapon || entry.tag || 'ball'}]</span> 
-                <span class="victim">${this.escapeHTML(entry.victim)}</span>`;
-            el.appendChild(div);
+        // Trim expired entries
+        const visible = killFeed.filter(e => now - e.time < 5000);
+        // Max 5 entries
+        const entries = visible.slice(-5);
+        // Remove excess DOM children
+        while (el.children.length > entries.length) el.removeChild(el.firstChild);
+        entries.forEach((e, i) => {
+            let row = el.children[i];
+            if (!row) {
+                row = document.createElement('div');
+                el.appendChild(row);
+            }
+            const isHeadshot = e.headshot;
+            const age = now - e.time;
+            // Apply fade-out class for entries older than 4s
+            if (age > 4000 && !row.classList.contains('fade-out')) {
+                row.classList.add('fade-out');
+            }
+            row.className = 'kill-entry' + (isHeadshot ? ' headshot' : '') + (age > 4000 ? ' fade-out' : '');
+            row.innerHTML = `<span class="killer">${this.escapeHTML(e.killer || e.attacker || 'Bot')}</span>` +
+                `<span class="weapon-icon">${isHeadshot ? '💀' : '🏐'}</span>` +
+                `<span class="victim">${this.escapeHTML(e.victim || 'Bot')}</span>`;
         });
     }
 
@@ -589,33 +731,17 @@ export class UI {
     }
 
     // Combo göstergesi — ortada büyük sayı (juice).
-    updateCombo(combo, multiplier) {
-        let el = document.getElementById('combo-display');
-        if (!el) {
-            el = document.createElement('div');
-            el.id = 'combo-display';
-            el.className = 'combo-display';
-            document.body.appendChild(el);
-        }
-        if (combo >= 2) {
-            if (this._lastCombo !== combo) {
-                // New combo level — random position, show briefly
-                this._comboPos = {
-                    top: (15 + Math.random() * 50) + '%',
-                    left: (15 + Math.random() * 60) + '%'
-                };
-                el.innerHTML = `<div class="combo-count">${combo}x</div><div class="combo-label">COMBO</div>`;
-                el.style.top = this._comboPos.top;
-                el.style.left = this._comboPos.left;
-                el.style.transform = `translate(-50%, -50%) scale(${1 + Math.min(0.5, combo * 0.05)})`;
-                el.style.opacity = '1';
-                clearTimeout(this._comboHideTimer);
-                this._comboHideTimer = setTimeout(() => { el.style.opacity = '0'; }, 1200);
-            }
-            this._lastCombo = combo;
+    updateCombo(combo, label) {
+        const el = document.getElementById('combo-display');
+        if (!el) return;
+        if (combo > 1) {
+            el.classList.add('active');
+            const numEl = el.querySelector('.combo-num') || el.querySelector('.combo-count');
+            const lblEl = el.querySelector('.combo-label');
+            if (numEl) numEl.textContent = combo;
+            if (lblEl) lblEl.textContent = label || 'COMBO';
         } else {
-            el.style.opacity = '0';
-            clearTimeout(this._comboHideTimer);
+            el.classList.remove('active');
         }
     }
 
@@ -934,4 +1060,18 @@ export class UI {
     }
 
     hideProfile() { this.showScreen('screen-menu'); }
+
+    showMatchResult(winner, stats) {
+        const el = document.getElementById('match-result');
+        if (!el) return;
+        const textEl = el.querySelector('.result-text');
+        const isVictory = winner === 'red' || winner === 'blue';
+        textEl.textContent = isVictory ? 'VICTORY' : 'DEFEAT';
+        textEl.className = 'result-text ' + (isVictory ? 'victory' : 'defeat');
+        document.getElementById('mr-kills').textContent = stats.kills || 0;
+        document.getElementById('mr-deaths').textContent = stats.deaths || 0;
+        document.getElementById('mr-damage').textContent = Math.round(stats.damage || 0);
+        el.classList.remove('hidden');
+        requestAnimationFrame(() => el.classList.add('show'));
+    }
 }

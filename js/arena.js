@@ -238,6 +238,7 @@ export class Arena {
                 this.weather = new WeatherSystem(this.scene, this.bounds);
                 this.weather.setWeather(this.config.weather);
             }
+            this.addAmbientParticles('dust');
             return;
         }
         this.buildFloor();
@@ -282,6 +283,15 @@ export class Arena {
         }
         // Default bounds.y for weather system
         if (!this.bounds.maxY) this.bounds.maxY = this.ceilingHeight || 30;
+        // Ambient particles based on map theme
+        const particleType = (this.config.isVolcano || this.config.isLava) ? 'ember'
+            : (this.config.isIce || this.config.isCrystal) ? 'crystal'
+            : (this.config.isJungle || this.config.isBeachOpen) ? 'leaf'
+            : (this.config.weather === 'snow') ? 'snow'
+            : (this.config.weather === 'rain') ? 'rain'
+            : (this.config.isSpace || this.config.isNeon) ? 'spark'
+            : 'dust';
+        this.addAmbientParticles(particleType);
     }
 
     // Portal mekaniği — 2 döner halka + iç parçacıklar + ışık sütunu.
@@ -1131,6 +1141,32 @@ export class Arena {
         this.buildStars();
     }
 
+    _buildFloorTexture(color) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 256; canvas.height = 256;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#' + color.toString(16).padStart(6, '0');
+        ctx.fillRect(0, 0, 256, 256);
+        ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 256; i += 32) {
+            ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 256); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(256, i); ctx.stroke();
+        }
+        const imgData = ctx.getImageData(0, 0, 256, 256);
+        for (let i = 0; i < imgData.data.length; i += 4) {
+            const noise = (Math.random() - 0.5) * 12;
+            imgData.data[i] += noise;
+            imgData.data[i+1] += noise;
+            imgData.data[i+2] += noise;
+        }
+        ctx.putImageData(imgData, 0, 0);
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+        tex.repeat.set(8, 8);
+        return tex;
+    }
+
     buildFloor() {
         const halfW = this.courtWidth / 2;
         const halfL = this.courtLength / 2;
@@ -1138,7 +1174,11 @@ export class Arena {
 
         // Red half
         const rGeo = new THREE.PlaneGeometry(this.courtWidth, halfL);
-        const rMat = this.renderer.createToonMaterial(c.floorRed);
+        const rTex = this._buildFloorTexture(c.floorRed);
+        const rMat = new THREE.MeshStandardMaterial({
+            map: rTex, roughness: 0.7, metalness: 0.1,
+            emissive: new THREE.Color(c.floorRed), emissiveIntensity: 0.05
+        });
         const rFloor = new THREE.Mesh(rGeo, rMat);
         rFloor.rotation.x = -Math.PI / 2;
         rFloor.position.set(0, 0, -halfL / 2);
@@ -1147,7 +1187,11 @@ export class Arena {
 
         // Blue half
         const bGeo = new THREE.PlaneGeometry(this.courtWidth, halfL);
-        const bMat = this.renderer.createToonMaterial(c.floorBlue);
+        const bTex = this._buildFloorTexture(c.floorBlue);
+        const bMat = new THREE.MeshStandardMaterial({
+            map: bTex, roughness: 0.7, metalness: 0.1,
+            emissive: new THREE.Color(c.floorBlue), emissiveIntensity: 0.05
+        });
         const bFloor = new THREE.Mesh(bGeo, bMat);
         bFloor.rotation.x = -Math.PI / 2;
         bFloor.position.set(0, 0, halfL / 2);
@@ -1183,6 +1227,30 @@ export class Arena {
             l.position.set(0, 0.01, z);
             this.add(l);
         });
+
+        // ponytail: court glow strips — team-colored neon lines at zone boundaries
+        const glowRed = new THREE.Mesh(
+            new THREE.PlaneGeometry(this.courtWidth, 4),
+            new THREE.MeshBasicMaterial({ color: c.floorRed, transparent: true, opacity: 0.12, side: THREE.DoubleSide })
+        );
+        glowRed.rotation.x = -Math.PI / 2;
+        glowRed.position.set(0, 0.015, -halfL / 2);
+        this.add(glowRed);
+        const glowBlue = new THREE.Mesh(
+            new THREE.PlaneGeometry(this.courtWidth, 4),
+            new THREE.MeshBasicMaterial({ color: c.floorBlue, transparent: true, opacity: 0.12, side: THREE.DoubleSide })
+        );
+        glowBlue.rotation.x = -Math.PI / 2;
+        glowBlue.position.set(0, 0.015, halfL / 2);
+        this.add(glowBlue);
+        // Center line glow — bright white
+        const centerGlow = new THREE.Mesh(
+            new THREE.PlaneGeometry(this.courtWidth, 1.5),
+            new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.15, side: THREE.DoubleSide })
+        );
+        centerGlow.rotation.x = -Math.PI / 2;
+        centerGlow.position.set(0, 0.015, 0);
+        this.add(centerGlow);
     }
 
     buildWalls() {
@@ -1733,6 +1801,23 @@ export class Arena {
             this.add(s);
             this.add(s.target);
         });
+
+        // ponytail: team zone glow lights — soft colored light at each team's zone
+        const c = this.config;
+        const redLight = new THREE.PointLight(c.floorRed || 0xff4444, 0.25, 35);
+        redLight.position.set(0, 2, -halfL / 3);
+        this.add(redLight);
+        const blueLight = new THREE.PointLight(c.floorBlue || 0x4488ff, 0.25, 35);
+        blueLight.position.set(0, 2, halfL / 3);
+        this.add(blueLight);
+
+        // ponytail: corner accent lights
+        const halfW = this.courtWidth / 2;
+        [[-halfW, 3, -halfL], [halfW, 3, -halfL], [-halfW, 3, halfL], [halfW, 3, halfL]].forEach(([x, y, z]) => {
+            const light = new THREE.PointLight(c.wallColor || 0xffffff, 0.12, 25);
+            light.position.set(x, y, z);
+            this.add(light);
+        });
     }
 
     update(time) {
@@ -1831,6 +1916,8 @@ export class Arena {
         if (this.weather) {
             this.weather.update(0.016, time);
         }
+        // Scene ambient particles
+        this.updateAmbientParticles(0.016);
     }
 
     buildMinecraft() {
@@ -1953,6 +2040,42 @@ export class Arena {
         return false;
     }
 
+    addAmbientParticles(type = 'dust') {
+        const configs = {
+            dust:   { color: 0xffeedd, count: 50, size: 0.06, opacity: 0.5, speed: 0.3 },
+            spark:  { color: 0xffaa44, count: 40, size: 0.08, opacity: 0.7, speed: 0.5 },
+            rain:   { color: 0x88bbff, count: 80, size: 0.04, opacity: 0.4, speed: 2.0 },
+            snow:   { color: 0xffffff, count: 60, size: 0.06, opacity: 0.6, speed: 0.8 },
+            ember:  { color: 0xff4400, count: 40, size: 0.07, opacity: 0.7, speed: 0.4 },
+            crystal:{ color: 0x88ddff, count: 35, size: 0.09, opacity: 0.5, speed: 0.2 },
+            leaf:   { color: 0x44aa44, count: 30, size: 0.08, opacity: 0.5, speed: 0.3 },
+        };
+        const cfg = configs[type] || configs.dust;
+        for (let i = 0; i < cfg.count; i++) {
+            const geo = new THREE.SphereGeometry(cfg.size, 4, 4);
+            const mat = new THREE.MeshBasicMaterial({ color: cfg.color, transparent: true, opacity: cfg.opacity });
+            const p = new THREE.Mesh(geo, mat);
+            p.position.set(
+                (Math.random() - 0.5) * 60,
+                Math.random() * 15 + 2,
+                (Math.random() - 0.5) * 40
+            );
+            p.userData = { speed: cfg.speed * (0.5 + Math.random()), phase: Math.random() * Math.PI * 2 };
+            this.add(p);
+            this._sceneParticles = this._sceneParticles || [];
+            this._sceneParticles.push(p);
+        }
+    }
+
+    updateAmbientParticles(dt) {
+        if (!this._sceneParticles) return;
+        this._sceneParticles.forEach(p => {
+            p.position.y -= p.userData.speed * dt;
+            p.position.x += Math.sin(performance.now() / 1000 + p.userData.phase) * dt * 0.5;
+            if (p.position.y < 0) p.position.y = 15 + Math.random() * 5;
+        });
+    }
+
     getSpawnPoint() { return this.spawnPoint.clone(); }
 
     // ponytail: optional index param spreads spawns along X at 6m intervals.
@@ -1990,6 +2113,7 @@ export class Arena {
         this.portals = null;
         this._lavaGlow = null;
         this._embers = null;
+        this._sceneParticles = null;
         if (this.weather) { this.weather.clear(); this.weather = null; }
     }
 

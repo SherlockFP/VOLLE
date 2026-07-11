@@ -99,6 +99,47 @@ export class Renderer {
     render(camera) {
         this._initComposer(camera);
         this._composer.render();
+        if (this._vignetteScene && this._vignetteMesh?.material.uniforms.uIntensity.value > 0.01) {
+            this.renderer.autoClear = false;
+            this.renderer.clearDepth();
+            this.renderer.render(this._vignetteScene, this._vignetteCam);
+            this.renderer.autoClear = true;
+        }
+    }
+
+    _initVignette() {
+        if (this._vignetteMesh) return;
+        const geo = new THREE.PlaneGeometry(2, 2);
+        const mat = new THREE.ShaderMaterial({
+            uniforms: {
+                uIntensity: { value: 0 },
+                uColor: { value: new THREE.Color(0xff0000) },
+            },
+            vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position,1.0); }`,
+            fragmentShader: `
+                varying vec2 vUv;
+                uniform float uIntensity;
+                uniform vec3 uColor;
+                void main(){
+                    vec2 center = vUv - 0.5;
+                    float dist = length(center);
+                    float vig = smoothstep(0.3, 0.8, dist) * uIntensity;
+                    gl_FragColor = vec4(uColor, vig);
+                }`,
+            transparent: true,
+            depthTest: false,
+            depthWrite: false,
+        });
+        this._vignetteMesh = new THREE.Mesh(geo, mat);
+        this._vignetteMesh.frustumCulled = false;
+        this._vignetteScene = new THREE.Scene();
+        this._vignetteScene.add(this._vignetteMesh);
+        this._vignetteCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    }
+
+    setVignette(intensity) {
+        this._initVignette();
+        if (this._vignetteMesh) this._vignetteMesh.material.uniforms.uIntensity.value = intensity;
     }
 
     get domElement() {

@@ -25,9 +25,10 @@ export class Ball {
         this.baseSpeed = 17;
         this.currentSpeed = this.baseSpeed;
         this.speedMultiplier = 1.08;            // her deflect %6 ramp
-        this.maxSpeed = 999;
+        this.maxSpeed = 200;
         this.deflections = 0;
         this.radius = 0.47;
+        this._baseRadius = this.radius;
         this.attackRange = 2.0;
         this.catchRange = 2.0;
         this.hitRange = 0.7;
@@ -64,6 +65,13 @@ export class Ball {
         // Charge-up throw — hold to charge, release for power throw.
         this.chargeLevel = 0;         // 0..1
         this.isCharging = false;
+
+        // ponytail: proximity forced-hit — top hedefe 1.5 birimden az yaklaşınca
+        // süre sayacı başlar. Oyuncu vurmazsa 0.4s sonra zorunlu hit.
+        this._proximityTimer = 0;
+        this._proximityThreshold = 0.4; // saniye
+        this._proximityRange = 1.5;     // hitRange'den büyük ama çok da değil
+        this._forceHit = false;
 
         this.buildMesh();
     }
@@ -140,6 +148,8 @@ export class Ball {
         this.updateColor();
         this._lerping = false;
         this._noHitTimer = 0.3;
+        this._proximityTimer = 0;
+        this._forceHit = false;
         // Reset affix state
         this.affix = null;
         this._affixTrailColor = null;
@@ -176,6 +186,8 @@ export class Ball {
         this._pinballBounce = false;
         this._warmup = false;
         this._noHitTimer = 0;
+        this._proximityTimer = 0;
+        this._forceHit = false;
         this._affixSplit = false;
         this._affixShrink = false;
         this._affixGrow = false;
@@ -252,20 +264,22 @@ export class Ball {
                 if (dist > 0.5) {
                     const targetDir = toTarget.clone().normalize();
                     const velDir = this.velocity.clone().normalize();
-                    const momentum = this.aimed ? 0.55 : 0.30;
-                    const aimW = dist < 3
-                        ? (dist / 3) * momentum * 0.15
-                        : Math.min(dist / 10, 1) * momentum;
-                    // ponytail: 500+ hızda çekim gücü ramp — hızlandıkça top hedefe daha güçlü çekilsin
+                    // ponytail: close range (<3) → steer DIRECTLY at target, no orbit blending
+                    let desired;
+                    if (dist < 3) {
+                        desired = targetDir.clone(); // no lerp — straight at target
+                    } else {
+                        const momentum = 0.30;
+                        const aimW = Math.min(dist / 10, 1) * momentum;
+                        const deflPull = Math.max(0.10, 1 - this.deflections * 0.065);
+                        desired = targetDir.clone().lerp(velDir, aimW * deflPull).normalize();
+                    }
                     const speedFactor = this.currentSpeed > 500
                         ? 1 + (this.currentSpeed - 500) / 400
                         : 1;
-                    // ponytail: her 2 saniyede bir homing çekimi +%50 artsın (geçici)
                     this._homingAge = (this._homingAge || 0) + dt;
                     const ageBoost = this._homingAge > 0 ? 1 + Math.floor(this._homingAge / 2) * 0.5 : 1;
-                    const deflPull = Math.max(0.10, 1 - this.deflections * 0.065);
-                    const desired = targetDir.clone().lerp(velDir, aimW * deflPull).normalize();
-                    const s = dist < 3 ? 28.0 : 11.4;
+                    const s = dist < 3 ? 30.0 : 11.4;
                     const steer = Math.min(s * speedFactor * ageBoost * dt, 1);
                     const newDir = velDir.lerp(desired, steer).normalize();
                     this.velocity.copy(newDir.multiplyScalar(this.currentSpeed));
@@ -283,18 +297,22 @@ export class Ball {
                 if (dist > 0.5) {
                     const targetDir = toTarget.clone().normalize();
                     const velDir = this.velocity.clone().normalize();
-                    const momentum = this.aimed ? 0.55 : 0.30;
-                    const aimW = dist < 3
-                        ? (dist / 3) * momentum * 0.15
-                        : Math.min(dist / 10, 1) * momentum;
+                    // ponytail: close range (<3) → steer DIRECTLY at target, no orbit blending
+                    let desired;
+                    if (dist < 3) {
+                        desired = targetDir.clone(); // no lerp — straight at target
+                    } else {
+                        const momentum = this.aimed ? 0.55 : 0.30;
+                        const aimW = Math.min(dist / 10, 1) * momentum;
+                        const deflPull = Math.max(0.10, 1 - this.deflections * 0.065);
+                        desired = targetDir.clone().lerp(velDir, aimW * deflPull).normalize();
+                    }
                     const speedFactor = this.currentSpeed > 500
                         ? 1 + (this.currentSpeed - 500) / 400
                         : 1;
                     this._homingAge = (this._homingAge || 0) + dt;
                     const ageBoost = this._homingAge > 0 ? 1 + Math.floor(this._homingAge / 2) * 0.5 : 1;
-                    const deflPull = Math.max(0.10, 1 - this.deflections * 0.065);
-                    const desired = targetDir.clone().lerp(velDir, aimW * deflPull).normalize();
-                    const s = dist < 3 ? 28.0 : 11.4;
+                    const s = dist < 3 ? 30.0 : 11.4;
                     const steer = Math.min(s * speedFactor * ageBoost * dt, 1);
                     const newDir = velDir.lerp(desired, steer).normalize();
                     this.velocity.copy(newDir.multiplyScalar(this.currentSpeed));
@@ -326,6 +344,37 @@ export class Ball {
             }
         }
 
+        // ponytail: proximity forced-hit — rally/homing durumunda top hedefe
+        // _proximityRange içine girdiğinde sayaç başlar. Oyuncu vurmazsa
+        // _proximityThreshold sonra _forceHit = true → game.js zorunlu hit uygular.
+        // ponytail: also force-hit when ball is VERY close and moving fast (tunneling prevention)
+        this._forceHit = false;
+        if ((this.state === 'rally' || this.state === 'homing') && this.targetPlayer) {
+            const tPos = this._getTargetPos();
+            const proxDist = this.position.distanceTo(tPos);
+            // Wider proximity range for fast balls — prevents orbiting at high speed
+            const effectiveProxRange = this._proximityRange + Math.min(this.currentSpeed * 0.002, 1.5);
+            if (proxDist < effectiveProxRange && proxDist > this.hitRange) {
+                this._proximityTimer += dt;
+                // Faster trigger at high speed — 0.2s instead of 0.4s
+                const threshold = this.currentSpeed > 100 ? 0.2 : this._proximityThreshold;
+                if (this._proximityTimer >= threshold) {
+                    this._forceHit = true;
+                    this._proximityTimer = 0;
+                }
+            } else if (proxDist <= this.hitRange && this.currentSpeed > 80) {
+                // Ball is within hit range and moving fast → force hit immediately (tunneling fix)
+                this._forceHit = true;
+            } else {
+                this._proximityTimer = 0;
+            }
+        } else {
+            this._proximityTimer = 0;
+        }
+
+        // ponytail: effective hit range scales with speed to prevent tunneling
+        this.effectiveHitRange = this.hitRange + Math.min(this.currentSpeed * 0.003, 2.0);
+
         // Ball affix wobble — sine-wave displacement on XZ
         if (this._affixWobble && this.active) {
             const t = performance.now() / 1000;
@@ -340,7 +389,7 @@ export class Ball {
             if (this._affixShrinkTimer < 10 && this.radius > 0.15) {
                 this.radius -= 0.05 * dt;
                 this.mesh.scale.multiplyScalar(1 - 0.05 * dt);
-                this.currentSpeed *= 1 + 0.05 * dt;
+                this.currentSpeed = Math.min(this.currentSpeed * (1 + 0.05 * dt), this.maxSpeed);
             }
         }
         if (this._affixGrow && this.active) {
@@ -548,17 +597,23 @@ export class Ball {
     // Keep speed locked to currentSpeed — gravity/spin may nudge magnitude, this resets it.
     _clampSpeed() {
         const sp = this.velocity.length();
-        if (sp > 0.001) this.velocity.multiplyScalar(this.currentSpeed / sp);
+        if (sp > 0.001) {
+            const target = Math.min(this.currentSpeed, this.maxSpeed);
+            this.velocity.multiplyScalar(target / sp);
+        }
     }
 
     updateColor() {
         const sr = this.currentSpeed / this.baseSpeed;
-        // Orange → pink → red as speed increases
-        const hue = Math.max(0, 0.08 - (sr - 1) * 0.015);
-        const sat = Math.min(1, 0.8 + sr * 0.02);
-        const color = new THREE.Color().setHSL(hue, sat, 0.55);
+        // ponytail: orange → pink → red → white as speed increases
+        const hue = Math.max(0, 0.08 - (sr - 1) * 0.012);
+        const sat = Math.min(1, 0.8 + sr * 0.015);
+        const light = Math.min(0.75, 0.55 + sr * 0.02);
+        const color = new THREE.Color().setHSL(hue, sat, light);
         this.mat.uniforms.uColor.value.copy(color);
         this.glowMat.color.copy(color);
+        // ponytail: glow intensity scales with speed — fast ball = bright glow
+        this.glowMat.opacity = Math.min(0.6, 0.2 + sr * 0.04);
     }
 
     // Genji-style deflection — ball goes EXACTLY where you aim, flick adds spike/lob.
@@ -566,16 +621,13 @@ export class Ball {
     // Returns a shot descriptor so the caller can play the right sound / FX.
     deflectWithAim(fromPos, aimDir, target, flick = { vertical: 0, horizontal: 0, power: 0 }, momentum = null, deflectPower = 1.0) {
         this.deflections++;
+        this._proximityTimer = 0;
         this.bodyZone = ['head','chest','abdomen','legs'][Math.floor(Math.random() * 4)];
-        // Fixed additive speed increments per deflection (percentage points)
-        const d = this.deflections;
-        const pct = Math.round((this.currentSpeed / this.baseSpeed) * 100);
-        let addPct;
-        if (d < 3) addPct = 10;
-        else if (d < 8) addPct = 15;
-        else if (d < 14) addPct = 20;
-        else addPct = 35;
-        this.currentSpeed = this.baseSpeed * (pct + addPct) / 100;
+        // Speed ramp: gentle curve after 500% to avoid 6000-8000% bug
+        const speedPct = this.currentSpeed / this.baseSpeed;
+        let rampMul = this.speedMultiplier;
+        if (speedPct > 5) rampMul = 1 + (this.speedMultiplier - 1) * (5 / speedPct);
+        this.currentSpeed = this.currentSpeed * rampMul;
         this.state = 'rally';
         this.aimed = true;
 
@@ -628,7 +680,7 @@ export class Ball {
             this.spin = Math.min(3.0, Math.max(-3.0, hSpin + vSpin));
         }
 
-        this.currentSpeed = speed;
+        this.currentSpeed = Math.min(speed, this.maxSpeed);
         this.lastShot = shot;
         this.updateColor();
         // Return affix: ball reverses after 0.6s, single use
@@ -642,15 +694,12 @@ export class Ball {
     // Simple deflect (for bots) — keeps homing so bots still track targets.
     deflect(fromPos, towardPos, deflectPower = 1.0) {
         this.deflections++;
+        this._proximityTimer = 0;
         this.bodyZone = ['head','chest','abdomen','legs'][Math.floor(Math.random() * 4)];
-        const d = this.deflections;
-        const pct = Math.round((this.currentSpeed / this.baseSpeed) * 100);
-        let addPct;
-        if (d < 3) addPct = 10;
-        else if (d < 8) addPct = 15;
-        else if (d < 14) addPct = 20;
-        else addPct = 35;
-        this.currentSpeed = this.baseSpeed * (pct + addPct) / 100 * deflectPower;
+        const speedPct = this.currentSpeed / this.baseSpeed;
+        let rampMul = this.speedMultiplier;
+        if (speedPct > 5) rampMul = 1 + (this.speedMultiplier - 1) * (5 / speedPct);
+        this.currentSpeed = Math.min(this.currentSpeed * rampMul * deflectPower, this.maxSpeed);
         this.state = 'rally';
         this.aimed = false;
 
@@ -707,7 +756,7 @@ export class Ball {
         // Speed scales with how long you orbited
         const bonus = 1 + Math.max(0, (2.5 - (this.orbitTimer || 0)) / 2.5); // up to 2x at full duration
         const speed = this.baseSpeed * 1.2 * bonus;
-        this.currentSpeed = speed;
+        this.currentSpeed = Math.min(speed, this.maxSpeed);
         const dir = new THREE.Vector3(aimDir.x, 0, aimDir.z).normalize();
         this.velocity.copy(dir.multiplyScalar(this.currentSpeed));
         this.velocity.y = this.currentSpeed * 0.25;
@@ -736,7 +785,7 @@ export class Ball {
         this.state = 'rally';
         this.aimed = true;
         const speed = this.baseSpeed * (1 + charge * 0.8);
-        this.currentSpeed = speed;
+        this.currentSpeed = Math.min(speed, this.maxSpeed);
         const dir = new THREE.Vector3(aimDir.x, 0, aimDir.z).normalize();
         this.velocity.copy(dir.multiplyScalar(this.currentSpeed));
         this.velocity.y = this.currentSpeed * 0.25;
@@ -747,12 +796,13 @@ export class Ball {
     addTrailDot() {
         const sr = Math.min(4, this.currentSpeed / this.baseSpeed);
         const spinFactor = Math.min(1, Math.abs(this.spin) * 0.3);
-        const r = Math.min(0.15, 0.04 * (1 + sr * 0.4 + spinFactor * 0.3));
+        // ponytail: bigger trail dots at high speed for dramatic streak
+        const r = Math.min(0.18, 0.04 * (1 + sr * 0.5 + spinFactor * 0.3));
         const geo = new THREE.SphereGeometry(r, 4, 4);
         const trailColor = this._affixTrailColor ?? (this.skinConfig?.trail || 0xff2222);
         const mat = new THREE.MeshBasicMaterial({
             color: trailColor,
-            transparent: true, opacity: 0.6
+            transparent: true, opacity: Math.min(0.8, 0.5 + sr * 0.08)
         });
         const dot = new THREE.Mesh(geo, mat);
         dot.position.copy(this.position);
@@ -764,9 +814,9 @@ export class Ball {
         }
         this.scene.add(dot);
         // Faster ball = longer trail life
-        const maxLife = 0.3 + sr * 0.15;
+        const maxLife = 0.3 + sr * 0.2;
         this.trail.push({ mesh: dot, life: maxLife });
-        const maxTrail = 30 + Math.round(sr * 15);
+        const maxTrail = 30 + Math.round(sr * 20);
         if (this.trail.length > maxTrail) {
             const old = this.trail.shift();
             this.scene.remove(old.mesh);

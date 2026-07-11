@@ -36,6 +36,16 @@ export const SKILLS = {
     }
 };
 
+export const ULTIMATES = {
+    rally:   { name: 'BLITZ BALL',   duration: 5, desc: 'Ball targets all enemies at 2x speed' },
+    tank:    { name: 'FORTRESS',     duration: 5, desc: '+100 shield, 50% damage reduction' },
+    scout:   { name: 'PHANTOM RUSH', duration: 5, desc: '+50% speed, semi-transparent' },
+    sniper:  { name: 'PENETRATOR',   duration: 1, desc: 'Next throw pierces walls, 3x damage' },
+    guardian:{ name: 'AEGIS',        duration: 0, desc: 'Heal all allies 30% HP' },
+    blazer:  { name: 'INFERNO',      duration: 5, desc: 'Fire trail burns enemies on contact' },
+    frost:   { name: 'FLASH FREEZE', duration: 3, desc: 'Freeze all balls on map' },
+};
+
 export const RUNES = {
     hp_bonus:      { id:'hp_bonus',      name:'HP Bonus',         emoji:'❤️', desc:'+25 max HP' },
     dmg_resist:    { id:'dmg_resist',    name:'Damage Resist',    emoji:'🛡️', desc:'-15% alınan hasar' },

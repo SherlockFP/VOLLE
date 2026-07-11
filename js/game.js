@@ -11,15 +11,22 @@ import { applyMode, GAME_MODES } from './gamemodes.js';
 import { ChaosManager, CHAOS_MODES } from './chaos.js';
 import { EmoteSystem } from './emotes.js';
 import { AffixManager } from './affixes.js';
-import { SKILLS, useSkill } from './skills.js';
+import { SKILLS, useSkill, ULTIMATES } from './skills.js';
 import { outlineVertexShader } from './shaders/toon.vert.js';
 
 const BASE_HIT_DAMAGE = 25;
 
+const POWERUP_TYPES = [
+    { id: 'shield',   color: 0x44aaff, label: '+SHIELD',  duration: 10 },
+    { id: 'speed',    color: 0x44ff88, label: '+SPEED',   duration: 8 },
+    { id: 'damage',   color: 0xff4444, label: '+DAMAGE',  duration: 10 },
+    { id: 'megaball', color: 0xffaa00, label: 'MEGA BALL', duration: 0 },
+];
+
 export const STATES = {
     MENU: 'MENU', LOBBY: 'LOBBY', COUNTDOWN: 'COUNTDOWN',
     PLAYING: 'PLAYING', ROUND_END: 'ROUND_END', GAME_OVER: 'GAME_OVER',
-    CELEBRATION: 'CELEBRATION'
+    CELEBRATION: 'CELEBRATION', PAUSED: 'PAUSED'
 };
 
 export class Game {
@@ -57,6 +64,10 @@ export class Game {
         // DMC-style kill combo tracker
         this.killStreak = 0;
         this._comboDisplayTimer = 0;
+
+        // Kill streak tracking per player (name → consecutive kills)
+        this._killStreaks = new Map();
+        this._killStreakTimers = new Map();
 
         // Occasional bot chatter for life
         this.botChatTimer = 8 + Math.random() * 8;
@@ -99,7 +110,10 @@ export class Game {
         this._killcamKillerName = '';
         this._killcamReplayEvents = [];
         this._killcamBufferMs = 2000;
-        // Overtime
+        // Overtime (score tied at timer expiry — escalating ball speed)
+        this._overtime = false;
+        this._overtimeTimer = 0;
+        this._overtimeMaxSpeed = 3.0;
         this._overtimeExtends = 0;
 
         // Map voting
@@ -196,6 +210,26 @@ export class Game {
     setMusicVolume(v) {
         this._musicVolume = Math.max(0, Math.min(1, v ?? 0.12));
         if (this._musicAudio) this._musicAudio.volume = this._musicVolume;
+    }
+
+    announceStreak(streak, killer) {
+        const labels = { 2: 'DOUBLE KILL!', 3: 'TRIPLE KILL!', 4: 'QUADRA KILL!', 5: 'PENTA KILL!' };
+        const classes = { 2: 'double', 3: 'triple', 4: 'quadra', 5: 'penta' };
+        if (streak >= 5 && this.isTeamAce(killer)) {
+            this.ui.showStreak('ACE!', 'ace');
+        } else if (labels[streak]) {
+            this.ui.showStreak(labels[streak], classes[streak]);
+        }
+        // Bonus rewards: +50 XP per streak level, +10 coins
+        const store = window.__store;
+        if (store?.addXP) store.addXP(streak * 50);
+        if (store?.addCurrency) store.addCurrency(streak * 10);
+    }
+
+    isTeamAce(killer) {
+        const killerTeam = killer?.team;
+        if (!killerTeam) return false;
+        return this.getAllTargets().filter(p => p.team !== killerTeam).every(p => !p.alive);
     }
 
     setState(s) {
@@ -482,6 +516,9 @@ export class Game {
         });
         this.rallyCount = 0;
         this.killStreak = 0;
+        this._killStreaks.clear();
+        this._killStreakTimers.forEach(t => clearTimeout(t));
+        this._killStreakTimers.clear();
         this._overtimeExtends = 0;
         this._spectateTarget = null;
         this._hideKillcam();
@@ -540,6 +577,9 @@ export class Game {
         this.clearBlackHoles();
         this.clearSplitBalls();
         this._hideKillcam();
+        this._overtime = false;
+        this._overtimeTimer = 0;
+        this._suddenDeathAnnounced = false;
         this.setState(STATES.PLAYING);
         this.scoreboard.newRound();
         if (this.affixes) this.affixes.startRound();
@@ -553,8 +593,8 @@ export class Game {
         this.rallyCount = 0;
         // ponytail: killStreak sadece yeni oyunda reset — FIRST BLOOD her round'da değil
         this._spectateTarget = null;
-        // ponytail fix: sadece ölü oyuncuları revive et — HP'si düşenler resetlenmesin
-        if (!this.player.alive) this.player.revive();
+        // ponytail fix: ölü oyuncuları spawn noktasında dirilt
+        if (!this.player.alive) this.player.respawn();
         this.bots.forEach(b => { if (!b.alive) { b.alive = true; b.respawn(); } });
         this.remotePlayers.forEach(p => {
             if (!p.alive) {
@@ -580,7 +620,7 @@ export class Game {
                 }
             }, 700);
         }
-        this.ui.showMessage(`Round ${this.scoreboard.roundNum}`, 1500);
+        this.ui.showRoundBanner(this.scoreboard.roundNum, this.scoreboard.redScore, this.scoreboard.blueScore);
         // P2P: round start state'i tüm client'lara bildiriyoruz, böylece istemciler eşzamanlı başlar.
         if (this.network?.isHost) {
             this.network.broadcastRoundStart(this.snapshotState());
@@ -807,6 +847,22 @@ export class Game {
         return p;
     }
 
+    getBodyZone(ballPos, playerPos, playerHeight = 1.7) {
+        const bottom = playerPos.y - playerHeight;
+        const relativeY = (ballPos.y - bottom) / playerHeight;
+        if (relativeY > 0.8) return { zone: 'head', multiplier: 2.0, label: 'HEAD' };
+        if (relativeY > 0.5) return { zone: 'chest', multiplier: 1.5, label: 'CHEST' };
+        if (relativeY > 0.2) return { zone: 'body', multiplier: 1.0, label: 'BODY' };
+        return { zone: 'legs', multiplier: 0.8, label: 'LEGS' };
+    }
+
+    getDamageFalloff(distance) {
+        if (distance < 5) return 1.0;
+        if (distance < 15) return 0.8;
+        if (distance < 30) return 0.6;
+        return 0.5;
+    }
+
     getEnemyTargets(team, self = null) {
         if (this._ffa) return this.getAllTargets().filter(p => p !== self && p.alive);
         return this.getAllTargets().filter(p => p.team !== team);
@@ -876,6 +932,9 @@ export class Game {
         const effectiveDt = this.juice.update(dt);
         if (effectiveDt === 0 && this.state !== STATES.CELEBRATION) return; // hit-stop: dünya donar (ama celebration'da değil)
         dt = effectiveDt || dt;
+
+        // Vignette — red overlay at low HP
+        this.juice.updateVignette(this.player.hp, this.player.maxHp);
 
         // Time scale (console: sv_timescale)
         if (this._timeScale && this._timeScale !== 1) dt *= this._timeScale;
@@ -1079,7 +1138,30 @@ export class Game {
 
     updatePlaying(dt) {
         this.scoreboard.updateTimer(dt);
-        if (this.scoreboard.isTimeUp()) { this.endGame(); return; }
+        if (this.scoreboard.isTimeUp()) {
+            if (this.scoreboard.redScore === this.scoreboard.blueScore && !this._overtime) {
+                this._overtime = true;
+                this._overtimeTimer = 0;
+                this.ui.showMessage?.('⚡ OVERTIME!', 2000);
+                this.ui.showStreak?.('OVERTIME!', 'ace');
+            } else if (!this._overtime) {
+                this.endGame();
+                return;
+            }
+        }
+
+        // Overtime: escalate ball speed
+        if (this._overtime) {
+            this._overtimeTimer += dt;
+            const speedMul = Math.min(this._overtimeMaxSpeed, 1 + this._overtimeTimer * 0.1);
+            if (this.ball.active) {
+                this.ball.currentSpeed = this.ball.baseSpeed * speedMul * (this.ball.skinConfig?.speedBonus || 1);
+            }
+            if (this._overtimeTimer >= 30 && !this._suddenDeathAnnounced) {
+                this._suddenDeathAnnounced = true;
+                this.ui.showMessage?.('SUDDEN DEATH!', 2000);
+            }
+        }
 
         // Top donmuşsa timer tick
         if (this.ball._frozenTimer > 0) {
@@ -1116,7 +1198,17 @@ export class Game {
         // Player target indicator — incoming!
         this.ui.setPlayerTarget(target === this.player && this.ball.active);
 
-        // Player skill tuşu (Q)
+        // Player skill tuşu (Q) — tap = skill, hold 2s = ultimate
+        if (this.player.keys['KeyQ'] && this.player.ultimateCharge >= 100 && !this.player.ultimateActive) {
+            this.player._qHoldTimer = (this.player._qHoldTimer || 0) + dt;
+            if (this.player._qHoldTimer >= 2) {
+                this.player._qHoldTimer = 0;
+                const ult = this.player.useUltimate();
+                if (ult) this.activateUltimate(ult);
+            }
+        } else {
+            this.player._qHoldTimer = 0;
+        }
         if (this.player._skillQueued) {
             this.player._skillQueued = false;
             const ok = this.player.tryUseSkill({ ball: this.ball, target: this.ball.targetPlayer, game: this });
@@ -1188,7 +1280,7 @@ export class Game {
             const dist = ballPos.distanceTo(playerPos);
             const rangeCheck = isClient2
                 ? dist < this.ball.attackRange * 2.0
-                : dist < this.ball.attackRange;
+                : dist < this.ball.attackRange + Math.min(this.ball.currentSpeed * 0.003, 3.0);
             if (rangeCheck) {
                 this.handlePlayerDeflection(isClient2);
             }
@@ -1230,17 +1322,36 @@ export class Game {
             for (const target of candidates) {
                 if (!target || target.alive === false) continue;
                 const headPos = target.getPosition();
-                // Clamp ball Y to body range [ground, head], measure 3D distance
-                const bodyTop = headPos.y;
-                const bodyBottom = headPos.y - 1.7;
-                const clampedY = Math.max(bodyBottom, Math.min(bodyTop, ballPos.y));
-                const dx = ballPos.x - headPos.x;
-                const dz = ballPos.z - headPos.z;
-                const dy = ballPos.y - clampedY;
-                const bodyDist = Math.sqrt(dx*dx + dy*dy + dz*dz);
-                if (bodyDist < this.ball.hitRange) {
+                const hitBonus = this.ball.effectiveHitRange ? (this.ball.effectiveHitRange - this.ball.hitRange) : 0;
+                if (this.capsuleHitTest(ballPos, headPos, 1.7, 0.4 + hitBonus)) {
                     this.handleHit(target);
                     return;
+                }
+                // ponytail: proximity forced-hit — top hedefe çok yakınken oyuncu
+                // vurmazsa zorunlu hit. Sonsuz döngü engeli + tunneling fix.
+                if (this.ball._forceHit) {
+                    const px = headPos.x, pz = headPos.z;
+                    const py = Math.max(0, Math.min(1.7, ballPos.y));
+                    const dx2 = ballPos.x - px, dz2 = ballPos.z - pz, dy2 = ballPos.y - py;
+                    const proxDistSq = dx2 * dx2 + dy2 * dy2 + dz2 * dz2;
+                    // ponytail: expanded proximity range for fast balls
+                    const effectiveRange = this.ball._proximityRange + Math.min(this.ball.currentSpeed * 0.002, 1.5);
+                    if (proxDistSq < effectiveRange * effectiveRange) {
+                        this.handleHit(target);
+                        return;
+                    }
+                }
+            }
+        }
+
+        // ponytail: near-miss effect — ball passes close to player without hitting
+        if (this.ball.active && this.player.alive && this.ball.targetPlayer !== this.player) {
+            const ballToPlayer = this.ball.position.distanceTo(this.player.getPosition());
+            if (ballToPlayer < 2.5 && ballToPlayer > 1.0 && this.ball.currentSpeed > 30) {
+                if (!this._nearMissCooldown || performance.now() - this._nearMissCooldown > 500) {
+                    this._nearMissCooldown = performance.now();
+                    this.juice.shake(0.06);
+                    this.ui.showMessage?.('⚡ NEAR MISS!', 400);
                 }
             }
         }
@@ -1261,6 +1372,10 @@ export class Game {
         this.ui.updateVitals(this.player.hp, this.player.maxHp, this.player.shield,
             this.player.stamina, this.player.staminaMax, this.player.exhausted);
         this.ui.updateSkillCooldown?.(this.player.skillCooldowns, this.player.loadout.skill);
+        this.ui.updateUltimate?.(this.player.ultimateCharge, this.player.ultimateCharge >= 100);
+
+        // Combo display — continuous update with labels
+        this.ui.updateCombo(this.juice.combo, this.juice.combo > 4 ? 'GODLIKE!' : this.juice.combo > 3 ? 'UNSTOPPABLE!' : this.juice.combo > 2 ? 'DOMINATING!' : this.juice.combo > 1 ? 'DOUBLE KILL!' : '');
 
         // Kill feed — render & prune expired entries
         this.ui.renderKillFeed(this.killFeed);
@@ -1366,9 +1481,11 @@ export class Game {
             this.ui.showMessage(`✨ PERFECT DEFLECT! x${this.juice.combo} combo`, 2500);
             this.audio.playSfx('tf2_crit', 0.65);
         } else {
-            // Normal deflect — küçük spark
-            this.juice.sparks(this.ball.position.clone(), 0xff8844, 6);
-            this.juice.shake(0.08);
+            // Normal deflect — spark + small flash for impact feel
+            this.juice.sparks(this.ball.position.clone(), 0xff8844, 8);
+            this.juice.shockwave(this.ball.position.clone(), 0xff8844);
+            this.juice.shake(0.1);
+            this.juice.flash(0.15);
         }
 
         const spd = Math.round((this.ball.getSpeed() / this.ball.baseSpeed) * 100);
@@ -1418,6 +1535,63 @@ export class Game {
         this.ui.showMessage(`🏐 Rally ${this.rallyCount} — ${spd}%`, 800);
     }
 
+    activateUltimate(ult) {
+        this.ui.showMessage?.(`⚡ ${ult.name}!`, 2000);
+        this.juice.slowMo(0.5, 0.5);
+        this.juice.shake(0.5);
+        switch (this.player.charId) {
+            case 'tank':
+                this.player.shield += 100;
+                this.player._damageReduction = 0.5;
+                setTimeout(() => { this.player._damageReduction = 0; this.player.ultimateActive = false; }, ult.duration * 1000);
+                break;
+            case 'scout':
+                this.player.speed *= 1.5;
+                this.player._transparent = true;
+                setTimeout(() => { this.player.speed /= 1.5; this.player._transparent = false; this.player.ultimateActive = false; }, ult.duration * 1000);
+                break;
+            case 'sniper':
+                this.ball._pierceWalls = true;
+                this.ball.currentSpeed *= 3;
+                this.player.ultimateActive = false;
+                break;
+            case 'guardian':
+                this.getAllTargets().filter(p => p.team === this.player.team && p.alive).forEach(p => {
+                    p.hp = Math.min(p.maxHp, p.hp + p.maxHp * 0.3);
+                });
+                this.player.ultimateActive = false;
+                break;
+            case 'rally':
+                this.ball.currentSpeed *= 2;
+                this.ball.velocity.multiplyScalar(2);
+                setTimeout(() => { this.player.ultimateActive = false; }, ult.duration * 1000);
+                break;
+            case 'blazer':
+                setTimeout(() => { this.player.ultimateActive = false; }, ult.duration * 1000);
+                break;
+            case 'frost':
+                if (this.ball.active) {
+                    this.ball._frozenTimer = 3;
+                    this.ball.velocity.multiplyScalar(0.01);
+                }
+                setTimeout(() => { this.player.ultimateActive = false; }, ult.duration * 1000);
+                break;
+            default:
+                setTimeout(() => { this.player.ultimateActive = false; }, ult.duration * 1000);
+        }
+    }
+
+    capsuleHitTest(ballPos, playerPos, playerHeight = 1.7, capsuleRadius = 0.4) {
+        const px = playerPos.x, pz = playerPos.z;
+        const py = Math.max(0, Math.min(playerHeight, ballPos.y));
+        const dx = ballPos.x - px;
+        const dz = ballPos.z - pz;
+        const dy = ballPos.y - py;
+        const distSq = dx * dx + dy * dy + dz * dz;
+        const totalRadius = this.ball.radius + capsuleRadius;
+        return distSq < totalRadius * totalRadius;
+    }
+
     handleHit(hitTarget) {
         const isClient = this.network?.connected && !this.network?.isHost;
         const name = hitTarget === this.player ? this.playerName : hitTarget.name;
@@ -1460,6 +1634,15 @@ export class Game {
         const comboMul = this.juice.getComboMultiplier();
         let dmg = calcDamage(Math.round(base * comboMul), attacker, hitTarget, shot);
         if (this._damageMul) dmg = Math.round(dmg * this._damageMul);
+        // Body zone multiplier
+        const hitZone = this.getBodyZone(this.ball.position, hitTarget.getPosition());
+        dmg = Math.round(dmg * hitZone.multiplier);
+        // Distance falloff: damage scales down based on thrower distance
+        if (attacker) {
+            const throwerPos = attacker.getPosition();
+            const dist = throwerPos.distanceTo(hitTarget.getPosition());
+            dmg = Math.round(dmg * this.getDamageFalloff(dist));
+        }
         if (this._oneHitKill) dmg = hitTarget.maxHp;
 
         // Client-side prediction: apply state locally, server may correct later
@@ -1470,6 +1653,9 @@ export class Game {
             this.ball._affixOnHit(hitTarget);
         }
         if (attacker) attacker.recordDamageDealt(dmg);
+        // Ultimate charge: attacker gains from dealing, victim from taking
+        if (attacker?.addUltimateCharge) attacker.addUltimateCharge(dmg * 0.3);
+        if (hitTarget?.addUltimateCharge) hitTarget.addUltimateCharge(dmg * 0.5);
         hitTarget.onMissDeflect();
         // ponytail: thorns host-only — client's attacker is this.player, not remote wrapper.
         // Host applies thorns to remote wrapper (no visible effect). Client skipping prevents
@@ -1509,9 +1695,26 @@ export class Game {
         const scrPos = hitPos.clone().project(this.player.camera);
         const sx = (scrPos.x * 0.5 + 0.5) * window.innerWidth;
         const sy = (-scrPos.y * 0.5 + 0.5) * window.innerHeight;
-        this.ui.spawnDamageNumber(sx, sy, dmg, isLethal);
+        this.ui.spawnDamageNumber(sx, sy, dmg, isLethal, hitZone.label);
+
+        // Hit marker — show when the local player lands a hit
+        if (attacker === this.player) {
+            this.ui.showHitMarker(hitZone.zone === 'head');
+        }
 
         if (hitTarget === this.player) {
+            // Directional damage indicator — calculate angle from attacker to player
+            if (attacker) {
+                const attackerPos = attacker.getPosition();
+                const playerPos = hitTarget.getPosition();
+                const dx = attackerPos.x - playerPos.x;
+                const dz = attackerPos.z - playerPos.z;
+                const damageAngle = Math.atan2(dx, dz) * (180 / Math.PI);
+                // Convert to screen-space angle (0 = top, clockwise)
+                const camYaw = this.player.camera?.rotation?.y || 0;
+                const screenAngle = damageAngle - (camYaw * 180 / Math.PI);
+                this.ui.showDamageDirection(screenAngle);
+            }
             const df = document.getElementById('damage-flash');
             if (df) {
                 df.classList.remove('fade');
@@ -1530,12 +1733,17 @@ export class Game {
         if (this.killFeed.length > 5) this.killFeed.pop();
         this.ui.renderKillFeed?.(this.killFeed);
 
-        // Juice effects
-        this.juice.burst(hitPos, hitTarget.team === 'red' ? 0xff4444 : 0x4488ff, 16, 10);
-        this.juice.shockwave(hitPos, 0xff8844);
-        this.juice.shake(isLethal ? 0.5 : 0.25);
-        this.juice.hitStop(isLethal ? 100 : 50);
-        this.juice.flash(0.3);
+        // Juice effects — ponytail: enhanced impact feel
+        if (isLethal) {
+            this.juice.killBurst(hitPos);
+            // ponytail: extra upward spark fountain for dramatic death
+            this.juice.sparks(hitPos.clone().add(new THREE.Vector3(0, 0.3, 0)), 0xffffff, 8);
+        } else {
+            this.juice.hitBurst(hitPos);
+        }
+        this.juice.shockwave(hitPos, isLethal ? 0xff3333 : 0xff8844);
+        this.juice.hitStop(isLethal ? 120 : 50);
+        this.juice.flash(isLethal ? 0.5 : 0.3);
 
         // Death explosion + audio
         this.spawnDeathExplosion(hitPos, hitTarget.team);
@@ -1554,8 +1762,6 @@ export class Game {
 
         // Client-side lethal effects (predicted — host authority may override)
         if (isClient && isLethal) {
-            this.juice.slowMo(0.25, 0.8);
-            this.juice.burst(hitPos, 0xffee44, 24, 14);
             if (hitTarget === this.player) {
                 this.player.die();
                 this.ui.flashHit();
@@ -1570,8 +1776,6 @@ export class Game {
         if (!isClient) {
             if (isLethal) {
                 if (hitTarget !== this.player) this.audio.playSfx('tf2_notification', 0.4);
-                this.juice.slowMo(0.25, 0.8);
-                this.juice.burst(hitPos, 0xffee44, 24, 14);
                 if (hitTarget === this.player) {
                     this.player.die();
                     this.ui.flashHit();
@@ -1608,6 +1812,30 @@ export class Game {
                 const seen = new Set();
                 assistCandidates.forEach(a => { if (a && !seen.has(a)) { seen.add(a); this.scoreboard.recordAssist(a); } });
                 this.juice.resetCombo();
+
+                // Kill streak tracking (per-player)
+                if (scorerName) {
+                    const streak = (this._killStreaks.get(scorerName) || 0) + 1;
+                    this._killStreaks.set(scorerName, streak);
+                    this.announceStreak(streak, attacker);
+                    // Reset streak timer (8s timeout)
+                    if (this._killStreakTimers.has(scorerName)) clearTimeout(this._killStreakTimers.get(scorerName));
+                    this._killStreakTimers.set(scorerName, setTimeout(() => {
+                        this._killStreaks.delete(scorerName);
+                        this._killStreakTimers.delete(scorerName);
+                    }, 8000));
+                }
+
+                // Reset victim's streak
+                const victimName = name;
+                if (this._killStreaks.has(victimName)) {
+                    this._killStreaks.delete(victimName);
+                    if (this._killStreakTimers.has(victimName)) {
+                        clearTimeout(this._killStreakTimers.get(victimName));
+                        this._killStreakTimers.delete(victimName);
+                    }
+                }
+
                 if (this._checkTeamElimination()) {
                     this.setState(STATES.ROUND_END);
                     this.roundRestartTimer = this.roundRestartDelay;
@@ -1904,57 +2132,95 @@ export class Game {
             }
         }
 
-        // Rotate power-up meshes
-        for (const pu of this.powerUps) {
+        // Power-up floating animation + expiration
+        for (let i = this.powerUps.length - 1; i >= 0; i--) {
+            const pu = this.powerUps[i];
             pu.mesh.rotation.y += dt * 2;
-            pu.mesh.position.y = 0.6 + Math.sin(pu.time + performance.now() * 0.003) * 0.15;
+            pu.mesh.position.y = pu.pos.y + Math.sin(performance.now() / 500) * 0.3;
+            pu.timer -= dt;
+            if (pu.timer <= 0) {
+                this.renderer.scene.remove(pu.mesh);
+                pu.mesh.geometry?.dispose();
+                pu.mesh.material?.dispose();
+                this.powerUps.splice(i, 1);
+            }
         }
 
-        // Spawn timer
+        // Spawn timer (15s interval, max 3)
         this._powerUpTimer -= dt;
         if (this._powerUpTimer <= 0 && this.powerUps.length < this._maxPowerUps) {
             this.spawnPowerUp();
-            this._powerUpTimer = this._powerUpInterval + Math.random() * 5;
+            this._powerUpTimer = 15 + Math.random() * 5;
         }
 
         // Pickup check
         const pp = this.player.getPosition();
         for (let i = this.powerUps.length - 1; i >= 0; i--) {
             const pu = this.powerUps[i];
-            const dx = pp.x - pu.x, dz = pp.z - pu.z;
-            if (Math.sqrt(dx*dx + dz*dz) < 2.0) {
-                this._applyBuff(pu.type);
-                this.renderer.scene.remove(pu.mesh);
-                pu.mesh.geometry?.dispose();
-                pu.mesh.material?.dispose();
+            const dx = pp.x - pu.pos.x, dz = pp.z - pu.pos.z;
+            if (Math.sqrt(dx * dx + dz * dz) < 2.0) {
+                this.pickupPowerUp(this.player, pu);
                 this.powerUps.splice(i, 1);
-                this.ui.showMessage?.(`${pu.label} picked up!`, 1200);
             }
         }
     }
 
+    pickupPowerUp(player, powerUp) {
+        const type = powerUp.type;
+        this.renderer.scene.remove(powerUp.mesh);
+        powerUp.mesh.geometry.dispose();
+        powerUp.mesh.material.dispose();
+        this.ui.showMessage?.(type.label, 1500);
+        switch (type.id) {
+            case 'shield':
+                player.shield += 50;
+                break;
+            case 'speed':
+                if (!player._baseSpeed) player._baseSpeed = player.speed;
+                player.speed = player._baseSpeed * 1.3;
+                this._playerBuffs.speed = type.duration;
+                setTimeout(() => {
+                    if (player._baseSpeed) player.speed = player._baseSpeed;
+                    this._playerBuffs.speed = 0;
+                }, type.duration * 1000);
+                break;
+            case 'damage':
+                this._damageMul = 1.5;
+                this._playerBuffs.damage = type.duration;
+                setTimeout(() => {
+                    this._damageMul = null;
+                    this._playerBuffs.damage = 0;
+                }, type.duration * 1000);
+                break;
+            case 'megaball':
+                this.ball.mesh.scale.setScalar(2);
+                this.ball.radius *= 2;
+                this.ball.currentSpeed *= 1.5;
+                setTimeout(() => {
+                    this.ball.mesh.scale.setScalar(1);
+                    this.ball.radius /= 2;
+                    this.ball.currentSpeed /= 1.5;
+                }, 5000);
+                break;
+        }
+    }
+
     spawnPowerUp() {
-        const types = ['speed', 'shield', 'damage'];
-        const type = types[Math.floor(Math.random() * types.length)];
-        const labels = { speed: '⚡ Speed Boost', shield: '🛡️ Shield', damage: '💥 Power' };
-        const colors = { speed: 0xffee00, shield: 0x44aaff, damage: 0xff4444 };
-
-        // Random position on the court floor
-        const bx = this.arena.bounds;
-        const x = bx.minX + Math.random() * (bx.maxX - bx.minX);
-        const z = bx.minZ + Math.random() * (bx.maxZ - bx.minZ);
-
-        const geo = new THREE.SphereGeometry(0.4, 8, 8);
-        const mat = new THREE.MeshBasicMaterial({ color: colors[type], transparent: true, opacity: 0.85 });
+        if (this.powerUps.length >= this._maxPowerUps) return;
+        const type = POWERUP_TYPES[Math.floor(Math.random() * POWERUP_TYPES.length)];
+        const pos = this.arena.getSpawnPoint();
+        pos.y = 1.5;
+        const geo = new THREE.OctahedronGeometry(0.5);
+        const mat = new THREE.MeshBasicMaterial({ color: type.color, transparent: true, opacity: 0.8 });
         const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(x, 1.2, z);
+        mesh.position.copy(pos);
         this.renderer.scene.add(mesh);
-
-        this.powerUps.push({ type, mesh, x, z, time: performance.now(), label: labels[type] });
+        this.powerUps.push({ mesh, type, pos: pos.clone(), timer: 20 });
     }
 
     _applyBuff(type) {
-        this._playerBuffs[type] = 6; // 6 seconds
+        // Legacy compat — new typed power-ups use pickupPowerUp directly
+        this._playerBuffs[type] = 6;
         if (type === 'speed') this.player.speed = this.player._baseSpeed * 1.4;
         if (type === 'shield') this.player.shield += 30;
         if (type === 'damage') this._damageMul = 1.5;
@@ -1975,6 +2241,11 @@ export class Game {
         this._playerBuffs = {};
         this._damageMul = null;
         this.player.speed = this.player._baseSpeed;
+        // Reset megaball if active
+        if (this.ball) {
+            this.ball.mesh.scale.setScalar(1);
+            this.ball.radius = this.ball._baseRadius;
+        }
     }
 
     // --- MINIMAP ---
@@ -2206,6 +2477,11 @@ export class Game {
 
     _onCelebrationEnd() {
         this.state = STATES.GAME_OVER;
+        this.ui.showMatchResult(this._winningTeam, {
+            kills: this.scoreboard.players.get(this.playerName)?.score || 0,
+            deaths: this.scoreboard.players.get(this.playerName)?.deaths || 0,
+            damage: this.player.totalDamageDealt
+        });
         this.player.unlock(); // free mouse for XP screen buttons
         this.player._celebNoAttack = false; // attack restriction cleared
         const gm = document.getElementById('game-message');
@@ -3146,13 +3422,13 @@ export class Game {
         this.powerUps = [];
         // Host'tan gelen power-up'ları oluştur
         for (const pu of data.powerUps) {
-            const colors = { speed: 0xffee00, shield: 0x44aaff, damage: 0xff4444 };
-            const geo = new THREE.SphereGeometry(0.4, 8, 8);
-            const mat = new THREE.MeshBasicMaterial({ color: colors[pu.type] || 0xffffff, transparent: true, opacity: 0.85 });
+            const type = POWERUP_TYPES.find(t => t.id === pu.type) || POWERUP_TYPES[0];
+            const geo = new THREE.OctahedronGeometry(0.5);
+            const mat = new THREE.MeshBasicMaterial({ color: type.color, transparent: true, opacity: 0.8 });
             const mesh = new THREE.Mesh(geo, mat);
-            mesh.position.set(pu.x, 1.2, pu.z);
+            mesh.position.set(pu.x, 1.5, pu.z);
             this.renderer.scene.add(mesh);
-            this.powerUps.push({ type: pu.type, mesh, x: pu.x, z: pu.z, time: performance.now(), label: '' });
+            this.powerUps.push({ mesh, type, pos: new THREE.Vector3(pu.x, 1.5, pu.z), timer: 20 });
         }
     }
 

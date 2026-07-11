@@ -2,12 +2,12 @@
 // character loadout, skill/rune system, stamina-based spam protection, damage meter.
 import * as THREE from 'three';
 import { applyCharacter } from './characters.js';
-import { applyRunes, tickSkillCooldowns, useSkill, DEFAULT_LOADOUT } from './skills.js';
+import { applyRunes, tickSkillCooldowns, useSkill, DEFAULT_LOADOUT, ULTIMATES } from './skills.js';
 
 const STAMINA_PER_DEFLECT = 7;
 const STAMINA_REGEN = 20;     // per second
 const STAMINA_EXHAUST_THRESHOLD = 15;
-const ATTACK_COOLDOWN = 0.4;  // spam protection
+const ATTACK_COOLDOWN = 0.6;  // spam protection — wider window for fast balls
 const BASE_HIT_DAMAGE = 25;
 
 export class Player {
@@ -103,6 +103,11 @@ export class Player {
         this.chatBubble = null;
         this.chatTimer = 0;
 
+        // Ultimate
+        this.ultimateCharge = 0;    // 0-100
+        this.ultimateActive = false;
+        this.ultimateTimer = 0;
+
         this.buildHandMesh();
         this.setupInput();
     }
@@ -176,6 +181,7 @@ export class Player {
             if (!this.alive) return;
             const st = this.game?.state;
             if (st !== 'PLAYING' && st !== 'COUNTDOWN') return;
+            if (st === 'PAUSED') return;
             if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) return;
             this.euler.y -= e.movementX * this.sensitivity;
             this.euler.x -= e.movementY * this.sensitivity;
@@ -187,17 +193,14 @@ export class Player {
             this.flickY += e.movementY; // +down, -up on screen
         });
         document.addEventListener('mousedown', e => {
-            // Pointer lock OPTIONAL: any left-click during live play attacks.
-            // No dependency on lock state or click target (HUD sibling of canvas).
+            // ponytail: pointer lock re-activation removed — causes mouse bug during pause
             if (e.button === 0 && this.alive && this.game?.state === 'PLAYING') {
-                if (!this.locked) this.lock();
                 this.tryAttack();
             }
         });
         // ponytail: Q tuşu aktif skill (sadece oyun sırasında)
         document.addEventListener('keydown', e => {
             if (e.code === 'KeyQ' && this.alive && this.game?.state === 'PLAYING') {
-                if (!this.locked) this.lock();
                 this._skillQueued = true;
             }
         });
@@ -231,6 +234,20 @@ export class Player {
     // Aktif skill kullan (Q tuşu). Context: { ball, target }.
     tryUseSkill(context) {
         return useSkill(this, this.loadout.skill, context);
+    }
+
+    addUltimateCharge(amount) {
+        if (this.ultimateActive) return;
+        this.ultimateCharge = Math.min(100, this.ultimateCharge + amount);
+    }
+
+    useUltimate() {
+        if (this.ultimateCharge < 100 || this.ultimateActive) return null;
+        this.ultimateCharge = 0;
+        this.ultimateActive = true;
+        const ult = ULTIMATES[this.charId];
+        this.ultimateTimer = ult?.duration || 0;
+        return ult;
     }
 
     // Get aim direction (where camera looks)
@@ -484,7 +501,7 @@ export class Player {
     // Apply damage through shield first. Returns true if this blow is lethal.
     // dmgResist rune + tank pasif burada uygulanır.
     takeDamage(amount) {
-        const resist = (this.runeBonuses?.dmgResist || 0) + (this.passive === 'damage_reduc' ? 0.2 : 0);
+        const resist = (this.runeBonuses?.dmgResist || 0) + (this.passive === 'damage_reduc' ? 0.2 : 0) + (this._damageReduction || 0);
         amount = Math.max(1, Math.round(amount * (1 - resist)));
         this.totalDamageTaken += amount;
         this.lastDamageAt = performance.now() / 1000;
@@ -579,6 +596,9 @@ export class Player {
         this._burnTimer = 0;
         this._chillTimer = 0;
         this.skillCooldowns = {};
+        this.ultimateCharge = 0;
+        this.ultimateActive = false;
+        this._qHoldTimer = 0;
         // ponytail: hand default OFF — auto-start'ta görünmez, sv_hand ile açılır
     }
 
