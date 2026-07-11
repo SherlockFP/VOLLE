@@ -95,6 +95,9 @@ export class Game {
         this._killcamKillerPos = null;
         this._killcamDeathPos = null;
         this._killcamKillerName = '';
+        // Overtime
+        this._overtimeExtends = 0;
+
         // Map voting
         this._mapVoteActive = false;
         this._mapVoteOptions = [];     // 3 mapId'ler
@@ -405,6 +408,7 @@ export class Game {
         });
         this.rallyCount = 0;
         this.killStreak = 0;
+        this._overtimeExtends = 0;
         this._spectateTarget = null;
         this._hideKillcam();
         this.ui.hideAll();
@@ -910,8 +914,17 @@ export class Game {
             }
             const isClient = this.network?.connected && !this.network?.isHost;
             if (!isClient && this.roundRestartTimer <= 0) {
-                if (this.scoreboard.isTimeUp() || this.scoreboard.isMaxRounds()) {
+                if (this.mode?.mutators?.overtime && Math.abs(this.scoreboard.redScore - this.scoreboard.blueScore) >= 2) {
                     this.endGame();
+                } else if (this.scoreboard.isTimeUp() || this.scoreboard.isMaxRounds()) {
+                    if (this.mode?.mutators?.overtime && this.scoreboard.redScore === this.scoreboard.blueScore && this._overtimeExtends < 2) {
+                        this._overtimeExtends++;
+                        this.scoreboard.maxRounds++;
+                        this.ui.showMessage('🔥 OVERTIME! First to lead by 2 wins!', 3000);
+                        this.startRound();
+                    } else {
+                        this.endGame();
+                    }
                 } else {
                     this.startRound();
                 }
@@ -1217,7 +1230,7 @@ export class Game {
         if (isPerfect) {
             this.ball.lastPerfectBy = this.player;
             this.ball.currentSpeed *= 1.3;
-            this.ball.velocity.multiplyScalar(1.3); // perfect = +30% hız
+            this.ball.velocity.multiplyScalar(1.3); // perfect = +30% hız (clamped next frame by ball.update)
             this.juice.hitStop(100);     // 100ms donma (daha vurucu impact)
             this.juice.shake(0.35);      // daha güçlü shake
             this.juice.sparks(this.ball.position.clone(), 0xffbb00, 16);

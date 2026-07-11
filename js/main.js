@@ -1256,7 +1256,7 @@ class App {
             // Tooltip: show weather + size on hover
             const mapCfg = Arena.MAPS[id];
             if (mapCfg) {
-                const weatherEmoji = { clear: '☀️', rain: '🌧️', storm: '⛈️', snow: '❄️' }[mapCfg.weather] || '☀️';
+                const weatherEmoji = { clear: '☀️', rain: '🌧️', storm: '⛈️', snow: '❄️', indoor: '🏟️' }[mapCfg.weather] || '☀️';
                 dot.title = `${weatherEmoji} ${mapCfg.weather} · ${mapCfg.size}`;
             }
             dotsContainer.appendChild(dot);
@@ -1286,7 +1286,7 @@ class App {
             nameEl.textContent = cleanName || config.name;
         }
 
-        const weatherMap = { clear: '☀️', rain: '🌧️', storm: '⛈️', snow: '❄️' };
+        const weatherMap = { clear: '☀️', rain: '🌧️', storm: '⛈️', snow: '❄️', indoor: '🏟️' };
         const weatherEl = document.getElementById('carousel-weather');
         if (weatherEl) weatherEl.textContent = weatherMap[config.weather] || '☀️';
 

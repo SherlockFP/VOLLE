@@ -54,9 +54,9 @@ export class UI {
         const { time, redScore, blueScore, ballSpeed } = data;
         const el = id => document.getElementById(id);
 
-        if (el('hud-timer')) el('hud-timer').textContent = time;
-        if (el('hud-red-score')) el('hud-red-score').textContent = redScore;
-        if (el('hud-blue-score')) el('hud-blue-score').textContent = blueScore;
+        if (el('hud-round-timer')) el('hud-round-timer').textContent = time;
+        if (el('hud-score-red')) el('hud-score-red').textContent = redScore;
+        if (el('hud-score-blue')) el('hud-score-blue').textContent = blueScore;
         if (el('hud-speed')) {
             const pct = Math.round((ballSpeed / 17) * 100);
             el('hud-speed').textContent = `🏐 ${pct}%`;
@@ -229,7 +229,7 @@ export class UI {
         // Detailed AAR stats table
         const playerStats = result.playerStats || [];
         const statsHTML = this._buildAARTable(playerStats, kills, deflects);
-        document.getElementById('pg-stats').innerHTML = statsHTML;
+        document.getElementById('postgame-stats').innerHTML = statsHTML;
         const pgLog = document.getElementById('pg-chat-log');
         if (pgLog) pgLog.innerHTML = '';
         const perc = Math.min(100, (xpGained / 1000) * 100);
@@ -253,14 +253,15 @@ export class UI {
     _buildAARTable(playerStats, totalKills, totalDeflects) {
         if (!playerStats.length) return `<span>💥 ${totalKills} kills</span><span>🏐 ${totalDeflects} deflects</span>`;
         // Team totals
-        let redTot = { score:0, deaths:0, assists:0, deflections:0, damageDealt:0, damageTaken:0 };
-        let blueTot = { score:0, deaths:0, assists:0, deflections:0, damageDealt:0, damageTaken:0 };
+        let redTot = { score:0, deaths:0, assists:0, deflections:0, rally:0, damageDealt:0, damageTaken:0 };
+        let blueTot = { score:0, deaths:0, assists:0, deflections:0, rally:0, damageDealt:0, damageTaken:0 };
         playerStats.forEach(p => {
             const t = p.team === 'blue' ? blueTot : redTot;
             t.score += p.score || 0;
             t.deaths += p.deaths || 0;
             t.assists += p.assists || 0;
             t.deflections += p.deflections || 0;
+            t.rally += p.hits || 0;
             t.damageDealt += p.damageDealt || 0;
             t.damageTaken += p.damageTaken || 0;
         });
@@ -275,10 +276,10 @@ export class UI {
                 <td class="pg-name">${this._esc(p.name)}${isMvp ? ' 👑' : ''}</td>
                 <td>${p.score || 0}</td>
                 <td>${p.deaths || 0}</td>
-                <td>${p.assists || 0}</td>
                 <td>${p.deflections || 0}</td>
+                <td>${p.hits || 0}</td>
+                <td>${p.assists || 0}</td>
                 <td>${p.damageDealt || 0}</td>
-                <td>${p.damageTaken || 0}</td>
                 <td>${kd}</td>
             </tr>`;
         });
@@ -289,17 +290,17 @@ export class UI {
                         <th>Player</th>
                         <th>Kills</th>
                         <th>Deaths</th>
-                        <th>Assists</th>
                         <th>Defl</th>
+                        <th>Rally</th>
+                        <th>Assists</th>
                         <th>Dmg</th>
-                        <th>Dmg↓</th>
                         <th>K/D</th>
                     </tr>
                 </thead>
                 <tbody>${rows}</tbody>
                 <tfoot>
-                    <tr class="pg-team-red"><td colspan="8">🔴 RED — K:${redTot.score} D:${redTot.deaths} A:${redTot.assists} Defl:${redTot.deflections} Dmg:${redTot.damageDealt}</td></tr>
-                    <tr class="pg-team-blue"><td colspan="8">🔵 BLUE — K:${blueTot.score} D:${blueTot.deaths} A:${blueTot.assists} Defl:${blueTot.deflections} Dmg:${blueTot.damageDealt}</td></tr>
+                    <tr class="pg-team-red"><td colspan="8">🔴 RED — K:${redTot.score} D:${redTot.deaths} Defl:${redTot.deflections} Rally:${redTot.rally} Dmg:${redTot.damageDealt}</td></tr>
+                    <tr class="pg-team-blue"><td colspan="8">🔵 BLUE — K:${blueTot.score} D:${blueTot.deaths} Defl:${blueTot.deflections} Rally:${blueTot.rally} Dmg:${blueTot.damageDealt}</td></tr>
                 </tfoot>
             </table>`;
     }

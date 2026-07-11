@@ -148,6 +148,20 @@ export const MAPS = {
         skyTop: 0x88ddff, skyBottom: 0xcceeff, fogColor: 0xcceeff,
         hasOcean: false, hasGlass: false, size: 'medium', weather: 'clear',
         isMinecraft: true, openSides: true
+    },
+    esport_arena: {
+        name: '🏟️ Esport Arena',
+        courtWidth: 60, courtLength: 40, wallHeight: 16, ceilingHeight: 22,
+        floorRed: 0xcc3333, floorBlue: 0x3355cc, wallColor: 0xcccccc,
+        skyTop: 0x88bbff, skyBottom: 0xddddee, fogColor: 0xccccdd,
+        hasOcean: false, hasGlass: true, isEsport: true, size: 'medium', weather: 'indoor', openSides: true
+    },
+    temple_sym: {
+        name: '🏛️ Temple',
+        courtWidth: 56, courtLength: 36, wallHeight: 16, ceilingHeight: 22,
+        floorRed: 0xc9a878, floorBlue: 0xa89060, wallColor: 0xe8d8b0,
+        skyTop: 0x6aa5ff, skyBottom: 0xffe8c8, fogColor: 0xffd8a8,
+        hasOcean: false, hasGlass: false, isTemple: true, size: 'medium', weather: 'clear'
     }
 };
 
@@ -197,7 +211,7 @@ export class Arena {
             this.buildSkybox();
             this.buildPortals();
             if (!this.bounds.maxY) this.bounds.maxY = this.ceilingHeight || 30;
-            if (this.config.weather && this.config.weather !== 'clear') {
+            if (this.config.weather && this.config.weather !== 'clear' && this.config.weather !== 'indoor') {
                 this.weather = new WeatherSystem(this.scene, this.bounds);
                 this.weather.setWeather(this.config.weather);
             }
@@ -228,6 +242,7 @@ export class Arena {
         if (this.config.isCrystal) this.buildCrystalProps();
         if (this.config.isMecha) this.buildMechaProps();
         if (this.config.isAtlantis) this.buildAtlantisProps();
+        if (this.config.isTemple) this.buildTempleProps();
         // Generic open-world env for open-sided maps without specific theming
         if (this.config.openSides && !this.config.isCloud && !this.config.isSpace &&
             !this.config.isNeon && !this.config.isVolcano && !this.config.isIce &&
@@ -237,7 +252,7 @@ export class Arena {
         }
         this.buildPortals();
         // Weather — init after scene is built if config has non-clear weather
-        if (this.config.weather && this.config.weather !== 'clear') {
+        if (this.config.weather && this.config.weather !== 'clear' && this.config.weather !== 'indoor') {
             this.weather = new WeatherSystem(this.scene, this.bounds);
             this.weather.setWeather(this.config.weather);
         }
@@ -890,6 +905,31 @@ export class Arena {
             cap.position.set(x, h + 0.25, z);
             this.add(cap);
         }
+    }
+
+    buildTempleProps() {
+        // 4 symmetric pillars at quadrant centers + collision
+        const colMat = this.renderer.createToonMaterial(0xbaa88a);
+        const capMat = this.renderer.createToonMaterial(0xd4c4a0);
+        const halfW = this.courtWidth / 2;
+        const halfL = this.courtLength / 2;
+        const positions = [
+            [-halfW * 0.4, -halfL * 0.4],
+            [halfW * 0.4, -halfL * 0.4],
+            [-halfW * 0.4, halfL * 0.4],
+            [halfW * 0.4, halfL * 0.4]
+        ];
+        positions.forEach(([x, z]) => {
+            const h = this.wallHeight * 0.7;
+            const col = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.9, h, 10), colMat);
+            col.position.set(x, h / 2, z);
+            col.castShadow = true;
+            this.add(col);
+            this.addCollidable(col, new THREE.Vector3(x, 0, z), 0.9);
+            const cap = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 0.7, 0.5, 10), capMat);
+            cap.position.set(x, h + 0.25, z);
+            this.add(cap);
+        });
     }
 
     buildLavaProps() {

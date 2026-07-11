@@ -59,6 +59,11 @@ export const GAME_MODES = {
         id: 'ffa', name: 'Free For All', emoji: '⚔️',
         desc: 'Herkes tek. File yok. Son kalan kazanır.',
         mutators: { ffa: true, noNet: true, noTeams: true }
+    },
+    competitive: {
+        id: 'competitive', name: 'Competitive', emoji: '🏆',
+        desc: 'First to 3 rounds, overtime if tied.',
+        mutators: { maxRounds: 5, overtime: true }
     }
 };
 
@@ -147,6 +152,8 @@ export function applyMode(game, modeId) {
     game._ffa = !!m.ffa;
     game._noNet = !!m.noNet;
     game._noTeams = !!m.noTeams;
+
+    if (m.maxRounds) game.scoreboard.setMaxRounds(m.maxRounds);
 
     game.mode = mode;
     return mode;

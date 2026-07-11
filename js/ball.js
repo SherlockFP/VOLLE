@@ -166,6 +166,9 @@ export class Ball {
             return false;
         }
 
+        // Clamp her frame, her state'te — runaway önleme
+        if (this.currentSpeed > this.maxSpeed) this.currentSpeed = this.maxSpeed;
+
         // Rainbow skin — HSL döngü
         if (this.skinConfig?.rainbow) {
             const t = performance.now() / 1000;
