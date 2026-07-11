@@ -2477,6 +2477,13 @@ export class Game {
             p.targetPos?.set(data.x, data.y, data.z);
         }
 
+        // ponytail: rate limit — max one attack per peer per 500ms
+        // Prevents speed compounding from duplicate messages (alt-tab packet pileup, race conditions)
+        const now = performance.now();
+        if (this._lastRemoteAttack && this._lastRemoteAttack[peerId] && now - this._lastRemoteAttack[peerId] < 500) return;
+        if (!this._lastRemoteAttack) this._lastRemoteAttack = {};
+        this._lastRemoteAttack[peerId] = now;
+
         // ponytail: cancel any pending lethal hit on this player — client attack wins
         if (this._pendingLethalHit) { clearTimeout(this._pendingLethalHit); this._pendingLethalHit = null; }
         if (!p.alive) {
