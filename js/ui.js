@@ -615,6 +615,17 @@ export class UI {
         }
     }
 
+    updateBallAffix(affix) {
+        const el = document.getElementById('ball-affix-indicator');
+        if (!el) return;
+        if (affix) {
+            el.classList.remove('hidden');
+            el.innerHTML = `<span class="affix-dot" style="background:#${affix.color.toString(16).padStart(6,'0')}"></span><span class="affix-name">${affix.name}</span>`;
+        } else {
+            el.classList.add('hidden');
+        }
+    }
+
     updateMetaStats(store) {
         const c = document.getElementById('meta-coins');
         const l = document.getElementById('meta-level');

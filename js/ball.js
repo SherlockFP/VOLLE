@@ -27,7 +27,7 @@ export class Ball {
         this.speedMultiplier = 1.08;            // her deflect %6 ramp
         this.maxSpeed = 80;                     // ponytail: real cap — 999 was no cap, caused runaway
         this.deflections = 0;
-        this.radius = 0.45;
+        this.radius = 0.47;
         this.attackRange = 2.0;
         this.catchRange = 2.0;
         this.hitRange = 0.7;
@@ -139,6 +139,17 @@ export class Ball {
         this.clearTrail();
         this.updateColor();
         this._lerping = false;
+        // Reset affix state
+        this.affix = null;
+        this._affixTrailColor = null;
+        this._affixGlowColor = null;
+        this._affixOnHit = null;
+        this._affixWobble = null;
+        this._affixNoGravity = false;
+        this._affixFloorBounce = 1;
+        this._affixGhost = false;
+        this._affixReturn = false;
+        this._affixReturnTimer = 0;
     }
 
     deactivate() {
@@ -150,6 +161,16 @@ export class Ball {
         this._homingAge = 0;
         this.clearTrail();
         this._lerping = false;
+        this.affix = null;
+        this._affixTrailColor = null;
+        this._affixGlowColor = null;
+        this._affixOnHit = null;
+        this._affixWobble = null;
+        this._affixNoGravity = false;
+        this._affixFloorBounce = 1;
+        this._affixGhost = false;
+        this._affixReturn = false;
+        this._affixReturnTimer = 0;
     }
 
     update(dt) {
@@ -211,7 +232,7 @@ export class Ball {
             }
             return false;
         } else if (this.state === 'falling') {
-            this.velocity.y += this.gravity * dt;
+            if (!this._affixNoGravity) this.velocity.y += this.gravity * dt;
             this.position.add(this.velocity.clone().multiplyScalar(dt));
             if (this.position.y < 4) this.state = 'homing';
         } else if (this.state === 'homing') {
@@ -242,7 +263,7 @@ export class Ball {
                     this.velocity.copy(newDir.multiplyScalar(this.currentSpeed));
                 }
             }
-            if (dist >= 2) this.velocity.y += this.gravity * 0.3 * dt;
+            if (dist >= 2 && !this._affixNoGravity) this.velocity.y += this.gravity * 0.3 * dt;
             this._clampSpeed();
             this.position.add(this.velocity.clone().multiplyScalar(dt));
         } else if (this.state === 'rally') {
@@ -272,7 +293,7 @@ export class Ball {
                 }
             }
             // Close range (<2): skip gravity to avoid orbiting
-            if (dist >= 2) {
+            if (dist >= 2 && !this._affixNoGravity) {
                 this.velocity.y += this.gravity * 0.3 * dt;
             }
             this._clampSpeed();
@@ -285,6 +306,14 @@ export class Ball {
             }
         }
 
+        // Ball affix wobble — sine-wave displacement on XZ
+        if (this._affixWobble && this.active) {
+            const t = performance.now() / 1000;
+            const w = this._affixWobble;
+            this.position.x += Math.sin(t * w.freq) * w.amp * dt;
+            this.position.z += Math.cos(t * w.freq * 0.7) * w.amp * dt;
+        }
+
         // Source Engine-style curve from flick spin:
         // - Horizontal spin bends the ball mid-flight (like a curveball)
         // - Magnus effect lifts/drops ball based on spin direction
@@ -292,16 +321,16 @@ export class Ball {
         if (Math.abs(this.spin) > 0.001) {
             const speed = this.velocity.length();
             const vx = this.velocity.x, vz = this.velocity.z;
-            const s = this.spin * dt * (1 + speed * 0.01); // faster ball = sharper curve
+            const s = this.spin * dt * (1 + speed * 0.015); // faster ball = sharper curve
             this.velocity.x = vx * Math.cos(s) - vz * Math.sin(s);
             this.velocity.z = vx * Math.sin(s) + vz * Math.cos(s);
 
             // Magnus vertical lift — spin × speed curves ball up/down
-            const magnus = this.spin * speed * 0.4 * dt;
+            const magnus = this.spin * speed * 0.6 * dt;
             this.velocity.y += magnus;
 
             // Spin decay — slower fade = longer curve
-            this.spin *= Math.exp(-0.8 * dt); // was -1.5, longer-lasting curve
+            this.spin *= Math.exp(-0.5 * dt);
         }
 
         // Wall collision removed — ball goes outside map. Players chase it anywhere.
@@ -344,7 +373,7 @@ export class Ball {
         if (this.position.y - this.radius < 0) {
             this.position.y = this.radius;
             const speed = this.velocity.length();
-            const floorBounce = 0.62 + Math.min(0.33, speed * 0.014);
+            const floorBounce = (0.62 + Math.min(0.33, speed * 0.014)) * this._affixFloorBounce;
             this.velocity.y = Math.max(4.5, Math.abs(this.velocity.y) * floorBounce);
             bounced = true;
             bounceSpeed = Math.max(bounceSpeed, speed * floorBounce);
@@ -403,6 +432,16 @@ export class Ball {
             bounced = true; // ponytail: ses efekti için
         }
 
+        // Return affix: timer expired → reverse direction
+        if (this._affixReturnTimer > 0) {
+            this._affixReturnTimer -= dt;
+            if (this._affixReturnTimer <= 0) {
+                this.velocity.multiplyScalar(-1.2);
+                this.currentSpeed = this.velocity.length();
+                this._affixReturnTimer = 0;
+            }
+        }
+
         // Perfect-catch window tick — hedefe yaklaştığında açılır
         if (this.targetPlayer && this.state === 'rally') {
             const tPos = this._getTargetPos();
@@ -440,6 +479,9 @@ export class Ball {
         }
 
         // Glow — more dramatic at high speed + spin
+        if (this._affixGlowColor) {
+            this.glowMat.color.setHex(this._affixGlowColor);
+        }
         const srGlow = Math.min(4, this.currentSpeed / this.baseSpeed);
         const spinGlow = Math.min(0.15, Math.abs(this.spin) * 0.02);
         this.glowMat.opacity = Math.min(0.5, 0.06 + srGlow * 0.035 + spinGlow);
@@ -560,8 +602,13 @@ export class Ball {
         }
 
         this.currentSpeed = Math.min(speed, this.maxSpeed * 1.2 * deflectPower);
-        this.lastShot = shot; // ponytail fix: game.handleHit reads this for spike dmg bonus
+        this.lastShot = shot;
         this.updateColor();
+        // Return affix: ball reverses after 0.6s, single use
+        if (this._affixReturn) {
+            this._affixReturnTimer = 0.6;
+            this._affixReturn = false; // single use
+        }
         return { shot, speed: this.currentSpeed };
     }
 
@@ -671,7 +718,7 @@ export class Ball {
         const spinFactor = Math.min(1, Math.abs(this.spin) * 0.3);
         const r = Math.min(0.15, 0.04 * (1 + sr * 0.4 + spinFactor * 0.3));
         const geo = new THREE.SphereGeometry(r, 4, 4);
-        const trailColor = this.skinConfig?.trail || 0xff2222;
+        const trailColor = this._affixTrailColor ?? (this.skinConfig?.trail || 0xff2222);
         const mat = new THREE.MeshBasicMaterial({
             color: trailColor,
             transparent: true, opacity: 0.6
@@ -744,6 +791,9 @@ export class Ball {
         }
 
         // Glow
+        if (this._affixGlowColor) {
+            this.glowMat.color.setHex(this._affixGlowColor);
+        }
         const srGlow = Math.min(4, this.currentSpeed / this.baseSpeed);
         const spinGlow = Math.min(0.15, Math.abs(this.spin) * 0.02);
         this.glowMat.opacity = Math.min(0.5, 0.06 + srGlow * 0.035 + spinGlow);

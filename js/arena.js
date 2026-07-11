@@ -7,28 +7,28 @@ import { WeatherSystem } from './weather.js';
 export const MAPS = {
     beach: {
         name: '🏖️ Beach Arena',
-        courtWidth: 96, courtLength: 108, wallHeight: 20, ceilingHeight: 28,
+        courtWidth: 115, courtLength: 130, wallHeight: 24, ceilingHeight: 34,
         floorRed: 0xf0b878, floorBlue: 0x7fd0e8, wallColor: 0xeaf2ff,
         skyTop: 0x3aa5ff, skyBottom: 0xcfeeff, fogColor: 0xcfeeff,
         hasOcean: true, hasGlass: true, size: 'medium', weather: 'clear', openSides: true
     },
     beach_open: {
         name: '🏐 Beach Volleyball',
-        courtWidth: 68, courtLength: 70, wallHeight: 8, ceilingHeight: 0,
+        courtWidth: 82, courtLength: 84, wallHeight: 10, ceilingHeight: 0,
         floorRed: 0xf0d090, floorBlue: 0xd0b878, wallColor: 0xf0d090,
         skyTop: 0x3aa5ff, skyBottom: 0xcfeeff, fogColor: 0xcfeeff,
         hasOcean: true, hasGlass: false, openAir: true, isBeachOpen: true, size: 'small', weather: 'clear', noSides: true
     },
     industrial: {
         name: '🏭 Factory',
-        courtWidth: 92, courtLength: 101, wallHeight: 18, ceilingHeight: 25,
+        courtWidth: 110, courtLength: 121, wallHeight: 22, ceilingHeight: 30,
         floorRed: 0xd85c5c, floorBlue: 0x5c7fe0, wallColor: 0xaac0d8,
         skyTop: 0x6a90c8, skyBottom: 0xe6eefc, fogColor: 0xdde6f5,
         hasOcean: false, hasGlass: true, size: 'medium', weather: 'clear'
     },
     space: {
         name: '🚀 Space Station',
-        courtWidth: 104, courtLength: 113, wallHeight: 22, ceilingHeight: 32,
+        courtWidth: 125, courtLength: 136, wallHeight: 26, ceilingHeight: 38,
         floorRed: 0xd04080, floorBlue: 0x4080d0, wallColor: 0x8090b0,
         skyTop: 0x1a2050, skyBottom: 0x3a4080, fogColor: 0x2a3060,
         hasOcean: false, hasGlass: true, isSpace: true, size: 'large',
@@ -36,7 +36,7 @@ export const MAPS = {
     },
     neon: {
         name: '🌆 Neon City',
-        courtWidth: 96, courtLength: 108, wallHeight: 20, ceilingHeight: 28,
+        courtWidth: 115, courtLength: 130, wallHeight: 24, ceilingHeight: 34,
         floorRed: 0xff3d81, floorBlue: 0x2de2e6, wallColor: 0x4a3a7a,
         skyTop: 0x4a2a8a, skyBottom: 0x8a5acc, fogColor: 0x5a3a9a,
         hasOcean: false, hasGlass: true, isNeon: true, size: 'medium',
@@ -44,14 +44,14 @@ export const MAPS = {
     },
     dojo: {
         name: '🥋 Dojo',
-        courtWidth: 98, courtLength: 110, wallHeight: 16, ceilingHeight: 22,
+        courtWidth: 118, courtLength: 132, wallHeight: 19, ceilingHeight: 26,
         floorRed: 0xc9925a, floorBlue: 0xa8784a, wallColor: 0xd4a86a,
         skyTop: 0xff9a52, skyBottom: 0xffd8a8, fogColor: 0xffd8a8,
         hasOcean: false, hasGlass: false, isDojo: true, size: 'medium', weather: 'clear'
     },
     colosseum: {
         name: '🏛️ Colosseum',
-        courtWidth: 120, courtLength: 130, wallHeight: 24, ceilingHeight: 0,
+        courtWidth: 144, courtLength: 156, wallHeight: 29, ceilingHeight: 0,
         floorRed: 0xc9a878, floorBlue: 0xa89060, wallColor: 0xe8d8b0,
         skyTop: 0x6aa5ff, skyBottom: 0xffe8c8, fogColor: 0xffd8a8,
         hasOcean: false, hasGlass: false, isColosseum: true, size: 'large',
@@ -59,14 +59,14 @@ export const MAPS = {
     },
     volcano: {
         name: '🌋 Volcano',
-        courtWidth: 104, courtLength: 115, wallHeight: 22, ceilingHeight: 30,
+        courtWidth: 125, courtLength: 138, wallHeight: 26, ceilingHeight: 36,
         floorRed: 0x6a2020, floorBlue: 0x4040a0, wallColor: 0x4a2020,
         skyTop: 0xff5a22, skyBottom: 0xffa844, fogColor: 0xff8844,
         hasOcean: false, hasGlass: true, isVolcano: true, size: 'large', weather: 'clear', openSides: true
     },
     ice: {
         name: '❄️ Ice Palace',
-        courtWidth: 98, courtLength: 108, wallHeight: 20, ceilingHeight: 28,
+        courtWidth: 118, courtLength: 130, wallHeight: 24, ceilingHeight: 34,
         floorRed: 0xa8d8f0, floorBlue: 0xd8f0ff, wallColor: 0xc8e8ff,
         skyTop: 0x88c8ff, skyBottom: 0xe0f4ff, fogColor: 0xe0f4ff,
         hasOcean: false, hasGlass: true, isIce: true, size: 'medium',
@@ -74,7 +74,7 @@ export const MAPS = {
     },
     cloud: {
         name: '☁️ Cloud Realm',
-        courtWidth: 108, courtLength: 120, wallHeight: 18, ceilingHeight: 26,
+        courtWidth: 130, courtLength: 144, wallHeight: 22, ceilingHeight: 31,
         floorRed: 0xffd8e8, floorBlue: 0xd8e8ff, wallColor: 0xffffff,
         skyTop: 0xaaddff, skyBottom: 0xffeef8, fogColor: 0xffeef8,
         hasOcean: false, hasGlass: true, isCloud: true, size: 'large',
@@ -82,14 +82,14 @@ export const MAPS = {
     },
     jungle: {
         name: '🌴 Jungle',
-        courtWidth: 104, courtLength: 113, wallHeight: 22, ceilingHeight: 30,
+        courtWidth: 125, courtLength: 136, wallHeight: 26, ceilingHeight: 36,
         floorRed: 0x6a8a3a, floorBlue: 0x3a6a5a, wallColor: 0x8a7a5a,
         skyTop: 0x88cc66, skyBottom: 0xeef8c8, fogColor: 0xddeec0,
         hasOcean: false, hasGlass: false, isJungle: true, size: 'medium', weather: 'rain'
     },
     cyber: {
         name: '🤖 Cyber Grid',
-        courtWidth: 92, courtLength: 103, wallHeight: 20, ceilingHeight: 28,
+        courtWidth: 110, courtLength: 124, wallHeight: 24, ceilingHeight: 34,
         floorRed: 0xff2266, floorBlue: 0x22ddff, wallColor: 0x334455,
         skyTop: 0x00ddff, skyBottom: 0x66ffee, fogColor: 0x44ccdd,
         hasOcean: false, hasGlass: true, isCyber: true, size: 'medium',
@@ -97,21 +97,21 @@ export const MAPS = {
     },
     canyon: {
         name: '🏜️ Canyon',
-        courtWidth: 148, courtLength: 70, wallHeight: 28, ceilingHeight: 35,
+        courtWidth: 178, courtLength: 84, wallHeight: 34, ceilingHeight: 42,
         floorRed: 0xd4a06a, floorBlue: 0xb8885a, wallColor: 0xc89868,
         skyTop: 0x3a88cc, skyBottom: 0xeec888, fogColor: 0xeec888,
         hasOcean: false, hasGlass: false, isCanyon: true, size: 'xl', weather: 'clear'
     },
     pillar: {
         name: '🏛️ Pillar Hall',
-        courtWidth: 112, courtLength: 120, wallHeight: 20, ceilingHeight: 28,
+        courtWidth: 134, courtLength: 144, wallHeight: 24, ceilingHeight: 34,
         floorRed: 0x887a6a, floorBlue: 0x6a7a8a, wallColor: 0x9a8a7a,
         skyTop: 0x6a80a0, skyBottom: 0xd0c8b8, fogColor: 0xc8c0b0,
         hasOcean: false, hasGlass: true, isPillar: true, size: 'large', weather: 'clear'
     },
     lava: {
         name: '🌋 Lava Pit',
-        courtWidth: 100, courtLength: 113, wallHeight: 20, ceilingHeight: 0,
+        courtWidth: 120, courtLength: 136, wallHeight: 24, ceilingHeight: 0,
         floorRed: 0xff3300, floorBlue: 0xff5500, wallColor: 0x4a2020,
         skyTop: 0xff4422, skyBottom: 0x662200, fogColor: 0x442200,
         hasOcean: false, hasGlass: false, isLava: true, size: 'medium',
@@ -119,7 +119,7 @@ export const MAPS = {
     },
     crystal: {
         name: '💎 Crystal Cave',
-        courtWidth: 96, courtLength: 108, wallHeight: 18, ceilingHeight: 24,
+        courtWidth: 115, courtLength: 130, wallHeight: 22, ceilingHeight: 29,
         floorRed: 0x88aacc, floorBlue: 0x6688bb, wallColor: 0x7799bb,
         skyTop: 0x4488aa, skyBottom: 0x88ccee, fogColor: 0x88ccee,
         hasOcean: false, hasGlass: false, isCrystal: true, size: 'medium',
@@ -127,7 +127,7 @@ export const MAPS = {
     },
     mecha: {
         name: '🤖 Mecha Hangar',
-        courtWidth: 130, courtLength: 132, wallHeight: 26, ceilingHeight: 34,
+        courtWidth: 156, courtLength: 158, wallHeight: 31, ceilingHeight: 41,
         floorRed: 0x556677, floorBlue: 0x445566, wallColor: 0x667788,
         skyTop: 0x334455, skyBottom: 0x8899aa, fogColor: 0x778899,
         hasOcean: false, hasGlass: true, isMecha: true, size: 'xxl',
@@ -135,7 +135,7 @@ export const MAPS = {
     },
     atlantis: {
         name: '🌊 Atlantis',
-        courtWidth: 104, courtLength: 116, wallHeight: 22, ceilingHeight: 30,
+        courtWidth: 125, courtLength: 139, wallHeight: 26, ceilingHeight: 36,
         floorRed: 0x14758f, floorBlue: 0x125f91, wallColor: 0x59c7d4,
         skyTop: 0x003c5a, skyBottom: 0x1490a8, fogColor: 0x0b6680,
         hasOcean: false, hasGlass: true, isAtlantis: true, size: 'large',
@@ -143,7 +143,7 @@ export const MAPS = {
     },
     minecraft: {
         name: '⛏️ Minecraft',
-        courtWidth: 92, courtLength: 103, wallHeight: 16, ceilingHeight: 30,
+        courtWidth: 110, courtLength: 124, wallHeight: 19, ceilingHeight: 36,
         floorRed: 0x7cb342, floorBlue: 0x5a8a2a, wallColor: 0x8a6a3a,
         skyTop: 0x88ddff, skyBottom: 0xcceeff, fogColor: 0xcceeff,
         hasOcean: false, hasGlass: false, size: 'medium', weather: 'clear',
@@ -151,14 +151,14 @@ export const MAPS = {
     },
     esport_arena: {
         name: '🏟️ Esport Arena',
-        courtWidth: 60, courtLength: 40, wallHeight: 16, ceilingHeight: 22,
+        courtWidth: 72, courtLength: 48, wallHeight: 19, ceilingHeight: 26,
         floorRed: 0xcc3333, floorBlue: 0x3355cc, wallColor: 0xcccccc,
         skyTop: 0x88bbff, skyBottom: 0xddddee, fogColor: 0xccccdd,
         hasOcean: false, hasGlass: true, isEsport: true, size: 'medium', weather: 'indoor', openSides: true
     },
     temple_sym: {
         name: '🏛️ Temple',
-        courtWidth: 56, courtLength: 36, wallHeight: 16, ceilingHeight: 22,
+        courtWidth: 67, courtLength: 43, wallHeight: 19, ceilingHeight: 26,
         floorRed: 0xc9a878, floorBlue: 0xa89060, wallColor: 0xe8d8b0,
         skyTop: 0x6aa5ff, skyBottom: 0xffe8c8, fogColor: 0xffd8a8,
         hasOcean: false, hasGlass: false, isTemple: true, size: 'medium', weather: 'clear'
@@ -251,6 +251,7 @@ export class Arena {
             this.buildOpenEnv();
         }
         this.buildPortals();
+        this._buildDecorations();
         // Weather — init after scene is built if config has non-clear weather
         if (this.config.weather && this.config.weather !== 'clear' && this.config.weather !== 'indoor') {
             this.weather = new WeatherSystem(this.scene, this.bounds);
@@ -1983,5 +1984,245 @@ export class Arena {
             maxZ: this.courtLength / 2
         };
         this.build();
+    }
+
+    // ponytail: themed decorative meshes — extra visual flair per map.
+    _buildDecorations() {
+        const halfW = this.courtWidth * 0.4;
+        const halfL = this.courtLength * 0.4;
+        const c = this.config;
+
+        if (c.isDojo) {
+            // 4 wooden pillar cylinders at court corners
+            const mat = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+            const geo = new THREE.CylinderGeometry(0.3, 0.3, 4, 8);
+            [[-halfW, -halfL], [halfW, -halfL], [-halfW, halfL], [halfW, halfL]].forEach(([x, z]) => {
+                const m = new THREE.Mesh(geo, mat);
+                m.position.set(x, 2, z);
+                this.add(m);
+            });
+        }
+        if (c.isVolcano) {
+            // 6 lava pool circles scattered around floor
+            const mat = new THREE.MeshBasicMaterial({ color: 0xff4400, transparent: true, opacity: 0.5, side: THREE.DoubleSide });
+            const geo = new THREE.CircleGeometry(1.2, 8);
+            geo.rotateX(-Math.PI / 2);
+            for (let i = 0; i < 6; i++) {
+                const m = new THREE.Mesh(geo, mat);
+                m.position.set((Math.random() - 0.5) * this.courtWidth * 0.7, 0.02, (Math.random() - 0.5) * this.courtLength * 0.7);
+                m.scale.set(0.5 + Math.random() * 0.8, 1, 0.5 + Math.random() * 0.8);
+                this.add(m);
+            }
+        }
+        if (c.isIce) {
+            // 8 ice crystal spikes near walls
+            const mat = new THREE.MeshLambertMaterial({ color: 0xaaddff });
+            for (let i = 0; i < 8; i++) {
+                const h = 1 + Math.random() * 2;
+                const geo = new THREE.ConeGeometry(0.2 + Math.random() * 0.15, h, 5);
+                const m = new THREE.Mesh(geo, mat);
+                const edge = i % 4;
+                let x, z;
+                if (edge === 0) { x = -halfW + 1; z = (Math.random() - 0.5) * halfL * 2; }
+                else if (edge === 1) { x = halfW - 1; z = (Math.random() - 0.5) * halfL * 2; }
+                else if (edge === 2) { z = -halfL + 1; x = (Math.random() - 0.5) * halfW * 2; }
+                else { z = halfL - 1; x = (Math.random() - 0.5) * halfW * 2; }
+                m.position.set(x, h / 2, z);
+                this.add(m);
+            }
+        }
+        if (c.isJungle) {
+            // 6 leafy sphere bushes at floor level
+            const mat = new THREE.MeshLambertMaterial({ color: 0x2d8a2d });
+            for (let i = 0; i < 6; i++) {
+                const r = 0.5 + Math.random() * 0.5;
+                const geo = new THREE.SphereGeometry(r, 7, 7);
+                const m = new THREE.Mesh(geo, mat);
+                m.position.set((Math.random() - 0.5) * this.courtWidth * 0.6, r * 0.5, (Math.random() - 0.5) * this.courtLength * 0.6);
+                this.add(m);
+            }
+        }
+        if (c.isColosseum) {
+            // 4 arch-shaped torus segments at cardinal directions
+            const mat = new THREE.MeshLambertMaterial({ color: 0xc9a878 });
+            const geo = new THREE.TorusGeometry(1.8, 0.25, 8, 16, Math.PI);
+            [-halfW, halfW].forEach(x => {
+                const m = new THREE.Mesh(geo, mat);
+                m.position.set(x, 3, 0);
+                m.rotation.y = Math.PI / 2;
+                this.add(m);
+            });
+            [-halfL, halfL].forEach(z => {
+                const m = new THREE.Mesh(geo, mat);
+                m.position.set(0, 3, z);
+                this.add(m);
+            });
+        }
+        if (c.isCrystal) {
+            // 10 crystal shards pointing up
+            const mat = new THREE.MeshLambertMaterial({ color: 0x88ccff });
+            for (let i = 0; i < 10; i++) {
+                const h = 0.8 + Math.random() * 2.5;
+                const geo = new THREE.ConeGeometry(0.1 + Math.random() * 0.25, h, 4);
+                const m = new THREE.Mesh(geo, mat);
+                m.position.set((Math.random() - 0.5) * this.courtWidth * 0.6, h / 2, (Math.random() - 0.5) * this.courtLength * 0.6);
+                this.add(m);
+            }
+        }
+        if (c.isCyber) {
+            // 4 floating hologram rings at mid-height
+            const mat = new THREE.MeshBasicMaterial({ color: 0x22ddff, transparent: true, opacity: 0.4 });
+            const geo = new THREE.TorusGeometry(1.5, 0.06, 8, 24);
+            for (let i = 0; i < 4; i++) {
+                const m = new THREE.Mesh(geo, mat);
+                m.position.set(
+                    (i < 2 ? -1 : 1) * halfW * 0.5,
+                    4 + i * 1.5,
+                    (i % 2 === 0 ? -1 : 1) * halfL * 0.5
+                );
+                m.rotation.x = Math.PI / 3;
+                this.add(m);
+            }
+        }
+        if (c.isCloud) {
+            // 8 fluffy sphere clusters above floor
+            const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.7 });
+            for (let i = 0; i < 8; i++) {
+                const cluster = new THREE.Group();
+                for (let j = 0; j < 3; j++) {
+                    const r = 0.4 + Math.random() * 0.4;
+                    const s = new THREE.Mesh(new THREE.SphereGeometry(r, 6, 6), mat);
+                    s.position.set((Math.random() - 0.5) * 0.8, (Math.random() - 0.5) * 0.3, (Math.random() - 0.5) * 0.8);
+                    cluster.add(s);
+                }
+                cluster.position.set(
+                    (Math.random() - 0.5) * this.courtWidth * 0.6,
+                    0.3 + Math.random() * 0.5,
+                    (Math.random() - 0.5) * this.courtLength * 0.6
+                );
+                this.add(cluster);
+            }
+        }
+        if (c.isNeon) {
+            // 6 neon tube lines along ceiling
+            const colors = [0xff3d81, 0x2de2e6, 0xf5d300, 0xa855f7, 0xff6644, 0x44ff88];
+            for (let i = 0; i < 6; i++) {
+                const mat = new THREE.MeshBasicMaterial({ color: colors[i % colors.length] });
+                const geo = new THREE.CylinderGeometry(0.04, 0.04, 4, 4);
+                const m = new THREE.Mesh(geo, mat);
+                const ceilY = c.ceilingHeight > 0 ? c.ceilingHeight - 0.5 : 20;
+                m.position.set(
+                    (Math.random() - 0.5) * this.courtWidth * 0.7,
+                    ceilY,
+                    (Math.random() - 0.5) * this.courtLength * 0.7
+                );
+                m.rotation.z = Math.PI / 2;
+                this.add(m);
+            }
+        }
+        if (c.isEsport) {
+            // 4 spot light cones hanging from ceiling
+            const mat = new THREE.MeshLambertMaterial({ color: 0x333333 });
+            const geo = new THREE.ConeGeometry(0.8, 1.5, 8);
+            for (let i = 0; i < 4; i++) {
+                const m = new THREE.Mesh(geo, mat);
+                const ceilY = c.ceilingHeight > 0 ? c.ceilingHeight - 0.5 : 20;
+                m.position.set(
+                    (i < 2 ? -1 : 1) * halfW * 0.5,
+                    ceilY - 0.75,
+                    (i % 2 === 0 ? -1 : 1) * halfL * 0.5
+                );
+                m.rotation.x = Math.PI;
+                this.add(m);
+            }
+        }
+        if (c.isTemple) {
+            // 4 guardian statue pillars at corners
+            const mat = new THREE.MeshLambertMaterial({ color: 0x8a7a5a });
+            const geo = new THREE.BoxGeometry(1.2, 5, 1.2);
+            [[-halfW, -halfL], [halfW, -halfL], [-halfW, halfL], [halfW, halfL]].forEach(([x, z]) => {
+                const m = new THREE.Mesh(geo, mat);
+                m.position.set(x, 2.5, z);
+                this.add(m);
+            });
+        }
+        if (c.isMecha) {
+            // 6 machinery cube details on walls
+            const mat = new THREE.MeshLambertMaterial({ color: 0x778899 });
+            const geo = new THREE.BoxGeometry(0.6, 0.6, 0.6);
+            for (let i = 0; i < 6; i++) {
+                const m = new THREE.Mesh(geo, mat);
+                const edge = i % 4;
+                let x, z;
+                if (edge === 0) { x = -halfW; z = (Math.random() - 0.5) * halfL * 2; }
+                else if (edge === 1) { x = halfW; z = (Math.random() - 0.5) * halfL * 2; }
+                else if (edge === 2) { z = -halfL; x = (Math.random() - 0.5) * halfW * 2; }
+                else { z = halfL; x = (Math.random() - 0.5) * halfW * 2; }
+                m.position.set(x, 2 + Math.random() * 4, z);
+                this.add(m);
+            }
+        }
+        if (c.isAtlantis) {
+            // 8 bubble spheres scattered at mid-height
+            const mat = new THREE.MeshBasicMaterial({ color: 0xbffbff, transparent: true, opacity: 0.3 });
+            for (let i = 0; i < 8; i++) {
+                const r = 0.2 + Math.random() * 0.3;
+                const geo = new THREE.SphereGeometry(r, 8, 8);
+                const m = new THREE.Mesh(geo, mat);
+                m.position.set(
+                    (Math.random() - 0.5) * this.courtWidth * 0.6,
+                    3 + Math.random() * 5,
+                    (Math.random() - 0.5) * this.courtLength * 0.6
+                );
+                this.add(m);
+            }
+        }
+        if (c.isSpace) {
+            // 4 satellite dish shapes at corners
+            const stemMat = new THREE.MeshLambertMaterial({ color: 0x888888 });
+            const dishMat = new THREE.MeshLambertMaterial({ color: 0xcccccc });
+            const stemGeo = new THREE.CylinderGeometry(0.08, 0.08, 1.2, 6);
+            const dishGeo = new THREE.ConeGeometry(0.8, 0.5, 8);
+            [[-halfW, -halfL], [halfW, -halfL], [-halfW, halfL], [halfW, halfL]].forEach(([x, z]) => {
+                const stem = new THREE.Mesh(stemGeo, stemMat);
+                stem.position.set(x, 1.6, z);
+                this.add(stem);
+                const dish = new THREE.Mesh(dishGeo, dishMat);
+                dish.position.set(x, 2.2, z);
+                dish.rotation.x = Math.PI;
+                this.add(dish);
+            });
+        }
+        if (c.isPillar) {
+            // 6 tall decorative columns
+            const mat = new THREE.MeshLambertMaterial({ color: 0x9a8a7a });
+            for (let i = 0; i < 6; i++) {
+                const h = 3 + Math.random() * 3;
+                const geo = new THREE.CylinderGeometry(0.25, 0.3, h, 8);
+                const m = new THREE.Mesh(geo, mat);
+                m.position.set(
+                    (Math.random() - 0.5) * this.courtWidth * 0.6,
+                    h / 2,
+                    (Math.random() - 0.5) * this.courtLength * 0.6
+                );
+                this.add(m);
+            }
+        }
+        if (c.isMinecraft) {
+            // 4 blocky torch structures
+            const stoneMat = new THREE.MeshLambertMaterial({ color: 0x888888 });
+            const torchMat = new THREE.MeshBasicMaterial({ color: 0xffaa33 });
+            [[-halfW, -halfL], [halfW, -halfL], [-halfW, halfL], [halfW, halfL]].forEach(([x, z]) => {
+                const base = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), stoneMat);
+                base.position.set(x, 0.2, z);
+                this.add(base);
+                const post = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.6, 0.15), stoneMat);
+                post.position.set(x, 0.7, z);
+                this.add(post);
+                const top = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.2, 0.3), torchMat);
+                top.position.set(x, 1.1, z);
+                this.add(top);
+            });
+        }
     }
 }

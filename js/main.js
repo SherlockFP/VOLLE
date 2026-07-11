@@ -1769,7 +1769,6 @@ class App {
                     clientTime: performance.now()
                 });
                 this._p2pAttackBurst = 5;
-                this.audio?.playSfx?.('tf2_hit', 0.25);
                 this.audio?.playWhoosh?.(this.game.ball.getSpeed());
                 this.game.juice?.sparks?.(p.position.clone().add(new THREE.Vector3(0, 1, 0)), 0x88ddff, 4);
             }
@@ -1801,8 +1800,10 @@ class App {
         if (!this.network?.isHost) return;
         // BallState her tick'te (20fps)
         if (this.game.ball.active || this.game.ball.state !== 'idle') {
+            this._ballSeq = (this._ballSeq || 0) + 1;
             this.network.broadcast({
                 type: 'ballState',
+                seq: this._ballSeq,
                 x: this.game.ball.position.x, y: this.game.ball.position.y, z: this.game.ball.position.z,
                 vx: this.game.ball.velocity.x, vy: this.game.ball.velocity.y, vz: this.game.ball.velocity.z,
                 speed: this.game.ball.currentSpeed, active: this.game.ball.active,

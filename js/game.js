@@ -106,6 +106,7 @@ export class Game {
         this._mapVoteTimeout = 20;     // seconds
         this._mapVoteElapsed = 0;
         this.affixes = new AffixManager(this.arena, this.renderer.scene);
+        this.currentBallAffix = null;
 
         // Power-up pickups — spawn on map, temporary buffs
         this.powerUps = [];
@@ -446,14 +447,24 @@ export class Game {
         this._cancelCountdown = () => { cancelled = true; this._preGameActive = false; this.ui.hideMessage?.(); };
     }
 
+    _applyBallAffix() {
+        this.currentBallAffix = this.affixes?.getBallAffix?.() || null;
+        if (this.currentBallAffix && this.ball) {
+            this.currentBallAffix.apply(this.ball);
+            this.ball.affix = this.currentBallAffix;
+        } else {
+            this.ball.affix = null;
+        }
+    }
+
     startRound() {
         this.clearBlackHoles();
         this._hideKillcam();
         this.setState(STATES.PLAYING);
         this.scoreboard.newRound();
         if (this.affixes) this.affixes.startRound();
-        this._clearAllPowerUps();
         this.ball.spawn();
+        this._applyBallAffix();
         this.lastDeflector = null;
         this.lastDeflectorTeam = null;
         this._deflectHistory = []; // son 2 deflector (assist için)
@@ -1098,7 +1109,8 @@ export class Game {
         // Ball can hit anywhere: head, chest, abdomen, legs.
         // Aimed shots fly straight, so check EVERY enemy of the thrower's team in the
         // ball's path — you damage whoever you actually hit, not just an assigned target.
-        if (this.ball.active) {
+        // Ghost affix: skip player collision entirely.
+        if (this.ball.active && !this.ball._affixGhost) {
             const ballPos = this.ball.position;
             const throwerTeam = this.lastDeflectorTeam;
             // Candidates: enemies of the thrower (or just the assigned target as fallback).
@@ -1134,6 +1146,7 @@ export class Game {
             round: this.scoreboard.roundNum,
             deflections: this.rallyCount
         });
+        this.ui.updateBallAffix(this.currentBallAffix);
         this.ui.updateVitals(this.player.hp, this.player.maxHp, this.player.shield,
             this.player.stamina, this.player.staminaMax, this.player.exhausted);
         this.ui.updateSkillCooldown?.(this.player.skillCooldowns, this.player.loadout.skill);
@@ -1336,6 +1349,10 @@ export class Game {
         // Client-side prediction: apply state locally, server may correct later
         const lethal = hitTarget.takeDamage(dmg);
         if (lethal) this.killStreak++;
+        // Ball affix on-hit effect (e.g. burn)
+        if (this.ball?._affixOnHit) {
+            this.ball._affixOnHit(hitTarget);
+        }
         if (attacker) attacker.recordDamageDealt(dmg);
         hitTarget.onMissDeflect();
         if (hitTarget.runeBonuses?.thorns && attacker && attacker !== hitTarget) {
@@ -1510,6 +1527,7 @@ export class Game {
             } else {
                 if (this.ball.active) return; // başka kaynaktan zaten aktifse atlama
                 this.ball.spawn();
+                this._applyBallAffix();
                 this.lastDeflector = null;
                 this.lastDeflectorTeam = null;
                 const targets = this.getAllTargets().filter(p => p.alive);
@@ -1912,6 +1930,7 @@ export class Game {
         const stats = this.scoreboard.getPlayerStats();
         this.clearBlackHoles();
         if (this.affixes) this.affixes.clearRound();
+        this.currentBallAffix = null;
         this.audio.playSfx('tf2_domination', 0.55);
         this.audio.playScore();
 
@@ -2773,6 +2792,9 @@ export class Game {
     }
     updateBallFromNetwork(data) {
         if (this.network?.isHost) return;
+        // ponytail: stale ballState guard — ignore packets older than last seen
+        if (data.seq && this._ballSeq && data.seq <= this._ballSeq) return;
+        if (data.seq) this._ballSeq = data.seq;
         // ponytail: client only renders — host runs authoritative physics
         this.ball._clientOnly = true;
         // ponytail: store target for exponential smoothing (same approach as remote players)
@@ -2850,6 +2872,8 @@ export class Game {
     // Client tarafında roundEnd sadece UI/IPC amaçlı: round bitti mesajını göster ve round timer'i başlat.
     applyRoundEnd(data) {
         if (this.network?.isHost) return;
+        this.ball.deactivate();
+        this._ballSeq = 0; // reset seq, ignore stale ballState
         this.setState(STATES.ROUND_END);
         this.roundRestartTimer = this.roundRestartDelay;
         if (data?.winner === 'red') this.ui.showMessage?.('🔴 RED TEAM WINS THE ROUND!', 2000);
@@ -2893,8 +2917,6 @@ export class Game {
         this.lastDeflector = p;
         this.lastDeflectorTeam = p.team;
         this.rallyCount = Math.max(this.rallyCount, data.rally ?? this.rallyCount);
-        // Attack sesi — uzaktan gelen top vuruşu
-        this.audio?.playSfx?.('tf2_hit', 0.15);
         if (data.shot && this.audio?.playDeflect) {
             this.audio.playDeflect(data.shot);
         }

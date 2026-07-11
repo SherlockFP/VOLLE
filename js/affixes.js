@@ -10,11 +10,85 @@ const DAMAGE_PER_TICK = 4;
 const DAMAGE_INTERVAL = 1; // seconds between damage ticks per player per zone
 
 export class AffixManager {
+    static BALL_AFFIXES = [
+        {
+            id: 'fire',
+            name: '🔥 Fireball',
+            color: 0xff4400,
+            desc: 'Burns hit player for 5s',
+            apply(ball) {
+                ball._affixTrailColor = 0xff4400;
+                ball._affixGlowColor = 0xff2200;
+                ball._affixOnHit = (target) => { target._burnTimer = 5; };
+            }
+        },
+        {
+            id: 'wobbly',
+            name: '🌀 Wobbly',
+            color: 0x00ffaa,
+            desc: 'Erratic zigzag trajectory',
+            apply(ball) {
+                ball._affixTrailColor = 0x00ffaa;
+                ball._affixGlowColor = 0x00cc88;
+                ball._affixWobble = { freq: 8, amp: 2 };
+            }
+        },
+        {
+            id: 'straight',
+            name: '➡️ Straight',
+            color: 0xffffff,
+            desc: 'No gravity, no wobble, laser-straight',
+            apply(ball) {
+                ball._affixTrailColor = 0xffffff;
+                ball._affixGlowColor = 0xddddff;
+                ball._affixNoGravity = true;
+            }
+        },
+        {
+            id: 'bouncy',
+            name: '🤪 Bouncy',
+            color: 0xff88ff,
+            desc: 'Extreme floor bounce, unpredictable',
+            apply(ball) {
+                ball._affixTrailColor = 0xff88ff;
+                ball._affixGlowColor = 0xff55ff;
+                ball._affixFloorBounce = 1.5;
+            }
+        },
+        {
+            id: 'ghost',
+            name: '👻 Ghost',
+            color: 0x88ffff,
+            desc: 'Phases through players, no hit until last second',
+            apply(ball) {
+                ball._affixTrailColor = 0x88ffff;
+                ball._affixGlowColor = 0x66dddd;
+                ball._affixGhost = true;
+            }
+        },
+        {
+            id: 'return',
+            name: '🪃 Return',
+            color: 0xffaa00,
+            desc: 'Ball returns to thrower mid-flight (single use)',
+            apply(ball) {
+                ball._affixTrailColor = 0xffaa00;
+                ball._affixGlowColor = 0xff8800;
+                ball._affixReturn = true;
+            }
+        }
+    ];
+
     constructor(arena, scene) {
         this.arena = arena;
         this.scene = scene;
         this.zones = [];
         this.active = false;
+        this.currentBallAffix = null;
+    }
+
+    getBallAffix() {
+        return this.currentBallAffix;
     }
 
     getZoneCount() {
@@ -124,6 +198,13 @@ export class AffixManager {
         for (let i = 0; i < count; i++) {
             this.spawnZone();
         }
+        // 20% chance for a random ball affix
+        if (Math.random() < 0.04) {
+            const list = AffixManager.BALL_AFFIXES;
+            this.currentBallAffix = list[Math.floor(Math.random() * list.length)];
+        } else {
+            this.currentBallAffix = null;
+        }
     }
 
     update(dt, players) {
@@ -175,5 +256,6 @@ export class AffixManager {
         }
         this.zones = [];
         this.active = false;
+        this.currentBallAffix = null;
     }
 }
