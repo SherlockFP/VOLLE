@@ -407,15 +407,21 @@ export class UI {
         if (blueEl) blueEl.innerHTML = '';
         const reds = players.filter(p => p.team === 'red');
         const blues = players.filter(p => p.team === 'blue');
-        const renderCard = (p, container) => {
+        const maxSlots = 6;
+        const renderCard = (p, container, isPlaceholder) => {
             if (!container) return;
+            if (isPlaceholder) {
+                const card = document.createElement('div');
+                card.className = 'cs-player-card empty';
+                card.textContent = '⏳ Waiting…';
+                container.appendChild(card);
+                return;
+            }
             const card = document.createElement('div');
-            card.className = `cs-player-card${p.isYou ? ' you' : ''}${p.isBot ? ' bot' : ''}`;
+            card.className = `cs-player-card team-${p.team}${p.isYou ? ' you' : ''}${p.isBot ? ' bot' : ''}`;
             card.draggable = !!isHost && !p.isBot;
             card.dataset.playerName = p.name;
             card.dataset.playerTeam = p.team;
-            // P2P: Remote oyuncular kendi avatar dataURL'lerini taşır; isYou kendi local store'undan,
-            // bot karakter emoji'sini CHAR dizisinden gösterir.
             const char = CHARACTERS[p.charId] || CHARACTERS.rally;
             const emoji = char?.emoji || '👤';
             const ownAvatarOnly = window.__store?.get?.('customAvatar');
@@ -425,18 +431,23 @@ export class UI {
             const kickBtn = (isHost && !p.isYou)
                 ? `<button class="cs-btn-kick" data-kick-name="${this.escapeHTML(p.name)}" data-kick-peer="${this.escapeHTML(p.peerId || '')}" data-kick-bot="${p.isBot?1:0}" title="Kick">✕</button>`
                 : '';
+            const hostBadge = p.isHost ? '<span class="cs-badge cs-badge-host">HOST</span>' : '';
+            const botBadge = p.isBot ? '<span class="cs-badge cs-badge-bot">BOT</span>' : '';
+            const pingHtml = p.ping != null ? `<span class="cs-badge-ping">${Math.round(p.ping)}ms</span>` : '';
             card.innerHTML = `
                 <div class="cs-player-avatar">${avatarHTML}</div>
                 <div class="cs-player-info">
-                    <div class="cs-player-name${p.isYou ? ' you' : ''}${p.isBot ? ' bot' : ''}">${this.escapeHTML(p.name)} ${p.isBot ? '🤖' : ''}</div>
-                    <div class="cs-player-sub"><span class="char-emoji-sm">${char.emoji || ''}</span> ${this.escapeHTML(char.name || '')}</div>
+                    <div class="cs-player-name${p.isYou ? ' you' : ''}${p.isBot ? ' bot' : ''}">${this.escapeHTML(p.name)}</div>
+                    <div class="cs-player-sub" style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;">${hostBadge}${botBadge}${pingHtml}</div>
                 </div>
                 ${kickBtn}
             `;
             container.appendChild(card);
         };
         reds.forEach(p => renderCard(p, redEl));
+        for (let i = reds.length; i < maxSlots; i++) renderCard(null, redEl, true);
         blues.forEach(p => renderCard(p, blueEl));
+        for (let i = blues.length; i < maxSlots; i++) renderCard(null, blueEl, true);
         // Update bot count
         const botCount = players.filter(p => p.isBot).length;
         const bc = document.getElementById('cs-bot-count');
@@ -552,6 +563,7 @@ export class UI {
 
     // Combo göstergesi — ortada büyük sayı (juice).
     updateCombo(combo, multiplier) {
+        // Update #combo-display (legacy)
         let el = document.getElementById('combo-display');
         if (!el) {
             el = document.createElement('div');
@@ -559,12 +571,25 @@ export class UI {
             el.className = 'combo-display';
             document.body.appendChild(el);
         }
+        // Update #combo-meter (new)
+        const meter = document.getElementById('combo-meter');
         if (combo >= 2) {
             el.textContent = `${combo}x COMBO`;
             el.style.opacity = '1';
             el.style.transform = `scale(${1 + Math.min(0.5, combo * 0.05)})`;
+            if (meter) {
+                const prev = meter.textContent;
+                meter.textContent = `${combo}x COMBO (×${multiplier.toFixed(1)})`;
+                meter.classList.add('visible');
+                if (prev !== meter.textContent) {
+                    meter.classList.remove('pulse');
+                    void meter.offsetWidth;
+                    meter.classList.add('pulse');
+                }
+            }
         } else {
             el.style.opacity = '0';
+            if (meter) meter.classList.remove('visible');
         }
     }
 

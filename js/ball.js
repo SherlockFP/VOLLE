@@ -356,6 +356,17 @@ export class Ball {
             bounced = true;
         }
 
+        // ponytail: clamp ball to court bounds with small margin instead of reflecting.
+        // Prevents erratic wall-bouncing; ball stays in play, players chase it.
+        const bb = this.arena.bounds;
+        if (bb) {
+            const m = this.radius + 0.5;
+            if (this.position.x < bb.minX + m) { this.position.x = bb.minX + m; this.velocity.x = Math.abs(this.velocity.x) * 0.5; }
+            if (this.position.x > bb.maxX - m) { this.position.x = bb.maxX - m; this.velocity.x = -Math.abs(this.velocity.x) * 0.5; }
+            if (this.position.z < bb.minZ + m) { this.position.z = bb.minZ + m; this.velocity.z = Math.abs(this.velocity.z) * 0.5; }
+            if (this.position.z > bb.maxZ - m) { this.position.z = bb.maxZ - m; this.velocity.z = -Math.abs(this.velocity.z) * 0.5; }
+        }
+
         // Stuck detection: bounce çok hızlı tekrarlıyorsa top sıkışmıştır,
         // random velocity ekleyip döngüyü kır.
         if (bounced) {
@@ -464,7 +475,10 @@ export class Ball {
     }
 
     // Keep speed locked to currentSpeed — gravity/spin may nudge magnitude, this resets it.
+    // ponytail: clamp currentSpeed to maxSpeed every frame so skills/perfect catch/portal
+    // can't compound past the cap between deflections. Prevents 2000+ runaway ball.
     _clampSpeed() {
+        if (this.currentSpeed > this.maxSpeed) this.currentSpeed = this.maxSpeed;
         const sp = this.velocity.length();
         if (sp > 0.001) this.velocity.multiplyScalar(this.currentSpeed / sp);
     }

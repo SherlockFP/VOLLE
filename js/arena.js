@@ -1887,9 +1887,17 @@ export class Arena {
 
     getSpawnPoint() { return this.spawnPoint.clone(); }
 
-    getPlayerSpawn(team) {
+    // ponytail: optional index param spreads spawns along X at 6m intervals.
+    // Without index, returns the team center spawn (backward-compatible).
+    getPlayerSpawn(team, index = 0) {
         const z = team === 'red' ? -this.courtLength / 3 : this.courtLength / 3;
-        return new THREE.Vector3(0, 1.7, z);
+        const spacing = 6;
+        const x = (index - (index % 2 === 0 ? 0 : 1)) * spacing / 2 * (index % 2 === 0 ? 1 : -1);
+        // Simpler: center the row. index 0 → x=0, 1 → +3, 2 → -3, 3 → +6, 4 → -6...
+        const side = index % 2 === 0 ? 1 : -1;
+        const offset = Math.floor((index + 1) / 2) * spacing;
+        const spawnX = index === 0 ? 0 : side * offset;
+        return new THREE.Vector3(spawnX, 1.7, z);
     }
 
     // Remove only the objects THIS arena added — leaves lights/camera intact.

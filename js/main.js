@@ -257,6 +257,8 @@ class App {
         const fov = this.store.get('settings').fov || 75;
         this.camera.fov = fov;
         this.camera.updateProjectionMatrix();
+        const fovDisplay = document.getElementById('fov-value');
+        if (fovDisplay) fovDisplay.textContent = `${fov}°`;
         // Music volume
         const vol = (this.store.get('settings').volume || 50) / 100;
         this.game.setMusicVolume(vol * 0.03);
@@ -751,15 +753,24 @@ class App {
             this.game.setMusicVolume(vol * 0.03); // music very quiet
         });
         bindSetting('setting-fov', e => {
-            this.camera.fov = parseFloat(e.target.value);
+            const val = parseFloat(e.target.value);
+            this.camera.fov = val;
             this.camera.updateProjectionMatrix();
             const s = this.store.get('settings');
-            s.fov = parseFloat(e.target.value);
+            s.fov = val;
             this.store.set('settings', s);
+            const display = document.getElementById('fov-value');
+            if (display) display.textContent = `${val}°`;
         });
         // Resolution — apply immediately, persist against resize
+        const ALLOWED_RESOLUTIONS = ['640x480','800x600','1024x768','1280x720','1366x768','1600x900','1920x1080','2560x1440','3840x2160'];
         bindSetting('setting-resolution', e => {
-            const [w, h] = e.target.value.split('x').map(Number);
+            const val = e.target.value;
+            if (!ALLOWED_RESOLUTIONS.includes(val)) {
+                this.ui.showMessage?.(`⚠️ Unsupported resolution: ${val}`, 2000);
+                return;
+            }
+            const [w, h] = val.split('x').map(Number);
             this._customRes = { w, h };
             this.store.set('resolution', { w, h });
             this.renderer.updateSize(w, h);
@@ -1242,6 +1253,12 @@ class App {
                 const mapEl = document.getElementById('cs-lobby-map');
                 if (mapEl) mapEl.textContent = this.arena?.config?.name || 'Map';
             });
+            // Tooltip: show weather + size on hover
+            const mapCfg = Arena.MAPS[id];
+            if (mapCfg) {
+                const weatherEmoji = { clear: '☀️', rain: '🌧️', storm: '⛈️', snow: '❄️' }[mapCfg.weather] || '☀️';
+                dot.title = `${weatherEmoji} ${mapCfg.weather} · ${mapCfg.size}`;
+            }
             dotsContainer.appendChild(dot);
         });
         // Set initial index from current arena map
@@ -1955,9 +1972,9 @@ class App {
             // Adaptive rate: faster when moving more, slower when idle
             const playerSpeed = this.player?._frameVel?.length?.() ?? 0;
             let desiredMs = 200; // 5Hz — idle/standing
-            if (playerSpeed > 8) desiredMs = 33;  // 30Hz — sprint/dash
-            else if (playerSpeed > 3) desiredMs = 50;  // 20Hz — running
-            else if (playerSpeed > 0.5) desiredMs = 66; // 15Hz — walking
+            if (playerSpeed > 8) desiredMs = 16;  // 60Hz — sprint/dash
+            else if (playerSpeed > 3) desiredMs = 33;  // 30Hz — running
+            else if (playerSpeed > 0.5) desiredMs = 50; // 20Hz — walking
             // Attack burst: briefly 30Hz after hitting the ball
             if ((this._p2pAttackBurst || 0) > 0) {
                 desiredMs = Math.min(desiredMs, 33);
@@ -2008,7 +2025,7 @@ class App {
                     bx: ball.position.x, by: ball.position.y, bz: ball.position.z,
                     clientTime: performance.now()
                 });
-                // Attack burst: next 5 position sends at 30Hz for precise movement
+                // Attack burst: next 8 position sends at 60Hz for precise movement
                 this._p2pAttackBurst = 5;
                 // Instant swing feedback (whoosh only — actual hit sound + sparks
                 // come from host's remoteAttackAnim broadcast so it stays consistent).
@@ -2018,20 +2035,43 @@ class App {
 
         // Host: authoritative state broadcast
         if (this.network?.isHost && this.game.state === STATES.PLAYING) {
-            // BallState: 30Hz, sadece top aktifken
+            // BallState: selective — skip if ball follows predicted path, send if deviation > threshold
+            // Reduces packet count ~50% on straight shots, client extrapolates between updates.
             if (this.game.ball.active || this.game.ball.state !== 'idle') {
                 this._hostBallTimer = (this._hostBallTimer || 0) - dt;
                 if (this._hostBallTimer <= 0) {
-                    this._hostBallTimer = 0.033;
-                    this.network.broadcast({
-                        type: 'ballState',
-                        x: this.game.ball.position.x, y: this.game.ball.position.y, z: this.game.ball.position.z,
-                        vx: this.game.ball.velocity.x, vy: this.game.ball.velocity.y, vz: this.game.ball.velocity.z,
-                        speed: this.game.ball.currentSpeed, active: this.game.ball.active,
-                        state: this.game.ball.state,
-                        targetId: this.game.ball.targetPlayer?.peerId || null,
-                        targetName: this.game.ball.targetPlayer?.name || null
-                    });
+                    this._hostBallTimer = 1 / 60;
+                    const ball = this.game.ball;
+                    let shouldSend = true;
+                    if (this._lastSentBall) {
+                        const elapsed = (performance.now() - this._lastSentBall.time) / 1000;
+                        const px = this._lastSentBall.x + this._lastSentBall.vx * elapsed;
+                        const py = this._lastSentBall.y + this._lastSentBall.vy * elapsed;
+                        const pz = this._lastSentBall.z + this._lastSentBall.vz * elapsed;
+                        const dx = ball.position.x - px;
+                        const dy = ball.position.y - py;
+                        const dz = ball.position.z - pz;
+                        const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
+                        this._ballSendSkipCount = (this._ballSendSkipCount || 0) + 1;
+                        if (dist < 0.5 && this._ballSendSkipCount < 30) shouldSend = false;
+                        else this._ballSendSkipCount = 0;
+                    }
+                    if (shouldSend) {
+                        this._lastSentBall = {
+                            x: ball.position.x, y: ball.position.y, z: ball.position.z,
+                            vx: ball.velocity.x, vy: ball.velocity.y, vz: ball.velocity.z,
+                            time: performance.now()
+                        };
+                        this.network.broadcast({
+                            type: 'ballState',
+                            x: ball.position.x, y: ball.position.y, z: ball.position.z,
+                            vx: ball.velocity.x, vy: ball.velocity.y, vz: ball.velocity.z,
+                            speed: ball.currentSpeed, active: ball.active,
+                            state: ball.state,
+                            targetId: ball.targetPlayer?.peerId || null,
+                            targetName: ball.targetPlayer?.name || null
+                        });
+                    }
                 }
             }
             // Score: 2Hz

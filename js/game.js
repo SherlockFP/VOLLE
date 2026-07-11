@@ -351,6 +351,7 @@ export class Game {
             isBot: false,
             charId: this.player.charId,
             isYou: true,
+            isHost: !this.network || !this.network.connected || this.network.isHost,
             peerId: this.network?.peer?.id,
             avatar: ownAvatar
         }];
@@ -387,9 +388,14 @@ export class Game {
         this.scoreboard.players.clear();
         this.scoreboard.addPlayer(this.playerName, this.player.team, { isYou: true });
         this.bots.forEach(b => this.scoreboard.addPlayer(b.name, b.team, { isBot: true }));
+        // ponytail: per-team spawn index for 6m spacing
+        const spawnIdx = { red: 0, blue: 0 };
+        this.player._spawnIndex = spawnIdx[this.player.team]++;
+        this.bots.forEach(b => { b._spawnIndex = spawnIdx[b.team]++; });
         this.remotePlayers.forEach((p, peerId) => {
             this.scoreboard.addPlayer(p.name, p.team, { peerId });
-            const spawn = this.arena.getPlayerSpawn(p.team);
+            p._spawnIndex = spawnIdx[p.team]++;
+            const spawn = this.arena.getPlayerSpawn(p.team, p._spawnIndex);
             p.position.copy(spawn);
             p.group.position.copy(p.position).add(new THREE.Vector3(0, -1.2, 0));
             p.group.rotation.y = p.team === 'red' ? 0 : Math.PI;
@@ -2337,15 +2343,28 @@ export class Game {
         return list;
     }
 
+    _pushPosBuffer(p, x, y, z, time) {
+        if (!p._posBuffer) p._posBuffer = [];
+        // Teleport check (>5m jump) → clear buffer, jump instantly
+        if (p._posBuffer.length > 0) {
+            const last = p._posBuffer[p._posBuffer.length - 1];
+            const dx = x - last.x, dy = y - last.y, dz = z - last.z;
+            if (dx*dx + dy*dy + dz*dz > 25) {
+                p._posBuffer.length = 0;
+                p.position.set(x, y, z);
+                p.group.position.copy(p.position).add(new THREE.Vector3(0, -1.2, 0));
+                return;
+            }
+        }
+        p._posBuffer.push({ x, y, z, time });
+        if (p._posBuffer.length > 8) p._posBuffer.shift();
+    }
+
     updateRemotePlayer(peerId, data) {
         if (peerId === this.network?.peer?.id) return;
         const p = this.addRemotePlayer(peerId, data.name || `P-${peerId.slice(0, 4)}`, data.team);
         if (!p) return;
-        // Snapshot: snapshot'taki poz önceki prevPos olur, hedef targetPos olur. Render tarafı
-        // her frame invokeSnapshots(dt) ile bunlar arasında lerp ediyor — atlayış / dithering yok.
-        p.prevPos.set(p.position.x, p.position.y, p.position.z);
-        p.targetPos.set(data.x, data.y, data.z);
-        p.interpAlpha = 0;
+        this._pushPosBuffer(p, data.x, data.y, data.z, data.clientTime || performance.now());
         p.lastPacketTime = data.clientTime || performance.now();
         p.group.rotation.y = data.ry || 0;
         p.team = data.team || p.team;
@@ -2370,28 +2389,48 @@ export class Game {
     // interpolate eder (30Hz snapshot aktarımı akıcı görülür).
     invokeRemoteSnapshots(dt) {
         if (!this.remotePlayers.size) return;
+        const interpDelay = 50; // ms — fixed delay buffer absorbs jitter
+        const now = performance.now();
+        const renderTime = now - interpDelay;
         for (const p of this.remotePlayers.values()) {
-            if (!p.targetPos) continue;
-            const dx = p.targetPos.x - p.position.x;
-            const dy = p.targetPos.y - p.position.y;
-            const dz = p.targetPos.z - p.position.z;
-            const distSq = dx*dx + dy*dy + dz*dz;
-            if (distSq > 25) {
-                // >5m teleport: packet loss recovery
-                p.position.copy(p.targetPos);
-            } else if (distSq > 0.0001) {
-                // Exponential smoothing: position ~20% closer every frame at 60fps
-                // No stop/go stutter, handles variable packet rate naturally
-                const factor = 1 - Math.exp(-dt * 12);
-                p.position.x += dx * factor;
-                p.position.y += dy * factor;
-                p.position.z += dz * factor;
+            const buf = p._posBuffer;
+            if (!buf || buf.length < 2) {
+                // Not enough data yet — stick with current pos
+                if (buf?.length === 1) {
+                    p.position.set(buf[0].x, buf[0].y, buf[0].z);
+                }
+                p.group.position.copy(p.position).add(new THREE.Vector3(0, -1.2, 0));
+                continue;
+            }
+            // Find two snapshots bracketing renderTime
+            let t1 = buf[0], t2 = buf[buf.length - 1];
+            for (let i = 1; i < buf.length; i++) {
+                if (buf[i].time >= renderTime) {
+                    t1 = buf[i - 1];
+                    t2 = buf[i];
+                    break;
+                }
+            }
+            if (t1 === t2 || t1.time === t2.time) {
+                p.position.set(t1.x, t1.y, t1.z);
+            } else {
+                const alpha = (renderTime - t1.time) / (t2.time - t1.time);
+                const clamped = Math.max(0, Math.min(1, alpha));
+                p.position.set(
+                    t1.x + (t2.x - t1.x) * clamped,
+                    t1.y + (t2.y - t1.y) * clamped,
+                    t1.z + (t2.z - t1.z) * clamped
+                );
+            }
+            // Garbage collect: keep at least 2, remove entries older than renderTime-100ms
+            while (buf.length > 2 && buf[1].time < renderTime - 100) {
+                buf.shift();
             }
             p.group.position.copy(p.position).add(new THREE.Vector3(0, -1.2, 0));
 
             // Target outline pulse
             if (p._outlineActive && p.targetOutline?.visible) {
-                const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 300);
+                const pulse = 0.5 + 0.5 * Math.sin(now / 300);
                 p.targetOutline.material.uniforms.uPulse.value = pulse;
             }
         }
@@ -2819,9 +2858,7 @@ export class Game {
                 p.isBotEntity = true;
                 this.remotePlayers.set(peerId, p);
             }
-            p.prevPos.set(p.position.x, p.position.y, p.position.z);
-            p.targetPos.set(bd.x, bd.y, bd.z);
-            p.interpAlpha = 0;
+                this._pushPosBuffer(p, bd.x, bd.y, bd.z, performance.now());
             p.team = bd.team || p.team;
             p.group.rotation.y = bd.ry || 0;
             p.alive = bd.alive !== false;
