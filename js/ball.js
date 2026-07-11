@@ -567,11 +567,15 @@ export class Ball {
     deflectWithAim(fromPos, aimDir, target, flick = { vertical: 0, horizontal: 0, power: 0 }, momentum = null, deflectPower = 1.0) {
         this.deflections++;
         this.bodyZone = ['head','chest','abdomen','legs'][Math.floor(Math.random() * 4)];
-        // Speed ramp: gentle curve after 500% to avoid 6000-8000% bug
-        const speedPct = this.currentSpeed / this.baseSpeed;
-        let rampMul = this.speedMultiplier;
-        if (speedPct > 5) rampMul = 1 + (this.speedMultiplier - 1) * (5 / speedPct);
-        this.currentSpeed = this.currentSpeed * rampMul;
+        // Fixed additive speed increments per deflection (percentage points)
+        const d = this.deflections;
+        const pct = Math.round((this.currentSpeed / this.baseSpeed) * 100);
+        let addPct;
+        if (d < 3) addPct = 10;
+        else if (d < 8) addPct = 15;
+        else if (d < 14) addPct = 20;
+        else addPct = 35;
+        this.currentSpeed = this.baseSpeed * (pct + addPct) / 100;
         this.state = 'rally';
         this.aimed = true;
 
@@ -639,10 +643,14 @@ export class Ball {
     deflect(fromPos, towardPos, deflectPower = 1.0) {
         this.deflections++;
         this.bodyZone = ['head','chest','abdomen','legs'][Math.floor(Math.random() * 4)];
-        const speedPct = this.currentSpeed / this.baseSpeed;
-        let rampMul = this.speedMultiplier;
-        if (speedPct > 5) rampMul = 1 + (this.speedMultiplier - 1) * (5 / speedPct);
-        this.currentSpeed = this.currentSpeed * rampMul * deflectPower;
+        const d = this.deflections;
+        const pct = Math.round((this.currentSpeed / this.baseSpeed) * 100);
+        let addPct;
+        if (d < 3) addPct = 10;
+        else if (d < 8) addPct = 15;
+        else if (d < 14) addPct = 20;
+        else addPct = 35;
+        this.currentSpeed = this.baseSpeed * (pct + addPct) / 100 * deflectPower;
         this.state = 'rally';
         this.aimed = false;
 
