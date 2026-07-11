@@ -1,4 +1,5 @@
-// spectator.js — cycle camera between players, optional free cam
+// spectator.js — cycle camera between players, optional free cam, coach ping
+import * as THREE from 'three';
 export class SpectatorClass {
     constructor() {
         this.active = false
@@ -12,10 +13,12 @@ export class SpectatorClass {
         this.pitch = 0
         this.keys = {}
         this._bound = false
+        this._pings = [] // { mesh, timer }
     }
 
     enter(game) {
         this.game = game
+        this._clearPings()
         // ponytail: camera lives on Player in this codebase; fallback for alt wiring
         this.camera = game.player?.camera || game.camera || null
         this.targets = this._gatherTargets()
@@ -29,6 +32,16 @@ export class SpectatorClass {
     exit() {
         this.active = false
         this._detachInput()
+        this._clearPings()
+    }
+
+    _clearPings() {
+        for (const p of this._pings) {
+            this.game?.arena?.remove(p.mesh)
+            p.mesh.geometry.dispose()
+            p.mesh.material.dispose()
+        }
+        this._pings = []
     }
 
     _gatherTargets() {
@@ -63,6 +76,7 @@ export class SpectatorClass {
 
     update(dt) {
         if (!this.active || !this.camera) return
+        this._updatePings(dt)
         if (this.freeCam) { this._updateFreeCam(dt); return }
         const t = this.targets[this.targetIdx]
         if (!t || !t.position) return
@@ -106,9 +120,34 @@ export class SpectatorClass {
         }
         this._onKeyDown = e => { this.keys[e.key.toLowerCase()] = true }
         this._onKeyUp = e => { this.keys[e.key.toLowerCase()] = false }
+        this._onContext = e => {
+            if (!this.freeCam || !this.camera || !this.game?.arena) return
+            e.preventDefault()
+            const raycaster = new THREE.Raycaster()
+            const mouse = new THREE.Vector2(
+                (e.clientX / window.innerWidth) * 2 - 1,
+                -(e.clientY / window.innerHeight) * 2 + 1
+            )
+            raycaster.setFromCamera(mouse, this.camera)
+            const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
+            const hit = new THREE.Vector3()
+            const ray = raycaster.ray
+            const denom = ray.direction.dot(plane.normal)
+            if (Math.abs(denom) > 1e-6) {
+                const t = -(ray.origin.dot(plane.normal) + plane.constant) / denom
+                if (t > 0) {
+                    hit.copy(ray.origin).add(ray.direction.clone().multiplyScalar(t))
+                    if (hit.x > this.game.arena.bounds.minX && hit.x < this.game.arena.bounds.maxX &&
+                        hit.z > this.game.arena.bounds.minZ && hit.z < this.game.arena.bounds.maxZ) {
+                        this._spawnPing(hit)
+                    }
+                }
+            }
+        }
         document.addEventListener('mousemove', this._onMouseMove)
         document.addEventListener('keydown', this._onKeyDown)
         document.addEventListener('keyup', this._onKeyUp)
+        document.addEventListener('contextmenu', this._onContext)
         this._bound = true
     }
 
@@ -117,8 +156,36 @@ export class SpectatorClass {
         document.removeEventListener('mousemove', this._onMouseMove)
         document.removeEventListener('keydown', this._onKeyDown)
         document.removeEventListener('keyup', this._onKeyUp)
+        document.removeEventListener('contextmenu', this._onContext)
         this._bound = false
         this.keys = {}
+    }
+
+    _spawnPing(pos) {
+        if (!this.game?.arena) return
+        const ring = new THREE.Mesh(
+            new THREE.RingGeometry(0.5, 1, 24),
+            new THREE.MeshBasicMaterial({ color: 0x00ff88, transparent: true, opacity: 0.7, side: THREE.DoubleSide })
+        )
+        ring.position.set(pos.x, 0.05, pos.z)
+        ring.rotation.x = -Math.PI / 2
+        this.game.arena.add(ring)
+        this._pings.push({ mesh: ring, timer: 4 })
+    }
+
+    _updatePings(dt) {
+        for (let i = this._pings.length - 1; i >= 0; i--) {
+            const p = this._pings[i]
+            p.timer -= dt
+            p.mesh.material.opacity = Math.min(1, p.timer) * 0.7
+            p.mesh.scale.setScalar(1 + (4 - p.timer) * 0.5)
+            if (p.timer <= 0) {
+                this.game?.arena?.remove(p.mesh)
+                p.mesh.geometry.dispose()
+                p.mesh.material.dispose()
+                this._pings.splice(i, 1)
+            }
+        }
     }
 
     _notify() {

@@ -43,26 +43,46 @@ export const MAPS = {
         hasPortals: true, weather: 'rain', openSides: true
     },
     dojo: {
-        name: '🥋 Dojo',
-        courtWidth: 108, courtLength: 122, wallHeight: 17, ceilingHeight: 24,
-        floorRed: 0xc9925a, floorBlue: 0xa8784a, wallColor: 0xd4a86a,
-        skyTop: 0xff9a52, skyBottom: 0xffd8a8, fogColor: 0xffd8a8,
-        hasOcean: false, hasGlass: false, isDojo: true, size: 'medium', weather: 'clear'
+        name: 'Dojo', emoji: '🥋',
+        floor: 0x8B4513, wall: 0x654321, ceiling: 0x3d2b1f,
+        skyTop: 0x87CEEB, skyBottom: 0xE0F0FF,
+        fog: 0x87CEEB, fogNear: 30, fogFar: 120,
+        ambient: 0xffeedd, hemisphere: 0xffeebb,
+        size: { x: 90, z: 62 },
+        props: [
+            { type: 'box', pos: [0, 1, 0], size: [4, 2, 4], color: 0x654321 },
+            { type: 'cylinder', pos: [-20, 3, 15], size: [0.3, 6], color: 0xff4400 },
+            { type: 'cylinder', pos: [20, 3, -15], size: [0.3, 6], color: 0xff4400 }
+        ],
+        weather: 'none'
     },
     colosseum: {
-        name: '🏛️ Colosseum',
-        courtWidth: 132, courtLength: 144, wallHeight: 26, ceilingHeight: 0,
-        floorRed: 0xc9a878, floorBlue: 0xa89060, wallColor: 0xe8d8b0,
-        skyTop: 0x6aa5ff, skyBottom: 0xffe8c8, fogColor: 0xffd8a8,
-        hasOcean: false, hasGlass: false, isColosseum: true, size: 'large',
-        openAir: true, weather: 'clear', openSides: true
+        name: 'Colosseum', emoji: '🏛️',
+        floor: 0xD2B48C, wall: 0xC4A882, ceiling: 0x8B7355,
+        skyTop: 0x4169E1, skyBottom: 0x87CEEB,
+        fog: 0xC4A882, fogNear: 40, fogFar: 150,
+        ambient: 0xffeedd, hemisphere: 0xffddaa,
+        size: { x: 100, z: 70 },
+        props: [
+            { type: 'cylinder', pos: [-30, 5, 0], size: [2, 10], color: 0xC4A882 },
+            { type: 'cylinder', pos: [30, 5, 0], size: [2, 10], color: 0xC4A882 },
+            { type: 'cylinder', pos: [0, 5, -25], size: [2, 10], color: 0xC4A882 }
+        ],
+        weather: 'none'
     },
     volcano: {
-        name: '🌋 Volcano',
-        courtWidth: 115, courtLength: 126, wallHeight: 24, ceilingHeight: 33,
-        floorRed: 0x6a2020, floorBlue: 0x4040a0, wallColor: 0x4a2020,
-        skyTop: 0xff5a22, skyBottom: 0xffa844, fogColor: 0xff8844,
-        hasOcean: false, hasGlass: true, isVolcano: true, size: 'large', weather: 'clear', openSides: true
+        name: 'Volcano', emoji: '🌋',
+        floor: 0x2d1b00, wall: 0x1a0f00, ceiling: 0x0a0500,
+        skyTop: 0x1a0000, skyBottom: 0x330000,
+        fog: 0x330000, fogNear: 20, fogFar: 100,
+        ambient: 0xff4400, hemisphere: 0xff2200,
+        size: { x: 88, z: 60 },
+        props: [
+            { type: 'cone', pos: [0, 0, 0], size: [8, 15], color: 0x440000 },
+            { type: 'sphere', pos: [-25, 2, 20], size: [2], color: 0xff4400 },
+            { type: 'sphere', pos: [25, 2, -20], size: [2], color: 0xff4400 }
+        ],
+        weather: 'storm'
     },
     ice: {
         name: '❄️ Ice Palace',
@@ -188,6 +208,9 @@ export class Arena {
         };
         this.objects = [];
         this.collidables = [];  // ball collision objects: {mesh, radius, pos}
+        this.portals = [];
+        this.portalTimer = 0;
+        this.portalSwapInterval = 30;
         this.build();
     }
 
@@ -2225,6 +2248,43 @@ export class Arena {
             });
         }
     }
+
+    buildPortals() {
+        const portalGeo = new THREE.TorusGeometry(2, 0.3, 8, 24);
+        const blueMat = new THREE.MeshBasicMaterial({ color: 0x4488ff, transparent: true, opacity: 0.7 });
+        const orangeMat = new THREE.MeshBasicMaterial({ color: 0xff8800, transparent: true, opacity: 0.7 });
+        const halfX = (this.config?.size?.x || 78) / 2 - 5;
+        const p1 = new THREE.Mesh(portalGeo, blueMat);
+        p1.position.set(-halfX, 3, 0); p1.rotation.y = Math.PI / 2;
+        const p2 = new THREE.Mesh(portalGeo, orangeMat);
+        p2.position.set(halfX, 3, 0); p2.rotation.y = Math.PI / 2;
+        this.scene.add(p1); this.scene.add(p2);
+        this.portals = [{ mesh: p1, exit: p2 }, { mesh: p2, exit: p1 }];
+    }
+
+    updatePortals(dt) {
+        this.portalTimer += dt;
+        this.portals.forEach(p => { p.mesh.rotation.z += dt * 2; });
+        if (this.portalTimer >= this.portalSwapInterval) {
+            this.portalTimer = 0;
+            const tmp = this.portals[0].mesh.position.clone();
+            this.portals[0].mesh.position.copy(this.portals[1].mesh.position);
+            this.portals[1].mesh.position.copy(tmp);
+        }
+    }
+
+    checkPortalCollision(ball) {
+        for (const portal of this.portals) {
+            if (ball.position.distanceTo(portal.mesh.position) < 3) {
+                ball.position.copy(portal.exit.position);
+                ball.position.y += 2;
+                ball.velocity.multiplyScalar(1.2);
+                return true;
+            }
+        }
+        return false;
+    }
+
 }
 
 

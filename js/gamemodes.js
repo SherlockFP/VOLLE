@@ -3,6 +3,7 @@
 // Knockout City / Rocket League tarzı mod çeşitliliği.
 import { applyCharacter } from './characters.js';
 import { applyRunes } from './skills.js';
+import { CHAOS_MODES } from './chaos.js';
 
 export const GAME_MODES = {
     classic: {
@@ -64,7 +65,8 @@ export const GAME_MODES = {
         id: 'competitive', name: 'Competitive', emoji: '🏆',
         desc: 'First to 3 rounds, overtime if tied.',
         mutators: { maxRounds: 5, overtime: true }
-    }
+    },
+    ...CHAOS_MODES
 };
 
 // Mutator'ları game/player/ball objelerine uygula.
@@ -151,6 +153,7 @@ export function applyMode(game, modeId) {
     game._courtScale = m.courtScale || 1;
     game._ffa = !!m.ffa;
     game._noNet = !!m.noNet;
+    game.ball._pinballBounce = !!m.pinballBounce;
     game._noTeams = !!m.noTeams;
 
     if (m.maxRounds) game.scoreboard.setMaxRounds(m.maxRounds);

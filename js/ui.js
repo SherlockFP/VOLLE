@@ -4,6 +4,7 @@ import { CHARACTERS } from './characters.js';
 import { SKILLS, RUNES } from './skills.js';
 import { BALL_SKINS } from './ball.js';
 import { ACHIEVEMENTS } from './achievements.js';
+import { MatchHistory } from './matchhistory.js';
 import { getRank, getRankProgress } from './ranked.js';
 import { Leaderboard } from './leaderboard.js';
 import { Tutorial, TUTORIAL_STEPS } from './tutorial.js';
@@ -28,7 +29,8 @@ export class UI {
             ranked: document.getElementById('ranked-screen'),
             leaderboard: document.getElementById('leaderboard-screen'),
             tournament: document.getElementById('tournament-screen'),
-            tutorial: document.getElementById('tutorial-screen')
+            tutorial: document.getElementById('tutorial-screen'),
+            profile: document.getElementById('screen-profile')
         };
     }
 
@@ -322,17 +324,16 @@ export class UI {
         } catch (_) {}
     }
 
-    showCombo(text, duration = 2.0) {
+    showCombo(combo, maxCombo) {
         const el = document.getElementById('combo-display');
-        if (!el) return;
-        el.textContent = text;
+        if (!el || combo < 2) { el?.classList.remove('active'); return; }
+        const labels = ['', '', 'DOUBLE!', 'TRIPLE!', 'QUAD!', 'PENTA!', 'HEXA!', 'ULTRA!', 'MEGA!'];
+        const label = labels[Math.min(combo, labels.length - 1)] || 'GODLIKE!';
+        el.innerHTML = `<div class="combo-count">${combo}x</div><div class="combo-label">${label}</div>`;
+        el.classList.add('active');
         el.classList.remove('hidden');
-        el.classList.add('combo-pop');
-        // Color based on combo level
-        const colors = { 'FIRST BLOOD': '#ff6644', 'DOUBLE KILL': '#ffaa00', 'TRIPLE KILL': '#ffdd00', 'QUADRA KILL': '#55ff88', 'PENTA KILL': '#44aaff', 'ACE': '#ff44ff' };
-        el.style.color = colors[text] || '#ff8844';
-        setTimeout(() => el.classList.remove('combo-pop'), 300);
-        setTimeout(() => el.classList.add('hidden'), duration * 1000);
+        clearTimeout(this._comboHideTimer);
+        this._comboHideTimer = setTimeout(() => el.classList.remove('active'), 1500);
     }
 
     spawnDamageNumber(screenX, screenY, dmg, lethal = false) {
@@ -526,6 +527,14 @@ export class UI {
         el.classList.add('flash');
     }
 
+    showKillCamOverlay(killerName, duration = 2.5) {
+        const el = document.getElementById('killcam-overlay');
+        if (!el) return;
+        el.innerHTML = `<div class="killcam-killer">KILLED BY: ${this.escapeHTML(killerName)}</div>`;
+        el.classList.add('active');
+        setTimeout(() => el.classList.remove('active'), duration * 1000);
+    }
+
     // Skill cooldown bar — HUD'da Q skill için.
     updateSkillCooldown(cooldowns, skillId) {
         const skill = SKILLS[skillId];
@@ -541,7 +550,24 @@ export class UI {
         fill.classList.toggle('ready', remaining <= 0);
     }
 
-    // Kill feed — sağ üstte son hasarlar.
+    // Kill feed — auto-fade entries after 5 seconds.
+    renderKillFeed(killFeed) {
+        const el = document.getElementById('kill-feed');
+        if (!el) return;
+        el.innerHTML = '';
+        const now = performance.now();
+        killFeed.forEach(entry => {
+            if (now - entry.time > 5000) return;
+            const div = document.createElement('div');
+            div.className = 'kill-entry';
+            div.innerHTML = `<span class="killer">${this.escapeHTML(entry.killer || entry.attacker || 'Ball')}</span> 
+                <span class="weapon">[${entry.weapon || entry.tag || 'ball'}]</span> 
+                <span class="victim">${this.escapeHTML(entry.victim)}</span>`;
+            el.appendChild(div);
+        });
+    }
+
+    // Kill feed — legacy.
     updateKillFeed(feed) {
         const el = document.getElementById('kill-feed');
         if (!el) return;
@@ -885,4 +911,28 @@ export class UI {
             el.appendChild(div);
         });
     }
+
+    showProfile() {
+        const stats = MatchHistory.getStats();
+        const elo = this.store?.data?.elo || 1000;
+        const { rank, pct } = getRankProgress(elo);
+
+        document.getElementById('profile-rank').innerHTML = `
+            <div class="rank-icon">${rank.emoji}</div>
+            <div class="rank-name" style="color:${rank.color}">${rank.name}</div>
+            <div class="rank-progress"><div class="rank-bar" style="width:${pct}%"></div></div>
+            <div style="color:#aaa;font-size:12px">${elo} ELO</div>`;
+
+        document.getElementById('profile-stats').innerHTML = `
+            <div class="stat-card"><div class="stat-value">${stats.wins}</div><div class="stat-label">Wins</div></div>
+            <div class="stat-card"><div class="stat-value">${stats.losses}</div><div class="stat-label">Losses</div></div>
+            <div class="stat-card"><div class="stat-value">${MatchHistory.getWinRate()}%</div><div class="stat-label">Win Rate</div></div>
+            <div class="stat-card"><div class="stat-value">${stats.kills}</div><div class="stat-label">Kills</div></div>
+            <div class="stat-card"><div class="stat-value">${stats.deaths}</div><div class="stat-label">Deaths</div></div>
+            <div class="stat-card"><div class="stat-value">${stats.damage}</div><div class="stat-label">Damage</div></div>`;
+
+        this.showScreen('screen-profile');
+    }
+
+    hideProfile() { this.showScreen('screen-menu'); }
 }

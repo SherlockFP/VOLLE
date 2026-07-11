@@ -8,6 +8,7 @@ import { calcDamage, missRampDamage } from './characters.js';
 import { Arena } from './arena.js';
 import { Juice } from './juice.js';
 import { applyMode, GAME_MODES } from './gamemodes.js';
+import { ChaosManager, CHAOS_MODES } from './chaos.js';
 import { EmoteSystem } from './emotes.js';
 import { AffixManager } from './affixes.js';
 import { SKILLS, useSkill } from './skills.js';
@@ -89,12 +90,15 @@ export class Game {
         this.mode = GAME_MODES.instagib; // ponytail: default instakill (HP'li seçilirse kapanır)
         this._oneHitKill = true;
         this._activeBlackHoles = [];
+        this._splitBalls = [];
         this._killcamActive = false;
         this._killcamElapsed = 0;
         this._killcamDuration = 2.5;
         this._killcamKillerPos = null;
         this._killcamDeathPos = null;
         this._killcamKillerName = '';
+        this._killcamReplayEvents = [];
+        this._killcamBufferMs = 2000;
         // Overtime
         this._overtimeExtends = 0;
 
@@ -106,6 +110,8 @@ export class Game {
         this._mapVoteTimeout = 20;     // seconds
         this._mapVoteElapsed = 0;
         this.affixes = new AffixManager(this.arena, this.renderer.scene);
+        this.chaosManager = new ChaosManager(this.arena, this.renderer.scene);
+        this._chaosModeIds = new Set(Object.values(CHAOS_MODES).map(m => m.id));
         this.currentBallAffix = null;
 
         // Power-up pickups — spawn on map, temporary buffs
@@ -347,6 +353,73 @@ export class Game {
         this._activeBlackHoles = [];
     }
 
+    spawnSplitBall(ball) {
+        const perp = new THREE.Vector3(-ball.velocity.z, 0.3, ball.velocity.x).normalize();
+        const pos = ball.position.clone();
+        const vel = perp.multiplyScalar(ball.currentSpeed * 0.5).add(new THREE.Vector3(0, 3, 0));
+        const life = 5;
+
+        const geo = new THREE.SphereGeometry(0.3, 8, 8);
+        const mat = new THREE.MeshBasicMaterial({ color: 0x44ff88, transparent: true, opacity: 0.8 });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.copy(pos);
+        this.arena.add(mesh);
+        this._splitBalls.push({ mesh, pos, vel, life, age: 0 });
+    }
+
+    updateSplitBalls(dt) {
+        const candidates = this._ffa
+            ? this.getAllTargets().filter(p => p !== this.lastDeflector && p.alive)
+            : (this.lastDeflectorTeam
+                ? this.getAllTargets().filter(p => p.team !== this.lastDeflectorTeam)
+                : []);
+        for (let i = this._splitBalls.length - 1; i >= 0; i--) {
+            const sb = this._splitBalls[i];
+            sb.age += dt;
+            sb.life -= dt;
+            sb.vel.y += -14 * dt;
+            sb.pos.add(sb.vel.clone().multiplyScalar(dt));
+            sb.mesh.position.copy(sb.pos);
+            sb.mesh.material.opacity = Math.min(1, sb.life) * 0.8;
+            sb.mesh.scale.setScalar(1 + Math.sin(sb.age * 8) * 0.1);
+
+            // Hit detection (host only)
+            if ((!this.network?.connected || this.network?.isHost) && sb.life > 0) {
+                for (const target of candidates) {
+                    if (!target?.alive) continue;
+                    const headPos = target.getPosition();
+                    const bodyTop = headPos.y;
+                    const bodyBottom = headPos.y - 1.7;
+                    const clampedY = Math.max(bodyBottom, Math.min(bodyTop, sb.pos.y));
+                    const dx = sb.pos.x - headPos.x;
+                    const dz = sb.pos.z - headPos.z;
+                    const dy = sb.pos.y - clampedY;
+                    if (Math.sqrt(dx*dx + dy*dy + dz*dz) < 0.7) {
+                        this.handleHit(target);
+                        sb.life = -1;
+                        break;
+                    }
+                }
+            }
+
+            if (sb.life <= 0) {
+                this.arena.remove(sb.mesh);
+                sb.mesh.geometry.dispose();
+                sb.mesh.material.dispose();
+                this._splitBalls.splice(i, 1);
+            }
+        }
+    }
+
+    clearSplitBalls() {
+        this._splitBalls.forEach(sb => {
+            this.arena.remove(sb.mesh);
+            sb.mesh.geometry.dispose();
+            sb.mesh.material.dispose();
+        });
+        this._splitBalls = [];
+    }
+
     updateLobbyUI() {
         const ownAvatar = window.__store?.get?.('customAvatar')?.dataURL || null;
         const players = [{
@@ -418,6 +491,7 @@ export class Game {
         this.bots.forEach(b => b.respawn());
         this.audio.init();
         this.audio.preloadSfx('sfx/');
+        this.arena.buildPortals();
         this.initMinimap();
 
         // Late-join: 10 saniyelik pre-game countdown'u atla, anında round'a gir. Host oyun sırasındayken
@@ -433,6 +507,11 @@ export class Game {
         // Pre-game countdown (configurable, host can change)
         this.preGameTimer = this.preGameDuration;
         this._preGameActive = true;
+        // Warmup: spawn ball early so players practice deflecting during countdown
+        if (!skipPreGame && !this._skipPreGame) {
+            this.ball.spawn();
+            this.ball._warmup = true;
+        }
         this._cancelCountdown = () => {};
         let cancelled = false;
         const wrap = (fn) => () => { if (!cancelled) fn(); };
@@ -459,10 +538,13 @@ export class Game {
 
     startRound() {
         this.clearBlackHoles();
+        this.clearSplitBalls();
         this._hideKillcam();
         this.setState(STATES.PLAYING);
         this.scoreboard.newRound();
         if (this.affixes) this.affixes.startRound();
+        if (this._chaosModeIds.has(this.mode?.id)) this.chaosManager.startRound();
+        if (this.ball._warmup) { this.ball.deactivate(); this.ball._warmup = false; }
         this.ball.spawn();
         this._applyBallAffix();
         this.lastDeflector = null;
@@ -809,6 +891,22 @@ export class Game {
 
         if (this.state === STATES.PLAYING) {
             this.updatePlaying(dt);
+        } else if (this.state === STATES.COUNTDOWN && this.ball._warmup) {
+            if (!this.network?.connected || this.network?.isHost) {
+                this.ball.update(dt);
+            } else {
+                this.ball._clientVisualUpdate(dt);
+            }
+            if (this.player.alive && this.player.isAttacking()) {
+                const dist = this.ball.position.distanceTo(this.player.getPosition());
+                if (dist < this.ball.attackRange) this.handlePlayerDeflection();
+            }
+            if (!this.network?.connected || this.network?.isHost) {
+                this.bots.forEach(bot => {
+                    if (this.ball.active && bot.tryDeflect(this.ball, dt)) this.handleBotDeflection(bot);
+                });
+            }
+            this.updateSplitBalls(dt);
         } else if (this.state === STATES.CELEBRATION) {
             this._celebrationTimer -= dt;
             // Only update timer message every second (not every frame)
@@ -994,6 +1092,7 @@ export class Game {
             const allPlayers = [this.player, ...this.bots];
             this.affixes.update(dt, allPlayers);
         }
+        if (this._chaosModeIds.has(this.mode?.id)) this.chaosManager.update(dt, this);
 
         // Target outline — kimde sıra varsa kırmızı outline
         const target = this.ball.targetPlayer;
@@ -1110,7 +1209,7 @@ export class Game {
         // Aimed shots fly straight, so check EVERY enemy of the thrower's team in the
         // ball's path — you damage whoever you actually hit, not just an assigned target.
         // Ghost affix: skip player collision entirely.
-        if (this.ball.active && !this.ball._affixGhost) {
+        if (this.ball.active && !this.ball._affixGhost && !this.ball._warmup) {
             const ballPos = this.ball.position;
             const throwerTeam = this.lastDeflectorTeam;
             // Candidates: enemies of the thrower (or just the assigned target as fallback).
@@ -1137,6 +1236,9 @@ export class Game {
             }
         }
 
+        // Split affix projectiles
+        this.updateSplitBalls(dt);
+
         // HUD — damage meter dahil
         this.ui.updateHUD({
             time: this.scoreboard.getFormattedTime(),
@@ -1150,6 +1252,10 @@ export class Game {
         this.ui.updateVitals(this.player.hp, this.player.maxHp, this.player.shield,
             this.player.stamina, this.player.staminaMax, this.player.exhausted);
         this.ui.updateSkillCooldown?.(this.player.skillCooldowns, this.player.loadout.skill);
+
+        // Kill feed — render & prune expired entries
+        this.ui.renderKillFeed(this.killFeed);
+        this.killFeed = this.killFeed.filter(e => performance.now() - e.time < 5000);
 
         // Power-up spawn/pickup
         this.updatePowerUps(dt);
@@ -1202,7 +1308,7 @@ export class Game {
         const momentum = this.player._frameVel;
         const result = this.ball.deflectWithAim(pos, aimDir, nextTarget, flick, momentum, this.player.deflectPower);
         if (nextTarget) this.ball.setTarget(nextTarget);
-
+        if (this.ball._affixSplit) this.spawnSplitBall(this.ball);
 
         // Blazer pasif: top hedefi yakar
         if (nextTarget && this.player.passive === 'burn_touch') {
@@ -1247,6 +1353,7 @@ export class Game {
             this.juice.sparks(this.ball.position.clone(), 0xffbb00, 16);
             this.juice.shockwave(this.ball.position.clone(), 0xffbb00); // Altın şok dalgası!
             this.juice.addCombo();
+            this.ui.showCombo(this.juice.combo, this.juice.maxCombo);
             this.ui.showMessage(`✨ PERFECT DEFLECT! x${this.juice.combo} combo`, 2500);
             this.audio.playSfx('tf2_crit', 0.65);
         } else {
@@ -1280,6 +1387,7 @@ export class Game {
         } else {
             this.ball.deflect(pos, nextTarget.getPosition(), bot.deflectPower);
         }
+        if (this.ball._affixSplit) this.spawnSplitBall(this.ball);
         this.ball.setTarget(nextTarget);
 
         // Bot pasifleri
@@ -1405,9 +1513,9 @@ export class Game {
         // Kill feed
         const missTag = hitTarget.consecutiveMisses >= 3 ? ' 💢CRITICAL' : hitTarget.consecutiveMisses >= 1 ? ` (x${hitTarget.consecutiveMisses+1} miss)` : '';
         const perfectTag = this.ball.lastPerfectBy === attacker ? ' ✨PERFECT' : '';
-        this.killFeed.unshift({ attacker: scorerName, victim: name, dmg, time: performance.now()/1000, tag: missTag + perfectTag });
+        this.killFeed.unshift({ attacker: scorerName, victim: name, dmg, time: performance.now(), tag: missTag + perfectTag });
         if (this.killFeed.length > 5) this.killFeed.pop();
-        this.ui.updateKillFeed?.(this.killFeed);
+        this.ui.renderKillFeed?.(this.killFeed);
 
         // Juice effects
         this.juice.burst(hitPos, hitTarget.team === 'red' ? 0xff4444 : 0x4488ff, 16, 10);
@@ -1927,7 +2035,9 @@ export class Game {
         const winner = this.scoreboard.getWinner();
         const stats = this.scoreboard.getPlayerStats();
         this.clearBlackHoles();
+        this.clearSplitBalls();
         if (this.affixes) this.affixes.clearRound();
+        this.chaosManager?.clear();
         this.currentBallAffix = null;
         this.audio.playSfx('tf2_domination', 0.55);
         this.audio.playScore();
@@ -2346,6 +2456,15 @@ export class Game {
         this._killcamDeathPos = null;
     }
 
+    recordKillcamEvent(type, data) {
+        if (!this._killcamActive) return;
+        this._killcamReplayEvents.push({ t: performance.now(), type, data });
+        const cutoff = performance.now() - this._killcamBufferMs;
+        while (this._killcamReplayEvents.length && this._killcamReplayEvents[0].t < cutoff) {
+            this._killcamReplayEvents.shift();
+        }
+    }
+
     _playComboSound(file) {
         try {
             const a = this._comboAudio[file];
@@ -2522,6 +2641,7 @@ export class Game {
             }
             const result = this.ball.deflectWithAim(attackPos, p.aimDir, target, data.flick || { vertical: 0, horizontal: 0, power: 0 }, null, finalDeflectPower);
             if (target) this.ball.setTarget(target);
+            if (this.ball._affixSplit) this.spawnSplitBall(this.ball);
             this.lastDeflector = p;
             this.lastDeflectorTeam = p.team;
             this._pushDeflectHistory(p.name);
@@ -2677,6 +2797,8 @@ export class Game {
             // Don't call startRound() — that spawns ball locally and desyncs from host.
             // Match host state; ball position comes from ballState broadcast.
             this.clearBlackHoles();
+            this.clearSplitBalls();
+            this.chaosManager?.clear();
             this._clearAllPowerUps();
             const hostState = data.state === STATES.COUNTDOWN ? STATES.PLAYING : data.state;
             this.setState(hostState || STATES.PLAYING);
@@ -2720,9 +2842,9 @@ export class Game {
 
             // Kill feed
             const tag = (data.missTag || '') + (data.perfectTag || '');
-            this.killFeed.unshift({ attacker: data.attackerName, victim: data.victimName, dmg: data.dmg || 0, time: performance.now() / 1000, tag });
+            this.killFeed.unshift({ attacker: data.attackerName, victim: data.victimName, dmg: data.dmg || 0, time: performance.now(), tag });
             if (this.killFeed.length > 5) this.killFeed.pop();
-            this.ui.updateKillFeed?.(this.killFeed);
+            this.ui.renderKillFeed?.(this.killFeed);
 
             // Local player hit effects
             if (target === this.player) {
@@ -2870,7 +2992,7 @@ export class Game {
             // Kill feed sync
             if (data.killFeed) {
                 this.killFeed = data.killFeed;
-                this.ui.updateKillFeed?.(this.killFeed);
+                this.ui.renderKillFeed?.(this.killFeed);
             }
         }
     }
@@ -2881,6 +3003,8 @@ export class Game {
         this._ballSeq = 0; // reset seq, ignore stale ballState
         this.setState(STATES.ROUND_END);
         this.roundRestartTimer = this.roundRestartDelay;
+        this.clearSplitBalls();
+        this.chaosManager?.clear();
         if (data?.winner === 'red') this.ui.showMessage?.('🔴 RED TEAM WINS THE ROUND!', 2000);
         else if (data?.winner === 'blue') this.ui.showMessage?.('🔵 BLUE TEAM WINS THE ROUND!', 2000);
         else if (data?.winner === 'draw') this.ui.showMessage?.('⚔️ DOUBLE KO — DRAW!', 2000);

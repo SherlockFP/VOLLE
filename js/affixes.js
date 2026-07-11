@@ -1,6 +1,7 @@
 // affixes.js — temporary map modifiers: damage zones that spawn mid-round.
 // Each zone is a red circle on the floor that damages anyone standing in it.
 import * as THREE from 'three';
+import { CHAOS_AFFIXES } from './chaos.js';
 
 const ZONE_LIFETIME_MIN = 5;
 const ZONE_LIFETIME_MAX = 8;
@@ -76,7 +77,8 @@ export class AffixManager {
                 ball._affixGlowColor = 0xff8800;
                 ball._affixReturn = true;
             }
-        }
+        },
+        ...CHAOS_AFFIXES
     ];
 
     constructor(arena, scene) {

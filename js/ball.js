@@ -150,6 +150,7 @@ export class Ball {
         this._affixGhost = false;
         this._affixReturn = false;
         this._affixReturnTimer = 0;
+        this._pinballBounce = false;
     }
 
     deactivate() {
@@ -171,6 +172,13 @@ export class Ball {
         this._affixGhost = false;
         this._affixReturn = false;
         this._affixReturnTimer = 0;
+        this._pinballBounce = false;
+        this._warmup = false;
+        this._affixSplit = false;
+        this._affixShrink = false;
+        this._affixGrow = false;
+        this._affixShrinkTimer = 0;
+        this._affixGrowTimer = 0;
     }
 
     update(dt) {
@@ -323,6 +331,24 @@ export class Ball {
             this.position.z += Math.cos(t * w.freq * 0.7) * w.amp * dt;
         }
 
+        // Chaos affixes: shrink (smaller + faster), grow (bigger + slower)
+        if (this._affixShrink && this.active) {
+            this._affixShrinkTimer += dt;
+            if (this._affixShrinkTimer < 10 && this.radius > 0.15) {
+                this.radius -= 0.05 * dt;
+                this.mesh.scale.multiplyScalar(1 - 0.05 * dt);
+                this.currentSpeed *= 1 + 0.05 * dt;
+            }
+        }
+        if (this._affixGrow && this.active) {
+            this._affixGrowTimer += dt;
+            if (this._affixGrowTimer < 10 && this.radius < 2.0) {
+                this.radius += 0.05 * dt;
+                this.mesh.scale.multiplyScalar(1 + 0.05 * dt);
+                this.currentSpeed *= 1 - 0.03 * dt;
+            }
+        }
+
         // Wall collision removed — ball goes outside map. Players chase it anywhere.
         let bounced = false;
         let bounceSpeed = 0;
@@ -383,10 +409,11 @@ export class Ball {
         const bb = this.arena.bounds;
         if (bb) {
             const m = this.radius + 0.5;
-            if (this.position.x < bb.minX + m) { this.position.x = bb.minX + m; this.velocity.x = Math.abs(this.velocity.x) * 0.5; }
-            if (this.position.x > bb.maxX - m) { this.position.x = bb.maxX - m; this.velocity.x = -Math.abs(this.velocity.x) * 0.5; }
-            if (this.position.z < bb.minZ + m) { this.position.z = bb.minZ + m; this.velocity.z = Math.abs(this.velocity.z) * 0.5; }
-            if (this.position.z > bb.maxZ - m) { this.position.z = bb.maxZ - m; this.velocity.z = -Math.abs(this.velocity.z) * 0.5; }
+            const wallRestitution = this._pinballBounce ? 1.2 : 0.5;
+            if (this.position.x < bb.minX + m) { this.position.x = bb.minX + m; this.velocity.x = Math.abs(this.velocity.x) * wallRestitution; }
+            if (this.position.x > bb.maxX - m) { this.position.x = bb.maxX - m; this.velocity.x = -Math.abs(this.velocity.x) * wallRestitution; }
+            if (this.position.z < bb.minZ + m) { this.position.z = bb.minZ + m; this.velocity.z = Math.abs(this.velocity.z) * wallRestitution; }
+            if (this.position.z > bb.maxZ - m) { this.position.z = bb.maxZ - m; this.velocity.z = -Math.abs(this.velocity.z) * wallRestitution; }
         }
 
         // Stuck detection: bounce çok hızlı tekrarlıyorsa top sıkışmıştır,
@@ -420,6 +447,12 @@ export class Ball {
         if (this.arena.checkPortalTeleport?.(this.position, this.radius)) {
             this.velocity.multiplyScalar(1.2);
             bounced = true; // ponytail: ses efekti için
+        }
+
+
+        // Portal collision — teleport ball through portals
+        if (this.arena?.checkPortalCollision) {
+            this.arena.checkPortalCollision(this);
         }
 
         // Return affix: timer expired → reverse direction

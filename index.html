@@ -182,6 +182,7 @@
                         <button class="cs-mode-btn mode-btn" data-mode="multiball">🏐🏐 Multi</button>
                         <button class="cs-mode-btn mode-btn" data-mode="freeze">🧊 Freeze</button>
                         <button class="cs-mode-btn mode-btn" data-mode="hotpotato">🥔 Potato</button>
+                        <button class="cs-mode-btn mode-btn" data-mode="competitive">🏆 Competitive</button>
                     </div>
                 </div>
 
@@ -197,6 +198,15 @@
                     <div class="lobby-chat-input-row">
                         <input type="text" id="lobby-chat-input" maxlength="80" placeholder="Type a message…" autocomplete="off">
                         <button id="lobby-chat-send" class="cs-btn-chat-send">➤</button>
+                    </div>
+                </div>
+                <!-- Friends (social) -->
+                <div class="cs-section cs-section-friends">
+                    <div class="cs-section-title">FRIENDS <span id="friends-count" class="friends-count"></span></div>
+                    <div class="friends-list" id="friends-list"><span class="friends-empty">No friends added</span></div>
+                    <div class="friends-input-row">
+                        <input type="text" id="friends-input" maxlength="32" placeholder="Add friend by name…" autocomplete="off">
+                        <button id="friends-add-btn" class="cs-btn-chat-send">+</button>
                     </div>
                 </div>
             </div>
@@ -253,6 +263,7 @@
                     <div class="settings-row">
                         <label>Field of View (FOV)</label>
                         <input type="range" id="setting-fov" min="60" max="110" value="75" step="5">
+                        <span id="fov-value" style="font-weight:700;color:var(--accent);min-width:40px;text-align:right;">75°</span>
                     </div>
                     <div class="settings-row">
                         <label>Crosshair Style</label>
@@ -292,6 +303,7 @@
                     <div class="settings-row"><label>VSync</label><select id="setting-vsync"><option value="off">Off</option><option value="on" selected>On</option></select></div>
                     <div class="settings-row"><label>FPS Limit</label><select id="setting-fps-limit"><option value="0">Unlimited</option><option value="30">30</option><option value="60" selected>60</option><option value="120">120</option><option value="144">144</option><option value="240">240</option></select></div>
                     <div class="settings-row"><label>Quality</label><select id="setting-quality"><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option></select></div>
+                    <div class="settings-row"><label>Resolution</label><select id="setting-resolution"><option value="1280x720">1280×720</option><option value="1366x768">1366×768</option><option value="1600x900">1600×900</option><option value="1920x1080" selected>1920×1080</option><option value="2560x1440">2560×1440</option><option value="3840x2160">3840×2160</option></select></div>
                     <div class="settings-row settings-row-toggle"><label>Portals</label><label class="toggle-switch"><input type="checkbox" id="setting-portals" checked><span class="toggle-slider"></span></label></div>
                 </div>
                 <!-- Gameplay -->
@@ -455,6 +467,16 @@
         </div>
     </div>
 
+    <!-- ===== PLAYER PROFILE ===== -->
+    <div id="screen-profile" class="screen hidden">
+        <div class="profile-container">
+            <h2>Player Profile</h2>
+            <div class="profile-rank" id="profile-rank"></div>
+            <div class="profile-stats" id="profile-stats"></div>
+            <button class="btn btn-back" onclick="ui.hideProfile()">Back</button>
+        </div>
+    </div>
+
     <!-- ===== LEADERBOARD ===== -->
     <div id="leaderboard-screen" class="screen hidden">
         <div class="panel wide-panel">
@@ -502,14 +524,19 @@
         <!-- Top Score Panel -->
         <div class="hud-top">
             <div class="hud-score-panel">
-                <div class="hud-team-score red" id="hud-red-score">0</div>
-                <div class="hud-timer" id="hud-timer">5:00</div>
-                <div class="hud-team-score blue" id="hud-blue-score">0</div>
+                <div class="hud-team-score red" id="hud-score-red">0</div>
+                <div class="hud-timer" id="hud-round-timer">5:00</div>
+                <div class="hud-team-score blue" id="hud-score-blue">0</div>
             </div>
         </div>
 
         <!-- Ball speed — clean top-right text -->
         <div id="hud-speed" class="hud-speed-text"></div>
+        <!-- Spectator target info -->
+        <div id="spectator-info" class="hidden hud-spectator-info"></div>
+
+        <!-- Ball affix indicator — pill badge top-center -->
+        <div id="ball-affix-indicator" class="hidden"></div>
 
         <!-- Player vitals (bottom-left): HP + Stamina -->
         <div id="vitals">
@@ -572,12 +599,16 @@
 
     <!-- ===== COMBO DISPLAY ===== -->
     <div id="combo-display" class="hidden"></div>
+    <div id="combo-meter"></div>
 
     <!-- ===== TF2 STYLE KILLCAM ===== -->
     <div id="killcam" class="hidden">
         <div id="killcam-text">YOU FAILED!</div>
         <div id="killcam-subtitle"></div>
     </div>
+
+    <!-- ===== ENHANCED KILLCAM OVERLAY ===== -->
+    <div id="killcam-overlay"><div class="killcam-killer"></div></div>
 
     <!-- ===== TEAM SWITCH OVERLAY (M) ===== -->
     <div id="team-overlay" class="hidden">
@@ -670,7 +701,7 @@
                     <div class="pg-xp-bar-fill" id="pg-xp-fill" style="width:0%"></div>
                     <span class="pg-xp-text" id="pg-xp-text"></span>
                 </div>
-                <div class="pg-stats" id="pg-stats"></div>
+                <div class="pg-stats" id="postgame-stats"></div>
                 <div id="pg-map-vote" class="hidden"></div>
                 <div class="pg-chat">
                     <div class="pg-chat-log" id="pg-chat-log"></div>

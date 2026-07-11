@@ -18,6 +18,7 @@ import { BALL_SKINS } from './ball.js';
 import { Console } from './console.js';
 import { Tutorial } from './tutorial.js';
 import { tournament } from './tournament.js';
+import { Friends } from './friends.js';
 import { CHARACTERS } from './characters.js';
 
 class App {
@@ -52,6 +53,17 @@ class App {
         this.network.game = this.game;
         this.player.game = this.game;
         this.player.audio = this.audio;
+
+        Spectator.onTargetChange = name => {
+            const el = document.getElementById('spectator-info');
+            if (!el) return;
+            if (Spectator.active) {
+                el.textContent = `👁 ${name}${Spectator.freeCam ? ' • FREE CAM' : ''}`;
+                el.classList.remove('hidden');
+            } else {
+                el.classList.add('hidden');
+            }
+        };
 
         // Loadout uygula
         this.applyLoadout();
@@ -527,6 +539,17 @@ class App {
         document.getElementById('lobby-chat-send')?.addEventListener('click', () => lobbySend());
         document.getElementById('lobby-chat-input')?.addEventListener('keydown', e => {
             if (e.code === 'Enter') lobbySend();
+        });
+
+        document.getElementById('friends-add-btn')?.addEventListener('click', () => {
+            const input = document.getElementById('friends-input');
+            const name = input?.value.trim();
+            if (name && name.length >= 2) {
+                if (Friends.add(name)) { this.refreshFriendsUI(); input.value = ''; }
+            }
+        });
+        document.getElementById('friends-input')?.addEventListener('keydown', e => {
+            if (e.code === 'Enter') document.getElementById('friends-add-btn')?.click();
         });
 
         // Lobby team card drag — host drags player cards to switch teams
@@ -1410,6 +1433,36 @@ class App {
         this.game.updateLobbyUI?.();
     }
 
+    refreshFriendsUI() {
+        const players = [];
+        if (this.game) {
+            players.push({ name: this.game.playerName });
+            this.game.bots.forEach(b => players.push({ name: b.name }));
+            this.game.remotePlayers.forEach(p => players.push({ name: p.name }));
+        }
+        const online = Friends.getOnline(players);
+        const el = document.getElementById('friends-list');
+        const countEl = document.getElementById('friends-count');
+        if (!el) return;
+        if (countEl) countEl.textContent = online.length ? `(${online.length} online)` : '';
+        if (!online.length) {
+            el.innerHTML = '<span class="friends-empty">No friends online</span>';
+            return;
+        }
+        el.innerHTML = online.map(n =>
+            `<span class="friend-tag" data-name="${n}">🟢 ${n}</span>`
+        ).join('');
+        el.querySelectorAll('.friend-tag').forEach(tag => {
+            tag.addEventListener('click', () => {
+                const name = tag.dataset.name;
+                if (confirm(`Remove ${name} from friends?`)) {
+                    Friends.remove(name);
+                    this.refreshFriendsUI();
+                }
+            });
+        });
+    }
+
     broadcastLobbyState() {
         if (!(this.network?.isHost)) return;
         const players = this.game.getPlayerList();
@@ -1585,6 +1638,7 @@ class App {
                 this.game.addRemotePlayer(peerId, pName, null, avatar);
                 this.ui.showMessage(`${pName} joined!`);
                 this.game.updateLobbyUI();
+                this.refreshFriendsUI();
                 // Mesh: tell existing clients to P2P-connect to the new peer
                 this.network.broadcast({ type: 'newPeer', peerId, name: pName });
                 this.broadcastLobbyState();
@@ -1594,6 +1648,7 @@ class App {
                 this.game.removeRemotePlayer(peerId);
                 this.ui.showMessage?.('A player left');
                 this.game.updateLobbyUI();
+                this.refreshFriendsUI();
                 // Mesh: tell remaining clients to drop P2P connection
                 this.network.broadcast({ type: 'peerLeft', peerId });
                 this.broadcastLobbyState();

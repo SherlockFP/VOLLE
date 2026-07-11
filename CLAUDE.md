@@ -1,13 +1,15 @@
 # 2BALL Project
 
 ## IMPORTANT: Read This First
-Before working on this project, ALWAYS read `docs/wiki/2BALL_Development_Log.md` — it contains the full development history, all features, bug fixes, and current state of the game.
+Before working on this project, ALWAYS read `MIMO.md` — it contains the current state, completed features, pending features, and file structure. For older dev history, see `docs/wiki/2BALL_Development_Log.md`.
 
 ## Quick Reference
 - **Game**: 2BALL — 3D First-Person Dodgeball (Three.js, vanilla JS)
 - **Server**: `node server.js` on port 8000
+- **Current State**: `MIMO.md` (updated 2026-07-11)
 - **Dev Log**: `docs/wiki/2BALL_Development_Log.md`
-- **Graphify**: Run `/graphify` to analyze the codebase knowledge graph
+- **Plan**: `PLAN.md` (19 tasks, 4 phases)
+- **Graphify**: Run `/graphify` to update code analysis
 
 ## Key Files
 - `js/ball.js` — Ball physics, homing, momentum, skins
