@@ -2811,6 +2811,8 @@ export class Game {
         if (data.map && this.arena.mapId !== data.map) {
             this.arena.rebuild(data.map);
         }
+        // ponytail: client skips warmup/countdown — host already playing
+        this._skipPreGame = true;
         this.startGame();
     }
 

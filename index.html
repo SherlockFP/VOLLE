@@ -80,6 +80,38 @@
                 <button id="btn-leaderboard" class="ow-link">📊 Leaderboard</button>
                 <span class="ow-hint">WASD move · L-Click deflect · Q skill · Tab scores · Y chat</span>
             </div>
+
+            <!-- Friends sidebar (Battlefield-style, right panel on main menu) -->
+            <div id="friends-sidebar" class="friends-sidebar">
+                <div class="friends-sidebar-header">
+                    <span>FRIENDS</span>
+                    <span class="friends-sidebar-count" id="fbar-count"></span>
+                    <button id="fbar-toggle" class="fbar-toggle-btn">−</button>
+                </div>
+                <div class="friends-sidebar-body" id="fbar-body">
+                    <div class="friends-sidebar-online" id="fbar-online">
+                        <div class="friends-sidebar-empty">No friends online</div>
+                    </div>
+                    <div class="friends-sidebar-offline" id="fbar-offline">
+                        <div class="friends-sidebar-subtitle">Offline</div>
+                        <div id="fbar-offline-list"></div>
+                    </div>
+                    <div class="friends-sidebar-add">
+                        <input type="text" id="fbar-add-input" placeholder="Add friend…" maxlength="32" autocomplete="off">
+                    </div>
+                    <div class="friends-chat-thread hidden" id="fbar-chat">
+                        <div class="friends-chat-header">
+                            <span class="friends-chat-name" id="fbar-chat-name"></span>
+                            <button class="friends-chat-close" id="fbar-chat-close">✕</button>
+                        </div>
+                        <div class="friends-chat-log" id="fbar-chat-log"></div>
+                        <div class="friends-chat-input-row">
+                            <input type="text" id="fbar-chat-input" placeholder="Type a message…" maxlength="120" autocomplete="off">
+                            <button id="fbar-chat-send">➤</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -224,39 +256,6 @@
             <button id="btn-start-game" class="cs-btn-start">▶ START GAME</button>
             <div class="cs-bottom-right">
                 <span class="cs-bot-count" id="cs-bot-count">Bots: 4</span>
-            </div>
-        </div>
-    </div>
-
-    <!-- ===== FRIENDS SIDEBAR (Battlefield-style, right side) ===== -->
-    <div id="friends-sidebar" class="friends-sidebar">
-        <div class="friends-sidebar-header">
-            <span>FRIENDS</span>
-            <span class="friends-sidebar-count" id="fbar-count"></span>
-            <button id="fbar-toggle" class="fbar-toggle-btn">−</button>
-        </div>
-        <div class="friends-sidebar-body" id="fbar-body">
-            <div class="friends-sidebar-online" id="fbar-online">
-                <div class="friends-sidebar-empty">No friends online</div>
-            </div>
-            <div class="friends-sidebar-offline" id="fbar-offline">
-                <div class="friends-sidebar-subtitle">Offline</div>
-                <div id="fbar-offline-list"></div>
-            </div>
-            <div class="friends-sidebar-add">
-                <input type="text" id="fbar-add-input" placeholder="Add friend…" maxlength="32" autocomplete="off">
-            </div>
-            <!-- Chat thread (hidden, shown when a friend is clicked) -->
-            <div class="friends-chat-thread hidden" id="fbar-chat">
-                <div class="friends-chat-header">
-                    <span class="friends-chat-name" id="fbar-chat-name"></span>
-                    <button class="friends-chat-close" id="fbar-chat-close">✕</button>
-                </div>
-                <div class="friends-chat-log" id="fbar-chat-log"></div>
-                <div class="friends-chat-input-row">
-                    <input type="text" id="fbar-chat-input" placeholder="Type a message…" maxlength="120" autocomplete="off">
-                    <button id="fbar-chat-send">➤</button>
-                </div>
             </div>
         </div>
     </div>

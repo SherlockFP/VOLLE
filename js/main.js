@@ -2049,13 +2049,21 @@ class App {
         // ponytail: pointer lock only when actively playing (no menus, no chat, no pause)
         const pauseOpen = !document.getElementById('pause-menu')?.classList.contains('hidden');
         const settingsOpen = !document.getElementById('unified-settings')?.classList.contains('hidden');
+        const teamPopup = this.ui.isTeamPopupOpen?.();
         const canLock = (this.game.state === STATES.PLAYING || this.game.state === STATES.COUNTDOWN || this.game.state === STATES.CELEBRATION)
-            && !pauseOpen && !settingsOpen && !this.chatOpen;
+            && !pauseOpen && !settingsOpen && !this.chatOpen && !teamPopup;
         if (canLock && !document.pointerLockElement) {
             if (!this._plRetry || performance.now() - this._plRetry > 500) {
                 this._plRetry = performance.now();
                 try { this.renderer.renderer.domElement.requestPointerLock()?.catch?.(() => {}); } catch (_) {}
             }
+        }
+
+        // Hide friends sidebar during gameplay
+        const sidebar = document.getElementById('friends-sidebar');
+        if (sidebar) {
+            const inGame = this.game.state === STATES.PLAYING || this.game.state === STATES.COUNTDOWN || this.game.state === STATES.CELEBRATION || this.game.state === STATES.ROUND_END || this.game.state === STATES.GAME_OVER;
+            sidebar.classList.toggle('hidden', inGame);
         }
 
         // Spectator mode overrides player input

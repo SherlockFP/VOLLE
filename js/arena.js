@@ -2258,17 +2258,17 @@ export class Arena {
     }
 
     updatePortals(dt) {
+        if (!this.portals) return;
         this.portalTimer += dt;
         this.portals.forEach(p => { p.mesh.rotation.z += dt * 2; });
         if (this.portalTimer >= this.portalSwapInterval) {
             this.portalTimer = 0;
-            const tmp = this.portals[0].mesh.position.clone();
-            this.portals[0].mesh.position.copy(this.portals[1].mesh.position);
-            this.portals[1].mesh.position.copy(tmp);
+            this.portalSwapInterval = 0;
         }
     }
 
     checkPortalCollision(ball) {
+        if (!this.portals) return false;
         for (const portal of this.portals) {
             if (ball.position.distanceTo(portal.mesh.position) < 3) {
                 ball.position.copy(portal.exit.position);
