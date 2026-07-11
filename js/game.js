@@ -1462,7 +1462,10 @@ export class Game {
         }
         if (attacker) attacker.recordDamageDealt(dmg);
         hitTarget.onMissDeflect();
-        if (hitTarget.runeBonuses?.thorns && attacker && attacker !== hitTarget) {
+        // ponytail: thorns host-only — client's attacker is this.player, not remote wrapper.
+        // Host applies thorns to remote wrapper (no visible effect). Client skipping prevents
+        // self-damage since host never broadcasts attacker correction for thorns.
+        if (!isClient && hitTarget.runeBonuses?.thorns && attacker && attacker !== hitTarget) {
             attacker.takeDamage(hitTarget.runeBonuses.thorns);
             if (attacker.drawHpBar) attacker.drawHpBar();
         }

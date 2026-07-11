@@ -436,22 +436,21 @@ export class Bot {
 
     tryDeflect(ball, dt = 0.016) {
         if (this.attacking || this.attackTimer > 0) return false;
+        const dist = ball.distanceTo(this.getPosition());
 
-        // Top menzil dışındaysa: refleks ve "bu geliş" kararını sıfırla — her yeni
-        // yaklaşım için deflectChance yeniden roll edilsin.
-        if (!ball.isInAttackRange(this.getPosition())) {
+        // Build reaction timer when ball is within alert range (~8 units),
+        // not just attackRange (2.0). Ball at 17u/s crosses 2.0 in 0.12s,
+        // shorter than any bot's reactionTime — old code never filled timer.
+        // ponytail: alert range ~ ballSpeed * maxReactionTime + attackRange
+        if (dist > 8) {
             this.reactionTimer = 0;
             this._deflectDecided = false;
             return false;
         }
-
-        // Refleks gecikmesi — top menzile girdikten sonra reactionTime kadar bekle.
-        // easy botlar geç, hard botlar neredeyse anında reaksiyon verir.
         this.reactionTimer += dt;
         if (this.reactionTimer < this.reactionTime) return false;
+        if (dist > ball.attackRange) return false;
 
-        // Bu yaklaşım için deflect edip etmeyeceğine BİR KEZ karar ver.
-        // deflectChance başarısızsa top kaçar → bot hasar alır (zorluk çeşitliliği).
         if (!this._deflectDecided) {
             this._deflectDecided = true;
             this._willDeflect = Math.random() < this.deflectChance;
@@ -461,7 +460,7 @@ export class Bot {
         this.attacking = true;
         this.attackTimer = 0.3;
         this.deflectionCount++;
-        this._deflectDecided = false; // sonraki geliş için sıfırla
+        this._deflectDecided = false;
         return true;
     }
 

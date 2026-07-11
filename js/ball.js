@@ -794,6 +794,7 @@ export class Ball {
     // Client-side: visual-only update when lerping from network
     _clientVisualUpdate(dt) {
         this.mesh.position.copy(this.position);
+        if (this._noHitTimer > 0) this._noHitTimer -= dt;
 
         // Rotation
         const baseRot = 2 + this.currentSpeed * 0.15;
