@@ -1186,9 +1186,7 @@ export class Game {
             });
             // Prevent duplicate sends from bg loop / main loop
             this.player._p2pAttackQueued = false;
-            // ponytail: minimal local feedback — host broadcasts authoritative hit sound
-            const ballSpeed = this.ball.getSpeed();
-            this.audio.playWhoosh(ballSpeed);
+            // ponytail: no local hit sound — host broadcasts authoritative tf2_hit + playDeflect via remoteAttackAnim
             this.player.kick('flat');
             const slashDir = new THREE.Vector3().subVectors(this.ball.position, pos).normalize();
             this.juice.slashEffect(pos.clone().add(new THREE.Vector3(0, 1, 0)), slashDir, 0x00ffee);
@@ -2917,6 +2915,7 @@ export class Game {
         this.lastDeflector = p;
         this.lastDeflectorTeam = p.team;
         this.rallyCount = Math.max(this.rallyCount, data.rally ?? this.rallyCount);
+        this.audio?.playSfx?.('tf2_hit', 0.15);
         if (data.shot && this.audio?.playDeflect) {
             this.audio.playDeflect(data.shot);
         }
