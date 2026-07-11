@@ -25,7 +25,7 @@ export class Ball {
         this.baseSpeed = 17;
         this.currentSpeed = this.baseSpeed;
         this.speedMultiplier = 1.08;            // her deflect %6 ramp
-        this.maxSpeed = 80;                     // ponytail: real cap — 999 was no cap, caused runaway
+        this.maxSpeed = 999;
         this.deflections = 0;
         this.radius = 0.47;
         this.attackRange = 2.0;
@@ -187,9 +187,6 @@ export class Ball {
             return false;
         }
 
-        // Clamp her frame, her state'te — runaway önleme
-        if (this.currentSpeed > this.maxSpeed) this.currentSpeed = this.maxSpeed;
-
         // Rainbow skin — HSL döngü
         if (this.skinConfig?.rainbow) {
             const t = performance.now() / 1000;
@@ -321,16 +318,16 @@ export class Ball {
         if (Math.abs(this.spin) > 0.001) {
             const speed = this.velocity.length();
             const vx = this.velocity.x, vz = this.velocity.z;
-            const s = this.spin * dt * (1 + speed * 0.015); // faster ball = sharper curve
+            const s = this.spin * dt * (1 + speed * 0.025);
             this.velocity.x = vx * Math.cos(s) - vz * Math.sin(s);
             this.velocity.z = vx * Math.sin(s) + vz * Math.cos(s);
 
             // Magnus vertical lift — spin × speed curves ball up/down
-            const magnus = this.spin * speed * 0.6 * dt;
+            const magnus = this.spin * speed * 1.0 * dt;
             this.velocity.y += magnus;
 
-            // Spin decay — slower fade = longer curve
-            this.spin *= Math.exp(-0.5 * dt);
+            // Spin decay — longer fade = shapelier curve
+            this.spin *= Math.exp(-0.3 * dt);
         }
 
         // Wall collision removed — ball goes outside map. Players chase it anywhere.
@@ -520,10 +517,7 @@ export class Ball {
     }
 
     // Keep speed locked to currentSpeed — gravity/spin may nudge magnitude, this resets it.
-    // ponytail: clamp currentSpeed to maxSpeed every frame so skills/perfect catch/portal
-    // can't compound past the cap between deflections. Prevents 2000+ runaway ball.
     _clampSpeed() {
-        if (this.currentSpeed > this.maxSpeed) this.currentSpeed = this.maxSpeed;
         const sp = this.velocity.length();
         if (sp > 0.001) this.velocity.multiplyScalar(this.currentSpeed / sp);
     }
@@ -548,7 +542,7 @@ export class Ball {
         const speedPct = this.currentSpeed / this.baseSpeed;
         let rampMul = this.speedMultiplier;
         if (speedPct > 5) rampMul = 1 + (this.speedMultiplier - 1) * (5 / speedPct);
-        this.currentSpeed = Math.min(this.currentSpeed * rampMul, this.maxSpeed);
+        this.currentSpeed = this.currentSpeed * rampMul;
         this.state = 'rally';
         this.aimed = true;
 
@@ -561,7 +555,7 @@ export class Ball {
 
         if (spike) {
             shot = 'spike';
-            speed = Math.min(this.currentSpeed * 1.2 * powerBonus, this.maxSpeed * 1.1 * deflectPower);
+            speed = this.currentSpeed * 1.2 * powerBonus;
             const dir = aimDir.clone();
             dir.y = Math.min(dir.y - 0.3, -0.1);
             dir.normalize();
@@ -596,12 +590,12 @@ export class Ball {
         const flickPower = flick.power || 0;
         this.spin = 0;
         if (flickPower > 0.3) {
-            const hSpin = Math.sign(flick.horizontal || 0) * flickPower * 0.8;
-            const vSpin = -Math.sign(flick.vertical || 0) * flickPower * 0.5;
-            this.spin = Math.min(1.5, Math.max(-1.5, hSpin + vSpin));
+            const hSpin = Math.sign(flick.horizontal || 0) * flickPower * 1.4;
+            const vSpin = -Math.sign(flick.vertical || 0) * flickPower * 0.9;
+            this.spin = Math.min(3.0, Math.max(-3.0, hSpin + vSpin));
         }
 
-        this.currentSpeed = Math.min(speed, this.maxSpeed * 1.2 * deflectPower);
+        this.currentSpeed = speed;
         this.lastShot = shot;
         this.updateColor();
         // Return affix: ball reverses after 0.6s, single use
@@ -619,7 +613,7 @@ export class Ball {
         const speedPct = this.currentSpeed / this.baseSpeed;
         let rampMul = this.speedMultiplier;
         if (speedPct > 5) rampMul = 1 + (this.speedMultiplier - 1) * (5 / speedPct);
-        this.currentSpeed = Math.min(this.currentSpeed * rampMul * deflectPower, this.maxSpeed * deflectPower);
+        this.currentSpeed = this.currentSpeed * rampMul * deflectPower;
         this.state = 'rally';
         this.aimed = false;
 
@@ -676,7 +670,7 @@ export class Ball {
         // Speed scales with how long you orbited
         const bonus = 1 + Math.max(0, (2.5 - (this.orbitTimer || 0)) / 2.5); // up to 2x at full duration
         const speed = this.baseSpeed * 1.2 * bonus;
-        this.currentSpeed = Math.min(speed, this.maxSpeed);
+        this.currentSpeed = speed;
         const dir = new THREE.Vector3(aimDir.x, 0, aimDir.z).normalize();
         this.velocity.copy(dir.multiplyScalar(this.currentSpeed));
         this.velocity.y = this.currentSpeed * 0.25;
@@ -705,7 +699,7 @@ export class Ball {
         this.state = 'rally';
         this.aimed = true;
         const speed = this.baseSpeed * (1 + charge * 0.8);
-        this.currentSpeed = Math.min(speed, this.maxSpeed);
+        this.currentSpeed = speed;
         const dir = new THREE.Vector3(aimDir.x, 0, aimDir.z).normalize();
         this.velocity.copy(dir.multiplyScalar(this.currentSpeed));
         this.velocity.y = this.currentSpeed * 0.25;

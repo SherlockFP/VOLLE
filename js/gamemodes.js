@@ -74,8 +74,8 @@ export function applyMode(game, modeId) {
 
     // Reset stats to defaults to avoid compounding speed/HP bugs
     game.ball.baseSpeed = 17 * (game.ball.skinConfig?.speedBonus || 1);
-    game.ball.speedMultiplier = 1.04;
-    game.ball.maxSpeed = 60;
+    game.ball.speedMultiplier = 1.03;
+    game.ball.maxSpeed = 999;
 
     game.player.gravity = -20;
     game.player.jumpForce = 8;
