@@ -3646,7 +3646,7 @@ export class Game {
         this._winningTeam = data.winner || null;
         this._won = this._winningTeam !== null && this.player.team === this._winningTeam;
         this.ball.deactivate();
-        this.player.lock();
+        this.player.unlock();
         this.player._celebNoAttack = (this.player.team !== this._winningTeam);
         this.ui.setPlayerTarget(false);
         this.bots.forEach(bot => bot.setTargetOutline(false));

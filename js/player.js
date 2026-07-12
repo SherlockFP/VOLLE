@@ -59,13 +59,13 @@ export class Player {
         this.exhausted = false;
 
         // Sprint — hold Shift, drains stamina
-        this.sprintMultiplier = 1.5;
+        this.sprintMultiplier = 1.3;
         this.sprintDrain = 50;       // stamina per second (net after regen block)
 
         // Dash — tap Ctrl, burst in movement direction
         this.dashCooldown = 0;
         this.dashCost = 25;
-        this.dashForce = 20;
+        this.dashForce = 12;
         this.dashDuration = 0.12;
         this.dashTimer = 0;
         this.dashDir = new THREE.Vector3();

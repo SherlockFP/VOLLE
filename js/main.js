@@ -249,6 +249,9 @@ class App {
             }
         }, { signal: this._mainAbort.signal });
 
+        // ponytail: mouse-follow glow + custom cursor for main menu
+        this._setupMenuMouse();
+
         this.setupMenuHandlers();
         this.refreshMetaStats();
         this.ui.showScreen('mainMenu');
@@ -350,6 +353,35 @@ class App {
         // Replay kaydet
         const replay = Replay.stopRecording();
         if (replay && replay.events.length > 5) Replay.save(replay);
+    }
+
+    // ponytail: mouse-follow glow + custom ball cursor on the main menu
+    _setupMenuMouse() {
+        const menu = document.getElementById('main-menu');
+        const glow = menu?.querySelector('.ow-mouse-glow');
+        const cursor = menu?.querySelector('.ow-cursor');
+        if (!menu || !glow || !cursor) return;
+        const onMove = (e) => {
+            const x = (e.clientX / window.innerWidth) * 100;
+            const y = (e.clientY / window.innerHeight) * 100;
+            menu.style.setProperty('--mx', x + '%');
+            menu.style.setProperty('--my', y + '%');
+            cursor.style.left = e.clientX + 'px';
+            cursor.style.top = e.clientY + 'px';
+        };
+        const onDown = () => { cursor.style.transform = 'scale(0.7)'; };
+        const onUp = () => { cursor.style.transform = 'scale(1)'; };
+        // Only react when the menu is visible
+        const handler = (e) => {
+            if (menu.classList.contains('hidden')) return;
+            onMove(e);
+        };
+        document.addEventListener('mousemove', handler, { signal: this._mainAbort.signal });
+        document.addEventListener('mousedown', onDown, { signal: this._mainAbort.signal });
+        document.addEventListener('mouseup', onUp, { signal: this._mainAbort.signal });
+        // Hide custom cursor when leaving the menu
+        menu.addEventListener('mouseleave', () => { cursor.style.opacity = '0'; });
+        menu.addEventListener('mouseenter', () => { cursor.style.opacity = '1'; });
     }
 
     setupMenuHandlers() {
