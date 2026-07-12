@@ -8,14 +8,14 @@ export const MAPS = {
     beach: {
         name: '🏖️ Beach Arena',
         courtWidth: 106, courtLength: 120, wallHeight: 22, ceilingHeight: 31,
-        floorRed: 0xf0b878, floorBlue: 0x7fd0e8, wallColor: 0xeaf2ff,
+        floorRed: 0xe8a050, floorBlue: 0x7fd0e8, wallColor: 0xeaf2ff,
         skyTop: 0x3aa5ff, skyBottom: 0xcfeeff, fogColor: 0xcfeeff,
         hasOcean: true, hasGlass: true, size: 'medium', weather: 'clear', openSides: true
     },
     beach_open: {
         name: '🏐 Beach Volleyball',
         courtWidth: 76, courtLength: 77, wallHeight: 9, ceilingHeight: 0,
-        floorRed: 0xf0d090, floorBlue: 0xd0b878, wallColor: 0xf0d090,
+        floorRed: 0xe8a050, floorBlue: 0xd0a860, wallColor: 0xf0d090,
         skyTop: 0x3aa5ff, skyBottom: 0xcfeeff, fogColor: 0xcfeeff,
         hasOcean: true, hasGlass: false, openAir: true, isBeachOpen: true, size: 'small', weather: 'clear', noSides: true
     },

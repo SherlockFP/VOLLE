@@ -722,7 +722,12 @@ export class Game {
             headTexture = new THREE.Texture(img);
             headTexture.magFilter = THREE.NearestFilter;
             headTexture.minFilter = THREE.NearestFilter;
-            img.onload = () => { headTexture.needsUpdate = true; };
+            img.onload = () => {
+                headTexture.needsUpdate = true;
+                // Async: after head load, apply avatar pixel colors to body/arms/legs
+                const p = this.remotePlayers.get(peerId);
+                if (p && p.bodyMesh) _applyAvatarColors(img, p, color);
+            };
         }
 
         // Head — cube with avatar texture (Minecraft style)
@@ -794,7 +799,8 @@ export class Game {
             peerId, name, team, group,
             headMesh, bodyMesh, leftArm, rightArm, leftLeg, rightLeg,
             targetOutline,
-            _outlineActive: false,
+            _outlineActive: false, _teamColor: color,
+            _avatarBodyColors: null,
             setTargetOutline(show) {
                 if (this.targetOutline) this.targetOutline.visible = show;
                 this._outlineActive = show;
@@ -820,12 +826,9 @@ export class Game {
             revive() { this.alive = true; this.hp = this.maxHp; this.consecutiveMisses = 0; this.group.visible = true; },
             setTeam(nextTeam) {
                 this.team = nextTeam;
-                const c = nextTeam === 'red' ? 0xcc3333 : 0x3355cc;
-                if (this.bodyMesh) this.bodyMesh.material.color.setHex(c);
-                if (this.leftArm) this.leftArm.material.color.setHex(c);
-                if (this.rightArm) this.rightArm.material.color.setHex(c);
-                if (this.leftLeg) this.leftLeg.material.color.setHex(c);
-                if (this.rightLeg) this.rightLeg.material.color.setHex(c);
+                this._teamColor = nextTeam === 'red' ? 0xcc3333 : 0x3355cc;
+                this._avatarBodyColors = null;
+                _applyTeamColor(this, this._teamColor);
             },
             // Update head texture when avatar changes (mesh sync)
             setAvatarTexture(dataUrl) {
@@ -837,12 +840,18 @@ export class Game {
                     const tex = new THREE.Texture(img);
                     tex.magFilter = THREE.NearestFilter;
                     tex.minFilter = THREE.NearestFilter;
-                    img.onload = () => { tex.needsUpdate = true; };
+                    img.onload = () => {
+                        tex.needsUpdate = true;
+                        _applyAvatarColors(img, this, this._teamColor);
+                    };
                     this.headMesh.material.map = tex;
                     this.headMesh.material.color.setHex(0xffffff);
                 } else {
                     this.headMesh.material.map = null;
                     this.headMesh.material.color.setHex(0xffd0aa);
+                    // Reset body to team color
+                    this._avatarBodyColors = null;
+                    _applyTeamColor(this, this._teamColor);
                 }
                 this.headMesh.material.needsUpdate = true;
             }
@@ -1421,26 +1430,45 @@ export class Game {
         const ballDir = new THREE.Vector3().subVectors(this.ball.position, pos).normalize();
         if (!skipAimCheck && aimDir.dot(ballDir) < -0.2) return;
 
-        // ponytail: client predicts deflect locally and sends intent to host.
-        // Host's remoteAttack does the authoritative physics + resolves races.
-        const isClient3 = this.network?.connected && !this.network?.isHost;
-        if (isClient3) {
-            this._ballPredicting = true;
-            setTimeout(() => { this._ballPredicting = false; }, 200);
+        // ponytail: client-side prediction. Deflect locally for instant feedback,
+        // send intent to host. Host broadcasts authoritative state to correct if needed.
+        const isClientCP = this.network?.connected && !this.network?.isHost;
+        if (isClientCP) {
             this.player.attacking = false;
-            // ponytail: send attack intent to host — host does the actual deflect
+            this.player._p2pAttackQueued = false;
+            // Predict deflection locally
             const flick = this.player.getFlick();
+            const nextTarget = this.getAimedEnemy(pos, aimDir, team);
+            const result = this.ball.deflectWithAim(pos, aimDir, nextTarget, flick, null, this.player.deflectPower);
+            if (nextTarget) this.ball.setTarget(nextTarget);
+            if (this.ball._affixSplit) this.spawnSplitBall(this.ball);
+            this.lastDeflector = this.player;
+            this.lastDeflectorTeam = team;
+            this._pushDeflectHistory(this.playerName);
+            this.ball.lastShotBy = this.playerName;
+            this.rallyCount++;
+            this.player.onSuccessfulDeflect();
+            this.scoreboard.recordDeflection(this.playerName);
+            // Update ball smoothing target to match predicted state
+            this._ballTarget = {
+                x: this.ball.position.x, y: this.ball.position.y, z: this.ball.position.z,
+                vx: this.ball.velocity.x, vy: this.ball.velocity.y, vz: this.ball.velocity.z
+            };
+            this._ballTargetTime = performance.now();
+            // Send attack intent to host for authoritative processing
+            const localFlick = this.player.getFlick();
             this.network?.sendAttack?.({
                 name: this.playerName, team: this.player.team,
                 x: pos.x, y: pos.y, z: pos.z,
                 ax: aimDir.x, ay: aimDir.y, az: aimDir.z,
                 bx: this.ball.position.x, by: this.ball.position.y, bz: this.ball.position.z,
-                flick: { vertical: flick?.vertical || 0, horizontal: flick?.horizontal || 0, power: flick?.power || 0 }
+                flick: { vertical: localFlick?.vertical || 0, horizontal: localFlick?.horizontal || 0, power: localFlick?.power || 0 }
             });
-            // Prevent duplicate sends from bg loop / main loop
-            this.player._p2pAttackQueued = false;
-            // ponytail: no local hit sound — host broadcasts authoritative tf2_hit + playDeflect via remoteAttackAnim
-            this.player.kick('flat');
+            // Effects
+            this.player.kick(result.shot);
+            this.audio.playSfx(result.shot === 'spike' ? 'tf2_frying_pan' : 'tf2_hit', 0.35);
+            this.audio.playDeflect(result.shot);
+            this.audio.playWhoosh(this.ball.getSpeed());
             const slashDir = new THREE.Vector3().subVectors(this.ball.position, pos).normalize();
             this.juice.slashEffect(pos.clone().add(new THREE.Vector3(0, 1, 0)), slashDir, 0x00ffee);
             this.juice.sparks(this.ball.position.clone(), 0xff8844, 6);
@@ -3626,4 +3654,49 @@ export class Game {
         ctx.fillText((name || '?').charAt(0).toUpperCase(), 32, 34);
         return c;
     }
+}
+
+// Avatar pixel color extraction — reads 16×16 skin data and applies to body parts
+function _applyAvatarColors(img, p, fallbackColor) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 16; canvas.height = 16;
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(img, 0, 0, 16, 16);
+    const pixels = ctx.getImageData(0, 0, 16, 16).data;
+    const avg = (y0, y1) => {
+        let r = 0, g = 0, b = 0, n = 0;
+        for (let y = y0; y < y1; y++) {
+            for (let x = 0; x < 16; x++) {
+                const i = (y * 16 + x) * 4;
+                if (pixels[i + 3] > 128) { r += pixels[i]; g += pixels[i+1]; b += pixels[i+2]; n++; }
+            }
+        }
+        return n > 0 ? new THREE.Color(r/n/255, g/n/255, b/n/255) : null;
+    };
+    p._avatarBodyColors = {
+        body: avg(4, 8) || new THREE.Color(fallbackColor),
+        arms: avg(8, 12) || new THREE.Color(fallbackColor),
+        legs: avg(12, 16) || new THREE.Color(fallbackColor)
+    };
+    _applyFromColors(p);
+}
+
+function _applyFromColors(p) {
+    const c = p._avatarBodyColors;
+    if (!c) { _applyTeamColor(p, p._teamColor); return; }
+    if (p.bodyMesh) p.bodyMesh.material.color.copy(c.body);
+    if (p.leftArm) p.leftArm.material.color.copy(c.arms);
+    if (p.rightArm) p.rightArm.material.color.copy(c.arms);
+    if (p.leftLeg) p.leftLeg.material.color.copy(c.legs);
+    if (p.rightLeg) p.rightLeg.material.color.copy(c.legs);
+}
+
+function _applyTeamColor(p, hex) {
+    if (p._avatarBodyColors) { _applyFromColors(p); return; }
+    if (p.bodyMesh) p.bodyMesh.material.color.setHex(hex);
+    if (p.leftArm) p.leftArm.material.color.setHex(hex);
+    if (p.rightArm) p.rightArm.material.color.setHex(hex);
+    if (p.leftLeg) p.leftLeg.material.color.setHex(hex);
+    if (p.rightLeg) p.rightLeg.material.color.setHex(hex);
 }
