@@ -2076,28 +2076,40 @@ class App {
         if (moved) {
             this._bgPosKeepalive = 0;
             this._bgPosSent.set(key, { pos: pos.clone(), ry: p.euler.y });
-            this.network.sendPosition(pos, p.euler.y, {
-                name: this.game.playerName, team: p.team, alive: p.alive,
-                hp: p.hp, ax: p.getAimDirection().x, ay: p.getAimDirection().y, az: p.getAimDirection().z,
-                charId: p.charId
-            });
+            // ponytail: delta-compress — only changed static/rarely-changed fields
+            this._bgLastFull = this._bgLastFull || {};
+            const prev = this._bgLastFull;
+            const extra = {
+                ax: p.getAimDirection().x, ay: p.getAimDirection().y, az: p.getAimDirection().z
+            };
+            if (prev.name !== this.game.playerName) { extra.name = this.game.playerName; prev.name = this.game.playerName; }
+            if (prev.team !== p.team) { extra.team = p.team; prev.team = p.team; }
+            if (prev.charId !== p.charId) { extra.charId = p.charId; prev.charId = p.charId; }
+            if (prev.alive !== p.alive) { extra.alive = p.alive; prev.alive = p.alive; }
+            if (prev.hp !== p.hp) { extra.hp = p.hp; prev.hp = p.hp; }
+            this.network.sendPosition(pos, p.euler.y, extra);
         }
     }
     // Host slow-rate broadcasts: score 2Hz, powerUp 2Hz, ballState 15Hz
     _hostBgSlowBroadcast(dt) {
         if (!this.network?.isHost) return;
-        // BallState her tick'te (20fps)
+        // BallState — position/velocity every tick (20fps); only send state/target on change
         if (this.game.ball.active || this.game.ball.state !== 'idle') {
             this._ballSeq = (this._ballSeq || 0) + 1;
+            const b = this.game.ball;
+            const newState = b.state;
+            const newTarget = b.targetPlayer?.name || null;
+            // ponytail: delta — only include state/target when they change (rare)
+            const ballExtra = {};
+            if (this._lastBallState !== newState) { ballExtra.state = newState; this._lastBallState = newState; }
+            if (this._lastBallTarget !== newTarget) { ballExtra.targetName = newTarget; this._lastBallTarget = newTarget; }
             this.network.broadcast({
                 type: 'ballState',
                 seq: this._ballSeq,
-                x: this.game.ball.position.x, y: this.game.ball.position.y, z: this.game.ball.position.z,
-                vx: this.game.ball.velocity.x, vy: this.game.ball.velocity.y, vz: this.game.ball.velocity.z,
-                speed: this.game.ball.currentSpeed, active: this.game.ball.active,
-                state: this.game.ball.state,
-                targetId: this.game.ball.targetPlayer?.peerId || null,
-                targetName: this.game.ball.targetPlayer?.name || null
+                x: b.position.x, y: b.position.y, z: b.position.z,
+                vx: b.velocity.x, vy: b.velocity.y, vz: b.velocity.z,
+                speed: b.currentSpeed, active: b.active,
+                ...ballExtra
             });
         }
         // Score 2Hz
@@ -2298,12 +2310,20 @@ class App {
                     this._p2pKeepalive = 0;
                     if (!this._lastSentPos) this._lastSentPos = new Map();
                     this._lastSentPos.set(lastKey, { pos: p.position.clone(), ry: p.euler.y });
-                    this.network.sendPosition(p.position, p.euler.y, {
-                        name: this.game.playerName, team: p.team, alive: p.alive,
-                        hp: p.hp, ax: p.getAimDirection().x, ay: p.getAimDirection().y, az: p.getAimDirection().z,
-                        charId: p.charId,
+                    // ponytail: delta-compress — only send static/rarely-changed fields when they change
+                    if (!this._p2pLastFull) this._p2pLastFull = new Map();
+                    const prev = this._p2pLastFull.get(lastKey) || {};
+                    const extra = {
+                        ax: p.getAimDirection().x, ay: p.getAimDirection().y, az: p.getAimDirection().z,
                         clientTime: performance.now()
-                    });
+                    };
+                    if (prev.name !== this.game.playerName) { extra.name = this.game.playerName; prev.name = this.game.playerName; }
+                    if (prev.team !== p.team) { extra.team = p.team; prev.team = p.team; }
+                    if (prev.charId !== p.charId) { extra.charId = p.charId; prev.charId = p.charId; }
+                    if (prev.alive !== p.alive) { extra.alive = p.alive; prev.alive = p.alive; }
+                    if (prev.hp !== p.hp) { extra.hp = p.hp; prev.hp = p.hp; }
+                    this._p2pLastFull.set(lastKey, prev);
+                    this.network.sendPosition(p.position, p.euler.y, extra);
                 }
             }
         }

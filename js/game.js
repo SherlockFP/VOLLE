@@ -2947,7 +2947,9 @@ export class Game {
                 if (buf?.length === 1) {
                     p.position.set(buf[0].x, buf[0].y, buf[0].z);
                 }
-                p.group.position.copy(p.position).add(new THREE.Vector3(0, -1.2, 0));
+                // ponytail: bots have feet at origin (position.y=0); real players carry height (~1.2)
+                const yOff = p.isBotEntity ? 0 : -1.2;
+                p.group.position.copy(p.position).add(new THREE.Vector3(0, yOff, 0));
                 continue;
             }
             // Find two snapshots bracketing renderTime
@@ -2974,7 +2976,9 @@ export class Game {
             while (buf.length > 2 && buf[1].time < renderTime - 100) {
                 buf.shift();
             }
-            p.group.position.copy(p.position).add(new THREE.Vector3(0, -1.2, 0));
+            // ponytail: bots have feet at origin (position.y=0); real players carry height (~1.2)
+            const yOff = p.isBotEntity ? 0 : -1.2;
+            p.group.position.copy(p.position).add(new THREE.Vector3(0, yOff, 0));
 
             // Target outline pulse
             if (p._outlineActive && p.targetOutline?.visible) {
@@ -3027,8 +3031,10 @@ export class Game {
 
         const attackPos = new THREE.Vector3(data.x ?? p.position.x, data.y ?? p.position.y, data.z ?? p.position.z);
         const clientBallPos = new THREE.Vector3(data.bx ?? this.ball.position.x, data.by ?? this.ball.position.y, data.bz ?? this.ball.position.z);
-        // Trust client-side range, generous 2x
-        if (attackPos.distanceTo(clientBallPos) < this.ball.attackRange * 2) {
+        // ponytail: trust client range check; also accept if near authoritative ball pos
+        // (client ball render lags via smoothing, so clientBallPos can desync from host ball)
+        const hostBallDist = attackPos.distanceTo(this.ball.position);
+        if (hostBallDist < this.ball.attackRange * 3.5 || attackPos.distanceTo(clientBallPos) < this.ball.attackRange * 2) {
             this.ball.position.copy(clientBallPos);
             const target = this.getAimedEnemy(attackPos, p.aimDir, p.team);
             const isPerfect = this.ball.isPerfectCatch();
@@ -3169,7 +3175,9 @@ export class Game {
                 this.scoreboard.addPlayer(p.name, p.team, { peerId });
                 const spawn = this.arena.getPlayerSpawn(p.team);
                 p.position.copy(spawn);
-                p.group.position.copy(p.position).add(new THREE.Vector3(0, -1.2, 0));
+                // ponytail: bots have feet at origin (position.y=0); real players carry height (~1.2)
+                const yOff = p.isBotEntity ? 0 : -1.2;
+                p.group.position.copy(p.position).add(new THREE.Vector3(0, yOff, 0));
                 p.group.rotation.y = p.team === 'red' ? 0 : Math.PI;
                 p.alive = true;
                 p.group.visible = true;
@@ -3209,8 +3217,13 @@ export class Game {
             this.clearSplitBalls();
             this.chaosManager?.clear();
             this._clearAllPowerUps();
-            const hostState = data.state === STATES.COUNTDOWN ? STATES.PLAYING : data.state;
-            this.setState(hostState || STATES.PLAYING);
+            // ponytail: host in COUNTDOWN -> show countdown on client too, then go PLAYING
+            if (data.state === STATES.COUNTDOWN) {
+                this.setState(STATES.COUNTDOWN);
+                this.ui.showCountdown(3, () => { this.setState(STATES.PLAYING); });
+            } else {
+                this.setState(data.state || STATES.PLAYING);
+            }
         }
     }
 
