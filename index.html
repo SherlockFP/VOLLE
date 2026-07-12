@@ -17,6 +17,18 @@
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
 <body>
+    <!-- Loading Screen -->
+    <div id="loading-screen">
+        <div class="loading-content">
+            <div class="loading-logo">VOLLE</div>
+            <div class="loading-bar-track"><div class="loading-bar-fill"></div></div>
+            <div class="loading-status">Loading assets...</div>
+        </div>
+    </div>
+
+    <!-- Menu particle canvas -->
+    <canvas id="menu-particles"></canvas>
+
     <!-- 3D Canvas Container -->
     <div id="game-container"></div>
 
@@ -538,6 +550,16 @@
             <div id="tutorial-steps"></div>
             <button id="btn-tutorial-start" class="btn btn-primary">Start Tutorial</button>
             <button id="btn-tutorial-back" class="btn btn-secondary">← Back</button>
+        </div>
+    </div>
+
+    <!-- ===== MATCH INTRO OVERLAY (teams + map) ===== -->
+    <div id="match-intro" class="hidden">
+        <div class="mi-backdrop"></div>
+        <div class="mi-content">
+            <div class="mi-vs"><span class="mi-team mi-red">RED</span><span class="mi-vs-text">VS</span><span class="mi-team mi-blue">BLUE</span></div>
+            <div class="mi-map-name" id="mi-map-name">Beach Arena</div>
+            <div class="mi-mode-name" id="mi-mode-name">Classic</div>
         </div>
     </div>
 

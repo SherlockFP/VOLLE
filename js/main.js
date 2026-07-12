@@ -596,6 +596,16 @@ class App {
             this.avatarPainter?.clear();
         });
 
+        // UI sound effects for menu buttons
+        document.addEventListener('click', e => {
+            const btn = e.target.closest('button');
+            if (!btn) return;
+            const inMenu = this.game.state === STATES.MENU || this.game.state === STATES.LOBBY;
+            if (inMenu || btn.closest('.panel, .pause-panel, .settings-modal')) {
+                this.audio?.playClick?.();
+            }
+        }, { passive: true });
+
         // ponytail: eski lobby "👁" spectator butonu kaldırıldı — lobide spectator'a
         // geçmek Spectator.active'i bozuyordu. Spectator artık M menüsünden (oyun içi).
 
@@ -2214,13 +2224,13 @@ class App {
         if (this._p2pTimer <= 0 && this.network?.connected) {
             // Adaptive rate: faster when moving more, slower when idle
             const playerSpeed = this.player?._frameVel?.length?.() ?? 0;
-            let desiredMs = 200; // 5Hz — idle/standing
+            let desiredMs = 100; // 10Hz — idle/standing
             if (playerSpeed > 8) desiredMs = 16;  // 60Hz — sprint/dash
             else if (playerSpeed > 3) desiredMs = 33;  // 30Hz — running
             else if (playerSpeed > 0.5) desiredMs = 50; // 20Hz — walking
-            // Attack burst: briefly 30Hz after hitting the ball
+            // Attack burst: 60Hz after hitting the ball for precise deflection tracking
             if ((this._p2pAttackBurst || 0) > 0) {
-                desiredMs = Math.min(desiredMs, 33);
+                desiredMs = Math.min(desiredMs, 16);
                 this._p2pAttackBurst--;
             }
             this._p2pTimer = desiredMs / 1000;
@@ -2236,7 +2246,7 @@ class App {
                     const yawDelta = Math.abs(p.euler.y - lastPos.ry);
                     // Force send every 30 packets (~1s) even when still
                     this._p2pKeepalive = (this._p2pKeepalive || 0) + 1;
-                    if (dist < 0.15 && yawDelta < 0.05 && this._p2pKeepalive < 30) {
+                    if (dist < 0.06 && yawDelta < 0.03 && this._p2pKeepalive < 10) {
                         shouldSend = false;
                     }
                 }
@@ -2268,8 +2278,8 @@ class App {
                     bx: ball.position.x, by: ball.position.y, bz: ball.position.z,
                     clientTime: performance.now()
                 });
-                // Attack burst: next 8 position sends at 60Hz for precise movement
-                this._p2pAttackBurst = 5;
+                // Attack burst: high-rate position sends for precise movement tracking
+                this._p2pAttackBurst = 8;
                 // Instant swing feedback (whoosh only — actual hit sound + sparks
                 // come from host's remoteAttackAnim broadcast so it stays consistent).
                 this.audio?.playWhoosh?.(this.game.ball.getSpeed());
@@ -2296,7 +2306,7 @@ class App {
                         const dz = ball.position.z - pz;
                         const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
                         this._ballSendSkipCount = (this._ballSendSkipCount || 0) + 1;
-                        if (dist < 0.5 && this._ballSendSkipCount < 30) shouldSend = false;
+                        if (dist < 0.15 && this._ballSendSkipCount < 8) shouldSend = false;
                         else this._ballSendSkipCount = 0;
                     }
                     if (shouldSend) {
@@ -2395,7 +2405,45 @@ class App {
     }
 }
 
+// Menu particle background — canvas-based floating dots
+function initMenuParticles() {
+    const c = document.getElementById('menu-particles');
+    if (!c) return;
+    const ctx = c.getContext('2d');
+    let w, h, particles = [], running = true;
+    function resize() { w = c.width = window.innerWidth; h = c.height = window.innerHeight; }
+    window.addEventListener('resize', resize);
+    resize();
+    for (let i = 0; i < 60; i++) {
+        particles.push({
+            x: Math.random() * w, y: Math.random() * h,
+            vx: (Math.random() - 0.5) * 0.3, vy: (Math.random() - 0.5) * 0.3,
+            r: 1 + Math.random() * 2, a: 0.2 + Math.random() * 0.5
+        });
+    }
+    function draw() {
+        if (!running) return;
+        ctx.clearRect(0, 0, w, h);
+        for (const p of particles) {
+            p.x += p.vx; p.y += p.vy;
+            if (p.x < 0) p.x = w; if (p.x > w) p.x = 0;
+            if (p.y < 0) p.y = h; if (p.y > h) p.y = 0;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(255,180,100,${p.a})`;
+            ctx.fill();
+        }
+        requestAnimationFrame(draw);
+    }
+    draw();
+}
+
 // Boot
 window.addEventListener('DOMContentLoaded', () => {
     new App();
+    // Hide loading screen after everything initializes
+    const ls = document.getElementById('loading-screen');
+    if (ls) setTimeout(() => ls.classList.add('done'), 300);
+    // Menu particle background
+    initMenuParticles();
 });

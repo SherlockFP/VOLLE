@@ -70,7 +70,11 @@ export class UI {
 
     showScreen(name) {
         Object.values(this.screens).forEach(s => { if (s) s.classList.add('hidden'); });
-        if (this.screens[name]) this.screens[name].classList.remove('hidden');
+        const target = this.screens[name];
+        if (target) {
+            target.classList.remove('hidden');
+            void target.offsetHeight; // force reflow for entrance animation
+        }
         // Close floating menus that aren't in screens
         const extras = ['pause-menu', 'settings-screen', 'post-game-screen', 'team-popup', 'celeb-weapon-hud'];
         extras.forEach(id => {
@@ -269,6 +273,23 @@ export class UI {
         void el.offsetWidth; // force reflow
         el.classList.add('show');
         setTimeout(() => el.classList.add('hidden'), 2500);
+    }
+
+    showMatchIntro(mapName, modeName) {
+        const el = document.getElementById('match-intro');
+        if (!el) return;
+        const mapEl = document.getElementById('mi-map-name');
+        const modeEl = document.getElementById('mi-mode-name');
+        if (mapEl) mapEl.textContent = mapName;
+        if (modeEl) modeEl.textContent = modeName;
+        el.classList.remove('hidden');
+        el.style.animation = 'none';
+        void el.offsetHeight;
+        el.style.animation = '';
+    }
+    hideMatchIntro() {
+        const el = document.getElementById('match-intro');
+        if (el) el.classList.add('hidden');
     }
 
     showMessage(text, duration = 2000) {

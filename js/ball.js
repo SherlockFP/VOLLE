@@ -632,18 +632,19 @@ export class Ball {
         this.deflections++;
         this._proximityTimer = 0;
         this.bodyZone = ['head','chest','abdomen','legs'][Math.floor(Math.random() * 4)];
-        // Speed ramp: gentle curve after 500% to avoid 6000-8000% bug
+        // Speed ramp: additive with diminishing returns, not exponential
         const speedPct = this.currentSpeed / this.baseSpeed;
-        let rampMul = this.speedMultiplier;
-        if (speedPct > 5) rampMul = 1 + (this.speedMultiplier - 1) * (5 / speedPct);
-        this.currentSpeed = this.currentSpeed * rampMul;
+        let rampAdd = this.baseSpeed * 0.06 * Math.max(0.2, 1 - speedPct * 0.008);
+        rampAdd = Math.min(rampAdd, this.baseSpeed * 0.4);
+        this.currentSpeed += rampAdd;
         this.state = 'rally';
         this.aimed = true;
 
         // Classify the flick.
         const spike = flick.vertical > 20 && flick.power > 0.25;
         const lob = flick.vertical < -20 && flick.power > 0.25;
-        const powerBonus = (1 + (flick.power || 0) * 0.2) * deflectPower;
+        // ponytail: reduced power bonus multiplier to slow exponential ramp
+        const powerBonus = (1 + (flick.power || 0) * 0.08) * deflectPower;
         let shot = 'flat';
         let speed = this.currentSpeed * powerBonus;
 
@@ -690,6 +691,8 @@ export class Ball {
         }
 
         this.currentSpeed = Math.min(speed, this.maxSpeed);
+        // Clamp velocity magnitude to currentSpeed so physics stays consistent
+        this._clampSpeed();
         this.lastShot = shot;
         this.updateColor();
         // Return affix: ball reverses after 0.6s, single use
@@ -705,10 +708,11 @@ export class Ball {
         this.deflections++;
         this._proximityTimer = 0;
         this.bodyZone = ['head','chest','abdomen','legs'][Math.floor(Math.random() * 4)];
+        // Additive ramp — consistent with deflectWithAim
         const speedPct = this.currentSpeed / this.baseSpeed;
-        let rampMul = this.speedMultiplier;
-        if (speedPct > 5) rampMul = 1 + (this.speedMultiplier - 1) * (5 / speedPct);
-        this.currentSpeed = Math.min(this.currentSpeed * rampMul * deflectPower, this.maxSpeed);
+        let rampAdd = this.baseSpeed * 0.06 * Math.max(0.2, 1 - speedPct * 0.008);
+        rampAdd = Math.min(rampAdd, this.baseSpeed * 0.4);
+        this.currentSpeed = Math.min(this.currentSpeed + rampAdd * deflectPower, this.maxSpeed);
         this.state = 'rally';
         this.aimed = false;
 
@@ -720,6 +724,7 @@ export class Ball {
 
         this.velocity.copy(dir.multiplyScalar(this.currentSpeed));
         this.velocity.y = Math.max(this.velocity.y, 2 + Math.random() * 2);
+        this._clampSpeed();
         this.lastShot = 'flat'; // bots throw flat shots
         this.updateColor();
     }
@@ -798,6 +803,7 @@ export class Ball {
         const dir = new THREE.Vector3(aimDir.x, 0, aimDir.z).normalize();
         this.velocity.copy(dir.multiplyScalar(this.currentSpeed));
         this.velocity.y = this.currentSpeed * 0.25;
+        this._clampSpeed();
         this.setTarget(target);
         return { shot: charge > 0.7 ? 'spike' : 'flat', speed: this.currentSpeed };
     }

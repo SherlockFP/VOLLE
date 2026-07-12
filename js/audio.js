@@ -222,6 +222,18 @@ export class Audio {
         osc.stop(t + 0.3);
     }
 
+    // UI click — short tick for menu buttons
+    playClick() {
+        if (!this.ctx) return;
+        this._osc('square', 800, 0.03, 0.08);
+        this._osc('sine', 1200, 0.02, 0.04);
+    }
+    // UI hover — subtle pip
+    playHover() {
+        if (!this.ctx) return;
+        this._osc('sine', 600, 0.015, 0.03);
+    }
+
     // Friendly beep — round countdown
     playBeep(pitch = 440) {
         if (!this.ctx) return;

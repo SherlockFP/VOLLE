@@ -134,6 +134,7 @@ export class Game {
         this._powerUpInterval = 12;  // seconds between spawns
         this._maxPowerUps = 3;
         this._playerBuffs = {}; // { speed: 0, shield: 0, damage: 0 } timer
+        this._respawnTimer = null;
 
         // Lobby/menu music — rotate between tracks.
         // Uses .sfx aliases + fetch+blob (like audio.js) so IDM never sees a .mp3/.m4a URL to grab.
@@ -544,6 +545,9 @@ export class Game {
         // Pre-game countdown (configurable, host can change)
         this.preGameTimer = this.preGameDuration;
         this._preGameActive = true;
+        // Show match intro overlay
+        this.ui.showMatchIntro(this.arena.config?.name || 'Arena', this.mode?.name || 'Classic');
+        setTimeout(() => this.ui.hideMatchIntro(), 3500);
         // Warmup: spawn ball early so players practice deflecting during countdown
         if (!skipPreGame && !this._skipPreGame) {
             this.ball.spawn();
@@ -1880,32 +1884,33 @@ export class Game {
         if (this._deflectHistory.length > 3) this._deflectHistory.shift();
     }
 
-    // ponytail: hit sonrası topu 3sn gecikmeyle doğur — üstte geri sayım
+    // ponytail: single-instance respawn timer — guards against overlapping calls
     _respawnBall() {
         if (this.state !== STATES.PLAYING) return;
-        let t = 3;
-        this.ui.showMessage(`🏐 Ball returns in ${t}...`, 900);
-        const tick = () => {
-            if (this.state !== STATES.PLAYING) return;
-            t--;
-            if (t > 0) {
-                this.ui.showMessage(`🏐 Ball returns in ${t}...`, 900);
-                setTimeout(tick, 1000);
-            } else {
-                if (this.ball.active) return; // başka kaynaktan zaten aktifse atlama
-                this.ball.spawn();
-                this._applyBallAffix();
-                this.lastDeflector = null;
-                this.lastDeflectorTeam = null;
-                const targets = this.getAllTargets().filter(p => p.alive);
-                if (targets.length) {
-                    const next = targets[Math.floor(Math.random() * targets.length)];
-                    this.ball.setTarget(next);
-                    this.ball.state = 'homing';
+        if (this._respawnTimer) { clearTimeout(this._respawnTimer); this._respawnTimer = null; }
+        const countdown = (n) => {
+            this.ui.showMessage(`🏐 Ball returns in ${n}...`, 1000);
+            this._respawnTimer = setTimeout(() => {
+                this._respawnTimer = null;
+                if (this.state !== STATES.PLAYING) return;
+                if (n <= 1) {
+                    if (this.ball.active) return;
+                    this.ball.spawn();
+                    this._applyBallAffix();
+                    this.lastDeflector = null;
+                    this.lastDeflectorTeam = null;
+                    const targets = this.getAllTargets().filter(p => p.alive);
+                    if (targets.length) {
+                        const next = targets[Math.floor(Math.random() * targets.length)];
+                        this.ball.setTarget(next);
+                        this.ball.state = 'homing';
+                    }
+                } else {
+                    countdown(n - 1);
                 }
-            }
+            }, 1000);
         };
-        setTimeout(tick, 1000);
+        countdown(3);
     }
 
     // --- DEATH EXPLOSION ---
@@ -2822,8 +2827,8 @@ export class Game {
         if (peerId === this.network?.peer?.id) return;
         const p = this.addRemotePlayer(peerId, data.name || `P-${peerId.slice(0, 4)}`, data.team);
         if (!p) return;
-        this._pushPosBuffer(p, data.x, data.y, data.z, data.clientTime || performance.now());
-        p.lastPacketTime = data.clientTime || performance.now();
+        this._pushPosBuffer(p, data.x, data.y, data.z, performance.now());
+        p.lastPacketTime = performance.now();
         p.group.rotation.y = data.ry || 0;
         p.team = data.team || p.team;
         p.alive = data.alive !== false;
@@ -2847,7 +2852,7 @@ export class Game {
     // interpolate eder (30Hz snapshot aktarımı akıcı görülür).
     invokeRemoteSnapshots(dt) {
         if (!this.remotePlayers.size) return;
-        const interpDelay = 50; // ms — fixed delay buffer absorbs jitter
+        const interpDelay = 20; // ms — reduced for lower latency, still absorbs network jitter
         const now = performance.now();
         const renderTime = now - interpDelay;
         for (const p of this.remotePlayers.values()) {
@@ -3267,13 +3272,12 @@ export class Game {
         if (data.speed !== undefined) this.ball.currentSpeed = data.speed;
         // ponytail: client keeps ball active until host sends explicit respawn (state='idle' or new spawn).
         // This prevents "ball became inactive before client could deflect" race.
-        if (data.active) {
+        if (data.active && data.state !== 'idle') {
             if (!this.ball.active) {
                 this.ball.active = true;
                 this.ball.mesh.visible = true;
             }
-        } else if (data.state === 'idle' || data.state === 'falling') {
-            // ponytail: explicit respawn — only deactivate on idle/falling state
+        } else if (data.state === 'idle') {
             this.ball.active = false;
             this.ball.mesh.visible = false;
         }
