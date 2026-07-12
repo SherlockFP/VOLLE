@@ -3288,7 +3288,7 @@ export class Game {
     // ponytail: client-side ball smoothing toward host snapshot.
     // Velocity-extrapolated so fast balls don't lag behind host.
     invokeBallSmoothing(dt) {
-        if (this.network?.isHost || !this._ballTarget || !this._ballTargetTime || this._ballPredicting || !this.ball.active) return;
+        if (this.network?.isHost || !this._ballTarget || !this._ballTargetTime || !this.ball.active) return;
         const elapsed = (performance.now() - this._ballTargetTime) / 1000;
         // ponytail: extrapolate target forward by velocity × elapsed since snapshot
         const tx = this._ballTarget.x + this._ballTarget.vx * elapsed;

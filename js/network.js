@@ -161,7 +161,7 @@ export class Network {
                 if (!this.isHost) this.game.applyAnnounce(data);
                 break;
             case 'chat':
-                this.game.addChatMessage(data.name, data.text);
+                if (data.name !== this.playerName) this.game.addChatMessage(data.name, data.text);
                 if (this.isHost) this.broadcast(data);
                 break;
             case 'gameState':
