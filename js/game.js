@@ -127,6 +127,7 @@ export class Game {
         this.chaosManager = new ChaosManager(this.arena, this.renderer.scene);
         this._chaosModeIds = new Set(Object.values(CHAOS_MODES).map(m => m.id));
         this.currentBallAffix = null;
+        this._chaosSyncTimer = 0;
 
         // Power-up pickups — spawn on map, temporary buffs
         this.powerUps = [];
@@ -311,7 +312,18 @@ export class Game {
         const x = (Math.random() - 0.5) * halfW * 2;
         const z = (Math.random() - 0.5) * halfL * 2;
         const y = 2.5;
+        this._createBlackHoleMesh(x, y, z);
+        // ponytail: broadcast position so clients render at same spot
+        if (this.network?.isHost) this.network.broadcastBlackHoleSpawn(x, y, z);
+    }
 
+    // Client: create black hole at fixed position (from host broadcast)
+    spawnBlackHoleAt(x, y, z) {
+        if (this.network?.isHost) return;
+        this._createBlackHoleMesh(x, y, z);
+    }
+
+    _createBlackHoleMesh(x, y, z) {
         // Visual: dark sphere with purple glow ring
         const geo = new THREE.SphereGeometry(1.2, 16, 16);
         const mat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.85 });
@@ -393,13 +405,26 @@ export class Game {
         const pos = ball.position.clone();
         const vel = perp.multiplyScalar(ball.currentSpeed * 0.5).add(new THREE.Vector3(0, 3, 0));
         const life = 5;
+        this._createSplitBallMesh(pos, vel, life);
+        // ponytail: broadcast so clients render split ball at same pos/vel
+        if (this.network?.isHost) this.network.broadcastSplitBallSpawn(pos.x, pos.y, pos.z, vel.x, vel.y, vel.z);
+    }
 
+    // Client: create split ball at fixed pos/vel (from host broadcast)
+    spawnSplitBallAt(data) {
+        if (this.network?.isHost) return;
+        const pos = new THREE.Vector3(data.x, data.y, data.z);
+        const vel = new THREE.Vector3(data.vx, data.vy, data.vz);
+        this._createSplitBallMesh(pos, vel, 5);
+    }
+
+    _createSplitBallMesh(pos, vel, life) {
         const geo = new THREE.SphereGeometry(0.3, 8, 8);
         const mat = new THREE.MeshBasicMaterial({ color: 0x44ff88, transparent: true, opacity: 0.8 });
         const mesh = new THREE.Mesh(geo, mat);
         mesh.position.copy(pos);
         this.arena.add(mesh);
-        this._splitBalls.push({ mesh, pos, vel, life, age: 0 });
+        this._splitBalls.push({ mesh, pos: pos.clone(), vel: vel.clone(), life, age: 0 });
     }
 
     updateSplitBalls(dt) {
@@ -707,6 +732,12 @@ export class Game {
         this.renderer.scene.remove(p.group);
         this.scoreboard.removePlayer(p.name);
         this.remotePlayers.delete(peerId);
+        // ponytail: clear per-player streak timer on disconnect to avoid leak
+        if (this._killStreakTimers.has(peerId)) {
+            clearTimeout(this._killStreakTimers.get(peerId));
+            this._killStreakTimers.delete(peerId);
+        }
+        this._killStreaks?.delete(peerId);
         this.updateLobbyUI?.();
     }
 
@@ -1110,7 +1141,7 @@ export class Game {
                     if (this.mode?.mutators?.overtime && this.scoreboard.redScore === this.scoreboard.blueScore && this._overtimeExtends < 2) {
                         this._overtimeExtends++;
                         this.scoreboard.maxRounds++;
-                        this.ui.showMessage('🔥 OVERTIME! First to lead by 2 wins!', 3000);
+                        this.announce('🔥 OVERTIME! First to lead by 2 wins!', null, 0, 3000);
                         this.startRound();
                     } else {
                         this.endGame();
@@ -1155,7 +1186,7 @@ export class Game {
             if (this.scoreboard.redScore === this.scoreboard.blueScore && !this._overtime) {
                 this._overtime = true;
                 this._overtimeTimer = 0;
-                this.ui.showMessage?.('⚡ OVERTIME!', 2000);
+                this.announce('⚡ OVERTIME!', null, 0, 2000);
                 this.ui.showStreak?.('OVERTIME!', 'ace');
             } else if (!this._overtime) {
                 this.endGame();
@@ -1172,7 +1203,7 @@ export class Game {
             }
             if (this._overtimeTimer >= 30 && !this._suddenDeathAnnounced) {
                 this._suddenDeathAnnounced = true;
-                this.ui.showMessage?.('SUDDEN DEATH!', 2000);
+                this.announce('SUDDEN DEATH!', null, 0, 2000);
             }
         }
 
@@ -1196,7 +1227,24 @@ export class Game {
             const allPlayers = [this.player, ...this.bots];
             this.affixes.update(dt, allPlayers);
         }
-        if (this._chaosModeIds.has(this.mode?.id)) this.chaosManager.update(dt, this);
+        if (this._chaosModeIds.has(this.mode?.id)) {
+            this.chaosManager.update(dt, this);
+            // Host: periodically broadcast chaos state to clients
+            if (this.network?.isHost) {
+                this._chaosSyncTimer += dt;
+                if (this._chaosSyncTimer >= 2) {
+                    this._chaosSyncTimer = 0;
+                    this.network.broadcastChaosState({
+                        tornadoes: this.chaosManager.tornadoes.map(t => ({
+                            x: t.x, z: t.z, radius: t.radius,
+                            strength: t.strength, life: t.life,
+                            age: t.age, rotation: t.rotation
+                        })),
+                        gravityFlipped: this.chaosManager.gravityFlipped
+                    });
+                }
+            }
+        }
 
         // Target outline — kimde sıra varsa kırmızı outline
         const target = this.ball.targetPlayer;
@@ -1230,7 +1278,8 @@ export class Game {
                 this.ui.showMessage(`${skillId.toUpperCase()}!`, 800);
                 this.audio.playSfx('tf2_medic', 0.35);
                 this.audio.playBeep(660);
-                if (skillId === 'blackhole') this.spawnBlackHole();
+                // ponytail: host spawns black hole; client receives broadcast
+                if (skillId === 'blackhole' && (!this.network?.connected || this.network?.isHost)) this.spawnBlackHole();
                 // Client: send skill intent to host for authoritative effects
                 if (this.network?.connected && !this.network?.isHost) {
                     const aim = this.player.getAimDirection();
@@ -1363,7 +1412,7 @@ export class Game {
                 // vurmazsa zorunlu hit. Sonsuz döngü engeli + tunneling fix.
                 if (this.ball._forceHit) {
                     const px = headPos.x, pz = headPos.z;
-                    const py = Math.max(0, Math.min(1.7, ballPos.y));
+                    const py = headPos.y;
                     const dx2 = ballPos.x - px, dz2 = ballPos.z - pz, dy2 = ballPos.y - py;
                     const proxDistSq = dx2 * dx2 + dy2 * dy2 + dz2 * dz2;
                     // ponytail: expanded proximity range for fast balls
@@ -1593,7 +1642,7 @@ export class Game {
         switch (this.player.charId) {
             case 'tank':
                 this.player.shield += 100;
-                this.player._damageReduction = 0.5;
+                this.player._damageReduction = 0.3;
                 setTimeout(() => { this.player._damageReduction = 0; this.player.ultimateActive = false; }, ult.duration * 1000);
                 break;
             case 'scout':
@@ -1603,7 +1652,7 @@ export class Game {
                 break;
             case 'sniper':
                 this.ball._pierceWalls = true;
-                this.ball.currentSpeed *= 3;
+                this.ball.currentSpeed *= 1.5;
                 this.player.ultimateActive = false;
                 break;
             case 'guardian':
@@ -1613,8 +1662,8 @@ export class Game {
                 this.player.ultimateActive = false;
                 break;
             case 'rally':
-                this.ball.currentSpeed *= 2;
-                this.ball.velocity.multiplyScalar(2);
+                this.ball.currentSpeed *= 1.5;
+                this.ball.velocity.multiplyScalar(1);
                 setTimeout(() => { this.player.ultimateActive = false; }, ult.duration * 1000);
                 break;
             case 'blazer':
@@ -2006,9 +2055,11 @@ export class Game {
     // --- CHAT ---
 
     addChatMessage(name, text) {
-        this.chatMessages.push({ name, text, time: Date.now() });
+        // ponytail: strip HTML at input boundary, not just at render
+        const safe = text.replace(/<[^>]*>/g, '');
+        this.chatMessages.push({ name, text: safe, time: Date.now() });
         if (this.chatMessages.length > 50) this.chatMessages.shift();
-        this.ui.addChatMessage(name, text);
+        this.ui.addChatMessage(name, safe);
         this.audio.playChat();
 
         // Speech bubble above bot/player
@@ -2033,6 +2084,9 @@ export class Game {
     }
 
     _broadcastTaunt(tauntId) {
+        // ponytail: whitelist taunt ids to reject rogue/malformed taunts
+        const ALLOWED = ['loop', 'daymissin'];
+        if (!ALLOWED.includes(tauntId)) return;
         if (this.network?.connected && this.network?.isHost) {
             this.network.broadcast({ type: 'taunt', tauntId, peerId: this.network.peer?.id });
         } else if (this.network?.connected) {
@@ -2042,16 +2096,19 @@ export class Game {
 
     handleRemoteTaunt(data) {
         if (!data?.tauntId) return;
+        const ALLOWED = ['loop', 'daymissin'];
+        if (!ALLOWED.includes(data.tauntId)) return;
         const isLocal = data.peerId === this.network?.peer?.id;
         if (isLocal) return;
         const p = this.remotePlayers.get(data.peerId);
-        const entity = p || this.player;
+        if (!p) return; // ponytail: ignore taunts from unknown/spoofed peers
+        const entity = p;
         if (data.tauntId === 'loop') {
             this.ui.showMessage?.('🔄 LOOP!', 1000);
             let count = 0;
             const taunts = ['flex', 'laugh', 'nice', 'heart'];
             const loop = () => {
-                if (count >= 4) return;
+                if (count >= 4 || !this.remotePlayers.has(data.peerId)) return;
                 this.showEmote(entity, taunts[count % taunts.length]);
                 count++;
                 setTimeout(loop, 500);
@@ -3135,6 +3192,17 @@ export class Game {
             this.audio.preloadSfx('sfx/');
             this.initMinimap();
             this._skipPreGame = true;
+            // ponytail: apply host ball state immediately so late joiner starts synced
+            if (data.ball) {
+                this.ball.position.set(data.ball.x, data.ball.y, data.ball.z);
+                this.ball.velocity.set(data.ball.vx, data.ball.vy, data.ball.vz);
+                this.ball.currentSpeed = data.ball.speed || this.ball.currentSpeed;
+                this.ball.active = !!data.ball.active;
+                this.ball.mesh.visible = this.ball.active;
+                this._ballTarget = { x: data.ball.x, y: data.ball.y, z: data.ball.z, vx: data.ball.vx, vy: data.ball.vy, vz: data.ball.vz };
+                this._ballTargetTime = performance.now();
+                this._ballTargetActive = data.ball.active;
+            }
             // Don't call startRound() — that spawns ball locally and desyncs from host.
             // Match host state; ball position comes from ballState broadcast.
             this.clearBlackHoles();
@@ -3160,6 +3228,7 @@ export class Game {
     applyPlayerHit(data = {}) {
         let target = data.victimPeerId ? this.remotePlayers.get(data.victimPeerId) : null;
         if (!target) target = data.victimName === this.playerName ? this.player : this.bots.find(b => b.name === data.victimName);
+        if (!target) target = [...this.remotePlayers.values()].find(p => p.isBotEntity && p.name === data.victimName);
         if (!target) return;
 
         const isClient = this.network?.connected && !this.network?.isHost;
@@ -3276,13 +3345,20 @@ export class Game {
     }
 
     snapshotState() {
+        // ponytail: include ball state so late joiner doesn't see a spawn pop
+        const b = this.ball;
         return {
             players: this.getPlayerList(),
             state: this.state,
             mode: this.mode?.id,
             map: this.arena?.mapId,
             maxRounds: this.scoreboard.maxRounds,
-            timeLimit: this.scoreboard.timeLimit
+            timeLimit: this.scoreboard.timeLimit,
+            ball: b ? {
+                x: b.position.x, y: b.position.y, z: b.position.z,
+                vx: b.velocity.x, vy: b.velocity.y, vz: b.velocity.z,
+                speed: b.currentSpeed, active: b.active
+            } : null
         };
     }
     updateBallFromNetwork(data) {
@@ -3311,6 +3387,16 @@ export class Game {
         }
         if (data.targetName === this.playerName) this.ball.setTarget(this.player);
         this.ball.state = data.state || this.ball.state;
+        // Sync ball affix from host
+        if (data.affix && this.currentBallAffix?.id !== data.affix) {
+            this.currentBallAffix = { id: data.affix, color: data.affixColor || 0x44ff88 };
+            this.ball.affix = this.currentBallAffix;
+            this.ui.updateBallAffix(this.currentBallAffix);
+        } else if (!data.affix && this.currentBallAffix) {
+            this.currentBallAffix = null;
+            this.ball.affix = null;
+            this.ui.updateBallAffix(null);
+        }
     }
 
     // ponytail: client-side ball smoothing toward host snapshot.
@@ -3380,6 +3466,38 @@ export class Game {
 
     // Client: host'tan remoteAttackAnim mesajı gelince, remote player'ın
     // saldırı animasyonunu göster (kol sallama, efekt).
+    // Client: chaos state from host — sync tornadoes and gravity flip
+    applyChaosState(data) {
+        if (!data || this.network?.isHost) return;
+        if (!this.chaosManager) return;
+        // ponytail: clear existing tornadoes and rebuild from snapshot
+        for (const t of this.chaosManager.tornadoes) {
+            this.arena.remove(t.mesh);
+            t.mesh.geometry.dispose();
+            t.mesh.material.dispose();
+        }
+        this.chaosManager.tornadoes = [];
+        this.chaosManager.gravityFlipped = !!data.gravityFlipped;
+        if (data.tornadoes) {
+            for (const td of data.tornadoes) {
+                const geo = new THREE.ConeGeometry(td.radius * 0.3, 8, 12, 1, true);
+                const mat = new THREE.MeshBasicMaterial({ color: 0x88aaff, transparent: true, opacity: 0.3, side: THREE.DoubleSide });
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.position.set(td.x, 4, td.z);
+                this.arena.add(mesh);
+                this.chaosManager.tornadoes.push({
+                    mesh, x: td.x, z: td.z,
+                    radius: td.radius, strength: td.strength,
+                    life: td.life, age: td.age || 0, rotation: td.rotation || 0
+                });
+            }
+        }
+        // apply gravity flip ball/player effect
+        if (data.gravityFlipped !== undefined && this.chaosManager.flipGravity) {
+            this.chaosManager.flipGravity(data.gravityFlipped, this);
+        }
+    }
+
     // Client: host'tan gelen bot pozisyon verilerini bot dummy'lerine uygula.
     applyBotSync(data) {
         if (!data?.bots || this.network?.isHost) return;
@@ -3445,7 +3563,7 @@ export class Game {
         if (data.pos && this.juice?.sparks) {
             this.juice.sparks(new THREE.Vector3(data.pos.x, data.pos.y, data.pos.z), 0x88ddff, 10);
         }
-        if (data.skill === 'blackhole' && this.spawnBlackHole) this.spawnBlackHole();
+        // ponytail: black hole visual handled by blackHoleSpawn broadcast, not here
     }
 
     // Host: announcement'ı hem local oynat hem tüm client'lara yayınla.
@@ -3490,15 +3608,26 @@ export class Game {
 
     applyPowerUpState(data) {
         if (!data?.powerUps || this.network?.isHost) return;
-        // Mevcut power-up'ları temizle
+        // ponytail: keep existing meshes/timers when powerups are unchanged (avoid 2Hz churn).
+        // Key by position so we don't recreate geometry every sync.
+        const incoming = new Set(data.powerUps.map(pu => `${pu.type}:${pu.x.toFixed(1)}:${pu.z.toFixed(1)}`));
+        // Remove powerups no longer present
         for (const pu of this.powerUps) {
-            this.renderer.scene.remove(pu.mesh);
-            pu.mesh.geometry?.dispose();
-            pu.mesh.material?.dispose();
+            const key = `${pu.type.id}:${pu.pos.x.toFixed(1)}:${pu.pos.z.toFixed(1)}`;
+            if (!incoming.has(key)) {
+                this.renderer.scene.remove(pu.mesh);
+                pu.mesh.geometry?.dispose();
+                pu.mesh.material?.dispose();
+            }
         }
-        this.powerUps = [];
-        // Host'tan gelen power-up'ları oluştur
+        this.powerUps = this.powerUps.filter(pu => {
+            const key = `${pu.type.id}:${pu.pos.x.toFixed(1)}:${pu.pos.z.toFixed(1)}`;
+            return incoming.has(key);
+        });
+        // Add new powerups (preserve existing timers)
         for (const pu of data.powerUps) {
+            const key = `${pu.type}:${pu.x.toFixed(1)}:${pu.z.toFixed(1)}`;
+            if (this.powerUps.some(existing => `${existing.type.id}:${existing.pos.x.toFixed(1)}:${existing.pos.z.toFixed(1)}` === key)) continue;
             const type = POWERUP_TYPES.find(t => t.id === pu.type) || POWERUP_TYPES[0];
             const geo = new THREE.OctahedronGeometry(0.5);
             const mat = new THREE.MeshBasicMaterial({ color: type.color, transparent: true, opacity: 0.8 });
@@ -3536,7 +3665,10 @@ export class Game {
         this.player.unlock();
         this.player._celebNoAttack = false;
         // XP / reward screen — host'tan gelen verilerle
-        const winnerText = `RED ${data.redScore} - ${data.blueScore} BLUE`;
+        const winner = data.winner || (data.redScore > data.blueScore ? 'RED' : data.blueScore > data.redScore ? 'BLUE' : 'DRAW');
+        const winnerText = winner === 'DRAW'
+            ? `DRAW: RED ${data.redScore} - ${data.blueScore} BLUE`
+            : `${winner} TEAM WINS: RED ${data.redScore} - ${data.blueScore} BLUE`;
         this.ui.showPostGame?.(this._won, data.xp || 0, 1, data.kills || 0, data.rally || 0, this.audio, { winnerText, playerStats: data.playerStats || [] });
     }
 

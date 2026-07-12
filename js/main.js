@@ -79,7 +79,9 @@ class App {
         this._bgPosSent = new Map();
         this._bgScoreTimer = 0;
         this._bgPowerUpTimer = 0;
-        document.addEventListener('visibilitychange', () => this._onVisibilityChange());
+        // ponytail: AbortController prevents listener accumulation on game restart
+        this._mainAbort = new AbortController();
+        document.addEventListener('visibilitychange', () => this._onVisibilityChange(), { signal: this._mainAbort.signal });
 
         // Resize handler — respects custom resolution
         this._customRes = null;
@@ -92,7 +94,7 @@ class App {
                 this.camera.aspect = window.innerWidth / window.innerHeight;
             }
             this.camera.updateProjectionMatrix();
-        });
+        }, { signal: this._mainAbort.signal });
 
         // Spectate click — left=next, right=prev (no context menu)
         document.addEventListener('mousedown', e => {
@@ -108,10 +110,10 @@ class App {
                     }
                 }
             }
-        });
+        }, { signal: this._mainAbort.signal });
         // Block the browser right-click menu everywhere (menu, lobby, settings, in-game).
         // Right-click is still usable as a game input via mousedown button===2.
-        document.addEventListener('contextmenu', e => e.preventDefault());
+        document.addEventListener('contextmenu', e => e.preventDefault(), { signal: this._mainAbort.signal });
 
         // Tab key → scoreboard
         document.addEventListener('keydown', e => {
@@ -234,7 +236,7 @@ class App {
                     pauseEl?.classList.remove('hidden');
                 }
             }
-        });
+        }, { signal: this._mainAbort.signal });
         document.addEventListener('keyup', e => {
             if (e.code === 'Tab') {
                 this.ui.hideScoreboard();
@@ -245,7 +247,7 @@ class App {
             if (e.code === 'KeyV' && this.voice) {
                 this.voice.pttUp();
             }
-        });
+        }, { signal: this._mainAbort.signal });
 
         this.setupMenuHandlers();
         this.refreshMetaStats();
@@ -1507,6 +1509,7 @@ class App {
     leaveLobby() {
         clearInterval(this._lobbyKeepAlive);
         this._stopBgLoop();
+        this._cleanupListeners();
         if (this.network?.isHost && this._lobbyCode) this._unregisterLobby(this._lobbyCode);
         this._lobbyCode = null;
         // Tell peers + tear down the P2P connection.
@@ -1519,6 +1522,7 @@ class App {
     _exitToMenu(message) {
         clearInterval(this._lobbyKeepAlive);
         this._stopBgLoop();
+        this._cleanupListeners();
         this._lobbyCode = null;
         this.network?.disconnect();
         this._cleanupLobbyEntities();
@@ -1526,6 +1530,12 @@ class App {
         this.game.setState(STATES.MENU);
         this.ui.showScreen('mainMenu');
         if (message) this.ui.showMessage?.(message, 2500);
+    }
+
+    // ponytail: abort + re-setup player input listeners (game-specific, avoids leak on restart)
+    _cleanupListeners() {
+        this.player?.cleanupInput?.();
+        this.player?.setupInput?.();
     }
 
     _cleanupLobbyEntities() {
@@ -1931,9 +1941,11 @@ class App {
         if (document.hidden) {
             this._tabHidden = true;
             this._startBgLoop();
+            if (this.audio?.ctx?.state === 'running') this.audio.ctx.suspend();
         } else {
             this._tabHidden = false;
             this._stopBgLoop();
+            if (this.audio?.ctx?.state === 'suspended') this.audio.ctx.resume();
         }
     }
     _startBgLoop() {

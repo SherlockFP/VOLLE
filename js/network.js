@@ -140,7 +140,32 @@ export class Network {
         });
     }
 
+    // ponytail: validate critical message fields to reject rogue peer data
+    _validateMsg(data) {
+        if (typeof data !== 'object' || !data.type) return false;
+        switch (data.type) {
+            case 'kick':
+                return typeof data.name === 'string' && data.name.length > 0;
+            case 'playerHit':
+                return typeof data.dmg === 'number';
+            case 'ballState':
+                return typeof data.x === 'number' && typeof data.y === 'number' && typeof data.z === 'number';
+            case 'attack':
+                return typeof data.name === 'string' && typeof data.x === 'number' && typeof data.y === 'number';
+            case 'position':
+                return typeof data.x === 'number' && typeof data.z === 'number';
+            case 'chat':
+                return typeof data.text === 'string' && data.text.length <= 500;
+            case 'teamChange':
+                return data.team === 'red' || data.team === 'blue';
+            default:
+                return true;
+        }
+    }
+
     handleMessage(data, peerId) {
+        // ponytail: reject malformed messages
+        if (!this._validateMsg(data)) return;
         switch (data.type) {
             case 'join':
                 if (this.onPlayerJoin) this.onPlayerJoin(data.name, peerId, data.avatar);
@@ -270,6 +295,18 @@ export class Network {
             case 'taunt':
                 if (this.game) this.game.handleRemoteTaunt(data);
                 break;
+            case 'blackHoleSpawn':
+                if (!this.isHost && this.game.spawnBlackHoleAt) this.game.spawnBlackHoleAt(data.x, data.y, data.z);
+                break;
+            case 'blackHoleDespawn':
+                if (!this.isHost) this.game.clearBlackHoles();
+                break;
+            case 'splitBallSpawn':
+                if (!this.isHost && this.game.spawnSplitBallAt) this.game.spawnSplitBallAt(data);
+                break;
+            case 'chaosState':
+                if (!this.isHost && this.game.applyChaosState) this.game.applyChaosState(data);
+                break;
             case 'lobbyClosed':
                 // Lobby kapandı — ana menüye dön.
                 if (!this.isHost && this.onHostLeft) this.onHostLeft();
@@ -370,9 +407,29 @@ export class Network {
 
     getPing() { return this._lastPing || 0; }
 
+    broadcastBlackHoleSpawn(x, y, z) {
+        if (!this.isHost) return;
+        this.broadcast({ type: 'blackHoleSpawn', x, y, z });
+    }
+
+    broadcastBlackHoleDespawn() {
+        if (!this.isHost) return;
+        this.broadcast({ type: 'blackHoleDespawn' });
+    }
+
+    broadcastSplitBallSpawn(x, y, z, vx, vy, vz) {
+        if (!this.isHost) return;
+        this.broadcast({ type: 'splitBallSpawn', x, y, z, vx, vy, vz });
+    }
+
+    broadcastChaosState(state) {
+        if (!this.isHost) return;
+        this.broadcast({ type: 'chaosState', ...state });
+    }
+
     broadcastBallState(ball) {
         if (!this.isHost) return;
-        this.broadcast({
+        const msg = {
             type: 'ballState',
             x: ball.position.x,
             y: ball.position.y,
@@ -382,7 +439,13 @@ export class Network {
             vz: ball.velocity.z,
             speed: ball.currentSpeed,
             active: ball.active
-        });
+        };
+        // ponytail: sync ball affix to clients so HUD shows it
+        if (ball.affix) {
+            msg.affix = ball.affix.id || ball.affix.name;
+            msg.affixColor = ball.affix.color;
+        }
+        this.broadcast(msg);
     }
 
     broadcastScores(scoreboard) {
@@ -412,7 +475,8 @@ export class Network {
     }
 
     disconnect() {
-        this.connections.forEach(conn => conn.close());
+        const conns = [...this.connections.values()];
+        conns.forEach(conn => conn.close());
         this.connections.clear();
         if (this.peer) this.peer.destroy();
         this.peer = null;

@@ -185,6 +185,25 @@ export const MAPS = {
     }
 };
 
+// ponytail: per-map UI theme — CSS custom property overrides keyed by mapId.
+// Applied via _applyTheme() so the HUD matches the active arena's palette.
+export const MAP_THEMES = {
+    beach:        { '--ui-primary': '#e8a050', '--ui-secondary': '#7fd0e8', '--ui-bg': '#1a2a3e', '--ui-accent': '#ffb066' },
+    beach_open:   { '--ui-primary': '#e8a050', '--ui-secondary': '#d0a860', '--ui-bg': '#2e2418', '--ui-accent': '#ffcc66' },
+    industrial:   { '--ui-primary': '#d85c5c', '--ui-secondary': '#5c7fe0', '--ui-bg': '#1a1f2e', '--ui-accent': '#ff8844' },
+    space:        { '--ui-primary': '#d04080', '--ui-secondary': '#4080d0', '--ui-bg': '#0a0a1e', '--ui-accent': '#ff66aa' },
+    neon:         { '--ui-primary': '#ff3d81', '--ui-secondary': '#2de2e6', '--ui-bg': '#1a0e2e', '--ui-accent': '#ff44cc' },
+    dojo:         { '--ui-primary': '#cc9933', '--ui-secondary': '#996633', '--ui-bg': '#1a1410', '--ui-accent': '#ffaa44' },
+    garden:       { '--ui-primary': '#44aa66', '--ui-secondary': '#88cc44', '--ui-bg': '#0e1a14', '--ui-accent': '#66ff99' },
+    sunset:       { '--ui-primary': '#ff7744', '--ui-secondary': '#ffaa44', '--ui-bg': '#2e1810', '--ui-accent': '#ffaa66' },
+    frost:        { '--ui-primary': '#44aaff', '--ui-secondary': '#88ddff', '--ui-bg': '#0a1a2e', '--ui-accent': '#aaddff' },
+    lava:         { '--ui-primary': '#ff5533', '--ui-secondary': '#ffaa44', '--ui-bg': '#2e0a0a', '--ui-accent': '#ff8833' },
+    tournament:   { '--ui-primary': '#ffcc44', '--ui-secondary': '#ff8844', '--ui-bg': '#1a1a0a', '--ui-accent': '#ffaa44' },
+    rooftop:      { '--ui-primary': '#5577aa', '--ui-secondary': '#8899bb', '--ui-bg': '#101418', '--ui-accent': '#aabbdd' },
+    temple:       { '--ui-primary': '#c9a878', '--ui-secondary': '#a89060', '--ui-bg': '#1e1a14', '--ui-accent': '#ffd8a8' },
+    classic:      { '--ui-primary': '#457bca', '--ui-secondary': '#6fa8dc', '--ui-bg': '#0f0f23', '--ui-accent': '#ff8800' }
+};
+
 export class Arena {
     // ponytail: statik MAPS — game.js pickRandomMap() için.
     static MAPS = MAPS;
@@ -212,6 +231,8 @@ export class Arena {
         this.portalTimer = 0;
         this.portalSwapInterval = 30;
         this.build();
+        // ponytail: apply initial map theme
+        this._applyTheme(mapId);
     }
 
     // Track every object we add so we can tear down cleanly on map switch,
@@ -2135,6 +2156,17 @@ export class Arena {
             maxZ: this.courtLength / 2
         };
         this.build();
+        // ponytail: apply per-map UI theme overrides
+        this._applyTheme(mapId);
+    }
+
+    // Apply per-map CSS theme variables so HUD matches the active arena palette.
+    _applyTheme(mapId) {
+        const theme = MAP_THEMES[mapId] || MAP_THEMES.classic;
+        const root = document.documentElement;
+        for (const [key, val] of Object.entries(theme)) {
+            root.style.setProperty(key, val);
+        }
     }
 
     // ponytail: themed decorative meshes — extra visual flair per map.

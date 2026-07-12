@@ -162,6 +162,9 @@ export class Player {
     }
 
     setupInput() {
+        // ponytail: AbortController so game restart doesn't accumulate listeners
+        this._abort = new AbortController();
+        const signal = this._abort.signal;
         document.addEventListener('keydown', e => {
             this.keys[e.code] = true;
             // Track strafe pattern for spin-dodge (A-D-A-D)
@@ -173,8 +176,8 @@ export class Player {
                     this._strafeHistory.shift();
                 }
             }
-        });
-        document.addEventListener('keyup', e => { this.keys[e.code] = false; });
+        }, { signal });
+        document.addEventListener('keyup', e => { this.keys[e.code] = false; }, { signal });
         document.addEventListener('mousemove', e => {
             // Pointer lock OPTIONAL: camera turns with or without it (movementX/Y works ungated).
             // Only look during live play and when not typing in a chat/text input.
@@ -191,22 +194,27 @@ export class Player {
             // Accumulate flick energy (raw pixel motion this frame)
             this.flickX += e.movementX;
             this.flickY += e.movementY; // +down, -up on screen
-        });
+        }, { signal });
         document.addEventListener('mousedown', e => {
             // ponytail: pointer lock re-activation removed — causes mouse bug during pause
             if (e.button === 0 && this.alive && this.game?.state === 'PLAYING') {
                 this.tryAttack();
             }
-        });
+        }, { signal });
         // ponytail: Q tuşu aktif skill (sadece oyun sırasında)
         document.addEventListener('keydown', e => {
             if (e.code === 'KeyQ' && this.alive && this.game?.state === 'PLAYING') {
                 this._skillQueued = true;
             }
-        });
+        }, { signal });
         document.addEventListener('pointerlockchange', () => {
             this.locked = document.pointerLockElement === this.renderer.domElement;
-        });
+        }, { signal });
+    }
+
+    cleanupInput() {
+        this._abort?.abort();
+        this._abort = null;
     }
 
     lock() { try { this.renderer.domElement.requestPointerLock(); } catch (_) {} }

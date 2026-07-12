@@ -5,7 +5,7 @@ import { applyCharacter, CHARACTERS } from './characters.js';
 import { applyRunes, tickSkillCooldowns, useSkill } from './skills.js';
 import { outlineVertexShader } from './shaders/toon.vert.js';
 
-// ponytail: geçici — baş etiket sprite'ları (isim/avatar/HP) bug yüzünden kapatıldı
+// ponytail: depthTest:true — sprites hide behind walls, no punch-through
 const DISABLE_SPRITES = false;
 
 const BOT_HIT_DAMAGE = 22;
