@@ -1,4 +1,7 @@
 // network.js — P2P via PeerJS for multiplayer
+// ponytail: binary message types for hot-path packets (ballState/position) — ~4x smaller than JSON
+const BIN = { BALL: 1, POS: 2 };
+
 export class Network {
     constructor(game) {
         this.game = game;
@@ -140,6 +143,104 @@ export class Network {
         });
     }
 
+    // --- ponytail: binary codec for hot-path packets ---
+    _decodeBinary(data) {
+        const dv = data instanceof Uint8Array
+            ? new DataView(data.buffer, data.byteOffset, data.byteLength)
+            : new DataView(data);
+        const t = dv.getUint8(0);
+        if (t === BIN.BALL) return this._decodeBallState(dv);
+        if (t === BIN.POS) return this._decodePosition(dv);
+        return null;
+    }
+
+    _decodeBallState(dv) {
+        const msg = { type: 'ballState', seq: dv.getUint16(1) };
+        msg.x = dv.getFloat32(3); msg.y = dv.getFloat32(7); msg.z = dv.getFloat32(11);
+        msg.vx = dv.getFloat32(15); msg.vy = dv.getFloat32(19); msg.vz = dv.getFloat32(23);
+        msg.speed = dv.getFloat32(27);
+        const flags = dv.getUint8(31);
+        msg.active = !!(flags & 1);
+        let off = 32;
+        if (flags & 2) { const sc = dv.getUint8(off); off += 1; msg.state = { 0: 'idle', 1: 'rally', 2: 'hold', 3: 'warmup', 4: 'other' }[sc] || 'rally'; }
+        if (flags & 4) { const len = dv.getUint8(off); off += 1; msg.targetName = len ? new TextDecoder().decode(new Uint8Array(dv.buffer, dv.byteOffset + off, len)) : null; off += len; }
+        if (flags & 8) { const len = dv.getUint8(off); off += 1; msg.affix = new TextDecoder().decode(new Uint8Array(dv.buffer, dv.byteOffset + off, len)); off += len; msg.affixColor = dv.getUint32(off); off += 4; }
+        return msg;
+    }
+
+    _decodePosition(dv) {
+        const msg = { type: 'position' };
+        msg.x = dv.getFloat32(1); msg.y = dv.getFloat32(5); msg.z = dv.getFloat32(9);
+        msg.ry = dv.getFloat32(13);
+        msg.ax = dv.getFloat32(17); msg.ay = dv.getFloat32(21); msg.az = dv.getFloat32(25);
+        const flags = dv.getUint8(29);
+        let off = 30;
+        if (flags & 1) { msg.alive = dv.getUint8(off) === 1; off += 1; }
+        if (flags & 2) { msg.hp = dv.getUint8(off); off += 1; }
+        if (flags & 4) { msg.team = dv.getUint8(off) === 0 ? 'red' : 'blue'; off += 1; }
+        if (flags & 8) { const len = dv.getUint8(off); off += 1; msg.name = new TextDecoder().decode(new Uint8Array(dv.buffer, dv.byteOffset + off, len)); off += len; }
+        if (flags & 16) { const len = dv.getUint8(off); off += 1; msg.charId = new TextDecoder().decode(new Uint8Array(dv.buffer, dv.byteOffset + off, len)); off += len; }
+        return msg;
+    }
+
+    encodeBallState(b) {
+        const hasState = Object.prototype.hasOwnProperty.call(b, 'state');
+        const hasTarget = Object.prototype.hasOwnProperty.call(b, 'targetName');
+        const hasAffix = !!b.affix;
+        let size = 32;
+        let stateCode = 1, targetBytes = null, affixBytes = null;
+        if (hasState) { size += 1; stateCode = { idle: 0, hold: 2, warmup: 3, rally: 1, other: 4 }[b.state] ?? 4; }
+        if (hasTarget) { targetBytes = new TextEncoder().encode(b.targetName || ''); size += 1 + targetBytes.length; }
+        if (hasAffix) { affixBytes = new TextEncoder().encode(String(b.affix.id || b.affix.name)); size += 1 + affixBytes.length + 4; }
+        const buf = new ArrayBuffer(size);
+        const dv = new DataView(buf);
+        const u8 = new Uint8Array(buf);
+        dv.setUint8(0, BIN.BALL);
+        dv.setUint16(1, (b.seq || 0) & 0xffff);
+        dv.setFloat32(3, b.x); dv.setFloat32(7, b.y); dv.setFloat32(11, b.z);
+        dv.setFloat32(15, b.vx); dv.setFloat32(19, b.vy); dv.setFloat32(23, b.vz);
+        dv.setFloat32(27, b.speed);
+        let flags = b.active ? 1 : 0, off = 32;
+        if (hasState) { flags |= 2; dv.setUint8(off, stateCode); off += 1; }
+        if (hasTarget) { flags |= 4; dv.setUint8(off, targetBytes.length); off += 1; u8.set(targetBytes, off); off += targetBytes.length; }
+        if (hasAffix) { flags |= 8; dv.setUint8(off, affixBytes.length); off += 1; u8.set(affixBytes, off); off += affixBytes.length; dv.setUint32(off, b.affix.color || 0); off += 4; }
+        dv.setUint8(31, flags);
+        return u8;
+    }
+
+    encodePosition(p) {
+        let size = 30;
+        let nameBytes = null, charBytes = null;
+        if (p.alive !== undefined) size += 1;
+        if (p.hp !== undefined) size += 1;
+        if (p.team) size += 1;
+        if (p.name) { nameBytes = new TextEncoder().encode(p.name); size += 1 + nameBytes.length; }
+        if (p.charId) { charBytes = new TextEncoder().encode(p.charId); size += 1 + charBytes.length; }
+        const buf = new ArrayBuffer(size);
+        const dv = new DataView(buf);
+        const u8 = new Uint8Array(buf);
+        dv.setUint8(0, BIN.POS);
+        dv.setFloat32(1, p.x); dv.setFloat32(5, p.y); dv.setFloat32(9, p.z);
+        dv.setFloat32(13, p.ry || 0);
+        dv.setFloat32(17, p.ax || 0); dv.setFloat32(21, p.ay || 0); dv.setFloat32(25, p.az || 0);
+        let flags = 0, off = 30;
+        if (p.alive !== undefined) { flags |= 1; dv.setUint8(off, p.alive ? 1 : 0); off += 1; }
+        if (p.hp !== undefined) { flags |= 2; dv.setUint8(off, Math.max(0, Math.min(255, p.hp | 0))); off += 1; }
+        if (p.team) { flags |= 4; dv.setUint8(off, p.team === 'red' ? 0 : 1); off += 1; }
+        if (p.name) { flags |= 8; dv.setUint8(off, nameBytes.length); off += 1; u8.set(nameBytes, off); off += nameBytes.length; }
+        if (p.charId) { flags |= 16; dv.setUint8(off, charBytes.length); off += 1; u8.set(charBytes, off); off += charBytes.length; }
+        dv.setUint8(29, flags);
+        return u8;
+    }
+
+    broadcastBinary(u8) {
+        this.connections.forEach(conn => { if (conn.open) conn.send(u8); });
+    }
+
+    broadcastAllBinary(u8) {
+        this.connections.forEach(conn => { if (conn.open) conn.send(u8); });
+    }
+
     // ponytail: validate critical message fields to reject rogue peer data
     _validateMsg(data) {
         if (typeof data !== 'object' || !data.type) return false;
@@ -164,6 +265,11 @@ export class Network {
     }
 
     handleMessage(data, peerId) {
+        // ponytail: decode binary hot-path packets to plain objects
+        if (data instanceof ArrayBuffer || data instanceof Uint8Array) {
+            data = this._decodeBinary(data);
+            if (!data) return;
+        }
         // ponytail: reject malformed messages
         if (!this._validateMsg(data)) return;
         switch (data.type) {
@@ -370,14 +476,13 @@ export class Network {
 
     // Sync player pos — goes directly to ALL peers (mesh, skip host relay)
     sendPosition(position, rotation, extra = {}) {
-        this.broadcastAll({
-            type: 'position',
+        this.broadcastAllBinary(this.encodePosition({
             x: position.x,
             y: position.y,
             z: position.z,
             ry: rotation,
             ...extra
-        });
+        }));
     }
 
     _sendToConn(peerId, data) {
@@ -429,8 +534,8 @@ export class Network {
 
     broadcastBallState(ball) {
         if (!this.isHost) return;
-        const msg = {
-            type: 'ballState',
+        this.broadcastBinary(this.encodeBallState({
+            seq: this._ballSeq || 0,
             x: ball.position.x,
             y: ball.position.y,
             z: ball.position.z,
@@ -438,14 +543,9 @@ export class Network {
             vy: ball.velocity.y,
             vz: ball.velocity.z,
             speed: ball.currentSpeed,
-            active: ball.active
-        };
-        // ponytail: sync ball affix to clients so HUD shows it
-        if (ball.affix) {
-            msg.affix = ball.affix.id || ball.affix.name;
-            msg.affixColor = ball.affix.color;
-        }
-        this.broadcast(msg);
+            active: ball.active,
+            affix: ball.affix ? { id: ball.affix.id || ball.affix.name, color: ball.affix.color } : null
+        }));
     }
 
     broadcastScores(scoreboard) {

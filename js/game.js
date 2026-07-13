@@ -1340,9 +1340,11 @@ export class Game {
             const ballPos = this.ball.position;
             const playerPos = this.player.getPosition();
             const dist = ballPos.distanceTo(playerPos);
+            // ponytail: unify client prediction range — both use speed-scaled bonus
+            const speedBonus = Math.min(this.ball.currentSpeed * 0.003, 3.0);
             const deflectionRange = isClient2
-                ? this.ball.attackRange * 2.0
-                : this.ball.attackRange + Math.min(this.ball.currentSpeed * 0.003, 3.0);
+                ? this.ball.attackRange * 1.5 + speedBonus
+                : this.ball.attackRange + speedBonus;
             if (dist < deflectionRange) {
                 this.handlePlayerDeflection(isClient2);
             } else if (this.ball._prevPosition && this.ball.currentSpeed > 20) {
@@ -1395,19 +1397,19 @@ export class Game {
                     this.handleHit(target);
                     return;
                 }
-                // ponytail: swept sphere check — test ball trajectory for tunneling prevention
-                // Check 2 intermediate positions between last frame and current frame
-                if (this.ball._prevPosition && this.ball.currentSpeed > 20) {
-                    const steps = Math.min(4, Math.ceil(this.ball.currentSpeed * 0.02));
-                    for (let s = 1; s <= steps; s++) {
-                        const t = s / (steps + 1);
-                        const interpPos = new THREE.Vector3().lerpVectors(this.ball._prevPosition, ballPos, t);
-                        if (this.capsuleHitTest(interpPos, headPos, 1.7, 0.4 + hitBonus)) {
-                            this.handleHit(target);
-                            return;
-                        }
+            // ponytail: swept sphere check — test ball trajectory for tunneling prevention
+            // Catches moderate-speed tunneling; steps scale with speed
+            if (this.ball._prevPosition && this.ball.currentSpeed > 12) {
+                const steps = Math.min(3, Math.ceil(this.ball.currentSpeed * 0.015));
+                for (let s = 1; s <= steps; s++) {
+                    const t = s / (steps + 1);
+                    const interpPos = new THREE.Vector3().lerpVectors(this.ball._prevPosition, ballPos, t);
+                    if (this.capsuleHitTest(interpPos, headPos, 1.7, 0.4 + hitBonus)) {
+                        this.handleHit(target);
+                        return;
                     }
                 }
+            }
                 // ponytail: proximity forced-hit — top hedefe çok yakınken oyuncu
                 // vurmazsa zorunlu hit. Sonsuz döngü engeli + tunneling fix.
                 if (this.ball._forceHit) {
@@ -2450,6 +2452,7 @@ export class Game {
         }
         this._finalStats = stats;
         this._finalWinner = winner;
+        this._showCelebrationBanner(this._winningTeam, `${winner} TEAM WINS!`);
 
         // Keep ball inactive, let players move — keep mouse captured for celebration
         this.ball.deactivate();
@@ -2937,7 +2940,7 @@ export class Game {
     // interpolate eder (30Hz snapshot aktarımı akıcı görülür).
     invokeRemoteSnapshots(dt) {
         if (!this.remotePlayers.size) return;
-        const interpDelay = 20; // ms — reduced for lower latency, still absorbs network jitter
+        const interpDelay = 20; // ms — ponytail: standing remotes snap now; running ones keep buffer to absorb jitter
         const now = performance.now();
         const renderTime = now - interpDelay;
         for (const p of this.remotePlayers.values()) {
@@ -3425,9 +3428,11 @@ export class Game {
         const dy = ty - this.ball.position.y;
         const dz = tz - this.ball.position.z;
         const distSq = dx*dx + dy*dy + dz*dz;
-        // ponytail: adaptive smoothing — high-speed balls need faster convergence
+        // ponytail: adaptive smoothing — high-speed balls need faster convergence; distance-error boost
         const speed = Math.sqrt(this._ballTarget.vx**2 + this._ballTarget.vy**2 + this._ballTarget.vz**2);
-        const smoothK = 12 + Math.min(40, speed * 0.8);  // 12 at rest → 52 at 50 m/s
+        const errDist = Math.sqrt(distSq);
+        const errBoost = errDist > 2 ? Math.min(2, (errDist - 2) * 0.3) : 0;
+        const smoothK = (18 + Math.min(50, speed * 1.0)) * (1 + errBoost);  // 18 at rest → 68 at 50 m/s; teleports converge up to 2x faster
         // ponytail: snap threshold scales with speed — fast balls cover more ground per frame
         const snapThreshold = 25 + speed * speed * 0.04;  // 25 at rest → 125 at 50 m/s
         if (distSq > snapThreshold) {
@@ -3670,6 +3675,23 @@ export class Game {
         } else {
             this.audio?.playSfx?.('tf2_you_failed', 0.5);
         }
+        // ponytail: show winner banner at top during celebration
+        this._showCelebrationBanner(data.winner, data.message);
+    }
+
+    _showCelebrationBanner(winner, message) {
+        const banner = document.getElementById('celebration-banner');
+        if (!banner) return;
+        const teamEl = document.getElementById('cb-team');
+        const subEl = document.getElementById('cb-sub');
+        const cls = winner === 'red' ? 'cb-red' : winner === 'blue' ? 'cb-blue' : 'cb-draw';
+        if (teamEl) { teamEl.textContent = (winner || 'DRAW').toUpperCase() + ' TEAM WINS!'; teamEl.className = 'cb-team ' + cls; }
+        if (subEl) subEl.textContent = message || '';
+        banner.classList.remove('hidden');
+    }
+
+    _hideCelebrationBanner() {
+        document.getElementById('celebration-banner')?.classList.add('hidden');
     }
 
     applyGameOver(data) {
@@ -3677,6 +3699,7 @@ export class Game {
         this.state = STATES.GAME_OVER;
         this.player.unlock();
         this.player._celebNoAttack = false;
+        this._hideCelebrationBanner();
         // XP / reward screen — host'tan gelen verilerle
         const winner = data.winner || (data.redScore > data.blueScore ? 'RED' : data.blueScore > data.redScore ? 'BLUE' : 'DRAW');
         const winnerText = winner === 'DRAW'

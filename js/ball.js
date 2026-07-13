@@ -632,10 +632,10 @@ export class Ball {
         this.deflections++;
         this._proximityTimer = 0;
         this.bodyZone = ['head','chest','abdomen','legs'][Math.floor(Math.random() * 4)];
-        // Speed ramp: additive with diminishing returns, not exponential
+        // Speed ramp: additive with diminishing returns, not exponential — ponytail: cut hard so ball doesn't snowball
         const speedPct = this.currentSpeed / this.baseSpeed;
-        let rampAdd = this.baseSpeed * 0.025 * Math.max(0.2, 1 - speedPct * 0.012);
-        rampAdd = Math.min(rampAdd, this.baseSpeed * 0.18);
+        let rampAdd = this.baseSpeed * 0.015 * Math.max(0.2, 1 - speedPct * 0.012);
+        rampAdd = Math.min(rampAdd, this.baseSpeed * 0.12);
         this.currentSpeed += rampAdd;
         this.state = 'rally';
         this.aimed = true;
@@ -644,7 +644,7 @@ export class Ball {
         const spike = flick.vertical > 20 && flick.power > 0.25;
         const lob = flick.vertical < -20 && flick.power > 0.25;
         // ponytail: reduced power bonus multiplier to slow exponential ramp
-        const powerBonus = (1 + (flick.power || 0) * 0.04) * deflectPower;
+        const powerBonus = (1 + (flick.power || 0) * 0.025) * deflectPower;
         let shot = 'flat';
         let speed = this.currentSpeed * powerBonus;
 
@@ -671,10 +671,10 @@ export class Ball {
         // Source Engine momentum — player movement adds to ball velocity
         if (momentum) {
             const momLen = momentum.length() || 0;
-            const momScale = Math.min(0.5, momLen / 20); // ponytail: cap lower so dash doesn't over-accelerate ball
-            this.velocity.x += momentum.x * momScale * 0.5;
-            this.velocity.y += Math.abs(momentum.y) * momScale * 0.4;
-            this.velocity.z += momentum.z * momScale * 0.5;
+            const momScale = Math.min(0.3, momLen / 25); // ponytail: cap lower so dash doesn't over-accelerate ball
+            this.velocity.x += momentum.x * momScale * 0.3;
+            this.velocity.y += Math.abs(momentum.y) * momScale * 0.25;
+            this.velocity.z += momentum.z * momScale * 0.3;
         }
 
         // Source Engine-style spin from flick:

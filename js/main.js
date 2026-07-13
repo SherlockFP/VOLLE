@@ -1992,11 +1992,11 @@ class App {
             const now = performance.now();
             const dt = Math.min((now - this._lastBgDt) / 1000, 0.1);
             this._lastBgDt = now;
-            // Substep: 30fps fixed timestep (33ms) for stable physics
+            // Substep: fixed 128Hz timestep for low-latency authoritative sim
             this._bgAccumulator += dt;
-            const step = 1 / 30;
+            const step = 1 / 128;
             let steps = 0;
-            while (this._bgAccumulator >= step && steps < 6) {
+            while (this._bgAccumulator >= step && steps < 8) {
                 this._bgTick(step);
                 this._bgAccumulator -= step;
                 steps++;
@@ -2006,14 +2006,14 @@ class App {
                 this.game.invokeRemoteSnapshots(dt);
                 this.game.invokeBallSmoothing?.(dt);
             }
-            // Host slow-rate broadcasts
+            // Host broadcasts (ballState at 128Hz)
             if (this.game.state === STATES.PLAYING) {
                 this._hostBgSlowBroadcast(dt);
             }
             if (this.game.state === STATES.MENU) {
                 this._renderMenuBg();
             }
-        }, 50); // 20fps tick
+        }, 1000 / 128); // 128Hz tick
     }
     _stopBgLoop() {
         if (this._bgInterval) {
@@ -2093,7 +2093,7 @@ class App {
     // Host slow-rate broadcasts: score 2Hz, powerUp 2Hz, ballState 15Hz
     _hostBgSlowBroadcast(dt) {
         if (!this.network?.isHost) return;
-        // BallState — position/velocity every tick (20fps); only send state/target on change
+        // BallState — binary position/velocity every 128Hz tick; state/target only when changed
         if (this.game.ball.active || this.game.ball.state !== 'idle') {
             this._ballSeq = (this._ballSeq || 0) + 1;
             const b = this.game.ball;
@@ -2103,14 +2103,13 @@ class App {
             const ballExtra = {};
             if (this._lastBallState !== newState) { ballExtra.state = newState; this._lastBallState = newState; }
             if (this._lastBallTarget !== newTarget) { ballExtra.targetName = newTarget; this._lastBallTarget = newTarget; }
-            this.network.broadcast({
-                type: 'ballState',
+            this.network.broadcastBinary(this.network.encodeBallState({
                 seq: this._ballSeq,
                 x: b.position.x, y: b.position.y, z: b.position.z,
                 vx: b.velocity.x, vy: b.velocity.y, vz: b.velocity.z,
                 speed: b.currentSpeed, active: b.active,
                 ...ballExtra
-            });
+            }));
         }
         // Score 2Hz
         this._bgScoreTimer += dt;
@@ -2176,7 +2175,7 @@ class App {
         const pauseOpen = !document.getElementById('pause-menu')?.classList.contains('hidden');
         const settingsOpen = !document.getElementById('unified-settings')?.classList.contains('hidden');
         const teamPopup = this.ui.isTeamPopupOpen?.();
-        const canLock = (this.game.state === STATES.PLAYING || this.game.state === STATES.COUNTDOWN || this.game.state === STATES.CELEBRATION)
+        const canLock = (this.game.state === STATES.PLAYING || this.game.state === STATES.COUNTDOWN)
             && !pauseOpen && !settingsOpen && !this.chatOpen && !teamPopup;
         if (canLock && !document.pointerLockElement) {
             if (!this._plRetry || performance.now() - this._plRetry > 500) {
@@ -2206,7 +2205,8 @@ class App {
 
         if (this.game.state === STATES.PLAYING || this.game.state === STATES.ROUND_END || this.game.state === STATES.COUNTDOWN || this.game.state === STATES.CELEBRATION) {
             if (!Spectator.active) this.player.update(dt);
-            this.game.update(dt);
+            // ponytail: host sim runs in bg loop at 128Hz; only clients run game.update here
+            if (!this.network?.isHost) this.game.update(dt);
             // Dash trail
             if (this.player._justDashed) {
                 this.player._justDashed = false;
