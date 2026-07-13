@@ -1632,6 +1632,8 @@ class App {
             this._setupClientNetHandlers();
             await this.network.joinGame(code, name);
             this.game.playerName = name;
+            // ponytail: bg loop runs client-side interpolation + state handling throughout the game
+            this._startBgLoop();
             this.ui.showScreen('lobby');
             this.ui.showMessage?.('🔗 Joined lobby!', 2000);
         } catch (e) {
@@ -1648,6 +1650,8 @@ class App {
             this.game.playerName = name;
             const code = await this.network.hostGame(name);
             if (this._localLobbyPassword) this.network.setLobbyPassword(this._localLobbyPassword);
+            // ponytail: bg loop is the authoritative host sim — must run regardless of tab visibility
+            this._startBgLoop();
             this.game.startSolo();
             this.ui.setRoomCode(code);
             this.ui.showScreen('lobby');
@@ -1970,13 +1974,12 @@ class App {
 
     // ===== ALT-TAB KORUMA: RAF donunca network background timer'la çalışsın =====
     _onVisibilityChange() {
+        // ponytail: bg loop continues running (host sim depends on it now); only audio + render throttle
         if (document.hidden) {
             this._tabHidden = true;
-            this._startBgLoop();
             if (this.audio?.ctx?.state === 'running') this.audio.ctx.suspend();
         } else {
             this._tabHidden = false;
-            this._stopBgLoop();
             if (this.audio?.ctx?.state === 'suspended') this.audio.ctx.resume();
         }
     }
@@ -1988,7 +1991,10 @@ class App {
         this._bgScoreTimer = 0;
         this._bgPowerUpTimer = 0;
         this._bgInterval = setInterval(() => {
-            if (!this._tabHidden || !this.network?.connected) return;
+            // ponytail: bg loop is now the authoritative host simulation path — must run regardless of tab visibility.
+            // Only condition: a network connection must exist (otherwise no game to simulate).
+            if (!this.network?.connected) return;
+            if (!document.hidden && this._tabHidden) this._tabHidden = false;
             const now = performance.now();
             const dt = Math.min((now - this._lastBgDt) / 1000, 0.1);
             this._lastBgDt = now;
