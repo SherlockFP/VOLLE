@@ -1659,11 +1659,12 @@ class App {
             }
             // Mesh: on welcome, connect to all existing peers directly (skip host relay)
             if (data?.type === 'welcome' && !this.network.isHost && data.players) {
-                const myId = this.network.peer?.id;
+                const myId = this.network.playerId;
+                const myPeerId = this.network.peer?.id;
                 const hostId = this.network.hostConn?.peer;
                 data.players.forEach(pl => {
-                    if (pl.peerId && pl.peerId !== myId && pl.peerId !== hostId) {
-                        this.network.connectToPeer(pl.peerId);
+                    if (pl.peerId && (pl.playerId || pl.peerId) !== myId && pl.peerId !== myPeerId && pl.peerId !== hostId) {
+                        this.network.connectToPeer(pl.peerId, pl.playerId);
                     }
                 });
             }
@@ -1816,23 +1817,23 @@ class App {
                 this._lobbyNameTimeout = setTimeout(onLobbyNameChange, 400);
             };
             if (nameInput) nameInput.addEventListener('input', onLobbyNameInput);
-            this.network.onPlayerJoin = (pName, peerId, avatar) => {
-                this.game.addRemotePlayer(peerId, pName, null, avatar);
+            this.network.onPlayerJoin = (pName, playerId, avatar, peerId) => {
+                this.game.addRemotePlayer(playerId, pName, null, avatar, peerId);
                 this.ui.showMessage(`${pName} joined!`);
                 this.game.updateLobbyUI();
                 this.refreshFriendsSidebar();
                 // Mesh: tell existing clients to P2P-connect to the new peer
-                this.network.broadcast({ type: 'newPeer', peerId, name: pName });
+                this.network.broadcast({ type: 'newPeer', playerId, peerId, name: pName });
                 this.broadcastLobbyState();
                 this._registerLobby(code, this._lobbyName, this.network.connections.size + 1, this.arena.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
             };
-            this.network.onPlayerLeave = (peerId) => {
-                this.game.removeRemotePlayer(peerId);
+            this.network.onPlayerLeave = (playerId, peerId) => {
+                this.game.removeRemotePlayer(playerId);
                 this.ui.showMessage?.('A player left');
                 this.game.updateLobbyUI();
                 this.refreshFriendsSidebar();
                 // Mesh: tell remaining clients to drop P2P connection
-                this.network.broadcast({ type: 'peerLeft', peerId });
+                this.network.broadcast({ type: 'peerLeft', playerId, peerId });
                 this.broadcastLobbyState();
                 this._registerLobby(code, this._lobbyName, this.network.connections.size, this.arena.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
             };

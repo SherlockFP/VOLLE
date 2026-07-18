@@ -1,6 +1,19 @@
 // network.js — P2P via PeerJS for multiplayer
 // ponytail: binary message types for hot-path packets (ballState/position) — ~4x smaller than JSON
 const BIN = { BALL: 1, POS: 2 };
+const PLAYER_ID_KEY = 'dodgb.playerId';
+const RESUME_TOKEN_KEY = 'dodgb.resumeToken';
+
+function createSessionValue(key, prefix) {
+    try {
+        const stored = globalThis.sessionStorage?.getItem(key);
+        if (stored) return stored;
+    } catch (_) {}
+    const id = globalThis.crypto?.randomUUID?.()
+        || `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    try { globalThis.sessionStorage?.setItem(key, id); } catch (_) {}
+    return id;
+}
 
 export function isNewerSequence(next, previous) {
     const delta = (next - previous + 0x10000) & 0xffff;
@@ -16,9 +29,16 @@ export class Network {
         this.game = game;
         this.peer = null;
         this.connections = new Map();
+        this.peerToPlayerId = new Map();
+        this.playerConnections = new Map();
+        this.playerResumeTokens = new Map();
+        this.allowedMeshPeers = new Map();
+        this.pendingConnections = new Map();
         this.hostConn = null;      // direct reference to host connection (mesh routing)
         this.isHost = false;
         this.roomCode = '';
+        this.playerId = createSessionValue(PLAYER_ID_KEY, 'player');
+        this.resumeToken = createSessionValue(RESUME_TOKEN_KEY, 'resume');
         this.playerName = 'Player';
         this.onPlayerJoin = null;
         this.onPlayerLeave = null;
@@ -43,6 +63,7 @@ export class Network {
         this._manualDisconnect = false;
         this._reconnectAttempts = 0;
         this._reconnectTimer = null;
+        this._joinPromise = null;
     }
 
     async initPeer() {
@@ -72,7 +93,17 @@ export class Network {
         return this.roomCode;
     }
 
-    async joinGame(roomCode, playerName, password = '') {
+    joinGame(roomCode, playerName, password = '') {
+        if (this._joinPromise) return this._joinPromise;
+        const promise = this._joinGame(roomCode, playerName, password);
+        this._joinPromise = promise;
+        promise.finally(() => {
+            if (this._joinPromise === promise) this._joinPromise = null;
+        }).catch(() => {});
+        return promise;
+    }
+
+    async _joinGame(roomCode, playerName, password = '') {
         this.playerName = playerName;
         this.isHost = false;
         this.hostRoomCode = roomCode;
@@ -83,7 +114,12 @@ export class Network {
         if (this.game?.player && this.peer) this.game.player.peerId = this.peer.id;
 
         const conn = this.peer.connect(roomCode, {
-            metadata: { name: playerName, password }
+            metadata: {
+                name: playerName,
+                password,
+                playerId: this.playerId,
+                resumeToken: this.resumeToken
+            }
         });
 
         return new Promise((resolve, reject) => {
@@ -92,13 +128,13 @@ export class Network {
                 this.hostConn = conn;
                 this.connections.set(roomCode, conn);
                 this.setupDataHandlers(conn);
-                const avatar = window.__store?.get?.('customAvatar')?.dataURL || '';
-                conn.send({ type: 'join', name: playerName, password, avatar });
+                const avatar = globalThis.window?.__store?.get?.('customAvatar')?.dataURL || '';
+                conn.send({ type: 'join', name: playerName, password, avatar, playerId: this.playerId });
                 resolve();
             });
             // Host went away (closed game / left lobby) → kick us back to menu.
             conn.on('close', () => {
-                this.connections.delete(roomCode);
+                if (this.connections.get(roomCode) === conn) this.connections.delete(roomCode);
                 if (this.hostConn === conn) this.hostConn = null;
                 this._scheduleReconnect();
             });
@@ -125,19 +161,24 @@ export class Network {
     _reconnectOnce() {
         if (this._manualDisconnect || !this.peer || !this.hostRoomCode) return;
         const conn = this.peer.connect(this.hostRoomCode, {
-            metadata: { name: this.playerName, password: this.joinPassword }
+            metadata: {
+                name: this.playerName,
+                password: this.joinPassword,
+                playerId: this.playerId,
+                resumeToken: this.resumeToken
+            }
         });
         conn.on('open', () => {
             this._reconnectAttempts = 0;
             this.hostConn = conn;
             this.connections.set(this.hostRoomCode, conn);
             this.setupDataHandlers(conn);
-            const avatar = window.__store?.get?.('customAvatar')?.dataURL || '';
-            conn.send({ type: 'join', name: this.playerName, password: this.joinPassword, avatar });
+            const avatar = globalThis.window?.__store?.get?.('customAvatar')?.dataURL || '';
+            conn.send({ type: 'join', name: this.playerName, password: this.joinPassword, avatar, playerId: this.playerId });
             this.onReconnectState?.('connected', 0);
         });
         conn.on('close', () => {
-            this.connections.delete(this.hostRoomCode);
+            if (this.connections.get(this.hostRoomCode) === conn) this.connections.delete(this.hostRoomCode);
             if (this.hostConn === conn) this.hostConn = null;
             this._scheduleReconnect();
         });
@@ -147,7 +188,8 @@ export class Network {
     _onIncomingConnection(conn) {
         conn.on('open', () => {
             if (conn.metadata?.isMesh) {
-                this._handleMeshConn(conn);
+                if (this.isHost) conn.close();
+                else this._handleMeshConn(conn);
             } else if (this.isHost) {
                 this._handleJoinConn(conn);
             } else {
@@ -159,19 +201,36 @@ export class Network {
 
     _handleJoinConn(conn) {
         const name = conn.metadata?.name || 'Player';
+        const playerId = conn.metadata?.playerId || conn.peer;
+        const resumeToken = conn.metadata?.resumeToken || null;
         // Password gate — reject wrong/missing password before admitting the peer.
         if (this.lobbyPassword && conn.metadata?.password !== this.lobbyPassword) {
             conn.send({ type: 'kick', name, reason: 'password' });
             setTimeout(() => conn.close(), 200);
             return;
         }
+        const previous = this.playerConnections.get(playerId);
+        const expectedToken = this.playerResumeTokens.get(playerId);
+        if (expectedToken && expectedToken !== resumeToken) {
+            conn.send({ type: 'kick', name, reason: 'duplicate_identity' });
+            setTimeout(() => conn.close(), 200);
+            return;
+        }
+        if (resumeToken && !expectedToken) this.playerResumeTokens.set(playerId, resumeToken);
         this.connections.set(conn.peer, conn);
+        this.peerToPlayerId.set(conn.peer, playerId);
+        this.playerConnections.set(playerId, conn);
+        if (previous && previous !== conn) this._lastPositionSeq.delete(playerId);
         this.setupDataHandlers(conn);
-        if (this.onPlayerJoin) this.onPlayerJoin(name, conn.peer);
+        if (previous && previous !== conn) {
+            if (this.connections.get(previous.peer) === previous) this.connections.delete(previous.peer);
+            if (previous.peer !== conn.peer) this.peerToPlayerId.delete(previous.peer);
+            previous.close();
+        }
 
         // Send current game state: lobby + map/mode/score/snapshot — late join
         // için yeni gelen oyuncu tam state'te başlayabilsin.
-        conn.send({
+        conn._sendWelcome = () => conn.send({
             type: 'welcome',
             players: this.game.getPlayerList(),
             state: this.game.state,
@@ -185,21 +244,38 @@ export class Network {
         });
 
         conn.on('close', () => {
-            this.connections.delete(conn.peer);
-            if (this.onPlayerLeave) this.onPlayerLeave(conn.peer);
+            if (this.connections.get(conn.peer) === conn) {
+                this.connections.delete(conn.peer);
+                this.peerToPlayerId.delete(conn.peer);
+            }
+            if (this.playerConnections.get(playerId) !== conn) return;
+            this.playerConnections.delete(playerId);
+            this._lastPositionSeq.delete(playerId);
+            if (this.onPlayerLeave) this.onPlayerLeave(playerId, conn.peer);
         });
     }
 
     _handleMeshConn(conn) {
+        const playerId = this.allowedMeshPeers.get(conn.peer);
+        if (!playerId || conn.metadata?.playerId !== playerId) {
+            conn.close();
+            return;
+        }
         this.connections.set(conn.peer, conn);
+        this.peerToPlayerId.set(conn.peer, playerId);
+        this._lastPositionSeq.delete(playerId);
         this.setupDataHandlers(conn);
         conn.on('close', () => {
-            this.connections.delete(conn.peer);
+            if (this.connections.get(conn.peer) === conn) {
+                this.connections.delete(conn.peer);
+                this.peerToPlayerId.delete(conn.peer);
+            }
         });
     }
 
     setupDataHandlers(conn) {
         conn.on('data', data => {
+            if (this.connections.get(conn.peer) !== conn) return;
             this.handleMessage(data, conn.peer);
         });
     }
@@ -245,6 +321,7 @@ export class Network {
         if (flags & 4) { msg.team = dv.getUint8(off) === 0 ? 'red' : 'blue'; off += 1; }
         if (flags & 8) { const len = dv.getUint8(off); off += 1; msg.name = new TextDecoder().decode(new Uint8Array(dv.buffer, dv.byteOffset + off, len)); off += len; }
         if (flags & 16) { const len = dv.getUint8(off); off += 1; msg.charId = new TextDecoder().decode(new Uint8Array(dv.buffer, dv.byteOffset + off, len)); off += len; }
+        if (flags & 32) { const len = dv.getUint8(off); off += 1; msg.playerId = new TextDecoder().decode(new Uint8Array(dv.buffer, dv.byteOffset + off, len)); off += len; }
         return msg;
     }
 
@@ -275,12 +352,13 @@ export class Network {
 
     encodePosition(p) {
         let size = 44;
-        let nameBytes = null, charBytes = null;
+        let nameBytes = null, charBytes = null, playerIdBytes = null;
         if (p.alive !== undefined) size += 1;
         if (p.hp !== undefined) size += 1;
         if (p.team) size += 1;
         if (p.name) { nameBytes = new TextEncoder().encode(p.name); size += 1 + nameBytes.length; }
         if (p.charId) { charBytes = new TextEncoder().encode(p.charId); size += 1 + charBytes.length; }
+        if (p.playerId) { playerIdBytes = new TextEncoder().encode(p.playerId); size += 1 + playerIdBytes.length; }
         const buf = new ArrayBuffer(size);
         const dv = new DataView(buf);
         const u8 = new Uint8Array(buf);
@@ -296,6 +374,7 @@ export class Network {
         if (p.team) { flags |= 4; dv.setUint8(off, p.team === 'red' ? 0 : 1); off += 1; }
         if (p.name) { flags |= 8; dv.setUint8(off, nameBytes.length); off += 1; u8.set(nameBytes, off); off += nameBytes.length; }
         if (p.charId) { flags |= 16; dv.setUint8(off, charBytes.length); off += 1; u8.set(charBytes, off); off += charBytes.length; }
+        if (p.playerId) { flags |= 32; dv.setUint8(off, playerIdBytes.length); off += 1; u8.set(playerIdBytes, off); off += playerIdBytes.length; }
         dv.setUint8(43, flags);
         return u8;
     }
@@ -339,24 +418,48 @@ export class Network {
         }
         // ponytail: reject malformed messages
         if (!this._validateMsg(data)) return;
+        const sourceConn = this.connections.get(peerId);
+        if (this.isHost && data.type !== 'join' && (!sourceConn || !sourceConn._admitted)) return;
         switch (data.type) {
             case 'join':
-                if (this.onPlayerJoin) this.onPlayerJoin(data.name, peerId, data.avatar);
+                if (!this.isHost) break;
+                {
+                    const conn = this.connections.get(peerId);
+                    if (!conn) break;
+                    const playerId = this.peerToPlayerId.get(peerId) || peerId;
+                    if (data.playerId && data.playerId !== playerId) {
+                        conn.close();
+                        break;
+                    }
+                    if (conn._admitted) break;
+                    conn._admitted = true;
+                    if (this.onPlayerJoin) this.onPlayerJoin(data.name, playerId, data.avatar, peerId);
+                    conn._sendWelcome?.();
+                }
                 break;
             case 'position':
+                {
+                    const trustedRelay = !this.isHost && peerId === this.hostConn?.peer;
+                    const transportPeerId = trustedRelay && data.peerId ? data.peerId : peerId;
+                    const boundPlayerId = this.peerToPlayerId.get(peerId);
+                    if (!trustedRelay && boundPlayerId && data.playerId && data.playerId !== boundPlayerId) return;
+                    const playerId = trustedRelay
+                        ? (data.playerId || this.peerToPlayerId.get(transportPeerId) || transportPeerId)
+                        : (boundPlayerId || data.playerId || peerId);
+                    if (trustedRelay) this.peerToPlayerId.set(transportPeerId, playerId);
                 if (data.seq !== undefined) {
-                    const id = data.peerId || peerId;
-                    const previous = this._lastPositionSeq.get(id);
+                    const previous = this._lastPositionSeq.get(playerId);
                     if (previous !== undefined && !isNewerSequence(data.seq, previous)) return;
-                    this._lastPositionSeq.set(id, data.seq);
+                    this._lastPositionSeq.set(playerId, data.seq);
                 }
-                this.game.updateRemotePlayer(data.peerId || peerId, data);
+                    this.game.updateRemotePlayer(playerId, data, transportPeerId);
+                }
                 break;
             case 'attack':
-                this.game.remoteAttack(peerId, data);
+                this.game.remoteAttack(this.peerToPlayerId.get(peerId) || data.playerId || peerId, data, peerId);
                 break;
             case 'skillUse':
-                if (this.isHost) this.game.handleSkillUse(peerId, data);
+                if (this.isHost) this.game.handleSkillUse(this.peerToPlayerId.get(peerId) || data.playerId || peerId, data);
                 break;
             case 'skillEffect':
                 if (!this.isHost) this.game.handleSkillEffect(data);
@@ -410,6 +513,14 @@ export class Network {
                 this.game.applyRoundEnd?.(data);
                 break;
             case 'welcome':
+                if (this.isHost || peerId !== this.hostConn?.peer) break;
+                if (Array.isArray(data.players)) {
+                    data.players.forEach(player => {
+                        const meshPeerId = player?.peerId;
+                        const meshPlayerId = player?.playerId || meshPeerId;
+                        if (meshPeerId && meshPlayerId) this.allowedMeshPeers.set(meshPeerId, meshPlayerId);
+                    });
+                }
                 if (this.onGameState) this.onGameState(data);
                 break;
             case 'ready':
@@ -468,13 +579,19 @@ export class Network {
                 break;
             case 'newPeer':
                 // Host tells us another client joined — establish mesh connection
-                if (!this.isHost && data.peerId && data.peerId !== this.peer?.id && data.peerId !== this.hostConn?.peer) {
-                    this.connectToPeer(data.peerId);
+                if (!this.isHost && peerId === this.hostConn?.peer
+                    && data.peerId && data.peerId !== this.peer?.id && data.peerId !== this.hostConn?.peer) {
+                    this.allowedMeshPeers.set(data.peerId, data.playerId || data.peerId);
+                    this.connectToPeer(data.peerId, data.playerId);
                 }
                 break;
             case 'peerLeft':
                 // Host tells us a client left — clean up mesh connection
-                if (data.peerId) this.connections.delete(data.peerId);
+                if (!this.isHost && peerId === this.hostConn?.peer && data.peerId) {
+                    this.connections.get(data.peerId)?.close();
+                    this.connections.delete(data.peerId);
+                    this.allowedMeshPeers.delete(data.peerId);
+                }
                 break;
             case 'taunt':
                 if (this.game) this.game.handleRemoteTaunt(data);
@@ -514,19 +631,42 @@ export class Network {
     setLobbyPassword(pw) { this.lobbyPassword = pw || ''; }
 
     // Establish a direct P2P mesh connection to another peer (non-host).
-    async connectToPeer(peerId) {
-        if (this.connections.has(peerId) || peerId === this.peer?.id) return;
+    async connectToPeer(peerId, playerId = peerId) {
+        this.allowedMeshPeers.set(peerId, playerId);
+        if (this.connections.has(peerId) || this.pendingConnections.has(peerId) || peerId === this.peer?.id) {
+            return this.pendingConnections.get(peerId);
+        }
         const conn = this.peer.connect(peerId, {
-            metadata: { name: this.playerName, isMesh: true }
+            metadata: { name: this.playerName, playerId: this.playerId, isMesh: true }
         });
-        return new Promise((resolve) => {
+        const pending = new Promise((resolve) => {
+            let settled = false;
+            const finish = value => {
+                if (settled) return;
+                settled = true;
+                resolve(value);
+            };
             conn.on('open', () => {
                 this.connections.set(peerId, conn);
+                this.peerToPlayerId.set(peerId, playerId);
+                this._lastPositionSeq.delete(playerId);
                 this.setupDataHandlers(conn);
-                resolve();
+                finish(true);
             });
-            conn.on('close', () => { this.connections.delete(peerId); });
+            conn.on('close', () => {
+                if (this.connections.get(peerId) === conn) {
+                    this.connections.delete(peerId);
+                    this.peerToPlayerId.delete(peerId);
+                }
+                finish(false);
+            });
+            conn.on('error', () => finish(false));
         });
+        this.pendingConnections.set(peerId, pending);
+        pending.finally(() => {
+            if (this.pendingConnections.get(peerId) === pending) this.pendingConnections.delete(peerId);
+        });
+        return pending;
     }
 
     broadcast(data) {
@@ -558,6 +698,7 @@ export class Network {
         this._positionSeq = (this._positionSeq + 1) & 0xffff;
         this.broadcastAllBinary(this.encodePosition({
             seq: this._positionSeq,
+            playerId: this.playerId,
             x: position.x,
             y: position.y,
             z: position.z,
@@ -579,9 +720,9 @@ export class Network {
         this.send({ type: 'skillUse', ...extra });
     }
 
-    broadcastSkillEffect(skillId, peerId, pos) {
+    broadcastSkillEffect(skillId, playerId, peerId, pos) {
         if (!this.isHost) return;
-        this.broadcast({ type: 'skillEffect', skill: skillId, peerId, pos });
+        this.broadcast({ type: 'skillEffect', skill: skillId, playerId, peerId, pos });
     }
 
     // RTT ölçümü — nonce işaretlenir, periyodik olarak peer'a yollanır.
@@ -665,6 +806,11 @@ export class Network {
         const conns = [...this.connections.values()];
         conns.forEach(conn => conn.close());
         this.connections.clear();
+        this.peerToPlayerId.clear();
+        this.playerConnections.clear();
+        this.playerResumeTokens.clear();
+        this.allowedMeshPeers.clear();
+        this.pendingConnections.clear();
         if (this.peer) this.peer.destroy();
         this.peer = null;
         this.connected = false;

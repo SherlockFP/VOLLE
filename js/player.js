@@ -9,9 +9,86 @@ const STAMINA_REGEN = 20;     // per second
 const STAMINA_EXHAUST_THRESHOLD = 15;
 const ATTACK_COOLDOWN = 0.6;  // spam protection — wider window for fast balls
 const BASE_HIT_DAMAGE = 25;
-const GROUND_ACCEL = 70;
-const AIR_ACCEL = 28;
-const GROUND_FRICTION = 10;
+export const GROUND_ACCEL = 10;
+export const AIR_ACCEL = 12;
+export const GROUND_FRICTION = 4;
+export const STOP_SPEED = 3.125;
+export const AIR_WISH_CAP = 0.94;
+export const AIR_SPEED_CAP = 1.6;
+
+export function applyGroundFriction(velocity, friction, stopSpeed, dt) {
+    const speed = Math.hypot(velocity.x, velocity.z);
+    if (speed === 0) return { x: 0, z: 0 };
+    const drop = Math.max(speed, stopSpeed) * friction * dt;
+    const scale = Math.max(0, speed - drop) / speed;
+    return { x: velocity.x * scale, z: velocity.z * scale };
+}
+
+export function sourceAccelerate(velocity, wishDir, wishSpeed, accel, dt, projectionCap = wishSpeed, totalCap = Infinity) {
+    const wishLength = Math.hypot(wishDir.x, wishDir.z);
+    if (wishLength === 0 || wishSpeed <= 0) return { ...velocity };
+    const wishX = wishDir.x / wishLength;
+    const wishZ = wishDir.z / wishLength;
+    const currentSpeed = velocity.x * wishX + velocity.z * wishZ;
+    const addSpeed = projectionCap - currentSpeed;
+    if (addSpeed <= 0) return { ...velocity };
+
+    const accelSpeed = Math.min(addSpeed, accel * wishSpeed * dt);
+    let x = velocity.x + wishX * accelSpeed;
+    let z = velocity.z + wishZ * accelSpeed;
+    const speed = Math.hypot(x, z);
+    if (speed > totalCap) {
+        const scale = totalCap / speed;
+        x *= scale;
+        z *= scale;
+    }
+    return { x, z };
+}
+
+export function resolveJump({ spaceDown, onGround, jumpHeld, jumpsRemaining, verticalVel, jumpForce, bhopEnabled }) {
+    if (!spaceDown) {
+        return { onGround, jumpHeld: false, jumpsRemaining, verticalVel, kind: null };
+    }
+    if (onGround && (bhopEnabled || !jumpHeld)) {
+        return {
+            onGround: false,
+            jumpHeld: true,
+            jumpsRemaining: 1,
+            verticalVel: jumpForce,
+            kind: 'ground'
+        };
+    }
+    if (!onGround && !jumpHeld && jumpsRemaining > 0) {
+        return {
+            onGround: false,
+            jumpHeld: true,
+            jumpsRemaining: jumpsRemaining - 1,
+            verticalVel: jumpForce,
+            kind: 'double'
+        };
+    }
+    return { onGround, jumpHeld, jumpsRemaining, verticalVel, kind: null };
+}
+
+export function clipInwardVelocity(velocity, normal) {
+    const normalLength = Math.hypot(normal.x, normal.z);
+    if (normalLength === 0) return { ...velocity };
+    const nx = normal.x / normalLength;
+    const nz = normal.z / normalLength;
+    const inwardSpeed = velocity.x * nx + velocity.z * nz;
+    if (inwardSpeed >= 0) return { ...velocity };
+    return {
+        x: velocity.x - nx * inwardSpeed,
+        z: velocity.z - nz * inwardSpeed
+    };
+}
+
+export function clipMovementState(velocity, dashDir, normal, clipDash) {
+    return {
+        velocity: clipInwardVelocity(velocity, normal),
+        dashDir: clipDash ? clipInwardVelocity(dashDir, normal) : { x: dashDir.x, z: dashDir.z }
+    };
+}
 
 export class Player {
     constructor(renderer, camera, arena) {
@@ -33,7 +110,7 @@ export class Player {
         this.verticalVel = 0;
         this.jumpsRemaining = 2;  // ponytail: double jump, reset on ground
         this.bhopEnabled = true;
-        this.bhopSpeedCap = 1.35;
+        this.bhopSpeedCap = AIR_SPEED_CAP;
 
         // Mouse
         this.euler = new THREE.Euler(0, 0, 0, 'YXZ');
@@ -375,9 +452,61 @@ export class Player {
         if (this.keys['KeyA']) moveDir.sub(right);
         if (this.keys['KeyD']) moveDir.add(right);
 
+        // Wall jump gets first claim on an airborne jump press.
+        const ab = this.arena.bounds;
+        const ceil = this.arena.ceilingHeight > 0 ? this.arena.ceilingHeight : (ab.maxY || 30);
+        const wallJumpMaxY = ceil * 0.6;
+        const nearWall = this.position.x - this.radius - 1 < ab.minX || this.position.x + this.radius + 1 > ab.maxX
+                      || this.position.z - this.radius - 1 < ab.minZ || this.position.z + this.radius + 1 > ab.maxZ;
+        this._wallJumpCD = (this._wallJumpCD || 0) - dt;
+        let wallJumped = false;
+        if (this.keys['Space'] && !this.onGround && nearWall && this.position.y < wallJumpMaxY
+            && !this._jumpHeld && this._wallJumpCD <= 0 && this.stamina >= 15) {
+            this.verticalVel = this.jumpForce * 0.85;
+            this.stamina -= 15;
+            this._wallJumpCD = 0.6;
+            if (this.position.x - this.radius - 1 < ab.minX) {
+                this.position.x = ab.minX + this.radius + 1;
+                this._clipHorizontalVelocity(1, 0);
+            }
+            if (this.position.x + this.radius + 1 > ab.maxX) {
+                this.position.x = ab.maxX - this.radius - 1;
+                this._clipHorizontalVelocity(-1, 0);
+            }
+            if (this.position.z - this.radius - 1 < ab.minZ) {
+                this.position.z = ab.minZ + this.radius + 1;
+                this._clipHorizontalVelocity(0, 1);
+            }
+            if (this.position.z + this.radius + 1 > ab.maxZ) {
+                this.position.z = ab.maxZ - this.radius - 1;
+                this._clipHorizontalVelocity(0, -1);
+            }
+            this._jumpHeld = true;
+            wallJumped = true;
+            if (this.audio) this.audio.playJump();
+        }
+
+        if (!wallJumped) {
+            const jump = resolveJump({
+                spaceDown: !!this.keys['Space'],
+                onGround: this.onGround,
+                jumpHeld: !!this._jumpHeld,
+                jumpsRemaining: this.jumpsRemaining,
+                verticalVel: this.verticalVel,
+                jumpForce: this.jumpForce,
+                bhopEnabled: this.bhopEnabled
+            });
+            this.onGround = jump.onGround;
+            this._jumpHeld = jump.jumpHeld;
+            this.jumpsRemaining = jump.jumpsRemaining;
+            this.verticalVel = jump.verticalVel;
+            if (jump.kind && this.audio) this.audio.playJump();
+        }
+
         // Dash — tap Ctrl for burst in movement direction
         this.dashCooldown -= dt;
-        if (this.dashTimer > 0) {
+        const wasDashing = this.dashTimer > 0;
+        if (wasDashing) {
             // Dashing: move at burst speed
             this.position.add(this.dashDir.clone().multiplyScalar(this.dashForce * dt));
             this.dashTimer -= dt;
@@ -400,54 +529,6 @@ export class Player {
             this._justDashed = true; // ponytail: dash trail için flag
         }
         this._dashWasDown = ctrlDown;
-
-        // Store frame velocity for momentum deflection (after movement + before vertical)
-        this._frameVel = new THREE.Vector3(
-            (this.position.x - prevPos.x) / Math.max(dt, 0.001),
-            this.verticalVel,
-            (this.position.z - prevPos.z) / Math.max(dt, 0.001)
-        );
-
-        // Wall jump — push off walls when airborne (costs stamina).
-        // ponytail fix: yükseklik kapısı — belli yüksekliğin üstünde wall-jump çalışmaz,
-        // yoksa duvara yaslanıp sonsuza tırmanılabiliyordu. Yüksek ama sonlu.
-        const ab = this.arena.bounds;
-        const ceil = this.arena.ceilingHeight > 0 ? this.arena.ceilingHeight : (ab.maxY || 30);
-        const wallJumpMaxY = ceil * 0.6;
-        const nearWall = this.position.x - this.radius - 1 < ab.minX || this.position.x + this.radius + 1 > ab.maxX
-                      || this.position.z - this.radius - 1 < ab.minZ || this.position.z + this.radius + 1 > ab.maxZ;
-        this._wallJumpCD = (this._wallJumpCD || 0) - dt;
-        if (this.keys['Space'] && !this.onGround && nearWall && this.position.y < wallJumpMaxY
-            && !this._jumpHeld && this._wallJumpCD <= 0 && this.stamina >= 15) {
-            this.verticalVel = this.jumpForce * 0.85;
-            this.stamina -= 15;
-            this._wallJumpCD = 0.6; // 600ms cooldown
-            // Push away from closest wall
-            if (this.position.x - this.radius - 1 < ab.minX) this.position.x = ab.minX + this.radius + 1;
-            if (this.position.x + this.radius + 1 > ab.maxX) this.position.x = ab.maxX - this.radius - 1;
-            if (this.position.z - this.radius - 1 < ab.minZ) this.position.z = ab.minZ + this.radius + 1;
-            if (this.position.z + this.radius + 1 > ab.maxZ) this.position.z = ab.maxZ - this.radius - 1;
-            this._jumpHeld = true;
-            if (this.audio) this.audio.playJump();
-        }
-
-        // Bunnyhop: holding Space jumps immediately on every landing.
-        if (this.bhopEnabled && this.keys['Space'] && this.onGround) {
-            this.verticalVel = this.jumpForce;
-            this.onGround = false;
-            this.jumpsRemaining = 1;
-            if (this.audio) this.audio.playJump();
-        }
-
-        // Double jump — 2 jumps, reset on ground
-        if (this.keys['Space'] && this.jumpsRemaining > 0 && !this._jumpHeld) {
-            this.verticalVel = this.jumpForce;
-            this.jumpsRemaining--;
-            this._jumpHeld = true;
-            this.onGround = false;
-            if (this.audio) this.audio.playJump();
-        }
-        if (!this.keys['Space']) this._jumpHeld = false;
 
         // Vertical physics
         const gravity = this.gravity * (this.arena.config?.lowGravity ? 0.55 : 1);
@@ -473,8 +554,24 @@ export class Player {
 
         // Bounds
         const b = this.arena.bounds;
-        this.position.x = Math.max(b.minX + this.radius, Math.min(b.maxX - this.radius, this.position.x));
-        this.position.z = Math.max(b.minZ + this.radius, Math.min(b.maxZ - this.radius, this.position.z));
+        const minX = b.minX + this.radius;
+        const maxX = b.maxX - this.radius;
+        const minZ = b.minZ + this.radius;
+        const maxZ = b.maxZ - this.radius;
+        if (this.position.x < minX) {
+            this.position.x = minX;
+            this._clipHorizontalVelocity(1, 0, wasDashing);
+        } else if (this.position.x > maxX) {
+            this.position.x = maxX;
+            this._clipHorizontalVelocity(-1, 0, wasDashing);
+        }
+        if (this.position.z < minZ) {
+            this.position.z = minZ;
+            this._clipHorizontalVelocity(0, 1, wasDashing);
+        } else if (this.position.z > maxZ) {
+            this.position.z = maxZ;
+            this._clipHorizontalVelocity(0, -1, wasDashing);
+        }
 
         // Collision with map props (trees, pillars, walls, etc.)
         if (this.arena.collidables) {
@@ -485,14 +582,30 @@ export class Player {
                 const minDist = this.radius + c.radius;
                 if (dx * dx + dz * dz < minDist * minDist && dy < c.radius + this.radius + 2) {
                     const dist = Math.sqrt(dx * dx + dz * dz);
-                    if (dist > 0.01) {
-                        const overlap = minDist - dist;
-                        this.position.x += (dx / dist) * overlap;
-                        this.position.z += (dz / dist) * overlap;
-                    }
+                    const previousDx = prevPos.x - c.pos.x;
+                    const previousDz = prevPos.z - c.pos.z;
+                    const previousDist = Math.hypot(previousDx, previousDz);
+                    const speed = Math.hypot(this.velocity.x, this.velocity.z);
+                    const nx = dist > 0.01 ? dx / dist
+                        : previousDist > 0.01 ? previousDx / previousDist
+                            : speed > 0 ? -this.velocity.x / speed : 1;
+                    const nz = dist > 0.01 ? dz / dist
+                        : previousDist > 0.01 ? previousDz / previousDist
+                            : speed > 0 ? -this.velocity.z / speed : 0;
+                    const overlap = minDist - dist;
+                    this.position.x += nx * overlap;
+                    this.position.z += nz * overlap;
+                    this._clipHorizontalVelocity(nx, nz, wasDashing);
                 }
             }
         }
+
+        // Momentum deflection observes the final jump, gravity, and collision result.
+        this._frameVel = new THREE.Vector3(
+            wasDashing ? this.dashDir.x * this.dashForce : this.velocity.x,
+            this.verticalVel,
+            wasDashing ? this.dashDir.z * this.dashForce : this.velocity.z
+        );
 
         if (!this.killcamLock) {
             this.camera.position.copy(this.position);
@@ -577,26 +690,45 @@ export class Player {
     isAttacking() { return this.attacking; }
 
     _moveHorizontal(wishDir, wishSpeed, dt) {
-        const horizontal = new THREE.Vector3(this.velocity.x, 0, this.velocity.z);
+        let horizontal = { x: this.velocity.x, z: this.velocity.z };
         const hasInput = wishDir.lengthSq() > 0;
 
-        if (this.onGround && !hasInput) {
+        if (this.onGround) {
             const friction = this.arena.config?.slippery ? GROUND_FRICTION * 0.28 : GROUND_FRICTION;
-            horizontal.multiplyScalar(Math.max(0, 1 - friction * dt));
+            horizontal = applyGroundFriction(horizontal, friction, STOP_SPEED, dt);
         }
 
         if (hasInput) {
-            wishDir.normalize();
-            const maxSpeed = this.onGround ? wishSpeed : Math.max(wishSpeed, this.speed * this.bhopSpeedCap);
-            const currentSpeed = horizontal.dot(wishDir);
-            const addSpeed = Math.max(0, maxSpeed - currentSpeed);
-            const accel = (this.onGround ? GROUND_ACCEL : AIR_ACCEL) * dt;
-            horizontal.addScaledVector(wishDir, Math.min(addSpeed, accel));
+            horizontal = this.onGround
+                ? sourceAccelerate(horizontal, wishDir, wishSpeed, GROUND_ACCEL, dt)
+                : sourceAccelerate(
+                    horizontal,
+                    wishDir,
+                    wishSpeed,
+                    AIR_ACCEL,
+                    dt,
+                    Math.min(wishSpeed, AIR_WISH_CAP),
+                    this.speed * this.bhopSpeedCap
+                );
         }
 
         this.velocity.x = horizontal.x;
         this.velocity.z = horizontal.z;
-        this.position.addScaledVector(horizontal, dt);
+        this.position.x += horizontal.x * dt;
+        this.position.z += horizontal.z * dt;
+    }
+
+    _clipHorizontalVelocity(nx, nz, wasDashing = false) {
+        const clipped = clipMovementState(
+            this.velocity,
+            this.dashDir,
+            { x: nx, z: nz },
+            wasDashing || this.dashTimer > 0
+        );
+        this.velocity.x = clipped.velocity.x;
+        this.velocity.z = clipped.velocity.z;
+        this.dashDir.x = clipped.dashDir.x;
+        this.dashDir.z = clipped.dashDir.z;
     }
 
     // Check for A-D-A-D spin pattern (within 0.5s, 4 presses)

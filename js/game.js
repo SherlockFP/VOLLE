@@ -490,6 +490,7 @@ export class Game {
             isYou: true,
             isHost: !this.network || !this.network.connected || this.network.isHost,
             peerId: this.network?.peer?.id,
+            playerId: this.network?.playerId,
             avatar: ownAvatar
         }];
         this.bots.forEach(b => players.push({
@@ -500,13 +501,14 @@ export class Game {
             isYou: false,
             avatar: null
         }));
-        this.remotePlayers.forEach((p, peerId) => players.push({
+        this.remotePlayers.forEach((p, playerId) => players.push({
             name: p.name,
             team: p.team,
             isBot: false,
             charId: p.charId || 'rally',
             isYou: false,
-            peerId,
+            playerId,
+            peerId: p.peerId || playerId,
             avatar: p.avatar || null
         }));
         // Lobby leader = host, or solo (not connected to anyone) → you lead.
@@ -529,8 +531,8 @@ export class Game {
         const spawnIdx = { red: 0, blue: 0 };
         this.player._spawnIndex = spawnIdx[this.player.team]++;
         this.bots.forEach(b => { b._spawnIndex = spawnIdx[b.team]++; });
-        this.remotePlayers.forEach((p, peerId) => {
-            this.scoreboard.addPlayer(p.name, p.team, { peerId });
+        this.remotePlayers.forEach(p => {
+            this.scoreboard.addPlayer(p.name, p.team, { peerId: p.peerId });
             p._spawnIndex = spawnIdx[p.team]++;
             const spawn = this.arena.getPlayerSpawn(p.team, p._spawnIndex);
             p.position.copy(spawn);
@@ -703,10 +705,11 @@ export class Game {
 
     getAllTargets() { return [this.player, ...this.bots, ...this.remotePlayers.values()]; }
 
-    addRemotePlayer(peerId, name = 'Player', team, avatarDataUrl = null) {
-        if (!peerId || peerId === this.network?.peer?.id) return null;
-        let p = this.remotePlayers.get(peerId);
+    addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = playerId) {
+        if (!playerId || playerId === this.network?.playerId || peerId === this.network?.peer?.id) return null;
+        let p = this.remotePlayers.get(playerId);
         if (p) {
+            p.peerId = peerId;
             // Re-update avatar only if it changed (first sync may have emoji fallback only).
             if (avatarDataUrl && p.avatar !== avatarDataUrl) {
                 p.avatar = avatarDataUrl;
@@ -718,25 +721,27 @@ export class Game {
         const counts = { red: 0, blue: 0 };
         this.getPlayerList().forEach(pl => { counts[pl.team] = (counts[pl.team] || 0) + 1; });
         team = team || (counts.red <= counts.blue ? 'red' : 'blue');
-        p = this._createRemotePlayer(peerId, name, team, avatarDataUrl);
-        this.remotePlayers.set(peerId, p);
+        p = this._createRemotePlayer(playerId, name, team, avatarDataUrl);
+        p.playerId = playerId;
+        p.peerId = peerId;
+        this.remotePlayers.set(playerId, p);
         this.scoreboard.addPlayer(name, team, { peerId });
         this.updateLobbyUI?.();
         return p;
     }
 
-    removeRemotePlayer(peerId) {
-        const p = this.remotePlayers.get(peerId);
+    removeRemotePlayer(playerId) {
+        const p = this.remotePlayers.get(playerId);
         if (!p) return;
         this.renderer.scene.remove(p.group);
         this.scoreboard.removePlayer(p.name);
-        this.remotePlayers.delete(peerId);
+        this.remotePlayers.delete(playerId);
         // ponytail: clear per-player streak timer on disconnect to avoid leak
-        if (this._killStreakTimers.has(peerId)) {
-            clearTimeout(this._killStreakTimers.get(peerId));
-            this._killStreakTimers.delete(peerId);
+        if (this._killStreakTimers.has(playerId)) {
+            clearTimeout(this._killStreakTimers.get(playerId));
+            this._killStreakTimers.delete(playerId);
         }
-        this._killStreaks?.delete(peerId);
+        this._killStreaks?.delete(playerId);
         this.updateLobbyUI?.();
     }
 
@@ -828,6 +833,7 @@ export class Game {
         this.renderer.scene.add(group);
         const p = {
             peerId, name, team, group,
+            playerId: peerId,
             headMesh, bodyMesh, leftArm, rightArm, leftLeg, rightLeg,
             targetOutline,
             _outlineActive: false, _teamColor: color,
@@ -943,7 +949,7 @@ export class Game {
 
     getEnemyTargets(team, self = null) {
         if (this._ffa) return this.getAllTargets().filter(p => p !== self && p.alive);
-        return this.getAllTargets().filter(p => p.team !== team);
+        return this.getAllTargets().filter(p => p !== self && p.alive && p.team !== team);
     }
 
     // Tüm takımın ölü olup olmadığını kontrol et.
@@ -1000,7 +1006,13 @@ export class Game {
             const dot = aimDir.dot(dir);
             if (dot > bestDot) { bestDot = dot; best = e; }
         });
-        return best || this.getClosestEnemy(fromPos, team);
+        if (best) return best;
+        return enemies.reduce((closest, enemy) => {
+            if (!closest) return enemy;
+            return fromPos.distanceTo(enemy.getPosition()) < fromPos.distanceTo(closest.getPosition())
+                ? enemy
+                : closest;
+        }, null);
     }
 
     // --- MAIN LOOP ---
@@ -1812,11 +1824,12 @@ export class Game {
         // P2P: host broadcasts authoritative hit to all clients
         if (this.network?.isHost) {
             const victimPeerId = hitTarget.peerId || (hitTarget === this.player ? this.network?.peer?.id : null);
+            const victimPlayerId = hitTarget.playerId || (hitTarget === this.player ? this.network?.playerId : null);
             const hitPos = hitTarget.getPosition();
             const missTag = hitTarget.consecutiveMisses >= 3 ? ' 💢CRITICAL' : hitTarget.consecutiveMisses >= 1 ? ` (x${hitTarget.consecutiveMisses+1} miss)` : '';
             const perfectTag = this.ball.lastPerfectBy === attacker ? ' ✨PERFECT' : '';
             this.network.broadcast({
-                type: 'playerHit', victimPeerId, victimName: name,
+                type: 'playerHit', victimPlayerId, victimPeerId, victimName: name,
                 hp: hitTarget.hp, alive: hitTarget.alive !== false,
                 dmg, lethal: hitTarget.hp <= 0, attackerName: scorerName, victimTeam: hitTarget.team,
                 hitX: hitPos.x, hitY: hitPos.y, hitZ: hitPos.z,
@@ -2126,9 +2139,9 @@ export class Game {
         const ALLOWED = ['loop', 'daymissin'];
         if (!ALLOWED.includes(tauntId)) return;
         if (this.network?.connected && this.network?.isHost) {
-            this.network.broadcast({ type: 'taunt', tauntId, peerId: this.network.peer?.id });
+            this.network.broadcast({ type: 'taunt', tauntId, playerId: this.network.playerId, peerId: this.network.peer?.id });
         } else if (this.network?.connected) {
-            this.network.send({ type: 'taunt', tauntId, peerId: this.network.peer?.id });
+            this.network.send({ type: 'taunt', tauntId, playerId: this.network.playerId, peerId: this.network.peer?.id });
         }
     }
 
@@ -2136,9 +2149,10 @@ export class Game {
         if (!data?.tauntId) return;
         const ALLOWED = ['loop', 'daymissin'];
         if (!ALLOWED.includes(data.tauntId)) return;
-        const isLocal = data.peerId === this.network?.peer?.id;
+        const playerId = data.playerId || data.peerId;
+        const isLocal = data.playerId ? data.playerId === this.network?.playerId : data.peerId === this.network?.peer?.id;
         if (isLocal) return;
-        const p = this.remotePlayers.get(data.peerId);
+        const p = this.remotePlayers.get(playerId);
         if (!p) return; // ponytail: ignore taunts from unknown/spoofed peers
         const entity = p;
         if (data.tauntId === 'loop') {
@@ -2146,7 +2160,7 @@ export class Game {
             let count = 0;
             const taunts = ['flex', 'laugh', 'nice', 'heart'];
             const loop = () => {
-                if (count >= 4 || !this.remotePlayers.has(data.peerId)) return;
+                if (count >= 4 || !this.remotePlayers.has(playerId)) return;
                 this.showEmote(entity, taunts[count % taunts.length]);
                 count++;
                 setTimeout(loop, 500);
@@ -2922,11 +2936,12 @@ export class Game {
             team: this.player.team,
             isBot: false,
             peerId: this.network?.peer?.id,
+            playerId: this.network?.playerId,
             charId: this.player.charId,
             avatar: ownAvatar
         }];
         this.bots.forEach(b => list.push({ name: b.name, team: b.team, isBot: true, charId: b.charId }));
-        this.remotePlayers.forEach((p, peerId) => list.push({ name: p.name, team: p.team, isBot: !!p.isBotEntity, peerId, charId: p.charId || 'rally', avatar: p.avatar || null }));
+        this.remotePlayers.forEach((p, playerId) => list.push({ name: p.name, team: p.team, isBot: !!p.isBotEntity, playerId, peerId: p.peerId || playerId, charId: p.charId || 'rally', avatar: p.avatar || null }));
         return list;
     }
 
@@ -2947,9 +2962,9 @@ export class Game {
         if (p._posBuffer.length > 12) p._posBuffer.shift();
     }
 
-    updateRemotePlayer(peerId, data) {
-        if (peerId === this.network?.peer?.id) return;
-        const p = this.addRemotePlayer(peerId, data.name || `P-${peerId.slice(0, 4)}`, data.team);
+    updateRemotePlayer(playerId, data, peerId = data.peerId || playerId) {
+        if (playerId === this.network?.playerId || peerId === this.network?.peer?.id) return;
+        const p = this.addRemotePlayer(playerId, data.name || `P-${playerId.slice(0, 4)}`, data.team, null, peerId);
         if (!p) return;
         this._pushPosBuffer(p, data.x, data.y, data.z, performance.now(), data.vx, data.vy, data.vz);
         p.lastPacketTime = performance.now();
@@ -2963,12 +2978,12 @@ export class Game {
         // ponytail: peer-to-peer mesh handles position directly. Host only relays as fallback if peer silent >500ms.
         if (this.network?.isHost) {
             const now = performance.now();
-            const lastSeen = this._peerLastSeen?.get(peerId) || 0;
+            const lastSeen = this._peerLastSeen?.get(playerId) || 0;
             if (now - lastSeen > 500) {
-                this.network.broadcast({ ...data, type: 'position', peerId });
+                this.network.broadcast({ ...data, type: 'position', playerId, peerId });
             }
             if (!this._peerLastSeen) this._peerLastSeen = new Map();
-            this._peerLastSeen.set(peerId, now);
+            this._peerLastSeen.set(playerId, now);
         }
     }
 
@@ -3030,12 +3045,12 @@ export class Game {
         }
     }
 
-    remoteAttack(peerId, data = {}) {
+    remoteAttack(playerId, data = {}, peerId = data.peerId || playerId) {
         if (!this.network?.isHost) return;
-        let p = this.remotePlayers.get(peerId);
+        let p = this.remotePlayers.get(playerId);
         if (!p) {
             if (!data.name || data.x === undefined) return;
-            p = this.addRemotePlayer(peerId, data.name, data.team);
+            p = this.addRemotePlayer(playerId, data.name, data.team, null, peerId);
             if (!p) return;
             p.position.set(data.x, data.y, data.z);
             p.targetPos?.set(data.x, data.y, data.z);
@@ -3046,16 +3061,16 @@ export class Game {
 
         // ponytail: rate limit — max one attack per peer per 200ms
         const now = performance.now();
-        if (this._lastRemoteAttack && this._lastRemoteAttack[peerId] && now - this._lastRemoteAttack[peerId] < 200) return;
+        if (this._lastRemoteAttack && this._lastRemoteAttack[playerId] && now - this._lastRemoteAttack[playerId] < 200) return;
         if (!this._lastRemoteAttack) this._lastRemoteAttack = {};
-        this._lastRemoteAttack[peerId] = now;
+        this._lastRemoteAttack[playerId] = now;
         if (!p.alive) {
             // ponytail: revive dead player who attacked within 400ms grace
             p.alive = true;
             p.hp = p.maxHp;
             p.group.visible = true;
             this.network.broadcast({
-                type: 'playerHit', victimPeerId: peerId, victimName: p.name,
+                type: 'playerHit', victimPlayerId: playerId, victimPeerId: p.peerId, victimName: p.name,
                 hp: p.hp, alive: true, dmg: 0, lethal: false,
                 hitX: p.position.x, hitY: p.position.y, hitZ: p.position.z,
                 victimTeam: p.team
@@ -3098,7 +3113,8 @@ export class Game {
             this.audio.playDeflect(result.shot);
             this.network.broadcast({
                 type: 'remoteAttackAnim',
-                peerId,
+                playerId,
+                peerId: p.peerId,
                 ax: p.aimDir.x, ay: p.aimDir.y, az: p.aimDir.z,
                 attacking: true,
                 shot: result.shot,
@@ -3111,9 +3127,9 @@ export class Game {
 
     // Host: client gönderdiği skill intent'i authoritative işler.
     // Topu/hedefi/oyuncuyu değiştirir, sonra efekti tüm client'lara yayınlar.
-    handleSkillUse(peerId, data = {}) {
+    handleSkillUse(playerId, data = {}) {
         if (!this.network?.isHost) return;
-        const p = this.remotePlayers.get(peerId);
+        const p = this.remotePlayers.get(playerId);
         if (!p || !data.skill) return;
         const skillId = data.skill;
         const target = this.ball.targetPlayer;
@@ -3122,7 +3138,7 @@ export class Game {
         if (ok) {
             // Black hole topu çeker — host'ta authoritative spawn (bal fiziği için).
             if (skillId === 'blackhole') this.spawnBlackHole();
-            this.network.broadcastSkillEffect(skillId, peerId, {
+            this.network.broadcastSkillEffect(skillId, playerId, p.peerId, {
                 x: p.position.x, y: p.position.y, z: p.position.z
             });
         }
@@ -3147,10 +3163,11 @@ export class Game {
         }
         // Authoritative reconcile: the host's list is the source of truth.
         // Add/refresh present peers, then drop any remote player no longer in it.
-        const myId = this.network?.peer?.id;
+        const myId = this.network?.playerId;
+        const myPeerId = this.network?.peer?.id;
         const seen = new Set();
         for (const pl of data.players) {
-            if (pl.name === this.playerName) {
+            if ((pl.playerId && pl.playerId === myId) || (!pl.playerId && pl.peerId === myPeerId)) {
                 this.player.setTeam(pl.team);
                 continue;
             }
@@ -3171,9 +3188,10 @@ export class Game {
                 }
                 continue;
             }
-            if (pl.peerId && pl.peerId !== myId) {
-                seen.add(pl.peerId);
-                const p = this.addRemotePlayer(pl.peerId, pl.name, pl.team, pl.avatar || null);
+            const playerId = pl.playerId || pl.peerId;
+            if (playerId && playerId !== myId) {
+                seen.add(playerId);
+                const p = this.addRemotePlayer(playerId, pl.name, pl.team, pl.avatar || null, pl.peerId || playerId);
                 if (p) {
                     p.team = pl.team || p.team;
                     if (pl.charId) p.charId = pl.charId;
@@ -3212,9 +3230,9 @@ export class Game {
             this.scoreboard.players.clear();
             this.scoreboard.addPlayer(this.playerName, this.player.team, { isYou: true });
             this.bots.forEach(b => this.scoreboard.addPlayer(b.name, b.team, { isBot: true }));
-            this.remotePlayers.forEach((p, peerId) => {
+            this.remotePlayers.forEach(p => {
                 if (p.isBotEntity) return;
-                this.scoreboard.addPlayer(p.name, p.team, { peerId });
+                this.scoreboard.addPlayer(p.name, p.team, { peerId: p.peerId });
                 const spawn = this.arena.getPlayerSpawn(p.team);
                 p.position.copy(spawn);
                 // ponytail: bots have feet at origin (position.y=0); real players carry height (~1.2)
@@ -3281,7 +3299,7 @@ export class Game {
     }
 
     applyPlayerHit(data = {}) {
-        let target = data.victimPeerId ? this.remotePlayers.get(data.victimPeerId) : null;
+        let target = this.remotePlayers.get(data.victimPlayerId || data.victimPeerId);
         if (!target) target = data.victimName === this.playerName ? this.player : this.bots.find(b => b.name === data.victimName);
         if (!target) target = [...this.remotePlayers.values()].find(p => p.isBotEntity && p.name === data.victimName);
         if (!target) return;
@@ -3578,8 +3596,9 @@ export class Game {
 
     handleRemoteAttackAnim(data) {
         if (!data || this.network?.isHost) return;
-        const isLocal = data.peerId === this.network?.peer?.id;
-        const p = isLocal ? this.player : this.remotePlayers.get(data.peerId);
+        const playerId = data.playerId || data.peerId;
+        const isLocal = data.playerId ? data.playerId === this.network?.playerId : data.peerId === this.network?.peer?.id;
+        const p = isLocal ? this.player : this.remotePlayers.get(playerId);
         if (!p) return;
         p.attacking = true;
         p.attackTimer = 0.3;

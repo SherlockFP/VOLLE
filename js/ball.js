@@ -3,6 +3,102 @@
 import * as THREE from 'three';
 import { ObjectPool } from './objectPool.js';
 
+export const STEERING_CONTROL_WINDOW = 0.074;
+const STEERING_TICK = 1 / 66;
+const WIDE_SHOT_DOT = Math.cos(35 * Math.PI / 180);
+
+const finitePoint = p => p && Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z);
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+export function steeringTurnAlpha(dt, deflections = 0) {
+    if (!Number.isFinite(dt) || dt <= 0) return 0;
+    const tickTurn = clamp(0.28 + Math.max(0, deflections) * 0.022, 0, 0.95);
+    return 1 - Math.pow(1 - tickTurn, dt / STEERING_TICK);
+}
+
+export function isSteeringControlLocked(age) {
+    return Number.isFinite(age) && age < STEERING_CONTROL_WINDOW;
+}
+
+export function steeringActiveDt(age, dt) {
+    if (!Number.isFinite(age) || !Number.isFinite(dt) || dt <= 0) return 0;
+    return Math.max(0, age + dt - Math.max(age, STEERING_CONTROL_WINDOW));
+}
+
+export function splitSteeringDisplacement(before, after, dt, activeDt) {
+    const active = clamp(Number.isFinite(activeDt) ? activeDt : 0, 0, Math.max(0, dt));
+    const locked = Math.max(0, dt - active);
+    return {
+        x: before.x * locked + after.x * active,
+        y: before.y * locked + after.y * active,
+        z: before.z * locked + after.z * active
+    };
+}
+
+export function sampleBoundedVelocity(previous, current, dt, maxSpeed = 14) {
+    if (!finitePoint(previous) || !finitePoint(current) || !Number.isFinite(dt) || dt <= 0) {
+        return { x: 0, y: 0, z: 0 };
+    }
+    const velocity = {
+        x: (current.x - previous.x) / dt,
+        y: (current.y - previous.y) / dt,
+        z: (current.z - previous.z) / dt
+    };
+    const speed = Math.hypot(velocity.x, velocity.y, velocity.z);
+    const limit = Math.max(0, Number.isFinite(maxSpeed) ? maxSpeed : 0);
+    if (speed > limit && speed > 0) {
+        const scale = limit / speed;
+        velocity.x *= scale;
+        velocity.y *= scale;
+        velocity.z *= scale;
+    }
+    return velocity;
+}
+
+export function predictLeadTarget(target, targetVelocity, projectile, projectileSpeed) {
+    if (!finitePoint(target)) return { x: 0, y: 0, z: 0 };
+    const velocity = finitePoint(targetVelocity) ? targetVelocity : { x: 0, y: 0, z: 0 };
+    const distance = finitePoint(projectile)
+        ? Math.hypot(target.x - projectile.x, target.y - projectile.y, target.z - projectile.z)
+        : 0;
+    const speed = Number.isFinite(projectileSpeed) && projectileSpeed > 0 ? projectileSpeed : 1;
+    const leadTime = clamp((distance / speed) * 0.25, 0, 0.3);
+    return {
+        x: target.x + velocity.x * leadTime,
+        y: target.y + velocity.y * leadTime,
+        z: target.z + velocity.z * leadTime
+    };
+}
+
+export function createWideWaypoint(origin, aimDirection, target) {
+    if (!finitePoint(origin) || !finitePoint(aimDirection) || !finitePoint(target)) return null;
+    const directLength = Math.hypot(target.x - origin.x, target.z - origin.z);
+    const aimLength = Math.hypot(aimDirection.x, aimDirection.z);
+    if (directLength < 0.001 || aimLength < 0.001) return null;
+    const direct = { x: (target.x - origin.x) / directLength, z: (target.z - origin.z) / directLength };
+    const aim = { x: aimDirection.x / aimLength, z: aimDirection.z / aimLength };
+    if (direct.x * aim.x + direct.z * aim.z >= WIDE_SHOT_DOT) return null;
+    const cross = direct.x * aim.z - direct.z * aim.x;
+    const sideSign = cross === 0 ? (direct.x >= 0 ? 1 : -1) : Math.sign(cross);
+    const sideDistance = clamp(directLength * 0.45, 4, 8);
+    const backDistance = clamp(directLength * 0.25, 3, 6);
+    return {
+        position: {
+            x: target.x + direct.x * backDistance - direct.z * sideSign * sideDistance,
+            y: target.y,
+            z: target.z + direct.z * backDistance + direct.x * sideSign * sideDistance
+        },
+        planeNormal: { x: direct.x, y: 0, z: direct.z }
+    };
+}
+
+export function hasCrossedTargetPlane(position, target, planeNormal) {
+    if (!finitePoint(position) || !finitePoint(target) || !finitePoint(planeNormal)) return false;
+    return (position.x - target.x) * planeNormal.x
+        + (position.y - target.y) * planeNormal.y
+        + (position.z - target.z) * planeNormal.z >= 0;
+}
+
 // ponytail: top skin'leri — görsel + küçük efekt. Store ile eşle.
 export const BALL_SKINS = {
     classic:   { name: 'Classic Volleyball', color: 0xff8844, glow: 0xff8844, trail: 0xff8844, starColor: 0xffee44 },
@@ -82,6 +178,7 @@ export class Ball {
         this._proximityRange = 1.5;     // hitRange'den büyük ama çok da değil
         this._forceHit = false;
 
+        this._resetSteering();
         this.buildMesh();
     }
 
@@ -153,6 +250,7 @@ export class Ball {
         this.lastShotBy = null;
         this._homingAge = 0;
         this._bounceTimestamps = [];
+        this._resetSteering();
         this.clearTrail();
         this.updateColor();
         this._lerping = false;
@@ -180,6 +278,7 @@ export class Ball {
         this.targetPlayer = null;
         this.lastShotBy = null;
         this._homingAge = 0;
+        this._resetSteering();
         this.clearTrail();
         this._lerping = false;
         this.affix = null;
@@ -217,7 +316,7 @@ export class Ball {
         if (this._noHitTimer > 0) this._noHitTimer -= dt;
 
         // NaN guard — position bozulursa topu resetle
-        if (isNaN(this.position.x) || isNaN(this.position.y) || isNaN(this.position.z)) {
+        if (!finitePoint(this.position)) {
             this.spawn();
             return false;
         }
@@ -307,11 +406,15 @@ export class Ball {
             this.position.add(this.velocity.clone().multiplyScalar(dt));
         } else if (this.state === 'rally') {
             let dist = 999;
+            let playerSteeringDt = null;
+            const preSteerVelocity = this.velocity.clone();
             if (this.targetPlayer) {
                 const targetPos = this._getTargetPos();
                 const toTarget = new THREE.Vector3().subVectors(targetPos, this.position);
                 dist = toTarget.length();
-                if (dist > 0.5) {
+                if (this.aimed && this._steeringActive) {
+                    playerSteeringDt = this._updatePlayerSteering(dt, targetPos);
+                } else if (dist > 0.5) {
                     const targetDir = toTarget.clone().normalize();
                     const velDir = this.velocity.clone().normalize();
                     // ponytail: graduated approach — slowing near target for fair deflect window
@@ -338,21 +441,25 @@ export class Ball {
                 }
             }
             // Close range (<2): skip gravity to avoid orbiting
-            if (dist >= 2 && !this._affixNoGravity) {
-                this.velocity.y += arenaGravity * 0.3 * dt;
+            const gravityDt = playerSteeringDt ?? dt;
+            if (dist >= 2 && !this._affixNoGravity && gravityDt > 0) {
+                this.velocity.y += arenaGravity * 0.3 * gravityDt;
             }
             this._clampSpeed();
-            this.position.add(this.velocity.clone().multiplyScalar(dt));
+            if (playerSteeringDt !== null && playerSteeringDt < dt) {
+                const displacement = splitSteeringDisplacement(
+                    preSteerVelocity,
+                    this.velocity,
+                    dt,
+                    playerSteeringDt
+                );
+                this.position.add(new THREE.Vector3(displacement.x, displacement.y, displacement.z));
+            } else {
+                this.position.add(this.velocity.clone().multiplyScalar(dt));
+            }
 
-            // Source Engine-style curve from flick spin — only affects rally state
+            // Spin remains visual only; physical steering owns the flight path.
             if (Math.abs(this.spin) > 0.001) {
-                const speed = this.velocity.length();
-                const vx = this.velocity.x, vz = this.velocity.z;
-                const s = this.spin * dt * (1 + speed * 0.02);
-                this.velocity.x = vx * Math.cos(s) - vz * Math.sin(s);
-                this.velocity.z = vx * Math.sin(s) + vz * Math.cos(s);
-                const magnus = this.spin * speed * 0.8 * dt;
-                this.velocity.y += magnus;
                 this.spin *= Math.exp(-0.3 * dt);
             }
 
@@ -553,7 +660,7 @@ export class Ball {
         this.mesh.rotation.z += dt * baseRot * 0.6;
         // Spin axis: when curving, ball spins on Y axis visibly
         this.mesh.rotation.y += dt * this.spin * 3;
-        // Add slight wobble from Magnus effect when curving hard
+        // Add slight visual wobble for strong flick spin.
         if (Math.abs(this.spin) > 0.5) {
             const wobble = Math.sin(performance.now() / 80) * 0.03 * Math.sign(this.spin);
             this.mesh.rotation.x += dt * wobble * this.spin;
@@ -614,11 +721,86 @@ export class Ball {
     }
 
     // Keep speed locked to currentSpeed — gravity/spin may nudge magnitude, this resets it.
+    _resetSteering() {
+        this._steeringActive = false;
+        this._steeringAge = 0;
+        this._steeringTargetSample = null;
+        this._steeringWaypoint = null;
+        this._steeringPlaneNormal = null;
+        this._steeringPhase = 'torso';
+        this._steeringInitialDir = null;
+    }
+
+    _beginPlayerSteering(target, aimDirection) {
+        this._resetSteering();
+        if (!target || !finitePoint(aimDirection)) return;
+        const length = Math.hypot(aimDirection.x, aimDirection.y, aimDirection.z);
+        if (length < 0.001) return;
+        this._steeringActive = true;
+        this._steeringInitialDir = new THREE.Vector3(
+            aimDirection.x / length,
+            aimDirection.y / length,
+            aimDirection.z / length
+        );
+        const targetPos = this._getTargetPos();
+        this._steeringTargetSample = targetPos.clone();
+        const wide = createWideWaypoint(this.position, aimDirection, targetPos);
+        if (wide) {
+            this._steeringPhase = 'waypoint';
+            this._steeringWaypoint = new THREE.Vector3(wide.position.x, wide.position.y, wide.position.z);
+            this._steeringPlaneNormal = new THREE.Vector3(
+                wide.planeNormal.x,
+                wide.planeNormal.y,
+                wide.planeNormal.z
+            );
+        }
+    }
+
+    _updatePlayerSteering(dt, targetPos) {
+        const oldAge = this._steeringAge;
+        const steeringDt = steeringActiveDt(oldAge, dt);
+        this._steeringAge += Number.isFinite(dt) && dt > 0 ? dt : 0;
+        const sampledVelocity = sampleBoundedVelocity(this._steeringTargetSample, targetPos, dt);
+        this._steeringTargetSample.copy(targetPos);
+        if (steeringDt <= 0) return 0;
+
+        if (this._steeringPhase === 'waypoint'
+            && hasCrossedTargetPlane(this.position, targetPos, this._steeringPlaneNormal)) {
+            this._steeringPhase = 'torso';
+            this._steeringWaypoint = null;
+        }
+        const target = this._steeringPhase === 'waypoint'
+            ? this._steeringWaypoint
+            : predictLeadTarget(targetPos, sampledVelocity, this.position, this.currentSpeed);
+        const desired = new THREE.Vector3(target.x, target.y, target.z).sub(this.position);
+        if (desired.lengthSq() < 0.000001) return steeringDt;
+        desired.normalize();
+        const velocityLength = this.velocity.length();
+        const current = velocityLength > 0.001
+            ? this.velocity.clone().multiplyScalar(1 / velocityLength)
+            : this._steeringInitialDir.clone();
+        const turn = steeringTurnAlpha(steeringDt, this.deflections);
+        const next = current.lerp(desired, turn);
+        if (finitePoint(next) && next.lengthSq() > 0.000001) {
+            this.velocity.copy(next.normalize().multiplyScalar(this.currentSpeed));
+        }
+        return steeringDt;
+    }
+
     _clampSpeed() {
+        if (!Number.isFinite(this.currentSpeed)) this.currentSpeed = this.baseSpeed;
+        this.currentSpeed = clamp(this.currentSpeed, 0, this.maxSpeed);
+        if (!finitePoint(this.velocity)) {
+            const fallback = this._steeringInitialDir || new THREE.Vector3(1, 0, 0);
+            this.velocity.copy(fallback).multiplyScalar(this.currentSpeed);
+            return;
+        }
         const sp = this.velocity.length();
         if (sp > 0.001) {
-            const target = Math.min(this.currentSpeed, this.maxSpeed);
-            this.velocity.multiplyScalar(target / sp);
+            this.velocity.multiplyScalar(this.currentSpeed / sp);
+        } else if (this.currentSpeed > 0) {
+            const fallback = this._steeringInitialDir || new THREE.Vector3(1, 0, 0);
+            this.velocity.copy(fallback).normalize().multiplyScalar(this.currentSpeed);
         }
     }
 
@@ -647,6 +829,7 @@ export class Ball {
     // flick.vertical: -up (lob) / +down (spike); flick.power 0..1
     // Returns a shot descriptor so the caller can play the right sound / FX.
     deflectWithAim(fromPos, aimDir, target, flick = { vertical: 0, horizontal: 0, power: 0 }, momentum = null, deflectPower = 1.0) {
+        this.setTarget(target);
         this.deflections++;
         this._proximityTimer = 0;
         this.bodyZone = ['head','chest','abdomen','legs'][Math.floor(Math.random() * 4)];
@@ -691,11 +874,7 @@ export class Ball {
             this.velocity.z += momentum.z * momScale * 0.3;
         }
 
-        // Source Engine-style spin from flick:
-        // - Horizontal flick → side curve (bend the ball like a curveball)
-        // - Vertical flick down → topspin (ball dips faster = spike)
-        // - Vertical flick up → backspin (ball floats/lifts = lob)
-        // Only apply spin on a real flick, not from normal mouse aiming.
+        // Flick spin is visual only. Steering controls the physical flight path.
         const flickPower = flick.power || 0;
         this.spin = 0;
         if (flickPower > 0.3) {
@@ -707,6 +886,7 @@ export class Ball {
         this.currentSpeed = Math.min(speed, this.maxSpeed);
         // Clamp velocity magnitude to currentSpeed so physics stays consistent
         this._clampSpeed();
+        this._beginPlayerSteering(target, this.velocity);
         this.lastShot = shot;
         this.updateColor();
         // Return affix: ball reverses after 0.6s, single use
@@ -719,6 +899,7 @@ export class Ball {
 
     // Simple deflect (for bots) — keeps homing so bots still track targets.
     deflect(fromPos, towardPos, deflectPower = 1.0) {
+        this._resetSteering();
         this.deflections++;
         this._proximityTimer = 0;
         this.bodyZone = ['head','chest','abdomen','legs'][Math.floor(Math.random() * 4)];
@@ -740,7 +921,10 @@ export class Ball {
         this.updateColor();
     }
 
-    setTarget(target) { this.targetPlayer = target; }
+    setTarget(target) {
+        if (this.targetPlayer !== target) this._resetSteering();
+        this.targetPlayer = target;
+    }
     distanceTo(pos) { return this.position.distanceTo(pos); }
     isInAttackRange(pos) {
         return this.distanceTo(pos) < this.attackRange;
@@ -786,6 +970,7 @@ export class Ball {
         this.velocity.copy(dir.multiplyScalar(this.currentSpeed));
         this.velocity.y = this.currentSpeed * 0.25;
         this.setTarget(target);
+        this._beginPlayerSteering(target, this.velocity);
         this.orbitAngle = 0;
         this.orbitSpeed = 0;
         this.orbitRadius = 0;
@@ -816,6 +1001,7 @@ export class Ball {
         this.velocity.y = this.currentSpeed * 0.25;
         this._clampSpeed();
         this.setTarget(target);
+        this._beginPlayerSteering(target, this.velocity);
         return { shot: charge > 0.7 ? 'spike' : 'flat', speed: this.currentSpeed };
     }
 
