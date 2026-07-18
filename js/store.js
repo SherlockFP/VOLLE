@@ -6,6 +6,7 @@ import { SKILLS, RUNES, DEFAULT_LOADOUT } from './skills.js';
 import { AVATAR_SKINS } from './avatar.js';
 
 const KEY = 'dodgball_save_v2';
+const PROFILE_TOKEN_KEY = 'dodgball_profile_token';
 
 function buildCharacterProgress() {
     return Object.fromEntries(Object.keys(CHARACTERS).map(id => [id, { level: 1, xp: 0 }]));
@@ -47,14 +48,23 @@ const DEFAULTS = {
     customAvatar: null,
     ownedAvatarSkins: ['default'],
     equippedAvatarSkin: 'default',
-    settings: { sensitivity: 2, volume: 50, botDifficulty: 'hard', fov: 75, keybinds: {} },
+    settings: {
+        sensitivity: 2, volume: 50, botDifficulty: 'hard', fov: 75,
+        quality: 'medium', reduceMotion: false, screenShake: true,
+        screenFlash: true, highContrast: false, colorBlind: 'none', keybinds: {}
+    },
     stats: { gamesPlayed: 0, totalWins: 0, totalDeflects: 0, totalHits: 0, bestRally: 0, totalSpent: 0, winStreak: 0, rankedElo: 1000, rankedGames: 0 },
     unlockedAchievements: [],
-    playerName: 'Player'
+    playerName: 'Player',
+    onboardingSeen: false
 };
 
 class StoreClass {
-    constructor() { this.data = this._read(); }
+    constructor() {
+        this.data = this._read();
+        this.remoteReady = false;
+        this.profileToken = '';
+    }
 
     _read() {
         try {
@@ -80,6 +90,95 @@ class StoreClass {
 
     get(key) { return this.data[key]; }
     set(key, val) { this.data[key] = val; this.save(); }
+
+    async connectRemote(playerName = this.data.playerName) {
+        if (typeof fetch !== 'function') return false;
+        try {
+            const token = localStorage.getItem(PROFILE_TOKEN_KEY) || '';
+            const legacy = token ? undefined : {
+                currency: this.data.currency,
+                gems: this.data.gems,
+                unlockedChars: this.data.unlockedChars,
+                ownedBalls: this.data.ownedBalls,
+                ownedSkills: this.data.ownedSkills,
+                ownedItems: this.data.ownedItems,
+                ownedAvatarSkins: this.data.ownedAvatarSkins
+            };
+            const response = await fetch('/api/profile/session', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token, playerName, legacy })
+            });
+            if (!response.ok) return false;
+            const result = await response.json();
+            if (!result.token || !result.profile) return false;
+            this.profileToken = result.token;
+            localStorage.setItem(PROFILE_TOKEN_KEY, result.token);
+            this._applyRemoteProfile(result.profile);
+            this.remoteReady = true;
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    _applyRemoteProfile(profile) {
+        const fields = [
+            'currency', 'gems', 'unlockedChars', 'ownedBalls',
+            'ownedSkills', 'ownedItems', 'ownedAvatarSkins'
+        ];
+        fields.forEach(field => {
+            if (profile[field] !== undefined) this.data[field] = profile[field];
+        });
+        this.save();
+    }
+
+    async purchase(kind, id) {
+        if (!this.remoteReady) {
+            if (kind === 'character') return this.buyCharacter(id);
+            if (kind === 'ball') return this.buyBall(id);
+            if (kind === 'skill') return this.buySkill(id);
+            if (kind === 'rune') return this.buyRune(id);
+            if (kind === 'avatar') return this.buyAvatarSkin(id);
+            return false;
+        }
+        try {
+            const response = await fetch('/api/profile/purchase', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${this.profileToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ kind, id })
+            });
+            if (!response.ok) return false;
+            const result = await response.json();
+            this._applyRemoteProfile(result.profile);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    async grantMatchRemote(match) {
+        if (!this.remoteReady) return false;
+        try {
+            const response = await fetch('/api/profile/reward', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${this.profileToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(match)
+            });
+            if (!response.ok) return false;
+            const result = await response.json();
+            this._applyRemoteProfile(result.profile);
+            return true;
+        } catch {
+            return false;
+        }
+    }
 
     // Award coins + xp, handle level-ups + battlepass tier dolum.
     grant({ currency = 0, xp = 0, gems = 0 } = {}) {

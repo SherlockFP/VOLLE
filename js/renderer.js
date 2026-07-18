@@ -41,6 +41,8 @@ export class Renderer {
         // Bloom post-processing — lazy-init on first render with camera
         this._composer = null;
         this._camera = null;
+        this._bloom = null;
+        this._quality = 'medium';
     }
 
     _initComposer(camera) {
@@ -55,8 +57,10 @@ export class Renderer {
             0.3,  // radius
             0.3   // threshold (was 0.1 — only bright things bloom)
         );
+        this._bloom = bloom;
         this._composer.addPass(bloom);
         this._composer.addPass(new OutputPass());
+        this.setQuality(this._quality);
     }
 
     // Public so main.js can call composer.setSize on window resize
@@ -71,6 +75,18 @@ export class Renderer {
         for (const p of this._composer.passes) {
             if (p instanceof UnrealBloomPass) p.strength = v;
         }
+    }
+
+    setQuality(quality = 'medium') {
+        this._quality = ['low', 'medium', 'high'].includes(quality) ? quality : 'medium';
+        const config = {
+            low: { pixelRatio: 1, shadows: false, bloom: 0 },
+            medium: { pixelRatio: 1.5, shadows: true, bloom: 0.05 },
+            high: { pixelRatio: 2, shadows: true, bloom: 0.08 }
+        }[this._quality];
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, config.pixelRatio));
+        this.renderer.shadowMap.enabled = config.shadows;
+        if (this._bloom) this._bloom.strength = config.bloom;
     }
 
     createToonMaterial(color) {

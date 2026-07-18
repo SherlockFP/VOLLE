@@ -554,7 +554,6 @@ export class Game {
         this.bots.forEach(b => b.respawn());
         this.audio.init();
         this.audio.preloadSfx('sfx/');
-        this.arena.buildPortals();
         this.initMinimap();
 
         // Late-join: 10 saniyelik pre-game countdown'u atla, anında round'a gir. Host oyun sırasındayken
@@ -2931,7 +2930,7 @@ export class Game {
         return list;
     }
 
-    _pushPosBuffer(p, x, y, z, time) {
+    _pushPosBuffer(p, x, y, z, time, vx = 0, vy = 0, vz = 0) {
         if (!p._posBuffer) p._posBuffer = [];
         // Teleport check (>5m jump) → clear buffer, jump instantly
         if (p._posBuffer.length > 0) {
@@ -2944,15 +2943,15 @@ export class Game {
                 return;
             }
         }
-        p._posBuffer.push({ x, y, z, time });
-        if (p._posBuffer.length > 8) p._posBuffer.shift();
+        p._posBuffer.push({ x, y, z, vx, vy, vz, time });
+        if (p._posBuffer.length > 12) p._posBuffer.shift();
     }
 
     updateRemotePlayer(peerId, data) {
         if (peerId === this.network?.peer?.id) return;
         const p = this.addRemotePlayer(peerId, data.name || `P-${peerId.slice(0, 4)}`, data.team);
         if (!p) return;
-        this._pushPosBuffer(p, data.x, data.y, data.z, performance.now());
+        this._pushPosBuffer(p, data.x, data.y, data.z, performance.now(), data.vx, data.vy, data.vz);
         p.lastPacketTime = performance.now();
         p.group.rotation.y = data.ry || 0;
         p.team = data.team || p.team;
@@ -2977,7 +2976,7 @@ export class Game {
     // interpolate eder (30Hz snapshot aktarımı akıcı görülür).
     invokeRemoteSnapshots(dt) {
         if (!this.remotePlayers.size) return;
-        const interpDelay = 20; // ms — ponytail: standing remotes snap now; running ones keep buffer to absorb jitter
+        const interpDelay = 60;
         const now = performance.now();
         const renderTime = now - interpDelay;
         for (const p of this.remotePlayers.values()) {
@@ -3001,7 +3000,10 @@ export class Game {
                     break;
                 }
             }
-            if (t1 === t2 || t1.time === t2.time) {
+            if (renderTime >= t2.time) {
+                const lead = Math.min((renderTime - t2.time) / 1000, 0.08);
+                p.position.set(t2.x + (t2.vx || 0) * lead, t2.y + (t2.vy || 0) * lead, t2.z + (t2.vz || 0) * lead);
+            } else if (t1 === t2 || t1.time === t2.time) {
                 p.position.set(t1.x, t1.y, t1.z);
             } else {
                 const alpha = (renderTime - t1.time) / (t2.time - t1.time);

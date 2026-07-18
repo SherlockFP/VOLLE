@@ -1,0 +1,5 @@
+data/profiles.json
+data/profiles.json.tmp
+.opencode/
+.serena/
+graphify-out/

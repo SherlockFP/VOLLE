@@ -2,6 +2,15 @@
 // ponytail: binary message types for hot-path packets (ballState/position) — ~4x smaller than JSON
 const BIN = { BALL: 1, POS: 2 };
 
+export function isNewerSequence(next, previous) {
+    const delta = (next - previous + 0x10000) & 0xffff;
+    return delta > 0 && delta < 0x8000;
+}
+
+export function reconnectDelay(attempt) {
+    return Math.min(2000, 500 * (2 ** Math.max(0, attempt - 1)));
+}
+
 export class Network {
     constructor(game) {
         this.game = game;
@@ -25,6 +34,15 @@ export class Network {
         this.onHostLeft = null;    // callback() when the host connection drops / lobby closes
         this._lastPing = 0;            // ms, son ölçülen RTT
         this._pingAwait = null;        // güncel bekleyen nonce
+        this._clockOffset = 0;
+        this._positionSeq = 0;
+        this._lastPositionSeq = new Map();
+        this.hostRoomCode = '';
+        this.joinPassword = '';
+        this.onReconnectState = null;
+        this._manualDisconnect = false;
+        this._reconnectAttempts = 0;
+        this._reconnectTimer = null;
     }
 
     async initPeer() {
@@ -57,6 +75,10 @@ export class Network {
     async joinGame(roomCode, playerName, password = '') {
         this.playerName = playerName;
         this.isHost = false;
+        this.hostRoomCode = roomCode;
+        this.joinPassword = password;
+        this._manualDisconnect = false;
+        this._reconnectAttempts = 0;
         await this.initPeer();
         if (this.game?.player && this.peer) this.game.player.peerId = this.peer.id;
 
@@ -66,6 +88,7 @@ export class Network {
 
         return new Promise((resolve, reject) => {
             conn.on('open', () => {
+                this._reconnectAttempts = 0;
                 this.hostConn = conn;
                 this.connections.set(roomCode, conn);
                 this.setupDataHandlers(conn);
@@ -76,13 +99,51 @@ export class Network {
             // Host went away (closed game / left lobby) → kick us back to menu.
             conn.on('close', () => {
                 this.connections.delete(roomCode);
-                if (!this.isHost && this.onHostLeft) this.onHostLeft();
+                if (this.hostConn === conn) this.hostConn = null;
+                this._scheduleReconnect();
             });
             conn.on('error', reject);
         });
     }
 
     // Route incoming connections: new player join (host) vs P2P mesh (non-host peers)
+    _scheduleReconnect() {
+        if (this._manualDisconnect || this.isHost || !this.peer || this._reconnectTimer) return;
+        const attempt = ++this._reconnectAttempts;
+        if (attempt > 3) {
+            this.onReconnectState?.('failed', attempt - 1);
+            this.onHostLeft?.();
+            return;
+        }
+        this.onReconnectState?.('reconnecting', attempt);
+        this._reconnectTimer = setTimeout(() => {
+            this._reconnectTimer = null;
+            this._reconnectOnce();
+        }, reconnectDelay(attempt));
+    }
+
+    _reconnectOnce() {
+        if (this._manualDisconnect || !this.peer || !this.hostRoomCode) return;
+        const conn = this.peer.connect(this.hostRoomCode, {
+            metadata: { name: this.playerName, password: this.joinPassword }
+        });
+        conn.on('open', () => {
+            this._reconnectAttempts = 0;
+            this.hostConn = conn;
+            this.connections.set(this.hostRoomCode, conn);
+            this.setupDataHandlers(conn);
+            const avatar = window.__store?.get?.('customAvatar')?.dataURL || '';
+            conn.send({ type: 'join', name: this.playerName, password: this.joinPassword, avatar });
+            this.onReconnectState?.('connected', 0);
+        });
+        conn.on('close', () => {
+            this.connections.delete(this.hostRoomCode);
+            if (this.hostConn === conn) this.hostConn = null;
+            this._scheduleReconnect();
+        });
+        conn.on('error', () => this._scheduleReconnect());
+    }
+
     _onIncomingConnection(conn) {
         conn.on('open', () => {
             if (conn.metadata?.isMesh) {
@@ -173,8 +234,12 @@ export class Network {
         msg.x = dv.getFloat32(1); msg.y = dv.getFloat32(5); msg.z = dv.getFloat32(9);
         msg.ry = dv.getFloat32(13);
         msg.ax = dv.getFloat32(17); msg.ay = dv.getFloat32(21); msg.az = dv.getFloat32(25);
-        const flags = dv.getUint8(29);
-        let off = 30;
+        const sequenced = dv.byteLength >= 44;
+        const modern = dv.byteLength >= 42;
+        msg.vx = modern ? dv.getFloat32(29) : 0; msg.vy = modern ? dv.getFloat32(33) : 0; msg.vz = modern ? dv.getFloat32(37) : 0;
+        if (sequenced) msg.seq = dv.getUint16(41);
+        const flags = dv.getUint8(sequenced ? 43 : modern ? 41 : 29);
+        let off = sequenced ? 44 : modern ? 42 : 30;
         if (flags & 1) { msg.alive = dv.getUint8(off) === 1; off += 1; }
         if (flags & 2) { msg.hp = dv.getUint8(off); off += 1; }
         if (flags & 4) { msg.team = dv.getUint8(off) === 0 ? 'red' : 'blue'; off += 1; }
@@ -209,7 +274,7 @@ export class Network {
     }
 
     encodePosition(p) {
-        let size = 30;
+        let size = 44;
         let nameBytes = null, charBytes = null;
         if (p.alive !== undefined) size += 1;
         if (p.hp !== undefined) size += 1;
@@ -223,13 +288,15 @@ export class Network {
         dv.setFloat32(1, p.x); dv.setFloat32(5, p.y); dv.setFloat32(9, p.z);
         dv.setFloat32(13, p.ry || 0);
         dv.setFloat32(17, p.ax || 0); dv.setFloat32(21, p.ay || 0); dv.setFloat32(25, p.az || 0);
-        let flags = 0, off = 30;
+        dv.setFloat32(29, p.vx || 0); dv.setFloat32(33, p.vy || 0); dv.setFloat32(37, p.vz || 0);
+        dv.setUint16(41, (p.seq || 0) & 0xffff);
+        let flags = 0, off = 44;
         if (p.alive !== undefined) { flags |= 1; dv.setUint8(off, p.alive ? 1 : 0); off += 1; }
         if (p.hp !== undefined) { flags |= 2; dv.setUint8(off, Math.max(0, Math.min(255, p.hp | 0))); off += 1; }
         if (p.team) { flags |= 4; dv.setUint8(off, p.team === 'red' ? 0 : 1); off += 1; }
         if (p.name) { flags |= 8; dv.setUint8(off, nameBytes.length); off += 1; u8.set(nameBytes, off); off += nameBytes.length; }
         if (p.charId) { flags |= 16; dv.setUint8(off, charBytes.length); off += 1; u8.set(charBytes, off); off += charBytes.length; }
-        dv.setUint8(29, flags);
+        dv.setUint8(43, flags);
         return u8;
     }
 
@@ -277,6 +344,12 @@ export class Network {
                 if (this.onPlayerJoin) this.onPlayerJoin(data.name, peerId, data.avatar);
                 break;
             case 'position':
+                if (data.seq !== undefined) {
+                    const id = data.peerId || peerId;
+                    const previous = this._lastPositionSeq.get(id);
+                    if (previous !== undefined && !isNewerSequence(data.seq, previous)) return;
+                    this._lastPositionSeq.set(id, data.seq);
+                }
                 this.game.updateRemotePlayer(data.peerId || peerId, data);
                 break;
             case 'attack':
@@ -309,13 +382,18 @@ export class Network {
                 break;
             case 'ping':
                 // Periyodik ping alındı → pong ile geri cevap ver.
-                this._sendToConn(peerId, { type: 'pong', nonce: data.nonce, t: performance.now() });
+                this._sendToConn(peerId, { type: 'pong', nonce: data.nonce, remoteTime: performance.now() });
                 break;
             case 'pong':
                 // RTT hesaplayan client tarafında kayıtlı nonce eşleşirse ping kayıt edilir.
                 if (this._pingAwait && data.nonce === this._pingAwait.nonce) {
-                    const rtt = performance.now() - this._pingAwait.t;
+                    const now = performance.now();
+                    const rtt = now - this._pingAwait.t;
                     this._lastPing = rtt;
+                    if (typeof data.remoteTime === 'number') {
+                        const sample = data.remoteTime - (this._pingAwait.t + now) * 0.5;
+                        this._clockOffset += (sample - this._clockOffset) * 0.2;
+                    }
                     this._pingAwait = null;
                 }
                 break;
@@ -415,6 +493,7 @@ export class Network {
                 break;
             case 'lobbyClosed':
                 // Lobby kapandı — ana menüye dön.
+                this._manualDisconnect = true;
                 if (!this.isHost && this.onHostLeft) this.onHostLeft();
                 this.disconnect();
                 break;
@@ -476,7 +555,9 @@ export class Network {
 
     // Sync player pos — goes directly to ALL peers (mesh, skip host relay)
     sendPosition(position, rotation, extra = {}) {
+        this._positionSeq = (this._positionSeq + 1) & 0xffff;
         this.broadcastAllBinary(this.encodePosition({
+            seq: this._positionSeq,
             x: position.x,
             y: position.y,
             z: position.z,
@@ -511,6 +592,7 @@ export class Network {
     }
 
     getPing() { return this._lastPing || 0; }
+    getClockOffset() { return this._clockOffset || 0; }
 
     broadcastBlackHoleSpawn(x, y, z) {
         if (!this.isHost) return;
@@ -575,6 +657,11 @@ export class Network {
     }
 
     disconnect() {
+        this._manualDisconnect = true;
+        if (this._reconnectTimer) {
+            clearTimeout(this._reconnectTimer);
+            this._reconnectTimer = null;
+        }
         const conns = [...this.connections.values()];
         conns.forEach(conn => conn.close());
         this.connections.clear();

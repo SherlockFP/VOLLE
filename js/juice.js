@@ -45,6 +45,9 @@ export class Juice {
 
         // Flash
         this.flashAmt = 0;
+        this.screenShakeEnabled = true;
+        this.screenFlashEnabled = true;
+        this.reducedMotion = false;
     }
 
     // Hit-stop: dünya N ms donar. Critical hit'lerde 80ms, normal 40ms.
@@ -55,11 +58,13 @@ export class Juice {
 
     // Screen shake: amt kadar kamera sallanır, eksponansiyel sönümlenir.
     shake(amt = 0.3) {
+        if (!this.screenShakeEnabled || this.reducedMotion) return;
         this.shakeAmt = Math.max(this.shakeAmt, amt);
     }
 
     // Slow-mo: timeScale hedefe düşer, timer bitince 1'e geri döner.
     slowMo(scale = 0.3, duration = 0.6) {
+        if (this.reducedMotion) return;
         this.slowMoTarget = scale;
         this.slowMoTimer = duration;
     }
@@ -84,12 +89,14 @@ export class Juice {
 
     // Flash ekran (beyaz/kırmızı). Hit alınca.
     flash(amt = 0.5) {
+        if (!this.screenFlashEnabled) return;
         this.flashAmt = Math.max(this.flashAmt, amt);
     }
 
     // Particle patlaması. pos: Vector3, color: hex, count: adet.
     burst(pos, color = 0xff8844, count = 12, speed = 8) {
         if (!this.scene) return;
+        if (this.reducedMotion) count = Math.ceil(count * 0.35);
         for (let i = 0; i < count && this.particles.length < this.maxParticles; i++) {
             const size = 0.08 + Math.random() * 0.14;
             // ponytail: mixed shapes — cubes, spheres, and tetrahedrons for variety

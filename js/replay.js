@@ -12,6 +12,7 @@ export class ReplayClass {
         this.rafId = 0
         this._playStart = 0
         this._playIdx = 0
+        this._lastSnapshotTs = -Infinity
     }
 
     startRecording(meta) {
@@ -19,6 +20,7 @@ export class ReplayClass {
         this.meta = meta || {}
         this.events = []
         this.startTs = performance.now()
+        this._lastSnapshotTs = -Infinity
     }
 
     record(event) {
@@ -29,6 +31,28 @@ export class ReplayClass {
             t: performance.now() - this.startTs,
             type: event.type,
             data: event.data
+        })
+    }
+
+    recordSnapshot(snapshot) {
+        if (!this.recording) return
+        const now = performance.now() - this.startTs
+        if (now - this._lastSnapshotTs < 250) return
+        this._lastSnapshotTs = now
+        const round = value => Math.round((Number(value) || 0) * 100) / 100
+        const point = value => value ? { x: round(value.x), y: round(value.y), z: round(value.z) } : null
+        this.record({
+            type: 'snapshot',
+            data: {
+                ball: point(snapshot.ball),
+                player: point(snapshot.player),
+                actors: (snapshot.actors || []).slice(0, 16).map(actor => ({
+                    id: String(actor.id || '').slice(0, 32),
+                    team: actor.team === 'blue' ? 'blue' : 'red',
+                    alive: actor.alive !== false,
+                    ...point(actor)
+                }))
+            }
         })
     }
 
@@ -53,7 +77,10 @@ export class ReplayClass {
                 if (cb) cb(e.data, e.t)
             }
             if (this._playIdx < events.length) this.rafId = requestAnimationFrame(tick)
-            else this.playing = false
+            else {
+                this.playing = false
+                callbacks.complete?.()
+            }
         }
         this.rafId = requestAnimationFrame(tick)
     }
@@ -75,11 +102,27 @@ export class ReplayClass {
         try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]') } catch { return [] }
     }
 
+    delete(index) {
+        const all = this.loadAll()
+        if (!Number.isInteger(index) || index < 0 || index >= all.length) return false
+        all.splice(index, 1)
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(all)) } catch { return false }
+        return true
+    }
+
     exportJSON(replay) { return JSON.stringify(replay) }
 
     importJSON(str) {
         const r = JSON.parse(str)
         if (!r || !Array.isArray(r.events)) throw new Error('Invalid replay JSON')
+        if (r.events.length > MAX_EVENTS) throw new Error('Replay event limit exceeded')
+        let previous = -1
+        for (const event of r.events) {
+            if (!event || typeof event.type !== 'string' || !Number.isFinite(event.t) || event.t < previous) {
+                throw new Error('Invalid replay event')
+            }
+            previous = event.t
+        }
         return r
     }
 }

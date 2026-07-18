@@ -45,7 +45,9 @@ class App {
         // Init systems
         const container = document.getElementById('game-container');
         this.renderer = new Renderer(container);
-        this.arena = new Arena(this.renderer, 'beach_open'); // default: Beach Volleyball
+        this.arena = new Arena(this.renderer, 'beach_open', {
+            portalsEnabled: this.store.get('portalsEnabled') !== false
+        });
         this.player = new Player(this.renderer, this.camera, this.arena);
         this.audio = new Audio();
         this.ui = new UI();
@@ -254,8 +256,19 @@ class App {
         this._setupMenuMouse();
 
         this.setupMenuHandlers();
+        this.applyAccessibility();
         this.refreshMetaStats();
-        this.ui.showScreen('mainMenu');
+        this.store.connectRemote(this.store.get('playerName')).then(connected => {
+            if (!connected) return;
+            this.applyLoadout();
+            this.refreshMetaStats();
+        });
+        if (this.store.get('onboardingSeen')) {
+            this.ui.showScreen('mainMenu');
+        } else {
+            this.ui.renderTutorial?.();
+            this.ui.showScreen('tutorial');
+        }
 
         // In-game console (~)
         this.gameConsole = new Console();
@@ -284,6 +297,32 @@ class App {
         // Music volume
         const vol = (this.store.get('settings').volume || 50) / 100;
         this.game.setMusicVolume(vol * 0.03);
+    }
+
+    applyAccessibility() {
+        const settings = this.store.get('settings');
+        this.renderer.setQuality(settings.quality || 'medium');
+        this.game.juice.reducedMotion = !!settings.reduceMotion;
+        this.game.juice.screenShakeEnabled = settings.screenShake !== false;
+        this.game.juice.screenFlashEnabled = settings.screenFlash !== false;
+        document.body.classList.toggle('reduced-motion', !!settings.reduceMotion);
+        document.body.classList.toggle('high-contrast', !!settings.highContrast);
+        document.body.dataset.colorBlind = settings.colorBlind || 'none';
+
+        const values = {
+            'setting-quality': settings.quality || 'medium',
+            'setting-reduce-motion': !!settings.reduceMotion,
+            'setting-screen-shake': settings.screenShake !== false,
+            'setting-screen-flash': settings.screenFlash !== false,
+            'setting-high-contrast': !!settings.highContrast,
+            'setting-color-blind': settings.colorBlind || 'none'
+        };
+        Object.entries(values).forEach(([id, value]) => {
+            const element = document.getElementById(id);
+            if (!element) return;
+            if (element.type === 'checkbox') element.checked = value;
+            else element.value = value;
+        });
     }
 
     refreshMetaStats() {
@@ -325,6 +364,16 @@ class App {
         const coins = 30 + myStat.deflections * 2 + myStat.score * 5 + (won ? 50 : 0);
         const xp = 50 + myStat.deflections * 3 + (won ? 100 : 30);
         const result = this.store.grant({ currency: coins, xp });
+        const matchId = globalThis.crypto?.randomUUID?.()
+            || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        this.store.grantMatchRemote({
+            matchId,
+            won,
+            deflections: myStat.deflections,
+            score: myStat.score
+        }).then(synced => {
+            if (synced) this.refreshMetaStats();
+        });
         const rally = this.game.rallyCount;
         const damageDealt = this.player.totalDamageDealt;
         const damageTaken = this.player.totalDamageTaken;
@@ -363,7 +412,7 @@ class App {
 
         // Replay kaydet
         const replay = Replay.stopRecording();
-        if (replay && replay.events.length > 5) Replay.save(replay);
+        if (replay && replay.events.length > 0) Replay.save(replay);
     }
 
     // ponytail: mouse-follow glow + custom ball cursor on the main menu
@@ -499,6 +548,10 @@ class App {
             this.ui.renderLeaderboard?.(this.store);
             this.ui.showScreen('leaderboard');
         });
+        bind('btn-replays', () => {
+            this.ui.renderReplays?.(Replay.loadAll());
+            this.ui.showScreen('replays');
+        });
 
         bind('btn-tournament', () => {
             this.ui.showScreen('tournament');
@@ -513,6 +566,10 @@ class App {
             this.ui.showScreen('mainMenu');
             this.refreshMetaStats();
         });
+        bind('btn-replays-back', () => {
+            Replay.stopPlayback();
+            this.ui.showScreen('mainMenu');
+        });
 
         bind('btn-tournament-back', () => {
             this.ui.showScreen('mainMenu');
@@ -520,6 +577,7 @@ class App {
         });
 
         bind('btn-tutorial-back', () => {
+            this.store.set('onboardingSeen', true);
             this.ui.showScreen('mainMenu');
             this.refreshMetaStats();
         });
@@ -533,6 +591,7 @@ class App {
         });
 
         bind('btn-tutorial-start', () => {
+            this.store.set('onboardingSeen', true);
             this.startTutorial();
         });
 
@@ -642,7 +701,7 @@ class App {
         });
 
         // UI sound effects for menu buttons
-        document.addEventListener('click', e => {
+        document.addEventListener('click', async e => {
             const btn = e.target.closest('button');
             if (!btn) return;
             const inMenu = this.game.state === STATES.MENU || this.game.state === STATES.LOBBY;
@@ -678,6 +737,7 @@ class App {
                 mode: this.game.mode?.id || 'classic',
                 players: this.game.getPlayerList().map(p => p.name)
             });
+            this._lastRally = this.game.rallyCount;
         });
 
         bind('btn-add-bot-red', () => {
@@ -896,8 +956,22 @@ class App {
             const s = this.store.get('settings');
             s.quality = e.target.value;
             this.store.set('settings', s);
-            this.ui.showMessage?.(`Quality: ${e.target.value} (refresh to apply)`, 1500);
+            this.renderer.setQuality(e.target.value);
+            this.ui.showMessage?.(`Quality: ${e.target.value}`, 1500);
         });
+        const bindAccessibility = (id, key, checkbox = true) => {
+            bindSetting(id, e => {
+                const s = this.store.get('settings');
+                s[key] = checkbox ? e.target.checked : e.target.value;
+                this.store.set('settings', s);
+                this.applyAccessibility();
+            });
+        };
+        bindAccessibility('setting-reduce-motion', 'reduceMotion');
+        bindAccessibility('setting-screen-shake', 'screenShake');
+        bindAccessibility('setting-screen-flash', 'screenFlash');
+        bindAccessibility('setting-high-contrast', 'highContrast');
+        bindAccessibility('setting-color-blind', 'colorBlind', false);
         // Crosshair settings
         const applyCrosshair = () => {
             const chEl = document.querySelector('.crosshair');
@@ -1019,6 +1093,7 @@ class App {
         if (portalsToggle) {
             portalsToggle.addEventListener('change', e => {
                 this.store.set('portalsEnabled', e.target.checked);
+                this.arena.setPortalsEnabled(e.target.checked);
             });
         }
         // Auto team balance
@@ -1089,7 +1164,7 @@ class App {
                 const charId = charCard.dataset.char;
                 if (!this.store.ownsCharacter(charId)) {
                     // Satın almayı dene
-                    if (this.store.buyCharacter(charId)) {
+                    if (await this.store.purchase('character', charId)) {
                         this.ui.renderCharacterSelect(this.store);
                         this.refreshMetaStats();
                     } else {
@@ -1104,7 +1179,7 @@ class App {
             if (skillCard) {
                 const skillId = skillCard.dataset.skill;
                 if (!this.store.ownsSkill(skillId)) {
-                    if (this.store.buySkill(skillId)) {
+                    if (await this.store.purchase('skill', skillId)) {
                         this.ui.renderCharacterSelect(this.store);
                         this.refreshMetaStats();
                     } else {
@@ -1119,10 +1194,7 @@ class App {
             if (runeCard) {
                 const runeId = runeCard.dataset.rune;
                 if (!this.store.owns(runeId)) {
-                    if (this.store.data.currency >= 80) {
-                        this.store.data.currency -= 80;
-                        this.store.data.ownedItems.push(runeId);
-                        this.store.save();
+                    if (await this.store.purchase('rune', runeId)) {
                         this.ui.renderCharacterSelect(this.store);
                         this.refreshMetaStats();
                     } else {
@@ -1143,11 +1215,8 @@ class App {
             if (buyBtn) {
                 const type = buyBtn.dataset.type;
                 const id = buyBtn.dataset.id;
-                let ok = false;
-                if (type === 'char') ok = this.store.buyCharacter(id);
-                else if (type === 'ball') ok = this.store.buyBall(id);
-                else if (type === 'skill') ok = this.store.buySkill(id);
-                else if (type === 'avatar') ok = this.store.buyAvatarSkin(id);
+                const kind = type === 'char' ? 'character' : type;
+                const ok = await this.store.purchase(kind, id);
                 if (ok) {
                     this.ui.showMessage?.('Purchased!');
                     const activeTab = document.querySelector('.shop-tab.selected')?.dataset.tab || 'chars';
@@ -1226,6 +1295,45 @@ class App {
                 document.querySelectorAll('.shop-tab').forEach(t => t.classList.remove('selected'));
                 tabBtn.classList.add('selected');
                 this.ui.renderShop(this.store, tabBtn.dataset.tab);
+            }
+            const replayButton = e.target.closest('.replay-play, .replay-export, .replay-delete');
+            if (replayButton) {
+                const all = Replay.loadAll();
+                const index = Number(replayButton.dataset.index);
+                const replay = all[index];
+                if (!replay) return;
+                if (replayButton.classList.contains('replay-delete')) {
+                    if (Replay.delete(index)) this.ui.renderReplays?.(Replay.loadAll());
+                } else if (replayButton.classList.contains('replay-export')) {
+                    const copy = navigator.clipboard?.writeText(Replay.exportJSON(replay));
+                    if (copy) copy.then(() => this.ui.showMessage?.('Replay copied', 1200))
+                        .catch(() => this.ui.showMessage?.('Clipboard unavailable', 1200));
+                    else this.ui.showMessage?.('Clipboard unavailable', 1200);
+                } else {
+                    this.game.selectMap(replay.meta?.map);
+                    this.game.setState(STATES.PAUSED);
+                    this.ui.hideAll();
+                    this.ui.showHUD();
+                    this.player.unlock();
+                    Replay.play(replay, {
+                        deflect: data => this.ui.showMessage?.(`Rally ${data?.rally || ''}`, 500),
+                        hit: data => this.ui.showMessage?.(`Hit ${data?.damage || ''}`, 500),
+                        snapshot: data => {
+                            if (!data?.ball) return;
+                            this.game.ball.active = true;
+                            this.game.ball.mesh.visible = true;
+                            this.game.ball.position.set(data.ball.x, data.ball.y, data.ball.z);
+                            this.game.ball.mesh.position.copy(this.game.ball.position);
+                        },
+                        complete: () => {
+                            this.game.ball.deactivate();
+                            this.game.setState(STATES.MENU);
+                            this.ui.renderReplays?.(Replay.loadAll());
+                            this.ui.showScreen('replays');
+                        }
+                    });
+                    this.ui.showMessage?.('Replay playback started', 1200);
+                }
             }
         });
 
@@ -1390,7 +1498,15 @@ class App {
         if (weatherEl) weatherEl.textContent = weatherMap[config.weather] || '☀️';
 
         const sizeEl = document.getElementById('carousel-size');
-        if (sizeEl) sizeEl.textContent = config.size || 'medium';
+        if (sizeEl) {
+            const size = typeof config.size === 'string'
+                ? config.size
+                : config.courtWidth >= 130 ? 'xxl'
+                    : config.courtWidth >= 115 ? 'large'
+                        : config.courtWidth <= 80 ? 'small'
+                            : 'medium';
+            sizeEl.textContent = size;
+        }
 
         // Update dots
         document.querySelectorAll('.carousel-dot').forEach((dot, i) => {
@@ -1523,6 +1639,7 @@ class App {
 
     // Wire the client-side network callbacks (used by every join path).
     _setupClientNetHandlers() {
+        this._setupReconnectUI();
         this.network.onKicked = (reason) => {
             this._exitToMenu(reason === 'password' ? '❌ Wrong lobby password' : '❌ Kicked from lobby');
         };
@@ -1553,6 +1670,13 @@ class App {
         };
         this.network.onHostLeft = () => {
             this._exitToMenu('🚪 Host left — lobby closed');
+        };
+    }
+
+    _setupReconnectUI() {
+        this.network.onReconnectState = (state, attempt) => {
+            if (state === 'reconnecting') this.ui.showMessage?.(`Reconnecting... ${attempt}/3`, 1800);
+            else if (state === 'connected') this.ui.showMessage?.('Reconnected', 1800);
         };
     }
 
@@ -2026,7 +2150,7 @@ class App {
                 this._bgAccumulator -= step;
                 steps++;
             }
-            if (steps === 0) {
+            if (steps === 0 && document.hidden) {
                 // Remote lerp even if no full step
                 this.game.invokeRemoteSnapshots(dt);
                 this.game.invokeBallSmoothing?.(dt);
@@ -2048,20 +2172,22 @@ class App {
     }
     _bgTick(dt) {
         // Remote player lerp always
-        this.game.invokeRemoteSnapshots(dt);
-        this.game.invokeBallSmoothing?.(dt);
+        if (document.hidden) {
+            this.game.invokeRemoteSnapshots(dt);
+            this.game.invokeBallSmoothing?.(dt);
+        }
         // Process attack queue (bg tab hidden icin — main loop calismaz)
         this._bgProcessAttackQueue();
         // Game simulation only for host (all states need update — round timing, celebration, etc.)
         if (this.network?.isHost) {
             this.game.update(dt);
             // Host position to clients (delta filtered) — player can move during these states
-            if (this.game.state === STATES.PLAYING || this.game.state === STATES.CELEBRATION) {
+            if (document.hidden && (this.game.state === STATES.PLAYING || this.game.state === STATES.CELEBRATION)) {
                 this._bgSendPosition(dt);
             }
         } else {
             // Client: send position when alt-tabbed
-            if (this.game.state === STATES.PLAYING || this.game.state === STATES.COUNTDOWN) {
+            if (document.hidden && (this.game.state === STATES.PLAYING || this.game.state === STATES.COUNTDOWN)) {
                 this._bgSendPosition(dt);
             }
         }
@@ -2105,7 +2231,8 @@ class App {
             this._bgLastFull = this._bgLastFull || {};
             const prev = this._bgLastFull;
             const extra = {
-                ax: p.getAimDirection().x, ay: p.getAimDirection().y, az: p.getAimDirection().z
+                ax: p.getAimDirection().x, ay: p.getAimDirection().y, az: p.getAimDirection().z,
+                vx: p._frameVel?.x || 0, vy: p._frameVel?.y || 0, vz: p._frameVel?.z || 0
             };
             if (prev.name !== this.game.playerName) { extra.name = this.game.playerName; prev.name = this.game.playerName; }
             if (prev.team !== p.team) { extra.team = p.team; prev.team = p.team; }
@@ -2294,8 +2421,22 @@ class App {
 
         // Replay kaydı — deflect olayları
         if (this.game.state === STATES.PLAYING && Replay.recording) {
+            Replay.recordSnapshot({
+                ball: this.game.ball.position,
+                player: this.player.getPosition(),
+                actors: [
+                    ...this.game.bots.map(bot => ({
+                        id: bot.name, team: bot.team, alive: bot.alive,
+                        x: bot.position.x, y: bot.position.y, z: bot.position.z
+                    })),
+                    ...[...this.game.remotePlayers.values()].map(player => ({
+                        id: player.name, team: player.team, alive: player.alive,
+                        x: player.position.x, y: player.position.y, z: player.position.z
+                    }))
+                ]
+            });
             if (this.game.rallyCount !== this._lastRally) {
-                Replay.record({ type: 'deflect', rally: this.game.rallyCount });
+                Replay.record({ type: 'deflect', data: { rally: this.game.rallyCount } });
                 this._lastRally = this.game.rallyCount;
             }
         }
@@ -2340,6 +2481,7 @@ class App {
                     const prev = this._p2pLastFull.get(lastKey) || {};
                     const extra = {
                         ax: p.getAimDirection().x, ay: p.getAimDirection().y, az: p.getAimDirection().z,
+                        vx: p._frameVel?.x || 0, vy: p._frameVel?.y || 0, vz: p._frameVel?.z || 0,
                         clientTime: performance.now()
                     };
                     if (prev.name !== this.game.playerName) { extra.name = this.game.playerName; prev.name = this.game.playerName; }

@@ -2431,6 +2431,26 @@ canvas { display: block; }
     border: 3px solid rgba(255,255,255,0.2);
     border-radius: 8px;
 }
+.replay-list {
+    display: grid;
+    gap: 10px;
+    margin-top: 16px;
+}
+.replay-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 14px;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 8px;
+    background: rgba(255,255,255,0.04);
+}
+.replay-card span {
+    display: block;
+    margin-top: 4px;
+    color: rgba(255,255,255,0.6);
+}
 
 /* ===== SKILL COOLDOWN BAR ===== */
 .skill-row .vital-label {
@@ -4047,3 +4067,22 @@ canvas { display: block; }
     animation: ultPulse 1s ease-in-out infinite alternate;
 }
 @keyframes ultPulse { from { opacity: 0.5; } to { opacity: 1; } }
+body.reduced-motion *,
+body.reduced-motion *::before,
+body.reduced-motion *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+}
+
+body.high-contrast {
+    --text: #ffffff;
+    --text-dim: #d8d8d8;
+    --panel: rgba(0, 0, 0, 0.96);
+    --accent: #ffd500;
+}
+
+body[data-color-blind="deuteranopia"] { --red: #ffb000; --blue: #1f9eff; }
+body[data-color-blind="protanopia"] { --red: #f0e442; --blue: #0072b2; }
+body[data-color-blind="tritanopia"] { --red: #d55e00; --blue: #cc79a7; }

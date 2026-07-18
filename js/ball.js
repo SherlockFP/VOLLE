@@ -1,6 +1,7 @@
 // ball.js — Rally ball with aim-based direction, slow speed scaling, bounce, arc,
 // skin system, portal teleport, freeze support.
 import * as THREE from 'three';
+import { ObjectPool } from './objectPool.js';
 
 // ponytail: top skin'leri — görsel + küçük efekt. Store ile eşle.
 export const BALL_SKINS = {
@@ -24,7 +25,7 @@ export class Ball {
         this.gravity = -14;
         this.baseSpeed = 17;
         this.currentSpeed = this.baseSpeed;
-        this.rallySpeedStep = 0.20;             // 100 -> 120 -> 140 ...
+        this.rallySpeedStep = 0.35;             // 100 -> 135 -> 170 ...
         this.maxRallyMultiplier = 6.0;          // hard cap: 600% base speed
         this.maxSpeed = 102;
         this.deflections = 0;
@@ -40,6 +41,13 @@ export class Ball {
 
         this.trail = [];
         this.trailTimer = 0;
+        this._trailGeometry = new THREE.SphereGeometry(1, 4, 4);
+        this._trailPool = new ObjectPool(
+            () => new THREE.Mesh(this._trailGeometry, new THREE.MeshBasicMaterial({ transparent: true })),
+            mesh => { this.scene.remove(mesh); mesh.visible = false; },
+            mesh => mesh.material.dispose(),
+            64
+        );
         this.bounceCount = 0;
         this.spin = 0;
         this.lastShot = 'flat';
@@ -817,13 +825,12 @@ export class Ball {
         // ponytail: bigger trail dots at high speed for dramatic streak
         const skinTrailMul = this.skinConfig?.burstTrail ? 1.7 : this.skinConfig?.frostTrail ? 1.35 : 1;
         const r = Math.min(0.22, 0.04 * skinTrailMul * (1 + sr * 0.5 + spinFactor * 0.3));
-        const geo = new THREE.SphereGeometry(r, 4, 4);
         const trailColor = this._affixTrailColor ?? (this.skinConfig?.trail || 0xff2222);
-        const mat = new THREE.MeshBasicMaterial({
-            color: trailColor,
-            transparent: true, opacity: Math.min(0.85, 0.5 + sr * 0.08 + (this.skinConfig?.frostTrail ? 0.12 : 0))
-        });
-        const dot = new THREE.Mesh(geo, mat);
+        const dot = this._trailPool.acquire();
+        dot.visible = true;
+        dot.material.color.setHex(trailColor);
+        dot.material.opacity = Math.min(0.85, 0.5 + sr * 0.08 + (this.skinConfig?.frostTrail ? 0.12 : 0));
+        dot.scale.setScalar(r);
         dot.position.copy(this.position);
         // Spin offset — trail spreads slightly in curve direction
         if (Math.abs(this.spin) > 1) {
@@ -834,13 +841,11 @@ export class Ball {
         this.scene.add(dot);
         // Faster ball = longer trail life
         const maxLife = 0.3 + sr * 0.2;
-        this.trail.push({ mesh: dot, life: maxLife });
+        this.trail.push({ mesh: dot, life: maxLife, maxLife, radius: r });
         const maxTrail = 30 + Math.round(sr * 20);
         if (this.trail.length > maxTrail) {
             const old = this.trail.shift();
-            this.scene.remove(old.mesh);
-            old.mesh.geometry.dispose();
-            old.mesh.material.dispose();
+            this._trailPool.release(old.mesh);
         }
     }
 
@@ -848,12 +853,11 @@ export class Ball {
         for (let i = this.trail.length - 1; i >= 0; i--) {
             const t = this.trail[i];
             t.life -= dt;
-            t.mesh.material.opacity = Math.max(0, t.life * 1.4);
-            t.mesh.scale.setScalar(Math.max(0.05, t.life * 1.8));
+            const ratio = Math.max(0, t.life / t.maxLife);
+            t.mesh.material.opacity = ratio * 0.8;
+            t.mesh.scale.setScalar(Math.max(0.01, t.radius * ratio));
             if (t.life <= 0) {
-                this.scene.remove(t.mesh);
-                t.mesh.geometry.dispose();
-                t.mesh.material.dispose();
+                this._trailPool.release(t.mesh);
                 this.trail.splice(i, 1);
             }
         }
@@ -861,9 +865,7 @@ export class Ball {
 
     clearTrail() {
         this.trail.forEach(t => {
-            this.scene.remove(t.mesh);
-            t.mesh.geometry.dispose();
-            t.mesh.material.dispose();
+            this._trailPool.release(t.mesh);
         });
         this.trail = [];
     }

@@ -91,6 +91,7 @@
 
             <!-- Extra links (achievements, leaderboard) -->
             <div class="ow-extralinks">
+                <button id="btn-replays" class="ow-link">Replays</button>
                 <button id="btn-achievements" class="ow-link">🏅 Achievements</button>
                 <button id="btn-leaderboard" class="ow-link">📊 Leaderboard</button>
                 <span class="ow-hint">WASD move · L-Click deflect · Q skill · Tab scores · Y chat</span>
@@ -284,6 +285,7 @@
                     <button class="settings-tab selected" data-tab="0">🎮 Controls</button>
                     <button class="settings-tab" data-tab="1">🖥️ Video</button>
                     <button class="settings-tab" data-tab="2">🎯 Game</button>
+                    <button class="settings-tab" data-tab="3">♿ Access</button>
                 </div>
                 <button id="btn-settings-close" class="settings-close-btn">✕</button>
             </div>
@@ -343,7 +345,6 @@
                     <div class="settings-row"><label>FPS Limit</label><select id="setting-fps-limit"><option value="0">Unlimited</option><option value="30">30</option><option value="60" selected>60</option><option value="120">120</option><option value="144">144</option><option value="240">240</option></select></div>
                     <div class="settings-row"><label>Quality</label><select id="setting-quality"><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option></select></div>
                     <div class="settings-row"><label>Resolution</label><select id="setting-resolution"><option value="1280x720">1280×720</option><option value="1366x768">1366×768</option><option value="1600x900">1600×900</option><option value="1920x1080" selected>1920×1080</option><option value="2560x1440">2560×1440</option><option value="3840x2160">3840×2160</option></select></div>
-                    <div class="settings-row settings-row-toggle"><label>Portals</label><label class="toggle-switch"><input type="checkbox" id="setting-portals" checked><span class="toggle-slider"></span></label></div>
                 </div>
                 <!-- Gameplay -->
                 <div class="settings-section">
@@ -397,6 +398,14 @@
                             <span class="toggle-slider"></span>
                         </label>
                     </div>
+                </div>
+                <div class="settings-section">
+                    <h3>♿ Accessibility</h3>
+                    <div class="settings-row settings-row-toggle"><label>Reduce Motion</label><label class="toggle-switch"><input type="checkbox" id="setting-reduce-motion"><span class="toggle-slider"></span></label></div>
+                    <div class="settings-row settings-row-toggle"><label>Screen Shake</label><label class="toggle-switch"><input type="checkbox" id="setting-screen-shake" checked><span class="toggle-slider"></span></label></div>
+                    <div class="settings-row settings-row-toggle"><label>Screen Flash</label><label class="toggle-switch"><input type="checkbox" id="setting-screen-flash" checked><span class="toggle-slider"></span></label></div>
+                    <div class="settings-row settings-row-toggle"><label>High Contrast</label><label class="toggle-switch"><input type="checkbox" id="setting-high-contrast"><span class="toggle-slider"></span></label></div>
+                    <div class="settings-row"><label>Color Vision</label><select id="setting-color-blind"><option value="none">Default</option><option value="deuteranopia">Deuteranopia</option><option value="protanopia">Protanopia</option><option value="tritanopia">Tritanopia</option></select></div>
                 </div>
             </div>
         </div>
@@ -531,6 +540,15 @@
     </div>
 
     <!-- ===== TOURNAMENT ===== -->
+    <div id="replays-screen" class="screen hidden">
+        <div class="panel wide-panel">
+            <h1>Match Replays</h1>
+            <h2>Latest 10 local matches</h2>
+            <div id="replay-list" class="replay-list"></div>
+            <button id="btn-replays-back" class="btn btn-secondary" style="margin-top: 20px;">Back</button>
+        </div>
+    </div>
+
     <div id="tournament-screen" class="screen hidden">
         <div class="panel wide-panel">
             <h1>🥇 Tournament</h1>

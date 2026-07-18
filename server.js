@@ -2,9 +2,11 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { ProfileStore } = require('./server/profile-store');
 
 const PORT = process.env.PORT || 8000;
 const ROOT = __dirname;
+const profiles = new ProfileStore(path.join(ROOT, 'data', 'profiles.json'));
 
 const MIME = {
     '.html': 'text/html; charset=utf-8',
@@ -48,8 +50,44 @@ function sendJson(res, obj, status = 200) {
     res.end(data);
 }
 
+function bearer(req) {
+    const value = req.headers.authorization || '';
+    return value.startsWith('Bearer ') ? value.slice(7) : '';
+}
+
 const server = http.createServer(async (req, res) => {
     const urlPath = req.url.split('?')[0];
+
+    // --- Persistent guest profile/economy API ---
+    if (urlPath === '/api/profile/session' && req.method === 'POST') {
+        const b = await readBody(req);
+        sendJson(res, profiles.session(b.token, b.playerName, b.legacy));
+        return;
+    }
+    if (urlPath === '/api/profile' && req.method === 'GET') {
+        const profile = profiles.authenticate(bearer(req));
+        if (!profile) { sendJson(res, { error: 'unauthorized' }, 401); return; }
+        sendJson(res, { profile: profiles._public(profile) });
+        return;
+    }
+    if (urlPath === '/api/profile/purchase' && req.method === 'POST') {
+        const profile = profiles.authenticate(bearer(req));
+        if (!profile) { sendJson(res, { error: 'unauthorized' }, 401); return; }
+        const b = await readBody(req);
+        const result = profiles.purchase(profile, b.kind, b.id);
+        sendJson(res, result.error ? { error: result.error } : { profile: result.profile }, result.status);
+        return;
+    }
+    if (urlPath === '/api/profile/reward' && req.method === 'POST') {
+        const profile = profiles.authenticate(bearer(req));
+        if (!profile) { sendJson(res, { error: 'unauthorized' }, 401); return; }
+        const result = profiles.reward(profile, await readBody(req));
+        sendJson(res, result.error ? { error: result.error } : {
+            coins: result.coins,
+            profile: result.profile
+        }, result.status);
+        return;
+    }
 
     // --- Lobby API ---
     if (urlPath === '/api/lobbies' && req.method === 'GET') {

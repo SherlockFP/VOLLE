@@ -130,9 +130,9 @@ export class AvatarPainter {
         const tmp = document.createElement('canvas');
         tmp.width = 32; tmp.height = 32;
         const tctx = tmp.getContext('2d');
-        const step = 32 / this.size;
-        for (let y = 0; y < this.size; y++) {
-            for (let x = 0; x < this.size; x++) {
+        const step = 32 / 16;
+        for (let y = 0; y < 16; y++) {
+            for (let x = 0; x < 16; x++) {
                 const c = this.pixels[(y + 8) * this.size + (x + 8)];
                 if (c) { tctx.fillStyle = c; tctx.fillRect(x*step, y*step, step+0.5, step+0.5); }
             }
@@ -162,7 +162,7 @@ export class AvatarPainter {
         const headY = 0;
         for (let y = 0; y < 16; y++) {
             for (let x = 0; x < 16; x++) {
-                const c = this.pixels[y * this.size + x];
+                const c = this.pixels[(y + 8) * this.size + (x + 8)];
                 if (c) {
                     ctx.fillStyle = c;
                     const px = headX + (x / 16) * headW;

@@ -217,18 +217,19 @@ export class Arena {
     // ponytail: statik MAPS — game.js pickRandomMap() için.
     static MAPS = MAPS;
 
-    constructor(renderer, mapId = 'beach') {
+    constructor(renderer, mapId = 'beach', options = {}) {
         this.renderer = renderer;
         this.scene = renderer.scene;
         this.mapId = mapId;
         this.config = MAPS[mapId] || MAPS.beach;
+        this.portalsEnabled = options.portalsEnabled !== false;
 
         this.courtWidth = this.config.courtWidth;
         this.courtLength = this.config.courtLength;
         this.wallHeight = this.config.wallHeight;
         this.ceilingHeight = this.config.ceilingHeight;
         // ponytail: spawn lower so ball doesn't get stuck on ceiling (neon map)
-        this.spawnPoint = new THREE.Vector3(0, Math.min(this.ceilingHeight - 1, 12), 0);
+        this.spawnPoint = new THREE.Vector3(0, this._ballSpawnHeight(), 0);
         this.bounds = {
             minX: -this.courtWidth / 2,
             maxX: this.courtWidth / 2,
@@ -244,6 +245,10 @@ export class Arena {
         this.build();
         // ponytail: apply initial map theme
         this._applyTheme(mapId);
+    }
+
+    _ballSpawnHeight() {
+        return this.ceilingHeight > 2 ? Math.min(this.ceilingHeight - 1, 12) : 12;
     }
 
     // Track every object we add so we can tear down cleanly on map switch,
@@ -302,6 +307,7 @@ export class Arena {
             return;
         }
         this.buildFloor();
+        this.buildBoundaryGuides();
         this.buildWalls();
         this.buildNet();
         if (!this.config.openAir) this.buildCeiling();
@@ -371,11 +377,35 @@ export class Arena {
         }
     }
 
+    buildBoundaryGuides() {
+        const halfW = this.courtWidth / 2;
+        const halfL = this.courtLength / 2;
+        const railHeight = 0.45;
+        const railMat = new THREE.MeshStandardMaterial({
+            color: this.config.wallColor,
+            emissive: this.config.wallColor,
+            emissiveIntensity: 0.12,
+            roughness: 0.6
+        });
+        const sideGeo = new THREE.BoxGeometry(0.35, railHeight, this.courtLength);
+        const endGeo = new THREE.BoxGeometry(this.courtWidth, railHeight, 0.35);
+        [-halfW, halfW].forEach(x => {
+            const rail = new THREE.Mesh(sideGeo, railMat);
+            rail.position.set(x, railHeight / 2, 0);
+            this.add(rail);
+        });
+        [-halfL, halfL].forEach(z => {
+            const rail = new THREE.Mesh(endGeo, railMat);
+            rail.position.set(0, railHeight / 2, z);
+            this.add(rail);
+        });
+    }
+
     // Portal mekaniği — 2 döner halka + iç parçacıklar + ışık sütunu.
     // Top bir portala girince diğerinden çıkar.
     // Sadece sci-fi/fantezi haritalarda (hasPortals: true).
     buildPortals() {
-        if (!this.config.hasPortals) return;
+        if (!this.config.hasPortals || !this.portalsEnabled || this.portals?.length) return;
         this.portals = [];
         const colors = [0x44ddff, 0xff8844];
         const glowColors = [0x2288ff, 0xff5500];
@@ -383,7 +413,7 @@ export class Arena {
         const halfL = this.courtLength / 2 - 4;
         for (let i = 0; i < 2; i++) {
             const px = (i === 0 ? -1 : 1) * halfW * 0.6;
-            const pz = (Math.random() - 0.5) * halfL * 0.8;
+            const pz = (i === 0 ? -1 : 1) * halfL * 0.32;
             const py = 3;
 
             // Outer ring — torus, rotates
@@ -438,8 +468,21 @@ export class Arena {
                 cooldown: 0
             });
         }
-        this.portalSwapTimer = 30;
-        this.portalLabel = null;
+        this.portalTimer = 0;
+    }
+
+    setPortalsEnabled(enabled) {
+        this.portalsEnabled = !!enabled;
+        if (this.portals?.length) {
+            this.portals.forEach(portal => {
+                portal.mesh.visible = this.portalsEnabled;
+                portal.core.visible = this.portalsEnabled;
+                portal.light.visible = this.portalsEnabled;
+                portal.particles.visible = this.portalsEnabled;
+            });
+        } else if (this.portalsEnabled) {
+            this.buildPortals();
+        }
     }
 
     buildDojoProps() {
@@ -2212,7 +2255,7 @@ export class Arena {
         this.wallHeight = this.config.wallHeight;
         this.ceilingHeight = this.config.ceilingHeight;
         // ponytail: spawn lower so ball doesn't get stuck on ceiling (neon map)
-        this.spawnPoint = new THREE.Vector3(0, Math.min(this.ceilingHeight - 1, 12), 0);
+        this.spawnPoint = new THREE.Vector3(0, this._ballSpawnHeight(), 0);
         this.bounds = {
             minX: -this.courtWidth / 2,
             maxX: this.courtWidth / 2,
@@ -2226,7 +2269,14 @@ export class Arena {
 
     // Apply per-map CSS theme variables so HUD matches the active arena palette.
     _applyTheme(mapId) {
-        const theme = MAP_THEMES[mapId] || MAP_THEMES.classic;
+        const config = MAPS[mapId];
+        const hex = value => `#${value.toString(16).padStart(6, '0')}`;
+        const theme = MAP_THEMES[mapId] || (config ? {
+            '--ui-primary': hex(config.floorRed),
+            '--ui-secondary': hex(config.floorBlue),
+            '--ui-bg': hex(config.fogColor || config.skyBottom),
+            '--ui-accent': hex(config.floorRed)
+        } : MAP_THEMES.classic);
         const root = document.documentElement;
         for (const [key, val] of Object.entries(theme)) {
             root.style.setProperty(key, val);
@@ -2473,27 +2523,27 @@ export class Arena {
         }
     }
 
-    buildPortals() {
-        this.portals = null;
-    }
-
     updatePortals(dt) {
-        if (!this.portals) return;
+        if (!this.portalsEnabled || !this.portals?.length) return;
         this.portalTimer += dt;
-        this.portals.forEach(p => { p.mesh.rotation.z += dt * 2; });
-        if (this.portalTimer >= this.portalSwapInterval) {
-            this.portalTimer = 0;
-            this.portalSwapInterval = 0;
-        }
+        this.portals.forEach(p => {
+            p.mesh.rotation.z += dt * 2;
+            p.core.rotation.y -= dt;
+            p.cooldown = Math.max(0, p.cooldown - dt);
+        });
     }
 
     checkPortalCollision(ball) {
-        if (!this.portals) return false;
-        for (const portal of this.portals) {
-            if (ball.position.distanceTo(portal.mesh.position) < 3) {
-                ball.position.copy(portal.exit.position);
-                ball.position.y += 2;
-                ball.velocity.multiplyScalar(1.2);
+        if (!this.portalsEnabled || this.portals?.length !== 2) return false;
+        for (let i = 0; i < this.portals.length; i++) {
+            const portal = this.portals[i];
+            if (portal.cooldown <= 0 && ball.position.distanceTo(portal.pos) < 2.2) {
+                const exit = this.portals[1 - i];
+                ball.position.copy(exit.pos);
+                ball.position.y += 0.8;
+                ball.velocity.multiplyScalar(1.08);
+                portal.cooldown = 0.8;
+                exit.cooldown = 0.8;
                 return true;
             }
         }

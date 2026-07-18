@@ -29,6 +29,7 @@ export class UI {
             daily: document.getElementById('daily-screen'),
             ranked: document.getElementById('ranked-screen'),
             leaderboard: document.getElementById('leaderboard-screen'),
+            replays: document.getElementById('replays-screen'),
             tournament: document.getElementById('tournament-screen'),
             tutorial: document.getElementById('tutorial-screen'),
             profile: document.getElementById('screen-profile')
@@ -1023,6 +1024,33 @@ export class UI {
             if (isMe) row.style.background = 'rgba(255,136,0,0.2)';
             row.innerHTML = `<td>${i+1}</td><td>${p.name}${isMe ? ' (You)' : ''}</td><td>${p.elo}</td><td style="color:${rank.color}">${rank.emoji} ${rank.name}</td>`;
             tbody.appendChild(row);
+        });
+    }
+
+    renderReplays(replays) {
+        const list = document.getElementById('replay-list');
+        if (!list) return;
+        list.innerHTML = '';
+        if (!replays.length) {
+            list.innerHTML = '<p>No saved replays yet.</p>';
+            return;
+        }
+        replays.slice().reverse().forEach((replay, reverseIndex) => {
+            const index = replays.length - 1 - reverseIndex;
+            const card = document.createElement('div');
+            card.className = 'replay-card';
+            const duration = Math.max(0, Math.round((replay.duration || 0) / 1000));
+            card.innerHTML = `
+                <div>
+                    <strong>${replay.meta?.map || 'Unknown map'}</strong>
+                    <span>${replay.meta?.mode || 'classic'} · ${duration}s · ${(replay.events || []).length} events</span>
+                </div>
+                <div class="btn-row">
+                    <button class="btn btn-small replay-play" data-index="${index}">Play</button>
+                    <button class="btn btn-small replay-export" data-index="${index}">Copy</button>
+                    <button class="btn btn-small btn-secondary replay-delete" data-index="${index}">Delete</button>
+                </div>`;
+            list.appendChild(card);
         });
     }
 
