@@ -165,7 +165,7 @@ canvas { display: block; }
    Warm sun, volleyball court vibes, golden hour glow. */
 #main-menu {
     background:
-        radial-gradient(ellipse at 50% 0%, #ffd080 0%, #ff8844 25%, #cc5533 45%, #442211 70%, #1a0e08 100%);
+        radial-gradient(ellipse at 50% 0%, #e8b060 0%, #cc6622 25%, #994422 45%, #442211 70%, #1a0e08 100%);
     overflow: hidden;
     position: relative;
     cursor: none;
@@ -175,10 +175,10 @@ canvas { display: block; }
     position: absolute;
     inset: 0;
     background:
-        radial-gradient(circle at 50% 15%, rgba(255,220,150,0.4) 0%, transparent 35%),
-        radial-gradient(ellipse at 50% 85%, rgba(200,120,60,0.15) 0%, transparent 40%),
-        radial-gradient(circle at 20% 60%, rgba(255,180,80,0.08) 0%, transparent 25%),
-        radial-gradient(circle at 80% 40%, rgba(255,200,100,0.06) 0%, transparent 25%);
+        radial-gradient(circle at 50% 15%, rgba(220,180,120,0.3) 0%, transparent 35%),
+        radial-gradient(ellipse at 50% 85%, rgba(180,100,50,0.15) 0%, transparent 40%),
+        radial-gradient(circle at 20% 60%, rgba(200,140,60,0.08) 0%, transparent 25%),
+        radial-gradient(circle at 80% 40%, rgba(200,160,80,0.06) 0%, transparent 25%);
     pointer-events: none;
     animation: sunrisePulse 6s ease-in-out infinite alternate;
 }
@@ -2253,6 +2253,12 @@ canvas { display: block; }
     color: var(--text-dim);
     margin-bottom: 6px;
 }
+.char-mastery {
+    color: var(--accent);
+    font-size: 0.68em;
+    margin-bottom: 5px;
+    font-weight: 700;
+}
 .char-desc {
     font-size: 0.7em;
     color: var(--text-dim);
@@ -2377,6 +2383,8 @@ canvas { display: block; }
     border-radius: 8px;
     cursor: crosshair;
     image-rendering: pixelated;
+    width: min(512px, 48vw);
+    height: auto;
 }
 .avatar-tools { display: flex; flex-direction: column; gap: 12px; }
 .palette {
@@ -2414,6 +2422,14 @@ canvas { display: block; }
     width: 180px;
     height: 240px;
     background: #1a1a2e;
+}
+.skin-preview {
+    width: 70px;
+    height: 70px;
+    margin: 8px auto;
+    background: linear-gradient(var(--skin-head) 0 28%, var(--skin-body) 28% 58%, var(--skin-arms) 58% 78%, var(--skin-legs) 78%);
+    border: 3px solid rgba(255,255,255,0.2);
+    border-radius: 8px;
 }
 
 /* ===== SKILL COOLDOWN BAR ===== */

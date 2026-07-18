@@ -5,10 +5,10 @@ import * as THREE from 'three';
 // ponytail: top skin'leri — görsel + küçük efekt. Store ile eşle.
 export const BALL_SKINS = {
     classic:   { name: 'Classic Volleyball', color: 0xff8844, glow: 0xff8844, trail: 0xff8844, starColor: 0xffee44 },
-    fire:      { name: 'Fireball',           color: 0xff3322, glow: 0xff5500, trail: 0xff6600, starColor: 0xffaa00, speedBonus: 1.05 },
-    ice:       { name: 'Ice Sphere',         color: 0x88ccff, glow: 0xaaeeff, trail: 0xaaddff, starColor: 0xffffff, slowEffect: true },
+    fire:      { name: 'Fireball',           color: 0xff3322, glow: 0xff5500, trail: 0xff6600, starColor: 0xffaa00 },
+    ice:       { name: 'Ice Sphere',         color: 0x88ccff, glow: 0xaaeeff, trail: 0xaaddff, starColor: 0xffffff, frostTrail: true },
     lightning: { name: 'Lightning Orb',      color: 0xffee44, glow: 0xffff88, trail: 0xffff66, starColor: 0xffffff },
-    bomb:      { name: 'Bomb Ball',          color: 0x222222, glow: 0xff4400, trail: 0xff6600, starColor: 0xff4400, burstEffect: true },
+    bomb:      { name: 'Bomb Ball',          color: 0x222222, glow: 0xff4400, trail: 0xff6600, starColor: 0xff4400, burstTrail: true },
     star:      { name: 'Star Core',          color: 0xffdd44, glow: 0xffffaa, trail: 0xffee88, starColor: 0xffffff },
     rainbow:   { name: 'Rainbow',            color: 0xff00ff, glow: 0xffffff, trail: 0xff00ff, starColor: 0xffffff, rainbow: true }
 };
@@ -24,8 +24,9 @@ export class Ball {
         this.gravity = -14;
         this.baseSpeed = 17;
         this.currentSpeed = this.baseSpeed;
-        this.speedMultiplier = 1.08;            // her deflect %6 ramp
-        this.maxSpeed = 200;
+        this.rallySpeedStep = 0.20;             // 100 -> 120 -> 140 ...
+        this.maxRallyMultiplier = 6.0;          // hard cap: 600% base speed
+        this.maxSpeed = 102;
         this.deflections = 0;
         this.radius = 0.47;
         this._baseRadius = this.radius;
@@ -202,6 +203,7 @@ export class Ball {
             return false;
         }
         if (!this.active) return;
+        const arenaGravity = this.gravity * (this.arena.config?.lowGravity ? 0.55 : 1);
         // ponytail: store previous position for swept sphere hit detection
         this._prevPosition = this.position.clone();
         if (this._noHitTimer > 0) this._noHitTimer -= dt;
@@ -254,7 +256,7 @@ export class Ball {
             }
             return false;
         } else if (this.state === 'falling') {
-            if (!this._affixNoGravity) this.velocity.y += this.gravity * dt;
+            if (!this._affixNoGravity) this.velocity.y += arenaGravity * dt;
             this.position.add(this.velocity.clone().multiplyScalar(dt));
             if (this.position.y < 4) this.state = 'homing';
         } else if (this.state === 'homing') {
@@ -292,7 +294,7 @@ export class Ball {
                     this.velocity.copy(newDir.multiplyScalar(this.currentSpeed));
                 }
             }
-            if (dist >= 2 && !this._affixNoGravity) this.velocity.y += this.gravity * 0.3 * dt;
+            if (dist >= 2 && !this._affixNoGravity) this.velocity.y += arenaGravity * 0.3 * dt;
             this._clampSpeed();
             this.position.add(this.velocity.clone().multiplyScalar(dt));
         } else if (this.state === 'rally') {
@@ -329,7 +331,7 @@ export class Ball {
             }
             // Close range (<2): skip gravity to avoid orbiting
             if (dist >= 2 && !this._affixNoGravity) {
-                this.velocity.y += this.gravity * 0.3 * dt;
+                this.velocity.y += arenaGravity * 0.3 * dt;
             }
             this._clampSpeed();
             this.position.add(this.velocity.clone().multiplyScalar(dt));
@@ -612,6 +614,14 @@ export class Ball {
         }
     }
 
+    getRallyMultiplier() {
+        return Math.min(1 + this.deflections * this.rallySpeedStep, this.maxRallyMultiplier);
+    }
+
+    getRallySpeed() {
+        return this.baseSpeed * this.getRallyMultiplier() * (this.skinConfig?.speedBonus || 1);
+    }
+
     updateColor() {
         const sr = this.currentSpeed / this.baseSpeed;
         // ponytail: orange → pink → red → white as speed increases
@@ -632,11 +642,7 @@ export class Ball {
         this.deflections++;
         this._proximityTimer = 0;
         this.bodyZone = ['head','chest','abdomen','legs'][Math.floor(Math.random() * 4)];
-        // Speed ramp: additive with diminishing returns, not exponential — ponytail: cut hard so ball doesn't snowball
-        const speedPct = this.currentSpeed / this.baseSpeed;
-        let rampAdd = this.baseSpeed * 0.015 * Math.max(0.2, 1 - speedPct * 0.012);
-        rampAdd = Math.min(rampAdd, this.baseSpeed * 0.12);
-        this.currentSpeed += rampAdd;
+        // Source-style rally ramp: fixed steps, no multiplicative snowball.
         this.state = 'rally';
         this.aimed = true;
 
@@ -644,9 +650,9 @@ export class Ball {
         const spike = flick.vertical > 20 && flick.power > 0.25;
         const lob = flick.vertical < -20 && flick.power > 0.25;
         // ponytail: reduced power bonus multiplier to slow exponential ramp
-        const powerBonus = (1 + (flick.power || 0) * 0.025) * deflectPower;
+        const powerBonus = 1 + (flick.power || 0) * 0.025;
         let shot = 'flat';
-        let speed = this.currentSpeed * powerBonus;
+        let speed = this.getRallySpeed() * powerBonus;
 
         if (spike) {
             shot = 'spike';
@@ -708,11 +714,8 @@ export class Ball {
         this.deflections++;
         this._proximityTimer = 0;
         this.bodyZone = ['head','chest','abdomen','legs'][Math.floor(Math.random() * 4)];
-        // Additive ramp — consistent with deflectWithAim
-        const speedPct = this.currentSpeed / this.baseSpeed;
-        let rampAdd = this.baseSpeed * 0.06 * Math.max(0.2, 1 - speedPct * 0.008);
-        rampAdd = Math.min(rampAdd, this.baseSpeed * 0.4);
-        this.currentSpeed = Math.min(this.currentSpeed + rampAdd * deflectPower, this.maxSpeed);
+        // Source-style rally ramp: fixed steps, no multiplicative snowball.
+        this.currentSpeed = Math.min(this.getRallySpeed(), this.maxSpeed);
         this.state = 'rally';
         this.aimed = false;
 
@@ -812,12 +815,13 @@ export class Ball {
         const sr = Math.min(4, this.currentSpeed / this.baseSpeed);
         const spinFactor = Math.min(1, Math.abs(this.spin) * 0.3);
         // ponytail: bigger trail dots at high speed for dramatic streak
-        const r = Math.min(0.18, 0.04 * (1 + sr * 0.5 + spinFactor * 0.3));
+        const skinTrailMul = this.skinConfig?.burstTrail ? 1.7 : this.skinConfig?.frostTrail ? 1.35 : 1;
+        const r = Math.min(0.22, 0.04 * skinTrailMul * (1 + sr * 0.5 + spinFactor * 0.3));
         const geo = new THREE.SphereGeometry(r, 4, 4);
         const trailColor = this._affixTrailColor ?? (this.skinConfig?.trail || 0xff2222);
         const mat = new THREE.MeshBasicMaterial({
             color: trailColor,
-            transparent: true, opacity: Math.min(0.8, 0.5 + sr * 0.08)
+            transparent: true, opacity: Math.min(0.85, 0.5 + sr * 0.08 + (this.skinConfig?.frostTrail ? 0.12 : 0))
         });
         const dot = new THREE.Mesh(geo, mat);
         dot.position.copy(this.position);

@@ -1,11 +1,18 @@
 // avatar.js — Pixel art avatar painter. Canvas tabanlı, basit brush/fill.
 // ponytail: stdlib canvas API, tek dosya, store'a dataURL kaydet.
-const GRID = 16;
-const PIXEL = 24; // display size per pixel
+const GRID = 64;
+const PIXEL = 8;
 const PALETTE = [
     '#000000','#ffffff','#ff4444','#4488ff','#44dd44','#ffaa00','#aa44ff','#ff66aa',
     '#88ccff','#ffd8a8','#8b4513','#dddddd','#ff8844','#66ffaa','#ffdd44','#888888'
 ];
+
+export const AVATAR_SKINS = {
+    default: { id: 'default', name: 'Custom Canvas', price: 0, head: '#ffd8a8', body: '#cc3333', arms: '#cc3333', legs: '#222244' },
+    neon: { id: 'neon', name: 'Neon Runner', price: 250, head: '#66ffaa', body: '#aa44ff', arms: '#4488ff', legs: '#111122' },
+    samurai: { id: 'samurai', name: 'Cyber Samurai', price: 350, head: '#ffd8a8', body: '#222222', arms: '#aa3333', legs: '#444444' },
+    frost: { id: 'frost', name: 'Frost Guard', price: 300, head: '#ffffff', body: '#4488ff', arms: '#88ccff', legs: '#224477' }
+};
 
 export class AvatarPainter {
     constructor(canvasEl, store) {
@@ -27,15 +34,22 @@ export class AvatarPainter {
 
     _loadOrEmpty() {
         const saved = this.store?.get?.('customAvatar');
-        if (saved && saved.pixels) return saved.pixels;
+        if (saved?.pixels?.length === GRID * GRID) return saved.pixels;
+        if (saved?.pixels?.length === 16 * 16) {
+            const pixels = Array(GRID * GRID).fill(null);
+            for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) pixels[(y + 8) * GRID + (x + 8)] = saved.pixels[y * 16 + x];
+            return pixels;
+        }
         return Array(this.size * this.size).fill(null);
     }
 
     _bind() {
         const handle = (e) => {
             const rect = this.canvas.getBoundingClientRect();
-            const x = Math.floor((e.clientX - rect.left) / this.cell);
-            const y = Math.floor((e.clientY - rect.top) / this.cell);
+            const scaleX = this.canvas.width / rect.width;
+            const scaleY = this.canvas.height / rect.height;
+            const x = Math.floor((e.clientX - rect.left) * scaleX / this.cell);
+            const y = Math.floor((e.clientY - rect.top) * scaleY / this.cell);
             if (x < 0 || x >= this.size || y < 0 || y >= this.size) return;
             if (this.tool === 'fill') this._floodFill(x, y, this.color);
             else if (this.tool === 'erase') this.pixels[y * this.size + x] = null;
@@ -89,8 +103,26 @@ export class AvatarPainter {
 
     _save() {
         const dataURL = this.canvas.toDataURL();
-        this.store?.set?.('customAvatar', { pixels: this.pixels, dataURL });
+        this.store?.set?.('customAvatar', { pixels: this.pixels, dataURL, model: 'classic' });
+        this.store?.set?.('equippedAvatarSkin', 'default');
         this.onchange?.(dataURL);
+    }
+
+    applyPreset(skinId) {
+        const skin = AVATAR_SKINS[skinId];
+        if (!skin) return false;
+        this.pixels.fill(null);
+        const fill = (x0, y0, x1, y1, color) => {
+            for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) this.pixels[y * this.size + x] = color;
+        };
+        fill(8, 8, 16, 16, skin.head);
+        fill(20, 20, 28, 32, skin.body);
+        fill(44, 20, 48, 32, skin.arms);
+        fill(4, 20, 12, 32, skin.legs);
+        this.render();
+        this._save();
+        this.store?.set?.('equippedAvatarSkin', skinId);
+        return true;
     }
 
     // Skorbord için küçük avatar render (32x32 PNG dataURL)
@@ -101,7 +133,7 @@ export class AvatarPainter {
         const step = 32 / this.size;
         for (let y = 0; y < this.size; y++) {
             for (let x = 0; x < this.size; x++) {
-                const c = this.pixels[y * this.size + x];
+                const c = this.pixels[(y + 8) * this.size + (x + 8)];
                 if (c) { tctx.fillStyle = c; tctx.fillRect(x*step, y*step, step+0.5, step+0.5); }
             }
         }

@@ -307,6 +307,7 @@ export class Bot {
     recordDamageDealt(amount) { this.totalDamageDealt += amount; }
 
     update(dt, ball) {
+        const moveSpeed = this.moveSpeed * (this._hazardMoveMul || 1);
         // Spawn grow-in animation (bouncy ease-out)
         if (this.spawnAnim < 1) {
             this.spawnAnim = Math.min(1, this.spawnAnim + dt * 3.5);
@@ -369,23 +370,23 @@ export class Bot {
                 const dodgeDir = new THREE.Vector3(-toBall.z, 0, toBall.x).normalize();
                 // Randomize dodge direction slightly
                 if (Math.random() > 0.5) dodgeDir.negate();
-                this.position.add(dodgeDir.multiplyScalar(this.moveSpeed * 1.8 * dt));
+                this.position.add(dodgeDir.multiplyScalar(moveSpeed * 1.8 * dt));
             }
 
             // Move toward ball's predicted path to intercept
             if (isTargeted && interceptDist > 2.5) {
-                const moveDir = toIntercept.normalize().multiplyScalar(this.moveSpeed * 0.85 * dt);
+                const moveDir = toIntercept.normalize().multiplyScalar(moveSpeed * 0.85 * dt);
                 this.position.add(moveDir);
             } else if (!isTargeted && ballDist < 8 && Math.random() < 0.3) {
                 // Even when not targeted, drift toward ball if close
-                const moveDir = toBall.clone().normalize().multiplyScalar(this.moveSpeed * 0.3 * dt);
+                const moveDir = toBall.clone().normalize().multiplyScalar(moveSpeed * 0.3 * dt);
                 this.position.add(moveDir);
             }
 
             // Perpendicular strafe relative to ball direction
             if (ballDist > 1.5) {
                 const perpDir = new THREE.Vector3(-toBall.z, 0, toBall.x).normalize();
-                const strafeAmount = this.moveSpeed * 0.4 * dt * this.strafeDir;
+                const strafeAmount = moveSpeed * 0.4 * dt * this.strafeDir;
                 this.position.add(perpDir.multiplyScalar(strafeAmount));
             }
         } else {
@@ -395,7 +396,7 @@ export class Bot {
                 this.strafeDir *= -1;
                 this.strafeTimer = 1.5 + Math.random() * 2.5;
             }
-            const wanderVel = new THREE.Vector3(this.strafeDir * this.moveSpeed * 0.3 * dt, 0, 0);
+            const wanderVel = new THREE.Vector3(this.strafeDir * moveSpeed * 0.3 * dt, 0, 0);
             this.position.add(wanderVel);
         }
 

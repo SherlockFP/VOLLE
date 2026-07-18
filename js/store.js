@@ -3,8 +3,13 @@
 // ponytail: tek JSON blob, merge ile backward compat.
 import { CHARACTERS } from './characters.js';
 import { SKILLS, RUNES, DEFAULT_LOADOUT } from './skills.js';
+import { AVATAR_SKINS } from './avatar.js';
 
 const KEY = 'dodgball_save_v2';
+
+function buildCharacterProgress() {
+    return Object.fromEntries(Object.keys(CHARACTERS).map(id => [id, { level: 1, xp: 0 }]));
+}
 
 // Battlepass tier reward'ları (50 tier). Her tier'da bir reward.
 function buildBattlepassRewards() {
@@ -33,12 +38,15 @@ const DEFAULTS = {
     ownedItems: [],         // ball skin + rune ids
     ownedSkills: ['slow'],  // skill ids (slow default)
     unlockedChars: ['rally'],
+    characterProgress: buildCharacterProgress(),
     selectedChar: 'rally',
     equippedBall: 'classic',
     ownedBalls: ['classic'],
     loadout: { ...DEFAULT_LOADOUT },
     battlepass: { tier: 0, xp: 0, claimed: [], premium: false },
     customAvatar: null,
+    ownedAvatarSkins: ['default'],
+    equippedAvatarSkin: 'default',
     settings: { sensitivity: 2, volume: 50, botDifficulty: 'hard', fov: 75, keybinds: {} },
     stats: { gamesPlayed: 0, totalWins: 0, totalDeflects: 0, totalHits: 0, bestRally: 0, totalSpent: 0, winStreak: 0, rankedElo: 1000, rankedGames: 0 },
     unlockedAchievements: [],
@@ -57,8 +65,10 @@ class StoreClass {
             return { ...structuredClone(DEFAULTS), ...parsed,
                 settings: { ...DEFAULTS.settings, ...(parsed.settings||{}) },
                 loadout: { ...DEFAULTS.loadout, ...(parsed.loadout||{}) },
+                characterProgress: { ...DEFAULTS.characterProgress, ...(parsed.characterProgress||{}) },
                 battlepass: { ...DEFAULTS.battlepass, ...(parsed.battlepass||{}) },
-                stats: { ...DEFAULTS.stats, ...(parsed.stats||{}) }
+                stats: { ...DEFAULTS.stats, ...(parsed.stats||{}) },
+                ownedAvatarSkins: parsed.ownedAvatarSkins || DEFAULTS.ownedAvatarSkins
             };
         } catch {
             return structuredClone(DEFAULTS);
@@ -106,6 +116,24 @@ class StoreClass {
     ownsCharacter(charId) { return this.data.unlockedChars.includes(charId); }
     ownsBall(ballId) { return this.data.ownedBalls.includes(ballId); }
     ownsSkill(skillId) { return this.data.ownedSkills.includes(skillId); }
+    ownsAvatarSkin(skinId) { return (this.data.ownedAvatarSkins || []).includes(skinId); }
+
+    buyAvatarSkin(skinId) {
+        const skin = AVATAR_SKINS[skinId];
+        if (!skin || this.ownsAvatarSkin(skinId) || this.data.currency < skin.price) return false;
+        this.data.currency -= skin.price;
+        this.data.stats.totalSpent = (this.data.stats.totalSpent || 0) + skin.price;
+        this.data.ownedAvatarSkins.push(skinId);
+        this.save();
+        return true;
+    }
+
+    equipAvatarSkin(skinId) {
+        if (!this.ownsAvatarSkin(skinId)) return false;
+        this.data.equippedAvatarSkin = skinId;
+        this.save();
+        return true;
+    }
 
     // Karakter satın al
     buyCharacter(charId) {
@@ -186,7 +214,7 @@ class StoreClass {
     getBattlepassProgress() { return this.data.battlepass; }
 
     // İstatistik güncelle + win streak + ranked ELO
-    recordGame({ won = false, deflects = 0, hits = 0, rally = 0, ranked = false, opponentElo = 1000 } = {}) {
+    recordGame({ won = false, deflects = 0, hits = 0, rally = 0, ranked = false, opponentElo = 1000, characterId = 'rally', characterXp = 0 } = {}) {
         this.data.stats.gamesPlayed++;
         if (won) {
             this.data.stats.totalWins++;
@@ -206,7 +234,20 @@ class StoreClass {
             const score = won ? 1 : 0;
             this.data.stats.rankedElo = Math.round(myElo + 32 * (score - expected));
         }
+        const progress = this.data.characterProgress[characterId] || { level: 1, xp: 0 };
+        const previousLevel = progress.level;
+        progress.xp += characterXp;
+        while (progress.level < 10 && progress.xp >= progress.level * 250) {
+            progress.xp -= progress.level * 250;
+            progress.level++;
+        }
+        this.data.characterProgress[characterId] = progress;
         this.save();
+        return { masteryLevel: progress.level, masteryLeveledUp: progress.level > previousLevel };
+    }
+
+    getCharacterProgress(charId) {
+        return this.data.characterProgress[charId] || { level: 1, xp: 0 };
     }
 
     getElo() { return this.data.stats.rankedElo || 1000; }

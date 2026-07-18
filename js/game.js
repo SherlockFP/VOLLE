@@ -754,6 +754,7 @@ export class Game {
             headTexture.magFilter = THREE.NearestFilter;
             headTexture.minFilter = THREE.NearestFilter;
             img.onload = () => {
+                headTexture.image = _avatarFace(img);
                 headTexture.needsUpdate = true;
                 // Async: after head load, apply avatar pixel colors to body/arms/legs
                 const p = this.remotePlayers.get(peerId);
@@ -872,6 +873,7 @@ export class Game {
                     tex.magFilter = THREE.NearestFilter;
                     tex.minFilter = THREE.NearestFilter;
                     img.onload = () => {
+                        tex.image = _avatarFace(img);
                         tex.needsUpdate = true;
                         _applyAvatarColors(img, this, this._teamColor);
                     };
@@ -905,6 +907,39 @@ export class Game {
         if (distance < 15) return 0.8;
         if (distance < 30) return 0.6;
         return 0.5;
+    }
+
+    updateMapHazards(dt) {
+        if (this.network?.connected && !this.network?.isHost) return;
+        let eliminated = false;
+        for (const player of this.getAllTargets()) {
+            if (!player?.alive) continue;
+            const hazard = this.arena.getHazardAt?.(player.getPosition());
+            player._hazardMoveMul = hazard?.slow || 1;
+            if (hazard?.kind !== 'lava') {
+                player._hazardDamageTimer = 0;
+                continue;
+            }
+
+            player._hazardDamageTimer = (player._hazardDamageTimer || 0) - dt;
+            if (player._hazardDamageTimer > 0) continue;
+            player._hazardDamageTimer = 0.5;
+            const lethal = player.takeDamage(hazard.damage);
+            player.drawHpBar?.();
+            if (player === this.player) this.ui.showMessage?.('🔥 LAVA! Move!', 500);
+            if (lethal) {
+                player.die?.();
+                player.alive = false;
+                if (player !== this.player && player.group) player.group.visible = false;
+                this.scoreboard.recordDeath(player.name || this.playerName);
+                this.spawnDeathExplosion(player.getPosition(), player.team);
+                eliminated = true;
+            }
+        }
+        if (eliminated && this._checkTeamElimination()) {
+            this.setState(STATES.ROUND_END);
+            this.roundRestartTimer = this.roundRestartDelay;
+        }
     }
 
     getEnemyTargets(team, self = null) {
@@ -1012,6 +1047,8 @@ export class Game {
             this.updateSplitBalls(dt);
         } else if (this.state === STATES.CELEBRATION) {
             this._celebrationTimer -= dt;
+            // ponytail: let player look around / move during celebration
+            this.player.update(dt);
             // Only update timer message every second (not every frame)
             if (Math.floor(this._celebrationTimer) !== this._lastCelebSec) {
                 this._lastCelebSec = Math.floor(this._celebrationTimer);
@@ -1227,6 +1264,7 @@ export class Game {
             const allPlayers = [this.player, ...this.bots];
             this.affixes.update(dt, allPlayers);
         }
+        this.updateMapHazards(dt);
         if (this._chaosModeIds.has(this.mode?.id)) {
             this.chaosManager.update(dt, this);
             // Host: periodically broadcast chaos state to clients
@@ -1572,8 +1610,7 @@ export class Game {
         const isPerfect = this.ball.isPerfectCatch();
         if (isPerfect) {
             this.ball.lastPerfectBy = this.player;
-            this.ball.currentSpeed *= 1.3;
-            this.ball.velocity.multiplyScalar(1.3); // perfect = +30% hız (clamped next frame by ball.update)
+            // Perfect deflect improves timing/reward, not rally speed.
             this.juice.hitStop(100);     // 100ms donma (daha vurucu impact)
             this.juice.shake(0.35);      // daha güçlü shake
             this.juice.sparks(this.ball.position.clone(), 0xffbb00, 16);
@@ -2452,12 +2489,12 @@ export class Game {
         }
         this._finalStats = stats;
         this._finalWinner = winner;
-        this._showCelebrationBanner(this._winningTeam, `${winner} TEAM WINS!`);
+        this._showCelebrationBanner(this._winningTeam, `GAME OVER — ${winner} TEAM WINS!`);
 
-        // Keep ball inactive, let players move — keep mouse captured for celebration
+        // ponytail: let everyone move/look, only winners shoot
         this.ball.deactivate();
-        this.player.lock();
-        // Kaybedenler kaçabilir ama vuramaz
+        this.player.unlock(); // don't lock mouse — everyone can look around
+        // Kaybedenler vuramaz
         this.player._celebNoAttack = (this.player.team !== this._winningTeam);
         this.ui.setPlayerTarget(false);
         this.bots.forEach(bot => bot.setTargetOutline(false));
@@ -3825,27 +3862,40 @@ export class Game {
 }
 
 // Avatar pixel color extraction — reads 16×16 skin data and applies to body parts
-function _applyAvatarColors(img, p, fallbackColor) {
+function _avatarFace(img) {
+    const size = img.naturalWidth >= 64 ? 8 : img.naturalWidth;
     const canvas = document.createElement('canvas');
-    canvas.width = 16; canvas.height = 16;
+    canvas.width = size; canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (img.naturalWidth >= 64) ctx.drawImage(img, 8, 8, 8, 8, 0, 0, size, size);
+    else ctx.drawImage(img, 0, 0, size, size);
+    return canvas;
+}
+
+function _applyAvatarColors(img, p, fallbackColor) {
+    const size = img.naturalWidth >= 64 ? 64 : 16;
+    const canvas = document.createElement('canvas');
+    canvas.width = size; canvas.height = size;
     const ctx = canvas.getContext('2d');
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(img, 0, 0, 16, 16);
-    const pixels = ctx.getImageData(0, 0, 16, 16).data;
-    const avg = (y0, y1) => {
+    ctx.drawImage(img, 0, 0, size, size);
+    const pixels = ctx.getImageData(0, 0, size, size).data;
+    const avg = (x0, y0, w, h) => {
         let r = 0, g = 0, b = 0, n = 0;
-        for (let y = y0; y < y1; y++) {
-            for (let x = 0; x < 16; x++) {
-                const i = (y * 16 + x) * 4;
-                if (pixels[i + 3] > 128) { r += pixels[i]; g += pixels[i+1]; b += pixels[i+2]; n++; }
-            }
+        for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) {
+            const i = (y * size + x) * 4;
+            if (pixels[i + 3] > 128) { r += pixels[i]; g += pixels[i+1]; b += pixels[i+2]; n++; }
         }
         return n > 0 ? new THREE.Color(r/n/255, g/n/255, b/n/255) : null;
     };
-    p._avatarBodyColors = {
-        body: avg(4, 8) || new THREE.Color(fallbackColor),
-        arms: avg(8, 12) || new THREE.Color(fallbackColor),
-        legs: avg(12, 16) || new THREE.Color(fallbackColor)
+    p._avatarBodyColors = size === 64 ? {
+        body: avg(20, 20, 8, 12) || new THREE.Color(fallbackColor),
+        arms: avg(44, 20, 4, 12) || new THREE.Color(fallbackColor),
+        legs: avg(4, 20, 8, 12) || new THREE.Color(fallbackColor)
+    } : {
+        body: avg(0, 4, 16, 4) || new THREE.Color(fallbackColor),
+        arms: avg(0, 8, 16, 4) || new THREE.Color(fallbackColor),
+        legs: avg(0, 12, 16, 4) || new THREE.Color(fallbackColor)
     };
     _applyFromColors(p);
 }

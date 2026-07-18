@@ -3,6 +3,7 @@
 import { CHARACTERS } from './characters.js';
 import { SKILLS, RUNES } from './skills.js';
 import { BALL_SKINS } from './ball.js';
+import { AVATAR_SKINS } from './avatar.js';
 import { ACHIEVEMENTS } from './achievements.js';
 import { MatchHistory } from './matchhistory.js';
 import { getRank, getRankProgress } from './ranked.js';
@@ -818,6 +819,8 @@ export class UI {
             const card = document.createElement('div');
             const isOwned = owned.includes(c.id);
             const isSelected = selected === c.id;
+            const mastery = store.getCharacterProgress(c.id);
+            const masteryNeed = mastery.level < 10 ? mastery.level * 250 : 0;
             card.className = `char-card ${isSelected ? 'selected' : ''} ${!isOwned ? 'locked' : ''}`;
             card.dataset.char = c.id;
             card.innerHTML = `
@@ -826,6 +829,7 @@ export class UI {
                 <div class="char-stats">
                     ❤️${c.maxHp} 💨${c.speed} 🎯${c.deflectPower}
                 </div>
+                <div class="char-mastery">Mastery Lv ${mastery.level}${masteryNeed ? ` · ${mastery.xp}/${masteryNeed} XP` : ' · MAX'}</div>
                 <div class="char-desc">${c.desc}</div>
                 ${!isOwned && c.price ? `<div class="char-price">🪙 ${c.price}</div>` : ''}
             `;
@@ -899,6 +903,16 @@ export class UI {
                 const card = document.createElement('div');
                 card.className = `shop-card ${owned ? 'owned' : ''}`;
                 card.innerHTML = `<div class="skill-emoji">${s.emoji}</div><div class="char-name">${s.name}</div><div class="char-desc">${s.desc}</div>${owned ? '<div class="shop-owned">Owned</div>' : `<button class="btn btn-primary btn-small shop-buy" data-type="skill" data-id="${s.id}">🪙 100</button>`}`;
+                grid.appendChild(card);
+            });
+        } else if (tab === 'avatars') {
+            Object.values(AVATAR_SKINS).forEach(s => {
+                if (s.id === 'default') return;
+                const owned = store.ownsAvatarSkin(s.id);
+                const equipped = store.get('equippedAvatarSkin') === s.id;
+                const card = document.createElement('div');
+                card.className = `shop-card ${owned ? 'owned' : ''}`;
+                card.innerHTML = `<div class="char-emoji">🎨</div><div class="char-name">${s.name}</div><div class="skin-preview" style="--skin-head:${s.head};--skin-body:${s.body};--skin-arms:${s.arms};--skin-legs:${s.legs}"></div>${owned ? (equipped ? '<div class="shop-owned">✔ Equipped</div>' : `<button class="btn btn-small shop-equip" data-type="avatar" data-id="${s.id}">Equip</button>`) : `<button class="btn btn-primary btn-small shop-buy" data-type="avatar" data-id="${s.id}">🪙 ${s.price}</button>`}`;
                 grid.appendChild(card);
             });
         }

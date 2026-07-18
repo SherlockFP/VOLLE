@@ -15,6 +15,7 @@ import { Daily } from './daily.js';
 import { Replay } from './replay.js';
 import { Spectator } from './spectator.js';
 import { BALL_SKINS } from './ball.js';
+import { AVATAR_SKINS } from './avatar.js';
 import { Console } from './console.js';
 import { Tutorial } from './tutorial.js';
 import { tournament } from './tournament.js';
@@ -28,7 +29,7 @@ class App {
         this.clock = new THREE.Clock();
         this.netSyncTimer = 0;
         this.netBroadcastTimer = 0;
-        this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.2, 200);
+        this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.2, 2000);
         this.store = Store;
         this.store.load();
         window.__store = this.store; // ui.js avatar lookup
@@ -332,7 +333,14 @@ class App {
         const criticalHit = this.game.killFeed.some(k => k.tag?.includes('CRITICAL'));
         const spikes = this.game.spikeCount || 0;
 
-        this.store.recordGame({ won, deflects: myStat.deflections, hits: myStat.hits, rally });
+        const mastery = this.store.recordGame({
+            won,
+            deflects: myStat.deflections,
+            hits: myStat.hits,
+            rally,
+            characterId: this.player.charId,
+            characterXp: 35 + myStat.deflections * 2 + (won ? 75 : 20)
+        });
 
         // Daily challenge ilerlemesi
         Daily.progress({ won, deflects: myStat.deflections, bestRally: rally, spikes, damage: damageDealt, winStreak: this.store.getWinStreak(), cleanWin });
@@ -347,6 +355,9 @@ class App {
 
         if (result.leveledUp) {
             this.ui.showMessage?.(`Level Up! Now Lv ${result.level}`, 3000);
+        }
+        if (mastery.masteryLeveledUp) {
+            this.ui.showMessage?.(`${CHARACTERS[this.player.charId]?.name || 'Character'} Mastery Lv ${mastery.masteryLevel}!`, 3000);
         }
         this.ui.showMessage?.(`+${coins} coins, +${xp} XP`, 3000);
 
@@ -1136,6 +1147,7 @@ class App {
                 if (type === 'char') ok = this.store.buyCharacter(id);
                 else if (type === 'ball') ok = this.store.buyBall(id);
                 else if (type === 'skill') ok = this.store.buySkill(id);
+                else if (type === 'avatar') ok = this.store.buyAvatarSkin(id);
                 if (ok) {
                     this.ui.showMessage?.('Purchased!');
                     const activeTab = document.querySelector('.shop-tab.selected')?.dataset.tab || 'chars';
@@ -1149,9 +1161,16 @@ class App {
             const equipBtn = e.target.closest('.shop-equip');
             if (equipBtn) {
                 const ballId = equipBtn.dataset.id;
-                this.store.set('equippedBall', ballId);
-                this.game.ball.setSkin(ballId);
-                this.ui.showMessage?.(`🎾 Equipped: ${BALL_SKINS[ballId].name}!`);
+                if (equipBtn.dataset.type === 'avatar') {
+                    this.store.equipAvatarSkin(ballId);
+                    this.initAvatarPainter();
+                    this.avatarPainter?.applyPreset(ballId);
+                    this.ui.showMessage?.(`🎨 Equipped: ${AVATAR_SKINS[ballId].name}!`);
+                } else {
+                    this.store.set('equippedBall', ballId);
+                    this.game.ball.setSkin(ballId);
+                    this.ui.showMessage?.(`🎾 Equipped: ${BALL_SKINS[ballId].name}!`);
+                }
                 const activeTab = document.querySelector('.shop-tab.selected')?.dataset.tab || 'chars';
                 this.ui.renderShop(this.store, activeTab);
             }

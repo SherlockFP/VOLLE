@@ -75,9 +75,10 @@ export function applyMode(game, modeId) {
     const m = mode.mutators;
 
     // Reset stats to defaults to avoid compounding speed/HP bugs
-    game.ball.baseSpeed = 17 * (game.ball.skinConfig?.speedBonus || 1);
-    game.ball.speedMultiplier = 1.03;
-    game.ball.maxSpeed = 999;
+    game.ball.baseSpeed = 17;
+    game.ball.rallySpeedStep = 0.20;
+    game.ball.maxRallyMultiplier = 6.0;
+    game.ball.maxSpeed = game.ball.baseSpeed * game.ball.maxRallyMultiplier * (game.ball.skinConfig?.speedBonus || 1);
 
     game.player.gravity = -20;
     game.player.jumpForce = 8;
@@ -129,7 +130,7 @@ export function applyMode(game, modeId) {
         game.ball.baseSpeed *= m.ballSpeedMul;
         game.ball.currentSpeed = game.ball.baseSpeed;
     }
-    if (m.speedRampMul) game.ball.speedMultiplier *= m.speedRampMul;
+    if (m.speedRampMul) game.ball.rallySpeedStep *= m.speedRampMul;
     if (m.maxSpeedMul) game.ball.maxSpeed *= m.maxSpeedMul;
 
     // Gravity / jump

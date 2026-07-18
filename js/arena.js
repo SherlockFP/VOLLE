@@ -43,6 +43,9 @@ export const MAPS = {
         hasPortals: true, weather: 'rain', openSides: true
     },
     dojo: {
+        courtWidth: 90, courtLength: 62, wallHeight: 17, ceilingHeight: 24,
+        floorRed: 0x8B4513, floorBlue: 0x6e3b10, wallColor: 0x654321, fogColor: 0x87CEEB,
+        isDojo: true,
         name: 'Dojo', emoji: '🥋',
         floor: 0x8B4513, wall: 0x654321, ceiling: 0x3d2b1f,
         skyTop: 0x87CEEB, skyBottom: 0xE0F0FF,
@@ -57,6 +60,9 @@ export const MAPS = {
         weather: 'none'
     },
     colosseum: {
+        courtWidth: 100, courtLength: 70, wallHeight: 19, ceilingHeight: 27,
+        floorRed: 0xD2B48C, floorBlue: 0xb99a70, wallColor: 0xC4A882, fogColor: 0xC4A882,
+        isColosseum: true,
         name: 'Colosseum', emoji: '🏛️',
         floor: 0xD2B48C, wall: 0xC4A882, ceiling: 0x8B7355,
         skyTop: 0x4169E1, skyBottom: 0x87CEEB,
@@ -71,6 +77,9 @@ export const MAPS = {
         weather: 'none'
     },
     volcano: {
+        courtWidth: 88, courtLength: 60, wallHeight: 20, ceilingHeight: 28,
+        floorRed: 0x2d1b00, floorBlue: 0x1f1200, wallColor: 0x1a0f00, fogColor: 0x330000,
+        isVolcano: true,
         name: 'Volcano', emoji: '🌋',
         floor: 0x2d1b00, wall: 0x1a0f00, ceiling: 0x0a0500,
         skyTop: 0x1a0000, skyBottom: 0x330000,
@@ -218,7 +227,8 @@ export class Arena {
         this.courtLength = this.config.courtLength;
         this.wallHeight = this.config.wallHeight;
         this.ceilingHeight = this.config.ceilingHeight;
-        this.spawnPoint = new THREE.Vector3(0, this.ceilingHeight - 1, 0);
+        // ponytail: spawn lower so ball doesn't get stuck on ceiling (neon map)
+        this.spawnPoint = new THREE.Vector3(0, Math.min(this.ceilingHeight - 1, 12), 0);
         this.bounds = {
             minX: -this.courtWidth / 2,
             maxX: this.courtWidth / 2,
@@ -227,6 +237,7 @@ export class Arena {
         };
         this.objects = [];
         this.collidables = [];  // ball collision objects: {mesh, radius, pos}
+        this.hazardZones = [];
         this.portals = [];
         this.portalTimer = 0;
         this.portalSwapInterval = 30;
@@ -248,7 +259,35 @@ export class Arena {
         this.collidables.push({ mesh, pos: pos.clone(), radius });
     }
 
+    _buildHazardZones() {
+        const width = this.courtWidth || this.config.size?.x || 100;
+        const length = this.courtLength || this.config.size?.z || 100;
+        const zones = [];
+        if (this.config.isLava || this.config.isVolcano) {
+            const radius = Math.min(5, width * 0.08);
+            [[-0.28, -0.28], [0.28, -0.28], [-0.28, 0.28], [0.28, 0.28]].forEach(([x, z]) => {
+                zones.push({ kind: 'lava', x: width * x, z: length * z, radius, damage: 18 });
+            });
+        }
+        if (this.config.isJungle) {
+            const radius = Math.min(6, width * 0.1);
+            [[-0.32, 0], [0.32, 0]].forEach(([x, z]) => {
+                zones.push({ kind: 'mud', x: width * x, z: length * z, radius, slow: 0.55 });
+            });
+        }
+        this.hazardZones = zones;
+    }
+
+    getHazardAt(pos) {
+        return this.hazardZones.find(zone => {
+            const dx = pos.x - zone.x;
+            const dz = pos.z - zone.z;
+            return dx * dx + dz * dz <= zone.radius * zone.radius;
+        }) || null;
+    }
+
     build() {
+        this._buildHazardZones();
         if (this.config.isMinecraft) {
             this.buildMinecraft();
             this.buildNet();
@@ -288,6 +327,7 @@ export class Arena {
         if (this.config.isMecha) this.buildMechaProps();
         if (this.config.isAtlantis) this.buildAtlantisProps();
         if (this.config.isTemple) this.buildTempleProps();
+        this.buildHazardVisuals();
         // Generic open-world env for open-sided maps without specific theming
         if (this.config.openSides && !this.config.isCloud && !this.config.isSpace &&
             !this.config.isNeon && !this.config.isVolcano && !this.config.isIce &&
@@ -313,6 +353,22 @@ export class Arena {
             : (this.config.isSpace || this.config.isNeon) ? 'spark'
             : 'dust';
         this.addAmbientParticles(particleType);
+    }
+
+    buildHazardVisuals() {
+        for (const zone of this.hazardZones) {
+            const color = zone.kind === 'lava' ? 0xff3b12 : 0x2e8b57;
+            const geo = new THREE.CircleGeometry(zone.radius, 24);
+            geo.rotateX(-Math.PI / 2);
+            const mat = new THREE.MeshBasicMaterial({
+                color, transparent: true, opacity: zone.kind === 'lava' ? 0.72 : 0.38,
+                side: THREE.DoubleSide
+            });
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.set(zone.x, 0.025, zone.z);
+            this.add(mesh);
+            zone.mesh = mesh;
+        }
     }
 
     // Portal mekaniği — 2 döner halka + iç parçacıklar + ışık sütunu.
@@ -1687,9 +1743,13 @@ export class Arena {
         // Match world fog + clear color to this map's palette.
         if (this.scene.fog) this.scene.fog.color.set(c.fogColor);
         this.renderer.renderer.setClearColor(c.fogColor);
-        const skyGeo = new THREE.SphereGeometry(200, 32, 32);
+        // Keep the camera safely inside the dome; a small dome exposes its circular edge at steep pitch angles.
+        const skyGeo = new THREE.SphereGeometry(1000, 32, 32);
         const skyMat = new THREE.ShaderMaterial({
             side: THREE.BackSide,
+            depthTest: false,
+            depthWrite: false,
+            fog: false,
             uniforms: {
                 topColor: { value: new THREE.Color(c.skyTop) },
                 bottomColor: { value: new THREE.Color(c.skyBottom) }
@@ -1711,7 +1771,10 @@ export class Arena {
                 }
             `
         });
-        this.add(new THREE.Mesh(skyGeo, skyMat));
+        const sky = this.add(new THREE.Mesh(skyGeo, skyMat));
+        sky.renderOrder = -1000;
+        sky.frustumCulled = false;
+        this.skybox = sky;
     }
 
     buildAtlantisProps() {
@@ -2148,7 +2211,8 @@ export class Arena {
         this.courtLength = this.config.courtLength;
         this.wallHeight = this.config.wallHeight;
         this.ceilingHeight = this.config.ceilingHeight;
-        this.spawnPoint = new THREE.Vector3(0, this.ceilingHeight - 1, 0);
+        // ponytail: spawn lower so ball doesn't get stuck on ceiling (neon map)
+        this.spawnPoint = new THREE.Vector3(0, Math.min(this.ceilingHeight - 1, 12), 0);
         this.bounds = {
             minX: -this.courtWidth / 2,
             maxX: this.courtWidth / 2,

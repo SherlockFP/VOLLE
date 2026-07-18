@@ -9,6 +9,9 @@ const STAMINA_REGEN = 20;     // per second
 const STAMINA_EXHAUST_THRESHOLD = 15;
 const ATTACK_COOLDOWN = 0.6;  // spam protection — wider window for fast balls
 const BASE_HIT_DAMAGE = 25;
+const GROUND_ACCEL = 70;
+const AIR_ACCEL = 28;
+const GROUND_FRICTION = 10;
 
 export class Player {
     constructor(renderer, camera, arena) {
@@ -29,6 +32,8 @@ export class Player {
         this.onGround = true;
         this.verticalVel = 0;
         this.jumpsRemaining = 2;  // ponytail: double jump, reset on ground
+        this.bhopEnabled = true;
+        this.bhopSpeedCap = 1.35;
 
         // Mouse
         this.euler = new THREE.Euler(0, 0, 0, 'YXZ');
@@ -324,7 +329,7 @@ export class Player {
         }
 
         // Chill slow (skill ile yavaşlatıldıysa)
-        const chillMul = this._chillTimer > 0 ? 0.8 : 1;
+        const chillMul = (this._chillTimer > 0 ? 0.8 : 1) * (this._hazardMoveMul || 1);
         if (this._chillTimer > 0) this._chillTimer -= dt;
 
         // Flick energy decays toward 0 each frame
@@ -376,13 +381,12 @@ export class Player {
             // Dashing: move at burst speed
             this.position.add(this.dashDir.clone().multiplyScalar(this.dashForce * dt));
             this.dashTimer -= dt;
-        } else if (moveDir.length() > 0) {
+        } else {
             // Sprint — hold Shift for speed boost, drains stamina
-            const sprinting = holdingShift && this.onGround && this.stamina > 0;
+            const sprinting = moveDir.lengthSq() > 0 && holdingShift && this.onGround && this.stamina > 0;
             const spd = sprinting ? this.speed * this.sprintMultiplier : this.speed;
             if (sprinting) this.stamina = Math.max(0, this.stamina - this.sprintDrain * dt);
-            moveDir.normalize().multiplyScalar(spd * chillMul * dt);
-            this.position.add(moveDir);
+            this._moveHorizontal(moveDir, spd * chillMul, dt);
         }
 
         // Dash trigger — Ctrl tap
@@ -427,6 +431,14 @@ export class Player {
             if (this.audio) this.audio.playJump();
         }
 
+        // Bunnyhop: holding Space jumps immediately on every landing.
+        if (this.bhopEnabled && this.keys['Space'] && this.onGround) {
+            this.verticalVel = this.jumpForce;
+            this.onGround = false;
+            this.jumpsRemaining = 1;
+            if (this.audio) this.audio.playJump();
+        }
+
         // Double jump — 2 jumps, reset on ground
         if (this.keys['Space'] && this.jumpsRemaining > 0 && !this._jumpHeld) {
             this.verticalVel = this.jumpForce;
@@ -438,7 +450,8 @@ export class Player {
         if (!this.keys['Space']) this._jumpHeld = false;
 
         // Vertical physics
-        this.verticalVel += this.gravity * dt;
+        const gravity = this.gravity * (this.arena.config?.lowGravity ? 0.55 : 1);
+        this.verticalVel += gravity * dt;
         this.position.y += this.verticalVel * dt;
 
         // Dikey tavan — görünür tavan yok ama haritayı aşma (sonsuz yükselme engeli).
@@ -562,6 +575,29 @@ export class Player {
 
     getPosition() { return this.position.clone(); }
     isAttacking() { return this.attacking; }
+
+    _moveHorizontal(wishDir, wishSpeed, dt) {
+        const horizontal = new THREE.Vector3(this.velocity.x, 0, this.velocity.z);
+        const hasInput = wishDir.lengthSq() > 0;
+
+        if (this.onGround && !hasInput) {
+            const friction = this.arena.config?.slippery ? GROUND_FRICTION * 0.28 : GROUND_FRICTION;
+            horizontal.multiplyScalar(Math.max(0, 1 - friction * dt));
+        }
+
+        if (hasInput) {
+            wishDir.normalize();
+            const maxSpeed = this.onGround ? wishSpeed : Math.max(wishSpeed, this.speed * this.bhopSpeedCap);
+            const currentSpeed = horizontal.dot(wishDir);
+            const addSpeed = Math.max(0, maxSpeed - currentSpeed);
+            const accel = (this.onGround ? GROUND_ACCEL : AIR_ACCEL) * dt;
+            horizontal.addScaledVector(wishDir, Math.min(addSpeed, accel));
+        }
+
+        this.velocity.x = horizontal.x;
+        this.velocity.z = horizontal.z;
+        this.position.addScaledVector(horizontal, dt);
+    }
 
     // Check for A-D-A-D spin pattern (within 0.5s, 4 presses)
     didSpinDodge() {

@@ -48,11 +48,12 @@ export class Renderer {
         this._camera = camera;
         this._composer = new EffectComposer(this.renderer);
         this._composer.addPass(new RenderPass(this.scene, camera));
+        // ponytail: reduced bloom so center-screen glow doesn't trail the mouse
         const bloom = new UnrealBloomPass(
             new THREE.Vector2(window.innerWidth, window.innerHeight),
-            0.15,  // strength
+            0.08,  // strength (was 0.15)
             0.3,  // radius
-            0.1   // threshold
+            0.3   // threshold (was 0.1 — only bright things bloom)
         );
         this._composer.addPass(bloom);
         this._composer.addPass(new OutputPass());
