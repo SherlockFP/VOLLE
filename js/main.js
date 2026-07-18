@@ -701,7 +701,7 @@ class App {
         });
 
         // UI sound effects for menu buttons
-        document.addEventListener('click', async e => {
+        document.addEventListener('click', e => {
             const btn = e.target.closest('button');
             if (!btn) return;
             const inMenu = this.game.state === STATES.MENU || this.game.state === STATES.LOBBY;
@@ -1158,7 +1158,7 @@ class App {
         this.initCarousel();
 
         // Karakter kart tıklama
-        document.addEventListener('click', e => {
+        document.addEventListener('click', async e => {
             const charCard = e.target.closest('.char-card');
             if (charCard) {
                 const charId = charCard.dataset.char;
