@@ -391,7 +391,7 @@ class App {
         // Music volume
         const settings = this.store.get('settings');
         this.audio.setSoundVolume((settings.soundVolume ?? settings.volume ?? 50) / 100);
-        this.game.setMusicVolume((settings.musicVolume ?? settings.volume ?? 35) / 100);
+        this.game.setMusicVolume((settings.musicVolume ?? settings.volume ?? 2) / 100);
     }
 
     applyAccessibility() {
@@ -409,7 +409,7 @@ class App {
 
         const values = {
             'setting-quality': settings.quality || 'medium',
-            'setting-music-volume': settings.musicVolume ?? settings.volume ?? 35,
+            'setting-music-volume': settings.musicVolume ?? settings.volume ?? 2,
             'setting-sound-volume': settings.soundVolume ?? settings.volume ?? 50,
             'setting-reduce-motion': !!settings.reduceMotion,
             'setting-screen-shake': settings.screenShake !== false,
@@ -1099,6 +1099,17 @@ class App {
             const el = document.getElementById(id);
             if (el) el.addEventListener('input', onChange);
         };
+        const setRangePreview = range => {
+            const min = Number(range.min) || 0;
+            const max = Number(range.max) || 100;
+            const value = Number(range.value);
+            const progress = Math.min(100, Math.max(0, (value - min) / Math.max(1, max - min) * 100));
+            range.style.setProperty('--range-progress', `${progress}%`);
+        };
+        document.querySelectorAll('#unified-settings input[type="range"]').forEach(range => {
+            setRangePreview(range);
+            range.addEventListener('input', () => setRangePreview(range));
+        });
         const lobbyRegion = document.getElementById('lobby-region');
         if (lobbyRegion) {
             lobbyRegion.value = this.store.get('preferredRegion') || 'auto';

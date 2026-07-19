@@ -35,15 +35,15 @@ test('island arena satisfies Player movement contract', () => {
     const spawn = arena.getPlayerSpawn();
 
     assert.deepEqual(arena.bounds, {
-        minX: -96,
-        maxX: 96,
-        minY: 0,
-        maxY: 72,
-        minZ: -96,
-        maxZ: 96
+        minX: -220,
+        maxX: 220,
+        minY: -12,
+        maxY: 110,
+        minZ: -220,
+        maxZ: 220
     });
-    assert.equal(arena.ceilingHeight, 72);
-    assert.deepEqual([spawn.x, spawn.y, spawn.z], [0, 18.05, 20]);
+    assert.equal(arena.ceilingHeight, 110);
+    assert.deepEqual([spawn.x, spawn.y, spawn.z], [0, 2, 28]);
     assert.deepEqual(arena.getHazardAt(spawn), null);
     assert.equal(arena.collidables.filter(collider => collider.invisibleBoundary).length, 4);
     assert.ok(Array.isArray(arena.platforms));
@@ -54,12 +54,12 @@ test('island removes custom parkour props and keeps a terrain floor', () => {
     const arena = createSocialLobbyArena();
     assert.deepEqual(SOCIAL_LOBBY_PROP_COLLIDERS, []);
     assert.deepEqual(arena.jumpPads, []);
-    assert.deepEqual(arena.platforms, [{ x: 0, z: 0, y: 16.35, halfWidth: 60, halfDepth: 60 }]);
+    assert.deepEqual(arena.platforms, [{ x: 0, z: 0, y: 0, halfWidth: 214, halfDepth: 214 }]);
     assert.doesNotMatch(source, /_buildPracticeCourse|practice-parkour/);
 });
 
 test('map state normalizes and clamps player and visitors', () => {
-    const player = { position: { x: -96, y: 7, z: 96 } };
+    const player = { position: { x: -220, y: 7, z: 220 } };
     const presence = [
         { id: 'center', name: 'Center', local: false, position: { x: 0, z: 0 } },
         { id: 'outside', local: true, position: { x: 1000, z: -1000 } },
@@ -69,12 +69,12 @@ test('map state normalizes and clamps player and visitors', () => {
     const state = getSocialLobbyMapState(player, presence);
 
     assert.deepEqual(state.bounds, {
-        minX: -96,
-        maxX: 96,
-        minY: 0,
-        maxY: 72,
-        minZ: -96,
-        maxZ: 96
+        minX: -220,
+        maxX: 220,
+        minY: -12,
+        maxY: 110,
+        minZ: -220,
+        maxZ: 220
     });
     assert.deepEqual(state.player, { x: 0, z: 1 });
     assert.deepEqual(state.visitors, [
@@ -87,20 +87,20 @@ test('map state normalizes and clamps player and visitors', () => {
 
 test('island is the only bounded social map with its own spawn', () => {
     const arena = createSocialLobbyArena('island');
-    const state = getSocialLobbyMapState({ x: 96, z: -96 }, [], 'island');
+    const state = getSocialLobbyMapState({ x: 220, z: -220 }, [], 'island');
     const spawn = arena.getPlayerSpawn();
 
     assert.equal(SOCIAL_HUB_MAPS.island.name, 'Island');
-    assert.deepEqual(arena.bounds, { minX: -96, maxX: 96, minY: 0, maxY: 72, minZ: -96, maxZ: 96 });
-    assert.deepEqual([spawn.x, spawn.y, spawn.z], [0, 18.05, 20]);
+    assert.deepEqual(arena.bounds, { minX: -220, maxX: 220, minY: -12, maxY: 110, minZ: -220, maxZ: 220 });
+    assert.deepEqual([spawn.x, spawn.y, spawn.z], [0, 2, 28]);
     assert.deepEqual(state.player, { x: 1, z: 0 });
     assert.equal(arena.collidables.filter(collider => collider.invisibleBoundary).length, 4);
-    assert.deepEqual(arena.getWaterAt({ x: 80, z: 0 }), { surfaceY: 16.25, floorY: 10.5 });
+    assert.equal(arena.getWaterAt({ x: 80, z: 0 }), null);
     assert.equal(arena.getWaterAt({ x: 0, z: 0 }), null);
 });
 
 test('map state handles exact bounds and invalid optional inputs', () => {
-    assert.deepEqual(getSocialLobbyMapState({ x: 96, z: -96 }).player, { x: 1, z: 0 });
+    assert.deepEqual(getSocialLobbyMapState({ x: 220, z: -220 }).player, { x: 1, z: 0 });
     assert.equal(getSocialLobbyMapState({ x: Infinity, z: 0 }).player, null);
     assert.deepEqual(getSocialLobbyMapState(null, null).visitors, []);
 });
@@ -109,22 +109,22 @@ test('invisible island boundaries enclose every map edge', () => {
     const boundaries = createSocialBoundaryColliders(createSocialLobbyArena().bounds);
     assert.equal(boundaries.length, 4);
     assert.ok(boundaries.every(collider => collider.invisibleBoundary));
-    assert.ok(boundaries.some(collider => collider.maxX <= -96));
-    assert.ok(boundaries.some(collider => collider.minX >= 96));
-    assert.ok(boundaries.some(collider => collider.maxZ <= -96));
-    assert.ok(boundaries.some(collider => collider.minZ >= 96));
+    assert.ok(boundaries.some(collider => collider.maxX <= -220));
+    assert.ok(boundaries.some(collider => collider.minX >= 220));
+    assert.ok(boundaries.some(collider => collider.maxZ <= -220));
+    assert.ok(boundaries.some(collider => collider.minZ >= 220));
 });
 
 test('runtime keeps the island assets local without a retired map runtime', () => {
     assert.equal(source.includes('https://'), false);
     assert.match(source, /Promise\.allSettled/);
-    assert.match(source, /olann-island\/olann-island\.glb/);
+    assert.doesNotMatch(source, /olann-island\/olann-island\.glb/);
     assert.match(source, /setMeshoptDecoder\(MeshoptDecoder\)/);
     assert.match(source, /createSocialBoundaryColliders/);
     assert.match(source, /THREE\.SRGBColorSpace/);
     assert.match(source, /getMapBlocks\(\)/);
     assert.match(source, /_buildIslandWorld\(\)/);
-    assert.match(source, /_installIsland\(gltf\)/);
+    assert.match(source, /volle-harbor-plaza/);
     assert.match(source, /selectMap\(mapId/);
     assert.match(source, /\['a', 'f', 'k', 'r'\]/);
     assert.match(source, /character-\$\{id\}\.glb/);

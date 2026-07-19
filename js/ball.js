@@ -5,14 +5,14 @@ import { ObjectPool } from './objectPool.js';
 
 export const STEERING_CONTROL_WINDOW = 0.074;
 const STEERING_TICK = 1 / 66;
-const WIDE_SHOT_DOT = Math.cos(20 * Math.PI / 180);
+const WIDE_SHOT_DOT = Math.cos(15 * Math.PI / 180);
 
 const finitePoint = p => p && Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z);
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
 export function steeringTurnAlpha(dt, deflections = 0) {
     if (!Number.isFinite(dt) || dt <= 0) return 0;
-    const tickTurn = clamp(0.22 + Math.max(0, deflections) * 0.016, 0, 0.9);
+    const tickTurn = clamp(0.26 + Math.max(0, deflections) * 0.018, 0, 0.9);
     return 1 - Math.pow(1 - tickTurn, dt / STEERING_TICK);
 }
 
@@ -432,7 +432,7 @@ export class Ball {
                         // Close: moderate blend — direct but not instant
                         desired = targetDir.clone().lerp(velDir, 0.3).normalize();
                     } else {
-                        const momentum = 0.30;
+                        const momentum = 0.40;
                         const aimW = Math.min(dist / 10, 1) * momentum;
                         const deflPull = Math.max(0.10, 1 - this.deflections * 0.065);
                         desired = targetDir.clone().lerp(velDir, aimW * deflPull).normalize();
@@ -441,9 +441,9 @@ export class Ball {
                         ? 1 + (this.currentSpeed - 500) / 400
                         : 1;
                     this._homingAge = (this._homingAge || 0) + dt;
-                    const ageBoost = this._homingAge > 0 ? 1 + Math.floor(this._homingAge / 2) * 0.5 : 1;
+                    const ageBoost = this._homingAge > 0 ? 1 + Math.floor(this._homingAge / 2.5) * 0.35 : 1;
                     // ponytail: softer steer at close range — prevents aggressive snap
-                    const s = dist < 1.5 ? 4.8 : dist < 3 ? 6.8 : 4.2;
+                    const s = dist < 1.5 ? 4.2 : dist < 3 ? 5.6 : 3.5;
                     const steer = Math.min(s * speedFactor * ageBoost * dt, 1);
                     const newDir = velDir.lerp(desired, steer).normalize();
                     this.velocity.copy(newDir.multiplyScalar(this.currentSpeed));
@@ -472,7 +472,7 @@ export class Ball {
                     } else if (dist < 3) {
                         desired = targetDir.clone().lerp(velDir, 0.3).normalize();
                     } else {
-                        const momentum = this.aimed ? 0.55 : 0.30;
+                        const momentum = this.aimed ? 0.64 : 0.40;
                         const aimW = Math.min(dist / 10, 1) * momentum;
                         const deflPull = Math.max(0.10, 1 - this.deflections * 0.065);
                         desired = targetDir.clone().lerp(velDir, aimW * deflPull).normalize();
@@ -481,8 +481,8 @@ export class Ball {
                         ? 1 + (this.currentSpeed - 500) / 400
                         : 1;
                     this._homingAge = (this._homingAge || 0) + dt;
-                    const ageBoost = this._homingAge > 0 ? 1 + Math.floor(this._homingAge / 2) * 0.5 : 1;
-                    const s = dist < 1.5 ? 4.8 : dist < 3 ? 6.8 : 4.2;
+                    const ageBoost = this._homingAge > 0 ? 1 + Math.floor(this._homingAge / 2.5) * 0.35 : 1;
+                    const s = dist < 1.5 ? 4.2 : dist < 3 ? 5.6 : 3.5;
                     const steer = Math.min(s * speedFactor * ageBoost * dt, 1);
                     const newDir = velDir.lerp(desired, steer).normalize();
                     this.velocity.copy(newDir.multiplyScalar(this.currentSpeed));
@@ -745,7 +745,7 @@ export class Ball {
         // Trail — denser when moving fast for a smooth comet streak.
         const sp = this.velocity.length();
         this.trailTimer += dt;
-        const trailGap = Math.max(0.008, 0.05 - sp * 0.002);
+        const trailGap = Math.max(0.006, 0.045 - sp * 0.002);
         if (this.trailTimer > trailGap) {
             this.trailTimer = 0;
             this.addTrailDot();
@@ -1082,12 +1082,12 @@ export class Ball {
         const spinFactor = Math.min(1, Math.abs(this.spin) * 0.3);
         // ponytail: bigger trail dots at high speed for dramatic streak
         const skinTrailMul = this.skinConfig?.burstTrail ? 1.7 : this.skinConfig?.frostTrail ? 1.35 : 1;
-        const r = Math.min(0.22, 0.04 * skinTrailMul * (1 + sr * 0.5 + spinFactor * 0.3));
+        const r = Math.min(0.27, 0.052 * skinTrailMul * (1 + sr * 0.55 + spinFactor * 0.35));
         const trailColor = this._affixTrailColor ?? (this.skinConfig?.trail || 0xff2222);
         const dot = this._trailPool.acquire();
         dot.visible = true;
         dot.material.color.setHex(trailColor);
-        dot.material.opacity = Math.min(0.85, 0.5 + sr * 0.08 + (this.skinConfig?.frostTrail ? 0.12 : 0));
+        dot.material.opacity = Math.min(0.9, 0.56 + sr * 0.08 + (this.skinConfig?.frostTrail ? 0.12 : 0));
         dot.scale.setScalar(r);
         dot.position.copy(this.position);
         // Spin offset — trail spreads slightly in curve direction
@@ -1098,9 +1098,9 @@ export class Ball {
         }
         this.scene.add(dot);
         // Faster ball = longer trail life
-        const maxLife = 0.3 + sr * 0.2;
+        const maxLife = 0.38 + sr * 0.23;
         this.trail.push({ mesh: dot, life: maxLife, maxLife, radius: r });
-        const maxTrail = 30 + Math.round(sr * 20);
+        const maxTrail = 38 + Math.round(sr * 22);
         if (this.trail.length > maxTrail) {
             const old = this.trail.shift();
             this._trailPool.release(old.mesh);
@@ -1163,7 +1163,7 @@ export class Ball {
         // Trail
         const sp = this.velocity.length();
         this.trailTimer += dt;
-        const trailGap = Math.max(0.008, 0.05 - sp * 0.002);
+        const trailGap = Math.max(0.006, 0.045 - sp * 0.002);
         if (this.trailTimer > trailGap) {
             this.trailTimer = 0;
             this.addTrailDot();

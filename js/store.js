@@ -99,7 +99,7 @@ const DEFAULTS = {
     rankedState: createRankedState(),
     socialState: createSocialState(),
     settings: {
-        sensitivity: 2, volume: 50, musicVolume: 35, soundVolume: 50, botDifficulty: 'hard', fov: 75,
+        sensitivity: 2, volume: 50, musicVolume: 2, soundVolume: 50, botDifficulty: 'hard', fov: 75,
         quality: 'medium', reduceMotion: false, screenShake: true,
         screenFlash: true, highContrast: false, colorBlind: 'none', keybinds: {}
     },

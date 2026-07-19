@@ -2,18 +2,23 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 
-const ISLAND_BOUNDS = Object.freeze({ minX: -96, maxX: 96, minY: 0, maxY: 72, minZ: -96, maxZ: 96 });
-const ISLAND_GROUND_Y = 16.35;
+const ISLAND_BOUNDS = Object.freeze({ minX: -220, maxX: 220, minY: -12, maxY: 110, minZ: -220, maxZ: 220 });
+const ISLAND_GROUND_Y = 0;
 export const SOCIAL_HUB_MAPS = Object.freeze({
-    island: Object.freeze({ id: 'island', name: 'Island', bounds: ISLAND_BOUNDS, spawn: Object.freeze({ x: 0, y: 18.05, z: 20 }), credit: 'Olann Island - local OBJ conversion' })
+    island: Object.freeze({ id: 'island', name: 'Island', bounds: ISLAND_BOUNDS, spawn: Object.freeze({ x: 0, y: 2, z: 28 }), credit: 'VOLLE Harbor Plaza - CC0 Kenney props' })
 });
-const ISLAND_ASSET = 'assets/user-content/olann-island/olann-island.glb';
-const ISLAND_SCALE = 250;
 
 const CHARACTER_ASSETS = ['a', 'f', 'k', 'r'].map(
     id => `assets/cc0/kenney/blocky-characters/character-${id}.glb`
 );
-const PROP_ASSETS = [];
+const PROP_ASSETS = [
+    ['assets/cc0/kenney/mini-arena/statue.glb', [0, 1.8, -8], 1.25, 0],
+    ['assets/cc0/kenney/mini-arena/trophy.glb', [0, 2.6, -8], 1.2, 0],
+    ['assets/cc0/kenney/mini-arena/banner.glb', [-76, 0, -126], 1.9, 0],
+    ['assets/cc0/kenney/mini-arena/banner.glb', [76, 0, -126], 1.9, Math.PI],
+    ['assets/cc0/kenney/mini-arena/tree.glb', [-130, 0, 78], 2.6, .4],
+    ['assets/cc0/kenney/mini-arena/tree.glb', [130, 0, 78], 2.6, -.4]
+];
 
 export const SOCIAL_LOBBY_PROP_COLLIDERS = Object.freeze(PROP_ASSETS
     .filter(([, , , , radius]) => radius > 0)
@@ -102,20 +107,22 @@ export function getSocialLobbyMapState(player, presence, mapId = 'island') {
 export function createSocialLobbyArena(mapId = 'island') {
     const map = getSocialHubMap(mapId);
     const boundaries = createSocialBoundaryColliders(map.bounds);
-    const getWaterAt = map.id === 'island'
-        ? position => {
-            const radius = Math.hypot(Number(position?.x) || 0, Number(position?.z) || 0);
-            return radius >= 61 && radius <= 94 ? { surfaceY: 16.25, floorY: 10.5 } : null;
-        }
-        : () => null;
+    const blocks = [
+        [-145, -145, 46, 16], [145, -145, 46, 16], [-145, 145, 46, 16], [145, 145, 46, 16],
+        [-174, 0, 12, 62], [174, 0, 12, 62], [0, -174, 62, 12], [0, 174, 62, 12],
+        [-82, -86, 30, 10], [82, -86, 30, 10], [-82, 86, 30, 10], [82, 86, 30, 10]
+    ].map(([x, z, halfWidth, halfDepth]) => ({ minX: x - halfWidth, maxX: x + halfWidth, minY: -2, maxY: 18, minZ: z - halfDepth, maxZ: z + halfDepth }));
+    const collidables = [...boundaries, ...blocks];
+    const grid = createSocialColliderGrid(collidables, 22);
     return {
         bounds: map.bounds,
         ceilingHeight: map.bounds.maxY,
         config: { name: `VOLLE Social Hub - ${map.name}`, lowGravity: false, slippery: false, gameplay: { sandTraction: 1 } },
-        collidables: boundaries,
-        platforms: map.id === 'island' ? [{ x: 0, z: 0, y: ISLAND_GROUND_Y, halfWidth: 60, halfDepth: 60 }] : [],
+        collidables,
+        getNearbyCollidables: position => grid.query(position),
+        platforms: [{ x: 0, z: 0, y: ISLAND_GROUND_Y, halfWidth: 214, halfDepth: 214 }],
         jumpPads: [],
-        getWaterAt,
+        getWaterAt: () => null,
         getHazardAt: () => null,
         getPlayerSpawn: () => new THREE.Vector3(map.spawn.x, map.spawn.y, map.spawn.z)
     };
@@ -152,6 +159,15 @@ function material(color, roughness = 0.78) {
 
 function box(group, size, position, color, options = {}) {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(...size), material(color));
+    mesh.position.set(...position);
+    mesh.castShadow = options.castShadow !== false;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+    return mesh;
+}
+
+function cylinder(group, radius, height, position, color, options = {}) {
+    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, height, 16), material(color, options.roughness ?? .64));
     mesh.position.set(...position);
     mesh.castShadow = options.castShadow !== false;
     mesh.receiveShadow = true;
@@ -204,9 +220,6 @@ export class SocialLobby {
         this._roundColliders = [];
         this._fallbackColliders = [];
         this._boundaryColliders = this.arena.collidables.filter(collider => collider.invisibleBoundary);
-        this.islandModel = null;
-        this.islandLoadError = null;
-
         this._buildIslandWorld();
         this.scene?.add(this.root);
         this.ready = this._loadAssets();
@@ -214,37 +227,45 @@ export class SocialLobby {
 
     _buildIslandWorld() {
         this.islandWorld = new THREE.Group();
-        this.islandWorld.name = 'social-island-preview';
-        this.islandWorld.visible = false;
-        const water = new THREE.Mesh(new THREE.RingGeometry(62, 95, 64), new THREE.MeshStandardMaterial({ color: 0x2499c9, roughness: 0.28, metalness: 0.16, transparent: true, opacity: 0.9 }));
-        water.rotation.x = -Math.PI / 2;
-        water.position.y = 1.05;
-        this.islandWorld.add(water);
-        const shore = new THREE.Mesh(new THREE.CylinderGeometry(66, 74, 2.2, 12), material(0xf3cb73));
-        shore.position.y = -1.1;
-        shore.receiveShadow = true;
-        this.islandWorld.add(shore);
-        const grass = new THREE.Mesh(new THREE.CylinderGeometry(54, 62, 1.1, 12), material(0x58b96b));
-        grass.position.y = 0.1;
-        grass.receiveShadow = true;
-        this.islandWorld.add(grass);
-        const lighthouse = new THREE.Group();
-        box(lighthouse, [7, 17, 7], [0, 8.5, -16], 0xf6eee0);
-        box(lighthouse, [7.8, 2.2, 7.8], [0, 17.5, -16], 0xd95d58);
-        box(lighthouse, [3.3, 3.1, 3.3], [0, 20.2, -16], 0x5ee4e2);
-        this.islandWorld.add(lighthouse);
-        for (const [x, z, scale] of [[-34, -20, 1], [34, -16, .9], [-38, 28, 1.1], [32, 33, .86], [2, 42, .95]]) {
+        this.islandWorld.name = 'volle-harbor-plaza';
+        this.islandWorld.visible = true;
+        box(this.islandWorld, [440, 2, 440], [0, -1, 0], 0x103a48);
+        box(this.islandWorld, [180, .18, 26], [0, .05, 0], 0x245d6a, { castShadow: false });
+        box(this.islandWorld, [26, .18, 180], [0, .06, 0], 0x245d6a, { castShadow: false });
+        const plaza = new THREE.Mesh(new THREE.CircleGeometry(56, 48), material(0x2e8590, .52));
+        plaza.rotation.x = -Math.PI / 2;
+        plaza.position.y = .12;
+        plaza.receiveShadow = true;
+        this.islandWorld.add(plaza);
+        const fountain = new THREE.Group();
+        cylinder(fountain, 13, 1.4, [0, .7, -8], 0x1a7182);
+        cylinder(fountain, 9.5, .35, [0, 1.45, -8], 0x55dfe1);
+        cylinder(fountain, 2.1, 5.2, [0, 3.5, -8], 0x166e83);
+        const beacon = new THREE.Mesh(new THREE.SphereGeometry(2.2, 18, 12), new THREE.MeshStandardMaterial({ color: 0x9affef, emissive: 0x167b75, emissiveIntensity: .9, roughness: .26 }));
+        beacon.position.set(0, 6.8, -8);
+        fountain.add(beacon);
+        this.islandWorld.add(fountain);
+        for (const [x, z, w, d, h, color] of [[-145,-145,92,32,25,0x235d78],[145,-145,92,32,25,0x286d83],[-145,145,92,32,20,0x225267],[145,145,92,32,20,0x2a6a68],[-174,0,24,124,17,0x1c536b],[174,0,24,124,17,0x235d78],[0,-174,124,24,17,0x1d5368],[0,174,124,24,17,0x246f75]]) {
+            box(this.islandWorld, [w, h, d], [x, h / 2, z], color);
+            box(this.islandWorld, [w * .8, .5, d + .35], [x, h + .25, z], 0x63e7dc);
+            for (let y = 5; y < h - 2; y += 6) box(this.islandWorld, [Math.min(w * .58, 40), 2, .28], [x, y, z - d / 2 - .2], 0x92f6f0, { castShadow: false });
+        }
+        for (const [x, z, scale] of [[-108,-82,1.2],[108,-82,1.15],[-108,82,1.2],[108,82,1.15],[-38,128,1.1],[38,128,1.1],[-38,-128,1.1],[38,-128,1.1]]) {
             const palm = new THREE.Group();
-            box(palm, [1.25 * scale, 9 * scale, 1.25 * scale], [0, 4.5 * scale, 0], 0x805432);
+            cylinder(palm, .72 * scale, 9 * scale, [0, 4.5 * scale, 0], 0x785137);
             for (let i = 0; i < 5; i++) {
-                const leaf = box(palm, [7 * scale, .42 * scale, 1.2 * scale], [0, 9 * scale, 0], 0x2f9b63);
+                const leaf = box(palm, [7 * scale, .42 * scale, 1.2 * scale], [0, 9 * scale, 0], 0x35aa79);
                 leaf.rotation.y = i * Math.PI * .4;
                 leaf.rotation.z = -.24;
             }
             palm.position.set(x, 0, z);
             this.islandWorld.add(palm);
         }
-        const sky = new THREE.Mesh(new THREE.SphereGeometry(180, 32, 20), new THREE.MeshBasicMaterial({ color: 0x65cbea, side: THREE.BackSide, fog: false }));
+        for (const [x, z] of [[-92,-36],[92,-36],[-92,36],[92,36],[-36,-92],[36,-92],[-36,92],[36,92]]) {
+            cylinder(this.islandWorld, 3.4, 8, [x, 4, z], 0x1a5968);
+            cylinder(this.islandWorld, 4.1, .5, [x, 8.1, z], 0x6be7dc);
+        }
+        const sky = new THREE.Mesh(new THREE.SphereGeometry(520, 36, 24), new THREE.MeshBasicMaterial({ color: 0x4ba7c3, side: THREE.BackSide, fog: false }));
         this.islandWorld.add(sky);
         this.root.add(this.islandWorld);
     }
@@ -252,16 +273,10 @@ export class SocialLobby {
     async _loadAssets() {
         const loader = new GLTFLoader();
         loader.setMeshoptDecoder(MeshoptDecoder);
-        const islandJob = loader.loadAsync(ISLAND_ASSET)
-            .then(gltf => this._installIsland(gltf))
-            .catch(error => {
-                this.islandLoadError = error;
-                return null;
-            });
         const characterJobs = CHARACTER_ASSETS.map((url, index) => loader.loadAsync(url)
             .then(gltf => this._installCharacter(gltf, index))
             .catch(() => null));
-        const propJobs = PROP_ASSETS.map(([url, position, scale, rotationY, collisionRadius]) => loader.loadAsync(url)
+        const propJobs = PROP_ASSETS.map(([url, position, scale, rotationY]) => loader.loadAsync(url)
             .then(gltf => {
                 if (this._disposed) return;
                 const model = gltf.scene;
@@ -269,32 +284,11 @@ export class SocialLobby {
                 model.scale.setScalar(scale);
                 model.rotation.y = rotationY;
                 setMeshShadows(model);
-                this.root.add(model);
-                if (collisionRadius > 0) {
-                    const collider = {
-                        mesh: model,
-                        pos: model.position.clone(),
-                        radius: collisionRadius
-                    };
-                    this.arena.collidables.push(collider);
-                    this._roundColliders.push(collider);
-                }
+                this.islandWorld.add(model);
             })
             .catch(() => null));
-        await Promise.allSettled([islandJob, ...characterJobs, ...propJobs]);
+        await Promise.allSettled([...characterJobs, ...propJobs]);
         return this;
-    }
-
-    _installIsland(gltf) {
-        if (this._disposed) return;
-        const model = gltf.scene;
-        model.name = 'olann-island';
-        model.scale.setScalar(ISLAND_SCALE);
-        tuneIslandMaterials(model);
-        model.visible = this.mapId === 'island';
-        this.root.add(model);
-        this.islandModel = model;
-        this.islandWorld.visible = false;
     }
 
     selectMap(mapId = 'island') {
@@ -303,8 +297,7 @@ export class SocialLobby {
         this.arena = this.arenas[map.id];
         this._boundaryColliders = this.arena.collidables.filter(collider => collider.invisibleBoundary);
         if (this.player && this.active) this.player.arena = this.arena;
-        if (this.islandWorld) this.islandWorld.visible = map.id === 'island' && !this.islandModel;
-        if (this.islandModel) this.islandModel.visible = map.id === 'island';
+        if (this.islandWorld) this.islandWorld.visible = map.id === 'island';
         this._presenceDirty = true;
         return map;
     }
