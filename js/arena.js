@@ -13,11 +13,27 @@ export const MAPS = {
         hasOcean: true, hasGlass: true, size: 'medium', weather: 'clear', openSides: true
     },
     beach_open: {
-        name: '🏐 Beach Volleyball',
-        courtWidth: 76, courtLength: 77, wallHeight: 9, ceilingHeight: 0,
+        name: 'Beach Volleyball',
+        courtWidth: 52, courtLength: 68, wallHeight: 9, ceilingHeight: 0,
         floorRed: 0xe8a050, floorBlue: 0xd0a860, wallColor: 0xf0d090,
         skyTop: 0x3aa5ff, skyBottom: 0xcfeeff, fogColor: 0xcfeeff,
-        hasOcean: true, hasGlass: false, openAir: true, isBeachOpen: true, size: 'small', weather: 'clear', noSides: true
+        hasOcean: true, hasGlass: false, openAir: true, isBeachOpen: true, size: 'small', weather: 'clear', noSides: true,
+        spectator: {
+            bounds: { minX: -46, maxX: 46, minY: 0, maxY: 18, minZ: -50, maxZ: 50 },
+            stands: [
+                { side: 'west', tiers: 3, length: 34, depth: 2.2, rise: 0.75, setback: 5 },
+                { side: 'east', tiers: 3, length: 34, depth: 2.2, rise: 0.75, setback: 5 }
+            ]
+        },
+        gameplay: {
+            mechanics: ['volleyball-net', 'sand-traction', 'open-air'],
+            netHeight: 2.43,
+            sandTraction: 0.9,
+            ballGravityScale: 0.88,
+            playerSpawnZ: 20,
+            fallDeathY: -8
+        },
+        sky: { horizonColor: 0xffe1a8, sun: true, sunColor: 0xfff1b0, cloudAmount: 0.55 }
     },
     industrial: {
         name: '🏭 Factory',
@@ -185,6 +201,54 @@ export const MAPS = {
         skyTop: 0x88bbff, skyBottom: 0xddddee, fogColor: 0xccccdd,
         hasOcean: false, hasGlass: true, isEsport: true, size: 'medium', weather: 'indoor', openSides: true
     },
+    dropworks: {
+        name: 'Dropworks Parkour',
+        courtWidth: 72, courtLength: 92, wallHeight: 34, ceilingHeight: 52,
+        floorRed: 0xb84435, floorBlue: 0x3d6f91, wallColor: 0x667078,
+        skyTop: 0x4a6078, skyBottom: 0xd7b98b, fogColor: 0x9aa4aa,
+        hasOcean: false, hasGlass: false, isVerticalDrop: true, size: 'large',
+        weather: 'clear', openSides: true,
+        spectator: {
+            bounds: { minX: -58, maxX: 58, minY: -18, maxY: 62, minZ: -66, maxZ: 66 },
+            stands: [
+                { side: 'west', tiers: 5, length: 54, depth: 2.4, rise: 1.1, setback: 6 },
+                { side: 'east', tiers: 5, length: 54, depth: 2.4, rise: 1.1, setback: 6 }
+            ]
+        },
+        gameplay: {
+            mechanics: ['fall-death', 'vertical-drop', 'parkour-route', 'jump-pads'],
+            fallDeathY: -14,
+            respawnOnFall: true,
+            jumpPadImpulse: 18,
+            verticalRouteHeight: 30,
+            playerSpawnZ: 29
+        },
+        sky: { horizonColor: 0xd8bd91, sun: true, sunColor: 0xffd79a, cloudAmount: 0.25 }
+    },
+    grand_stadium: {
+        name: 'Grand Stadium',
+        courtWidth: 96, courtLength: 118, wallHeight: 24, ceilingHeight: 42,
+        floorRed: 0xc83f45, floorBlue: 0x3569c8, wallColor: 0xd7dce2,
+        skyTop: 0x398bea, skyBottom: 0xd9f1ff, fogColor: 0xc8e4f2,
+        hasOcean: false, hasGlass: false, isStadium: true, size: 'large',
+        weather: 'clear', openSides: true,
+        spectator: {
+            bounds: { minX: -78, maxX: 78, minY: 0, maxY: 36, minZ: -88, maxZ: 88 },
+            stands: [
+                { side: 'north', tiers: 6, length: 104, depth: 2.8, rise: 1.05, setback: 5 },
+                { side: 'south', tiers: 6, length: 104, depth: 2.8, rise: 1.05, setback: 5 },
+                { side: 'west', tiers: 6, length: 92, depth: 2.8, rise: 1.05, setback: 5 },
+                { side: 'east', tiers: 6, length: 92, depth: 2.8, rise: 1.05, setback: 5 }
+            ]
+        },
+        gameplay: {
+            mechanics: ['stadium-bounds', 'symmetric-spawns', 'spectator-sightlines'],
+            fallDeathY: -10,
+            playerSpawnZ: 39,
+            symmetric: true
+        },
+        sky: { horizonColor: 0xf0d8b8, sun: true, sunColor: 0xfff0c0, cloudAmount: 0.35 }
+    },
     temple_sym: {
         name: '🏛️ Temple',
         courtWidth: 62, courtLength: 39, wallHeight: 17, ceilingHeight: 24,
@@ -193,6 +257,96 @@ export const MAPS = {
         hasOcean: false, hasGlass: false, isTemple: true, size: 'medium', weather: 'clear'
     }
 };
+
+function ensureMapMetadata(config) {
+    const halfW = config.courtWidth / 2;
+    const halfL = config.courtLength / 2;
+    const maxY = config.ceilingHeight > 0 ? config.ceilingHeight : Math.max(config.wallHeight, 24);
+    config.spectator ||= {
+        bounds: {
+            minX: -halfW - 12, maxX: halfW + 12,
+            minY: 0, maxY: maxY + 10,
+            minZ: -halfL - 12, maxZ: halfL + 12
+        },
+        stands: []
+    };
+    config.gameplay ||= { mechanics: [], fallDeathY: -12 };
+    config.gameplay.mechanics ||= [];
+    if (!Number.isFinite(config.gameplay.fallDeathY)) config.gameplay.fallDeathY = -12;
+    config.sky ||= {
+        horizonColor: config.skyBottom,
+        sun: false,
+        sunColor: 0xfff2c0,
+        cloudAmount: 0
+    };
+    return config;
+}
+
+Object.values(MAPS).forEach(ensureMapMetadata);
+
+export function getArenaBounds(config, margin = 0) {
+    const safeMargin = Number.isFinite(margin) ? Math.max(0, margin) : 0;
+    const halfW = Math.max(0, Number(config?.courtWidth) || 0) / 2;
+    const halfL = Math.max(0, Number(config?.courtLength) || 0) / 2;
+    const maxY = Number(config?.ceilingHeight) > 0
+        ? Number(config.ceilingHeight)
+        : Math.max(Number(config?.wallHeight) || 0, 24);
+    return {
+        minX: -halfW - safeMargin,
+        maxX: halfW + safeMargin,
+        minY: 0,
+        maxY,
+        minZ: -halfL - safeMargin,
+        maxZ: halfL + safeMargin
+    };
+}
+
+export function getSpectatorBounds(config) {
+    const explicit = config?.spectator?.bounds;
+    return explicit ? { ...explicit } : getArenaBounds(config, 12);
+}
+
+export function isOutsideArenaBounds(position, bounds) {
+    if (!position || !bounds) return true;
+    return position.x < bounds.minX || position.x > bounds.maxX
+        || position.z < bounds.minZ || position.z > bounds.maxZ
+        || (Number.isFinite(bounds.minY) && position.y < bounds.minY)
+        || (Number.isFinite(bounds.maxY) && position.y > bounds.maxY);
+}
+
+export function isFallDeathPosition(position, config) {
+    const fallDeathY = Number(config?.gameplay?.fallDeathY);
+    return Number.isFinite(position?.y) && Number.isFinite(fallDeathY) && position.y < fallDeathY;
+}
+
+const colorNumber = value => Number.parseInt(String(value).replace('#', ''), 16);
+
+export function registerCustomMap(id, custom) {
+    if (!/^custom-[a-z0-9_-]{1,40}$/i.test(id) || !custom?.dimensions || !custom?.colors) return false;
+    MAPS[id] = ensureMapMetadata({
+        name: custom.name,
+        courtWidth: custom.dimensions.width,
+        courtLength: custom.dimensions.length,
+        wallHeight: custom.dimensions.wallHeight,
+        ceilingHeight: custom.flags?.openAir ? 0 : custom.dimensions.ceilingHeight,
+        floorRed: colorNumber(custom.colors.floorRed),
+        floorBlue: colorNumber(custom.colors.floorBlue),
+        wallColor: colorNumber(custom.colors.wall),
+        skyTop: colorNumber(custom.colors.sky),
+        skyBottom: colorNumber(custom.colors.sky),
+        fogColor: colorNumber(custom.colors.fog),
+        weather: custom.weather,
+        openSides: custom.flags?.openSides,
+        openAir: custom.flags?.openAir,
+        isIce: custom.flags?.slippery,
+        slippery: custom.flags?.slippery,
+        lowGravity: custom.flags?.lowGravity,
+        hasPortals: custom.flags?.portals,
+        customProps: custom.props,
+        size: 'custom'
+    });
+    return true;
+}
 
 // ponytail: per-map UI theme — CSS custom property overrides keyed by mapId.
 // Applied via _applyTheme() so the HUD matches the active arena's palette.
@@ -220,8 +374,8 @@ export class Arena {
     constructor(renderer, mapId = 'beach', options = {}) {
         this.renderer = renderer;
         this.scene = renderer.scene;
-        this.mapId = mapId;
-        this.config = MAPS[mapId] || MAPS.beach;
+        this.mapId = MAPS[mapId] ? mapId : 'beach';
+        this.config = MAPS[this.mapId];
         this.portalsEnabled = options.portalsEnabled !== false;
 
         this.courtWidth = this.config.courtWidth;
@@ -230,24 +384,23 @@ export class Arena {
         this.ceilingHeight = this.config.ceilingHeight;
         // ponytail: spawn lower so ball doesn't get stuck on ceiling (neon map)
         this.spawnPoint = new THREE.Vector3(0, this._ballSpawnHeight(), 0);
-        this.bounds = {
-            minX: -this.courtWidth / 2,
-            maxX: this.courtWidth / 2,
-            minZ: -this.courtLength / 2,
-            maxZ: this.courtLength / 2
-        };
+        this.bounds = getArenaBounds(this.config);
+        this.spectatorBounds = getSpectatorBounds(this.config);
         this.objects = [];
         this.collidables = [];  // ball collision objects: {mesh, radius, pos}
         this.hazardZones = [];
         this.portals = [];
         this.portalTimer = 0;
         this.portalSwapInterval = 30;
+        this.portalSwapTimer = this.portalSwapInterval;
         this.build();
         // ponytail: apply initial map theme
-        this._applyTheme(mapId);
+        this._applyTheme(this.mapId);
     }
 
     _ballSpawnHeight() {
+        const configured = Number(this.config?.gameplay?.ballSpawnHeight);
+        if (Number.isFinite(configured)) return configured;
         return this.ceilingHeight > 2 ? Math.min(this.ceilingHeight - 1, 12) : 12;
     }
 
@@ -280,6 +433,11 @@ export class Arena {
                 zones.push({ kind: 'mud', x: width * x, z: length * z, radius, slow: 0.55 });
             });
         }
+        if (this.config.isVerticalDrop) {
+            [[-0.25, 0], [0.25, 0]].forEach(([x, z]) => {
+                zones.push({ kind: 'void', x: width * x, z: length * z, radius: 6.5 });
+            });
+        }
         this.hazardZones = zones;
     }
 
@@ -292,6 +450,7 @@ export class Arena {
     }
 
     build() {
+        this.platforms = [];
         this._buildHazardZones();
         if (this.config.isMinecraft) {
             this.buildMinecraft();
@@ -313,6 +472,7 @@ export class Arena {
         if (!this.config.openAir) this.buildCeiling();
         this.buildSkybox();
         this.buildProps();
+        this.buildCustomProps();
         this.buildLights();
         if (this.config.hasOcean) this.buildOcean();
         if (this.config.isCloud) this.buildStars();
@@ -333,12 +493,15 @@ export class Arena {
         if (this.config.isMecha) this.buildMechaProps();
         if (this.config.isAtlantis) this.buildAtlantisProps();
         if (this.config.isTemple) this.buildTempleProps();
+        if (this.config.isVerticalDrop) this.buildVerticalDropProps();
+        if (this.config.isStadium) this.buildStadiumProps();
+        this.buildSpectatorStands();
         this.buildHazardVisuals();
         // Generic open-world env for open-sided maps without specific theming
         if (this.config.openSides && !this.config.isCloud && !this.config.isSpace &&
             !this.config.isNeon && !this.config.isVolcano && !this.config.isIce &&
             !this.config.isBeachOpen && !this.config.isMinecraft && !this.config.isJungle &&
-            !this.config.isAtlantis) {
+            !this.config.isAtlantis && !this.config.isVerticalDrop && !this.config.isStadium) {
             this.buildOpenEnv();
         }
         this.buildPortals();
@@ -361,13 +524,39 @@ export class Arena {
         this.addAmbientParticles(particleType);
     }
 
+    buildCustomProps() {
+        for (const prop of this.config.customProps || []) {
+            const size = prop.size;
+            let geometry;
+            let radius;
+            if (prop.type === 'sphere') {
+                geometry = new THREE.SphereGeometry(size.radius, 16, 12);
+                radius = size.radius;
+            } else if (prop.type === 'cylinder') {
+                geometry = new THREE.CylinderGeometry(size.radius, size.radius, size.height, 16);
+                radius = Math.max(size.radius, size.height / 2);
+            } else if (prop.type === 'cone') {
+                geometry = new THREE.ConeGeometry(size.radius, size.height, 16);
+                radius = Math.max(size.radius, size.height / 2);
+            } else {
+                geometry = new THREE.BoxGeometry(size.width, size.height, size.depth);
+                radius = Math.hypot(size.width, size.height, size.depth) / 2;
+            }
+            const mesh = new THREE.Mesh(geometry, this.renderer.createToonMaterial(colorNumber(prop.color)));
+            mesh.position.set(prop.position.x, prop.position.y, prop.position.z);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            this.add(mesh);
+            this.addCollidable(mesh, mesh.position, radius);
+        }
+    }
     buildHazardVisuals() {
         for (const zone of this.hazardZones) {
-            const color = zone.kind === 'lava' ? 0xff3b12 : 0x2e8b57;
+            const color = zone.kind === 'lava' ? 0xff3b12 : zone.kind === 'void' ? 0x111827 : 0x2e8b57;
             const geo = new THREE.CircleGeometry(zone.radius, 24);
             geo.rotateX(-Math.PI / 2);
             const mat = new THREE.MeshBasicMaterial({
-                color, transparent: true, opacity: zone.kind === 'lava' ? 0.72 : 0.38,
+                color, transparent: true, opacity: zone.kind === 'lava' ? 0.72 : zone.kind === 'void' ? 0.94 : 0.38,
                 side: THREE.DoubleSide
             });
             const mesh = new THREE.Mesh(geo, mat);
@@ -941,12 +1130,10 @@ export class Arena {
     }
 
     buildBeachOpenProps() {
-        // Low ropes around the court instead of walls
-        const ropeMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.3 });
+        const ropeMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 });
         const poleMat = this.renderer.createToonMaterial(0xddccaa);
         const halfW = this.courtWidth/2;
         const halfL = this.courtLength/2;
-        // Corner poles + collision
         [[-halfW,-halfL],[halfW,-halfL],[-halfW,halfL],[halfW,halfL]].forEach(([x,z]) => {
             const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 4, 6), poleMat);
             pole.position.set(x, 2, z);
@@ -956,22 +1143,53 @@ export class Arena {
             ball.position.set(x, 4, z);
             this.add(ball);
         });
-        // Rope lines (side)
-        const rope = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, this.courtLength), ropeMat);
-        rope.rotation.z = Math.PI/2;
-        [[-halfW,2.8],[halfW,2.8]].forEach(([x,y]) => {
-            const r = rope.clone();
-            r.position.set(x, y, 0);
-            this.add(r);
+        const sideRopeGeo = new THREE.CylinderGeometry(0.025, 0.025, this.courtLength, 5);
+        const endRopeGeo = new THREE.CylinderGeometry(0.025, 0.025, this.courtWidth, 5);
+        for (const y of [1.1, 2.7]) {
+            [-halfW, halfW].forEach(x => {
+                const rope = new THREE.Mesh(sideRopeGeo, ropeMat);
+                rope.rotation.x = Math.PI / 2;
+                rope.position.set(x, y, 0);
+                this.add(rope);
+            });
+            [-halfL, halfL].forEach(z => {
+                const rope = new THREE.Mesh(endRopeGeo, ropeMat);
+                rope.rotation.z = Math.PI / 2;
+                rope.position.set(0, y, z);
+                this.add(rope);
+            });
+        }
+
+        const lineMat = new THREE.MeshBasicMaterial({ color: 0xfff7dd, transparent: true, opacity: 0.9 });
+        const innerW = Math.min(36, this.courtWidth - 8);
+        const innerL = Math.min(54, this.courtLength - 8);
+        [
+            [innerW, 0.11, 0, -innerL / 2],
+            [innerW, 0.11, 0, innerL / 2],
+            [0.11, innerL, -innerW / 2, 0],
+            [0.11, innerL, innerW / 2, 0]
+        ].forEach(([w, l, x, z]) => {
+            const line = new THREE.Mesh(new THREE.PlaneGeometry(w, l), lineMat);
+            line.rotation.x = -Math.PI / 2;
+            line.position.set(x, 0.035, z);
+            this.add(line);
         });
-        // Extra palm trees
+
+        const serviceMat = new THREE.MeshBasicMaterial({
+            color: 0xffffff, transparent: true, opacity: 0.32, side: THREE.DoubleSide
+        });
+        [-innerL * 0.34, innerL * 0.34].forEach(z => {
+            const marker = new THREE.Mesh(new THREE.RingGeometry(1.8, 2, 24), serviceMat);
+            marker.rotation.x = -Math.PI / 2;
+            marker.position.set(0, 0.04, z);
+            this.add(marker);
+        });
+
         for (let i = 0; i < 6; i++) {
             const a = (i/6)*Math.PI*2 + 0.3;
             const r = halfW + 5 + Math.random()*8;
             this.buildPalmTree(Math.cos(a)*r, Math.sin(a)*r);
         }
-        // Beach volleyball dressing: bright sun, colorful umbrellas, stray beach balls.
-        this.buildSun(-halfW - 22, 30, -halfL - 30);
         const umbrellaColors = [0xff5555, 0xffcc33, 0x33bbff, 0xff77bb];
         [[-halfW-6,-halfL-4],[halfW+6,-halfL-4],[-halfW-6,halfL+4],[halfW+6,halfL+4]].forEach(([x,z],i) => {
             this.buildBeachUmbrella(x, z, umbrellaColors[i % umbrellaColors.length]);
@@ -984,6 +1202,17 @@ export class Arena {
             bball.position.set(bx, 0.5, bz);
             this.add(bball);
         }
+
+        const chairMat = this.renderer.createToonMaterial(0xf4f0df);
+        [-1, 1].forEach(side => {
+            const x = side * (halfW - 3);
+            const stand = new THREE.Mesh(new THREE.BoxGeometry(1.5, 3.2, 1.5), chairMat);
+            stand.position.set(x, 1.6, 2.2);
+            this.add(stand);
+            const seat = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.3, 1.8), chairMat);
+            seat.position.set(x, 3.3, 2.2);
+            this.add(seat);
+        });
     }
 
     // A glowing sun disc + halo for open-air beach/sky maps — disabled (visual artifact)
@@ -1003,6 +1232,148 @@ export class Arena {
         );
         canopy.position.set(x, 5, z);
         this.add(canopy);
+    }
+
+    buildSpectatorStands() {
+        const stands = this.config.spectator?.stands?.slice(0, 8) || [];
+        if (!stands.length) return;
+        const seatMat = this.renderer.createToonMaterial(this.config.isBeachOpen ? 0xc9a46a : 0x606a73);
+        const railMat = new THREE.MeshBasicMaterial({ color: this.config.wallColor });
+        const halfW = this.courtWidth / 2;
+        const halfL = this.courtLength / 2;
+
+        for (const stand of stands) {
+            const tiers = Math.min(8, Math.max(1, Math.floor(stand.tiers || 1)));
+            const depth = Math.max(1, stand.depth || 2);
+            const rise = Math.max(0.35, stand.rise || 0.8);
+            const setback = Math.max(2, stand.setback || 4);
+            const northSouth = stand.side === 'north' || stand.side === 'south';
+            const length = Math.max(8, stand.length || (northSouth ? this.courtWidth : this.courtLength) * 0.8);
+
+            for (let tier = 0; tier < tiers; tier++) {
+                const height = rise * (tier + 1);
+                const geo = northSouth
+                    ? new THREE.BoxGeometry(length, height, depth)
+                    : new THREE.BoxGeometry(depth, height, length);
+                const mesh = new THREE.Mesh(geo, seatMat);
+                const offset = setback + depth * (tier + 0.5);
+                const x = stand.side === 'west' ? -halfW - offset
+                    : stand.side === 'east' ? halfW + offset : 0;
+                const z = stand.side === 'north' ? -halfL - offset
+                    : stand.side === 'south' ? halfL + offset : 0;
+                mesh.position.set(x, height / 2, z);
+                mesh.receiveShadow = true;
+                this.add(mesh);
+            }
+
+            const railHeight = rise * tiers + 1;
+            const rail = new THREE.Mesh(
+                northSouth
+                    ? new THREE.BoxGeometry(length, 0.18, 0.18)
+                    : new THREE.BoxGeometry(0.18, 0.18, length),
+                railMat
+            );
+            const edgeOffset = setback + depth * tiers;
+            rail.position.set(
+                stand.side === 'west' ? -halfW - edgeOffset : stand.side === 'east' ? halfW + edgeOffset : 0,
+                railHeight,
+                stand.side === 'north' ? -halfL - edgeOffset : stand.side === 'south' ? halfL + edgeOffset : 0
+            );
+            this.add(rail);
+        }
+    }
+
+    buildVerticalDropProps() {
+        const halfW = this.courtWidth / 2;
+        const halfL = this.courtLength / 2;
+        const steelMat = this.renderer.createToonMaterial(0x4f5961);
+        const accentMats = [
+            new THREE.MeshBasicMaterial({ color: this.config.floorRed }),
+            new THREE.MeshBasicMaterial({ color: this.config.floorBlue })
+        ];
+        const voidMat = new THREE.MeshBasicMaterial({ color: 0x111820, transparent: true, opacity: 0.9 });
+        const voidRing = new THREE.Mesh(
+            new THREE.RingGeometry(Math.max(halfW, halfL) + 3, Math.max(halfW, halfL) + 32, 48),
+            voidMat
+        );
+        voidRing.rotation.x = -Math.PI / 2;
+        voidRing.position.y = -0.5;
+        this.add(voidRing);
+
+        const corners = [[-1, -1], [1, -1], [-1, 1], [1, 1]];
+        corners.forEach(([sx, sz], index) => {
+            const x = sx * (halfW + 6);
+            const z = sz * (halfL + 6);
+            const tower = new THREE.Mesh(new THREE.BoxGeometry(3, 32, 3), steelMat);
+            tower.position.set(x, 16, z);
+            this.add(tower);
+            for (let level = 0; level < 3; level++) {
+                const ledge = new THREE.Mesh(new THREE.BoxGeometry(9, 0.6, 5), accentMats[index % 2]);
+                ledge.position.set(sx * (halfW - 5), 7 + level * 9, sz * (halfL - 8));
+                this.add(ledge);
+                this.platforms.push({
+                    x: ledge.position.x,
+                    z: ledge.position.z,
+                    y: ledge.position.y + 0.3,
+                    halfWidth: 4.5,
+                    halfDepth: 2.5
+                });
+            }
+        });
+
+        this.jumpPads = [];
+        [[-halfW * 0.32, -halfL * 0.18], [halfW * 0.32, halfL * 0.18]].forEach(([x, z], index) => {
+            const pad = new THREE.Mesh(
+                new THREE.CylinderGeometry(2.3, 2.7, 0.3, 16),
+                accentMats[index]
+            );
+            pad.position.set(x, 0.15, z);
+            this.add(pad);
+            this.jumpPads.push({ position: pad.position.clone(), impulse: this.config.gameplay.jumpPadImpulse });
+        });
+
+        for (let level = 0; level < 3; level++) {
+            const y = 8 + level * 9;
+            [-1, 1].forEach(side => {
+                const beam = new THREE.Mesh(new THREE.BoxGeometry(this.courtWidth * 0.65, 0.4, 1), steelMat);
+                beam.position.set(0, y, side * (halfL - 10));
+                this.add(beam);
+                this.platforms.push({
+                    x: beam.position.x,
+                    z: beam.position.z,
+                    y: beam.position.y + 0.2,
+                    halfWidth: this.courtWidth * 0.325,
+                    halfDepth: 0.5
+                });
+            });
+        }
+    }
+
+    buildStadiumProps() {
+        const halfW = this.courtWidth / 2;
+        const halfL = this.courtLength / 2;
+        const frameMat = this.renderer.createToonMaterial(0xd8dde3);
+        const screenMat = new THREE.MeshBasicMaterial({ color: 0x182536 });
+        [-1, 1].forEach(side => {
+            const board = new THREE.Mesh(new THREE.BoxGeometry(18, 7, 0.8), screenMat);
+            board.position.set(0, 13, side * (halfL + 8));
+            this.add(board);
+            const frame = new THREE.Mesh(new THREE.BoxGeometry(20, 0.5, 1), frameMat);
+            frame.position.set(0, 17, side * (halfL + 8));
+            this.add(frame);
+        });
+        for (let i = 0; i < 8; i++) {
+            const angle = i / 8 * Math.PI * 2;
+            const x = Math.cos(angle) * (halfW + 16);
+            const z = Math.sin(angle) * (halfL + 16);
+            const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.5, 22, 8), frameMat);
+            mast.position.set(x, 11, z);
+            this.add(mast);
+            const lamp = new THREE.Mesh(new THREE.BoxGeometry(4, 1.2, 1), new THREE.MeshBasicMaterial({ color: 0xfff4cc }));
+            lamp.position.set(x, 22, z);
+            lamp.lookAt(0, 3, 0);
+            this.add(lamp);
+        }
     }
 
     buildCanyonProps() {
@@ -1461,18 +1832,20 @@ export class Arena {
 
     buildNet() {
         const halfW = this.courtWidth / 2;
-        const netH = 4.5;
+        const netH = Number(this.config.gameplay?.netHeight) || 4.5;
+        const netBottom = this.config.isBeachOpen ? 0.35 : 1;
 
         // Posts
-        const postGeo = new THREE.CylinderGeometry(0.12, 0.15, netH + 1.5, 8);
+        const postHeight = netH + 1;
+        const postGeo = new THREE.CylinderGeometry(0.12, 0.15, postHeight, 8);
         const postMat = this.renderer.createToonMaterial(0xdddddd);
         [-halfW + 1, halfW - 1].forEach(x => {
             const p = new THREE.Mesh(postGeo, postMat);
-            p.position.set(x, (netH + 1.5) / 2, 0);
+            p.position.set(x, postHeight / 2, 0);
             p.castShadow = true;
             this.add(p);
             const cap = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 8), postMat);
-            cap.position.set(x, netH + 1.5, 0);
+            cap.position.set(x, postHeight, 0);
             this.add(cap);
         });
 
@@ -1482,7 +1855,7 @@ export class Arena {
             postMat
         );
         bar.rotation.z = Math.PI / 2;
-        bar.position.set(0, netH + 1, 0);
+        bar.position.set(0, netH, 0);
         this.add(bar);
 
         // Net
@@ -1491,10 +1864,10 @@ export class Arena {
             side: THREE.DoubleSide, wireframe: true
         });
         const net = new THREE.Mesh(
-            new THREE.PlaneGeometry(this.courtWidth - 2, netH),
+            new THREE.PlaneGeometry(this.courtWidth - 2, netH - netBottom),
             netMat
         );
-        net.position.set(0, netH / 2 + 1, 0);
+        net.position.set(0, (netH + netBottom) / 2, 0);
         this.add(net);
     }
 
@@ -1783,6 +2156,7 @@ export class Arena {
 
     buildSkybox() {
         const c = this.config;
+        const skyConfig = c.sky || {};
         // Match world fog + clear color to this map's palette.
         if (this.scene.fog) this.scene.fog.color.set(c.fogColor);
         this.renderer.renderer.setClearColor(c.fogColor);
@@ -1795,7 +2169,11 @@ export class Arena {
             fog: false,
             uniforms: {
                 topColor: { value: new THREE.Color(c.skyTop) },
-                bottomColor: { value: new THREE.Color(c.skyBottom) }
+                bottomColor: { value: new THREE.Color(c.skyBottom) },
+                horizonColor: { value: new THREE.Color(skyConfig.horizonColor ?? c.skyBottom) },
+                sunColor: { value: new THREE.Color(skyConfig.sunColor ?? 0xfff2c0) },
+                sunAmount: { value: skyConfig.sun ? 1 : 0 },
+                cloudAmount: { value: Math.min(1, Math.max(0, skyConfig.cloudAmount || 0)) }
             },
             vertexShader: `
                 varying vec3 vWP;
@@ -1807,10 +2185,24 @@ export class Arena {
             fragmentShader: `
                 uniform vec3 topColor;
                 uniform vec3 bottomColor;
+                uniform vec3 horizonColor;
+                uniform vec3 sunColor;
+                uniform float sunAmount;
+                uniform float cloudAmount;
                 varying vec3 vWP;
                 void main() {
-                    float h = normalize(vWP).y;
-                    gl_FragColor = vec4(mix(bottomColor, topColor, max(h,0.0)), 1.0);
+                    vec3 n = normalize(vWP);
+                    float h = clamp(n.y, 0.0, 1.0);
+                    vec3 color = mix(bottomColor, horizonColor, smoothstep(0.0, 0.16, h));
+                    color = mix(color, topColor, smoothstep(0.12, 0.82, h));
+                    vec3 sunDir = normalize(vec3(-0.55, 0.38, -0.74));
+                    float sun = 1.0 - smoothstep(0.035, 0.075, distance(n, sunDir));
+                    float bands = sin(n.x * 28.0 + n.z * 19.0) + sin(n.x * 51.0 - n.z * 33.0);
+                    float clouds = smoothstep(0.65, 1.45, bands) * smoothstep(0.08, 0.24, h)
+                        * (1.0 - smoothstep(0.48, 0.72, h)) * cloudAmount;
+                    color = mix(color, vec3(1.0), clouds * 0.24);
+                    color += sunColor * sun * sunAmount * 0.7;
+                    gl_FragColor = vec4(color, 1.0);
                 }
             `
         });
@@ -1915,7 +2307,8 @@ export class Arena {
 
     buildLights() {
         const spot = new THREE.SpotLight(0xffffff, 0.5, 60, Math.PI / 4);
-        spot.position.set(0, this.ceilingHeight - 1, 0);
+        const lightY = this.ceilingHeight > 0 ? this.ceilingHeight - 1 : Math.max(18, this.wallHeight + 8);
+        spot.position.set(0, lightY, 0);
         spot.target.position.set(0, 0, 0);
         this.add(spot);
         this.add(spot.target);
@@ -1923,7 +2316,7 @@ export class Arena {
         const halfL = this.courtLength / 2;
         [-halfL / 2, halfL / 2].forEach(z => {
             const s = new THREE.SpotLight(0xfff8ee, 0.25, 45, Math.PI / 5);
-            s.position.set(0, this.ceilingHeight - 1, z);
+            s.position.set(0, lightY, z);
             s.target.position.set(0, 0, z);
             this.add(s);
             this.add(s.target);
@@ -1947,7 +2340,8 @@ export class Arena {
         });
     }
 
-    update(time) {
+    update(time, dt = 1 / 60) {
+        dt = Math.min(Math.max(dt, 0), 0.05);
         if (this.spawnGlow) {
             this.spawnGlow.material.opacity = 0.25 + Math.sin(time * 3) * 0.15;
             this.spawnGlow.scale.setScalar(1 + Math.sin(time * 2) * 0.15);
@@ -1991,11 +2385,11 @@ export class Arena {
                 p.particles.rotation.y += 0.01 - i * 0.005;
                 // Opacity pulse for particles
                 p.pMat.opacity = 0.5 + Math.sin(time * 2 + i) * 0.3;
-                if (p.cooldown > 0) p.cooldown -= 0.016;
+                if (p.cooldown > 0) p.cooldown -= dt;
             });
-            this.portalSwapTimer -= 0.016;
+            this.portalSwapTimer -= dt;
             if (this.portalSwapTimer <= 0) {
-                this.portalSwapTimer = 30;
+                this.portalSwapTimer = this.portalSwapInterval;
                 this.portals.forEach(p => {
                     const nx = (Math.random() - 0.5) * this.courtWidth * 0.7;
                     const nz = (Math.random() - 0.5) * this.courtLength * 0.7;
@@ -2208,9 +2602,12 @@ export class Arena {
     // ponytail: optional index param spreads spawns along X at 6m intervals.
     // Without index, returns the team center spawn (backward-compatible).
     getPlayerSpawn(team, index = 0) {
-        const z = team === 'red' ? -this.courtLength / 3 : this.courtLength / 3;
+        const configuredZ = Number(this.config.gameplay?.playerSpawnZ);
+        const spawnZ = Number.isFinite(configuredZ)
+            ? Math.min(Math.abs(configuredZ), this.courtLength / 2 - 3)
+            : this.courtLength / 3;
+        const z = team === 'red' ? -spawnZ : spawnZ;
         const spacing = 6;
-        const x = (index - (index % 2 === 0 ? 0 : 1)) * spacing / 2 * (index % 2 === 0 ? 1 : -1);
         // Simpler: center the row. index 0 → x=0, 1 → +3, 2 → -3, 3 → +6, 4 → -6...
         const side = index % 2 === 0 ? 1 : -1;
         const offset = Math.floor((index + 1) / 2) * spacing;
@@ -2241,6 +2638,7 @@ export class Arena {
         this._lavaGlow = null;
         this._embers = null;
         this._sceneParticles = null;
+        this.jumpPads = null;
         if (this.weather) { this.weather.clear(); this.weather = null; }
     }
 
@@ -2256,12 +2654,8 @@ export class Arena {
         this.ceilingHeight = this.config.ceilingHeight;
         // ponytail: spawn lower so ball doesn't get stuck on ceiling (neon map)
         this.spawnPoint = new THREE.Vector3(0, this._ballSpawnHeight(), 0);
-        this.bounds = {
-            minX: -this.courtWidth / 2,
-            maxX: this.courtWidth / 2,
-            minZ: -this.courtLength / 2,
-            maxZ: this.courtLength / 2
-        };
+        this.bounds = getArenaBounds(this.config);
+        this.spectatorBounds = getSpectatorBounds(this.config);
         this.build();
         // ponytail: apply per-map UI theme overrides
         this._applyTheme(mapId);

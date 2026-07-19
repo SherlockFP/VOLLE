@@ -8,13 +8,16 @@ const STAMINA_PER_DEFLECT = 7;
 const STAMINA_REGEN = 20;     // per second
 const STAMINA_EXHAUST_THRESHOLD = 15;
 const ATTACK_COOLDOWN = 0.6;  // spam protection — wider window for fast balls
+const SUCCESSFUL_DEFLECT_RECOVERY = 0.18;
 const BASE_HIT_DAMAGE = 25;
-export const GROUND_ACCEL = 10;
+export const GROUND_ACCEL = 14;
 export const AIR_ACCEL = 12;
 export const GROUND_FRICTION = 4;
 export const STOP_SPEED = 3.125;
 export const AIR_WISH_CAP = 0.94;
-export const AIR_SPEED_CAP = 1.6;
+export const SLIPPERY_SURFACE_FACTOR = 0.28;
+export const HORIZONTAL_STEP = 1 / 120;
+export const MAX_HORIZONTAL_STEPS = 8;
 
 export function applyGroundFriction(velocity, friction, stopSpeed, dt) {
     const speed = Math.hypot(velocity.x, velocity.z);
@@ -24,7 +27,7 @@ export function applyGroundFriction(velocity, friction, stopSpeed, dt) {
     return { x: velocity.x * scale, z: velocity.z * scale };
 }
 
-export function sourceAccelerate(velocity, wishDir, wishSpeed, accel, dt, projectionCap = wishSpeed, totalCap = Infinity) {
+export function sourceAccelerate(velocity, wishDir, wishSpeed, accel, dt, projectionCap = wishSpeed) {
     const wishLength = Math.hypot(wishDir.x, wishDir.z);
     if (wishLength === 0 || wishSpeed <= 0) return { ...velocity };
     const wishX = wishDir.x / wishLength;
@@ -34,15 +37,59 @@ export function sourceAccelerate(velocity, wishDir, wishSpeed, accel, dt, projec
     if (addSpeed <= 0) return { ...velocity };
 
     const accelSpeed = Math.min(addSpeed, accel * wishSpeed * dt);
-    let x = velocity.x + wishX * accelSpeed;
-    let z = velocity.z + wishZ * accelSpeed;
-    const speed = Math.hypot(x, z);
-    if (speed > totalCap) {
-        const scale = totalCap / speed;
-        x *= scale;
-        z *= scale;
+    return {
+        x: velocity.x + wishX * accelSpeed,
+        z: velocity.z + wishZ * accelSpeed
+    };
+}
+
+export function moveHorizontalState(velocity, wishDir, wishSpeed, dt, onGround, surfaceFactor = 1) {
+    let horizontal = { x: velocity.x, z: velocity.z };
+    const displacement = { x: 0, z: 0 };
+    const duration = Math.min(Math.max(dt, 0), HORIZONTAL_STEP * MAX_HORIZONTAL_STEPS);
+    if (duration === 0) return { velocity: horizontal, displacement };
+
+    const steps = Math.ceil(duration / HORIZONTAL_STEP);
+    const stepDt = duration / steps;
+    const hasInput = Math.hypot(wishDir.x, wishDir.z) > 0;
+    const groundFactor = Math.max(0, surfaceFactor);
+
+    for (let i = 0; i < steps; i++) {
+        if (onGround) {
+            horizontal = applyGroundFriction(
+                horizontal,
+                GROUND_FRICTION * groundFactor,
+                STOP_SPEED,
+                stepDt
+            );
+        }
+
+        if (hasInput) {
+            horizontal = onGround
+                ? sourceAccelerate(horizontal, wishDir, wishSpeed, GROUND_ACCEL * groundFactor, stepDt)
+                : sourceAccelerate(
+                    horizontal,
+                    wishDir,
+                    wishSpeed,
+                    AIR_ACCEL,
+                    stepDt,
+                    Math.min(wishSpeed, AIR_WISH_CAP)
+                );
+        }
+
+        displacement.x += horizontal.x * stepDt;
+        displacement.z += horizontal.z * stepDt;
     }
-    return { x, z };
+
+    return { velocity: horizontal, displacement };
+}
+
+export function isEditableTarget(target) {
+    if (!target || typeof target !== 'object') return false;
+    const tagName = target.tagName;
+    if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT') return true;
+    if (target.isContentEditable) return true;
+    return !!target.closest?.('[contenteditable]:not([contenteditable="false"])');
 }
 
 export function resolveJump({ spaceDown, onGround, jumpHeld, jumpsRemaining, verticalVel, jumpForce, bhopEnabled }) {
@@ -110,7 +157,6 @@ export class Player {
         this.verticalVel = 0;
         this.jumpsRemaining = 2;  // ponytail: double jump, reset on ground
         this.bhopEnabled = true;
-        this.bhopSpeedCap = AIR_SPEED_CAP;
 
         // Mouse
         this.euler = new THREE.Euler(0, 0, 0, 'YXZ');
@@ -248,6 +294,7 @@ export class Player {
         this._abort = new AbortController();
         const signal = this._abort.signal;
         document.addEventListener('keydown', e => {
+            if (isEditableTarget(e.target)) return;
             this.keys[e.code] = true;
             // Track strafe pattern for spin-dodge (A-D-A-D)
             if (e.code === 'KeyA' || e.code === 'KeyD') {
@@ -265,9 +312,9 @@ export class Player {
             // Only look during live play and when not typing in a chat/text input.
             if (!this.alive) return;
             const st = this.game?.state;
-            if (st !== 'PLAYING' && st !== 'COUNTDOWN') return;
+            if (st !== 'PLAYING' && st !== 'COUNTDOWN' && st !== 'CELEBRATION' && st !== 'SOCIAL_HUB') return;
             if (st === 'PAUSED') return;
-            if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) return;
+            if (isEditableTarget(document.activeElement)) return;
             this.euler.y -= e.movementX * this.sensitivity;
             this.euler.x -= e.movementY * this.sensitivity;
             this.euler.x = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, this.euler.x));
@@ -279,12 +326,14 @@ export class Player {
         }, { signal });
         document.addEventListener('mousedown', e => {
             // ponytail: pointer lock re-activation removed — causes mouse bug during pause
-            if (e.button === 0 && this.alive && this.game?.state === 'PLAYING') {
+            const state = this.game?.state;
+            if (e.button === 0 && this.alive && (state === 'PLAYING' || state === 'CELEBRATION')) {
                 this.tryAttack();
             }
         }, { signal });
         // ponytail: Q tuşu aktif skill (sadece oyun sırasında)
         document.addEventListener('keydown', e => {
+            if (isEditableTarget(e.target)) return;
             if (e.code === 'KeyQ' && this.alive && this.game?.state === 'PLAYING') {
                 this._skillQueued = true;
             }
@@ -292,11 +341,23 @@ export class Player {
         document.addEventListener('pointerlockchange', () => {
             this.locked = document.pointerLockElement === this.renderer.domElement;
         }, { signal });
+        window.addEventListener('blur', () => this._clearInputState(), { signal });
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) this._clearInputState();
+        }, { signal });
     }
 
     cleanupInput() {
         this._abort?.abort();
         this._abort = null;
+    }
+
+    _clearInputState() {
+        for (const code of Object.keys(this.keys)) this.keys[code] = false;
+        this._dashWasDown = false;
+        this._jumpHeld = false;
+        this._skillQueued = false;
+        this._strafeHistory = [];
     }
 
     lock() { try { this.renderer.domElement.requestPointerLock(); } catch (_) {} }
@@ -542,7 +603,24 @@ export class Player {
             if (this.verticalVel > 0) this.verticalVel = 0;
         }
 
-        if (this.position.y <= this.height) {
+        const standingHazard = this.arena.getHazardAt?.(this.position);
+        if (standingHazard?.kind === 'void') this.onGround = false;
+        if (this.verticalVel <= 0) {
+            const platform = this.arena.platforms?.find(entry => {
+                const landingY = entry.y + this.height;
+                return prevPos.y >= landingY
+                    && this.position.y <= landingY
+                    && Math.abs(this.position.x - entry.x) <= entry.halfWidth - this.radius
+                    && Math.abs(this.position.z - entry.z) <= entry.halfDepth - this.radius;
+            });
+            if (platform) {
+                this.position.y = platform.y + this.height;
+                this.verticalVel = 0;
+                this.onGround = true;
+                this.jumpsRemaining = 2;
+            }
+        }
+        if (this.position.y <= this.height && standingHazard?.kind !== 'void') {
             if (!this.onGround) {
                 this.jumpsRemaining = 2;
                 if (this.audio) this.audio.playLand();
@@ -550,6 +628,21 @@ export class Player {
             this.position.y = this.height;
             this.verticalVel = 0;
             this.onGround = true;
+        }
+
+        this._jumpPadCooldown = Math.max(0, (this._jumpPadCooldown || 0) - dt);
+        if (this.onGround && this._jumpPadCooldown === 0) {
+            const pad = this.arena.jumpPads?.find(entry => {
+                const dx = this.position.x - entry.position.x;
+                const dz = this.position.z - entry.position.z;
+                return dx * dx + dz * dz <= 8;
+            });
+            if (pad) {
+                this.verticalVel = pad.impulse;
+                this.onGround = false;
+                this._jumpPadCooldown = 0.45;
+                this.audio?.playJump();
+            }
         }
 
         // Bounds
@@ -651,6 +744,7 @@ export class Player {
     // Deflect sonrası: consecutiveMisses sıfırla, lifesteal rune uygula.
     onSuccessfulDeflect() {
         this.consecutiveMisses = 0;
+        this.attackCooldown = Math.min(this.attackCooldown, this._rapidDeflect ? 0.08 : SUCCESSFUL_DEFLECT_RECOVERY);
         if (this.runeBonuses?.lifesteal) {
             this.hp = Math.min(this.maxHp, this.hp + this.runeBonuses.lifesteal);
         }
@@ -690,32 +784,21 @@ export class Player {
     isAttacking() { return this.attacking; }
 
     _moveHorizontal(wishDir, wishSpeed, dt) {
-        let horizontal = { x: this.velocity.x, z: this.velocity.z };
-        const hasInput = wishDir.lengthSq() > 0;
-
-        if (this.onGround) {
-            const friction = this.arena.config?.slippery ? GROUND_FRICTION * 0.28 : GROUND_FRICTION;
-            horizontal = applyGroundFriction(horizontal, friction, STOP_SPEED, dt);
-        }
-
-        if (hasInput) {
-            horizontal = this.onGround
-                ? sourceAccelerate(horizontal, wishDir, wishSpeed, GROUND_ACCEL, dt)
-                : sourceAccelerate(
-                    horizontal,
-                    wishDir,
-                    wishSpeed,
-                    AIR_ACCEL,
-                    dt,
-                    Math.min(wishSpeed, AIR_WISH_CAP),
-                    this.speed * this.bhopSpeedCap
-                );
-        }
-
-        this.velocity.x = horizontal.x;
-        this.velocity.z = horizontal.z;
-        this.position.x += horizontal.x * dt;
-        this.position.z += horizontal.z * dt;
+        const surfaceFactor = this.arena.config?.slippery
+            ? SLIPPERY_SURFACE_FACTOR
+            : (this.arena.config?.gameplay?.sandTraction ?? 1);
+        const moved = moveHorizontalState(
+            this.velocity,
+            wishDir,
+            wishSpeed,
+            dt,
+            this.onGround,
+            surfaceFactor
+        );
+        this.velocity.x = moved.velocity.x;
+        this.velocity.z = moved.velocity.z;
+        this.position.x += moved.displacement.x;
+        this.position.z += moved.displacement.z;
     }
 
     _clipHorizontalVelocity(nx, nz, wasDashing = false) {

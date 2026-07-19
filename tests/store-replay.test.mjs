@@ -32,6 +32,27 @@ test('character mastery levels up without losing overflow XP', () => {
     assert.equal(progress.xp, 50);
 });
 
+test('avatar trials grant temporary access and XP boosts affect rewards', () => {
+    Store.reset();
+    assert.equal(Store.hasAvatarAccess('astro'), false);
+    assert.equal(Store.startAvatarTrial('astro'), true);
+    assert.equal(Store.hasAvatarAccess('astro'), true);
+    assert.equal(Store.equipAvatarSkin('astro'), true);
+    assert.equal(Store.buyAndActivateXpBoost(), true);
+    assert.equal(Store.boostedXp(100), 150);
+    assert.equal(Store.buyAndActivateXpBoost(), false);
+});
+
+test('legacy ranked ELO migrates into seasonal ranked state', () => {
+    Store.reset();
+    localStorage.setItem('dodgball_save_v2', JSON.stringify({
+        playerName: 'Legacy',
+        stats: { rankedElo: 1875, rankedGames: 12 }
+    }));
+    Store.load();
+    assert.equal(Store.getElo(), 1875);
+});
+
 test('replay import validates shape and save keeps latest ten', () => {
     const replay = new ReplayClass();
     assert.throws(() => replay.importJSON('{"events":null}'), /Invalid replay JSON/);

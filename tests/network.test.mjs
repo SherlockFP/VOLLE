@@ -314,3 +314,167 @@ test('concurrent mesh connect shares one pending transport', async () => {
     await Promise.all([first, second]);
     assert.equal(network.connections.get('peer-b'), conn);
 });
+
+test('social presence and chat reject malformed packets', () => {
+    const presence = [];
+    const chat = [];
+    const network = new Network({});
+    network.onSocialPresence = data => presence.push(data);
+    network.onSocialChat = data => chat.push(data);
+
+    network.handleMessage({ type: 'socialPresence', playerId: 'p1', x: 1, y: 2 }, 'peer');
+    network.handleMessage({ type: 'socialPresence', playerId: 'p1', x: Infinity, y: 2, z: 3 }, 'peer');
+    network.handleMessage({ type: 'socialChat', name: 'Player', text: 'x'.repeat(161) }, 'peer');
+    network.handleMessage({ type: 'socialPresence', playerId: 'p1', x: 1, y: 2, z: 3 }, 'peer');
+    network.handleMessage({ type: 'socialChat', playerId: 'p1', name: 'Player', text: 'hello' }, 'peer');
+
+    assert.equal(presence.length, 1);
+    assert.equal(chat.length, 1);
+});
+
+test('host rejects spoofed social identity', () => {
+    let presence = 0;
+    const network = new Network({});
+    network.isHost = true;
+    network.onSocialPresence = () => presence++;
+    const conn = fakeConn('peer-a');
+    conn._admitted = true;
+    network.connections.set('peer-a', conn);
+    network.peerToPlayerId.set('peer-a', 'player-a');
+
+    network.handleMessage({
+        type: 'socialPresence',
+        playerId: 'player-b',
+        x: 1,
+        y: 2,
+        z: 3
+    }, 'peer-a');
+
+    assert.equal(presence, 0);
+});
+
+test('host rate limits social packets per peer and type', () => {
+    let presence = 0;
+    const network = new Network({});
+    network.isHost = true;
+    network.onSocialPresence = () => presence++;
+    const conn = fakeConn('peer-a');
+    conn._admitted = true;
+    network.connections.set('peer-a', conn);
+    network.peerToPlayerId.set('peer-a', 'player-a');
+
+    for (let i = 0; i < 100; i++) {
+        network.handleMessage({
+            type: 'socialPresence',
+            playerId: 'player-a',
+            x: 1,
+            y: 2,
+            z: 3
+        }, 'peer-a');
+    }
+
+    assert.equal(presence, 30);
+});
+
+test('closing a peer clears its social rate state', () => {
+    const network = new Network({});
+    const conn = fakeConn('peer-a');
+    network._allowSocialPacket('peer-a', 'socialPresence', 1);
+    network._allowSocialPacket('peer-a', 'socialChat', 1);
+    network.setupDataHandlers(conn);
+
+    conn.emit('close');
+
+    assert.equal(network._socialRate.size, 0);
+});
+
+test('social send helpers sanitize chat and include identity', () => {
+    const sent = [];
+    const network = new Network({});
+    network.connected = true;
+    network.playerId = 'player-1';
+    network.playerName = 'Rally';
+    network.send = data => sent.push(data);
+
+    assert.equal(network.sendSocialChat('  hello hub  '), true);
+    network.sendSocialPresence({ x: 1, y: 2, z: 3 }, 0.5, 'character-f');
+
+    assert.deepEqual(sent[0], {
+        type: 'socialChat',
+        playerId: 'player-1',
+        name: 'Rally',
+        text: 'hello hub'
+    });
+    assert.equal(sent[1].skin, 'character-f');
+    assert.equal(sent[1].ry, 0.5);
+});
+
+test('late-join team selection uses transport-bound identity', () => {
+    const selections = [];
+    const game = { remotePlayers: new Map([['player-a', { name: 'Alice' }]]) };
+    const network = new Network(game);
+    network.isHost = true;
+    network.onLateJoinTeam = (playerId, team) => selections.push([playerId, team]);
+    const conn = fakeConn('peer-a');
+    conn._admitted = true;
+    network.connections.set('peer-a', conn);
+    network.peerToPlayerId.set('peer-a', 'player-a');
+
+    network.handleMessage({
+        type: 'lateJoinTeam',
+        playerId: 'player-b',
+        team: 'blue'
+    }, 'peer-a');
+
+    assert.deepEqual(selections, [['player-a', 'blue']]);
+});
+
+test('system chat is accepted only from the host transport', () => {
+    const messages = [];
+    const network = new Network({
+        addChatMessage: (name, text) => messages.push([name, text])
+    });
+    network.hostConn = { peer: 'host-peer' };
+
+    network.handleMessage({ type: 'systemChat', text: 'trusted' }, 'host-peer');
+    network.handleMessage({ type: 'systemChat', text: 'spoofed' }, 'mesh-peer');
+
+    assert.deepEqual(messages, [['SERVER', 'trusted']]);
+});
+
+test('round and lobby state are accepted only from the host transport', () => {
+    let rounds = 0;
+    let lobbies = 0;
+    const network = new Network({
+        startRoundFromNetwork: () => rounds++,
+        applyLobbyState: () => lobbies++
+    });
+    network.hostConn = { peer: 'host-peer' };
+
+    network.handleMessage({ type: 'roundStart' }, 'mesh-peer');
+    network.handleMessage({ type: 'lobbyState', players: [] }, 'mesh-peer');
+    network.handleMessage({ type: 'roundStart' }, 'host-peer');
+    network.handleMessage({ type: 'lobbyState', players: [] }, 'host-peer');
+
+    assert.equal(rounds, 1);
+    assert.equal(lobbies, 1);
+});
+
+test('host rejects client-authored round and lobby state', () => {
+    let rounds = 0;
+    let lobbies = 0;
+    const network = new Network({
+        startRoundFromNetwork: () => rounds++,
+        applyLobbyState: () => lobbies++
+    });
+    network.isHost = true;
+    const conn = fakeConn('peer-a');
+    conn._admitted = true;
+    network.connections.set('peer-a', conn);
+
+    network.handleMessage({ type: 'roundStart' }, 'peer-a');
+    network.handleMessage({ type: 'lobbyState', players: [] }, 'peer-a');
+
+    assert.equal(rounds, 0);
+    assert.equal(lobbies, 0);
+});

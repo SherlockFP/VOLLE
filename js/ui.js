@@ -8,7 +8,6 @@ import { ACHIEVEMENTS } from './achievements.js';
 import { MatchHistory } from './matchhistory.js';
 import { getRank, getRankProgress } from './ranked.js';
 import { Leaderboard } from './leaderboard.js';
-import { Tutorial, TUTORIAL_STEPS } from './tutorial.js';
 import { Arena } from './arena.js';
 
 export class UI {
@@ -25,13 +24,14 @@ export class UI {
             shop: document.getElementById('shop-screen'),
             battlepass: document.getElementById('battlepass-screen'),
             avatar: document.getElementById('avatar-screen'),
+            mapEditor: document.getElementById('map-editor-screen'),
             achievements: document.getElementById('achievements-screen'),
             daily: document.getElementById('daily-screen'),
             ranked: document.getElementById('ranked-screen'),
             leaderboard: document.getElementById('leaderboard-screen'),
             replays: document.getElementById('replays-screen'),
+            social: document.getElementById('social-screen'),
             tournament: document.getElementById('tournament-screen'),
-            tutorial: document.getElementById('tutorial-screen'),
             profile: document.getElementById('screen-profile')
         };
         this.initSettings();
@@ -205,20 +205,24 @@ export class UI {
         players.forEach(p => {
             const li = document.createElement('li');
             const isYou = p.name === game.playerName;
-            li.textContent = (p.isBot ? '🤖 ' : isYou ? '⭐ ' : '') + p.name;
+            const queued = !!p.queuedForNextRound;
+            const displayTeam = queued ? (p.pendingTeam || p.team) : p.team;
+            li.textContent = (p.isBot ? '🤖 ' : isYou ? '⭐ ' : '')
+                + p.name
+                + (queued ? ' · NEXT ROUND' : '');
             if (isYou) li.classList.add('you');
             const canMove = isHost || isYou;
             if (canMove) {
                 li.classList.add('clickable');
                 li.title = 'Click → switch team';
                 li.onclick = () => {
-                    const dest = p.team === 'red' ? 'blue' : 'red';
+                    const dest = displayTeam === 'red' ? 'blue' : 'red';
                     if (isYou) game.switchTeam(dest);
                     else game.switchPlayerTeam(p.name, dest);
                     this._renderTeamLists(game);
                 };
             }
-            (p.team === 'red' ? redList : blueList).appendChild(li);
+            (displayTeam === 'red' ? redList : blueList).appendChild(li);
         });
 
         // TF2/CSGO-style: click team header to join
@@ -233,7 +237,11 @@ export class UI {
 
         const specBtn = document.getElementById('btn-team-popup-spectate');
         if (specBtn && this.onToggleSpectate) {
-            specBtn.textContent = this.spectating ? '↩ Leave Spectator' : '👁 Spectate';
+            const waiting = !!game.player.queuedForNextRound;
+            specBtn.textContent = waiting
+                ? 'Waiting for next round'
+                : (this.spectating ? '↩ Leave Spectator' : '👁 Spectate');
+            specBtn.disabled = waiting;
             specBtn.onclick = () => { this.onToggleSpectate(); };
         }
     }
@@ -909,13 +917,27 @@ export class UI {
         } else if (tab === 'avatars') {
             Object.values(AVATAR_SKINS).forEach(s => {
                 if (s.id === 'default') return;
-                const owned = store.ownsAvatarSkin(s.id);
+                const owned = s.price === 0 || store.hasAvatarAccess(s.id);
                 const equipped = store.get('equippedAvatarSkin') === s.id;
                 const card = document.createElement('div');
                 card.className = `shop-card ${owned ? 'owned' : ''}`;
                 card.innerHTML = `<div class="char-emoji">🎨</div><div class="char-name">${s.name}</div><div class="skin-preview" style="--skin-head:${s.head};--skin-body:${s.body};--skin-arms:${s.arms};--skin-legs:${s.legs}"></div>${owned ? (equipped ? '<div class="shop-owned">✔ Equipped</div>' : `<button class="btn btn-small shop-equip" data-type="avatar" data-id="${s.id}">Equip</button>`) : `<button class="btn btn-primary btn-small shop-buy" data-type="avatar" data-id="${s.id}">🪙 ${s.price}</button>`}`;
                 grid.appendChild(card);
             });
+            grid.querySelectorAll('.shop-card').forEach((card, index) => {
+                const skin = Object.values(AVATAR_SKINS).filter(item => item.id !== 'default')[index];
+                if (!skin || store.hasAvatarAccess(skin.id)) return;
+                const trial = document.createElement('button');
+                trial.className = 'btn btn-secondary btn-small shop-trial';
+                trial.dataset.id = skin.id;
+                trial.textContent = '15m Trial';
+                card.appendChild(trial);
+            });
+        } else if (tab === 'boosts') {
+            const card = document.createElement('div');
+            card.className = 'shop-card';
+            card.innerHTML = '<div class="skill-emoji">XP</div><div class="char-name">Arcade XP Boost</div><div class="char-desc">1.5x match XP for 60 minutes.</div><button class="btn btn-primary btn-small shop-buy" data-type="boost" data-id="xp-15">120 coins</button>';
+            grid.appendChild(card);
         }
     }
 
@@ -1085,19 +1107,6 @@ export class UI {
             champDiv.innerHTML = `🏆 Champion: ${bracket.champion}`;
             el.appendChild(champDiv);
         }
-    }
-
-    // ===== TUTORIAL EKRANI =====
-    renderTutorial() {
-        const el = document.getElementById('tutorial-steps');
-        if (!el) return;
-        el.innerHTML = '';
-        TUTORIAL_STEPS.forEach((s, i) => {
-            const div = document.createElement('div');
-            div.className = 'tutorial-step';
-            div.innerHTML = `<span class="tut-num">${i+1}</span> ${s.text}`;
-            el.appendChild(div);
-        });
     }
 
     showProfile() {

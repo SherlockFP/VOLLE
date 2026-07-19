@@ -1,216 +1,400 @@
-// avatar.js — Pixel art avatar painter. Canvas tabanlı, basit brush/fill.
-// ponytail: stdlib canvas API, tek dosya, store'a dataURL kaydet.
-const GRID = 64;
-const PIXEL = 8;
+const ATLAS_SIZE = 64;
+const FACE_SIZE = 8;
+const EDITOR_PIXEL = 64;
+
+export const HEAD_FRONT = Object.freeze({ x: 8, y: 8, width: 8, height: 8 });
+
+export const AVATAR_MODELS = Object.freeze({
+    classic: Object.freeze({
+        id: 'classic',
+        textureWidth: ATLAS_SIZE,
+        textureHeight: ATLAS_SIZE,
+        head: Object.freeze({ width: 8, height: 8, depth: 8 }),
+        body: Object.freeze({ width: 8, height: 12, depth: 4 }),
+        arm: Object.freeze({ width: 4, height: 12, depth: 4 }),
+        leg: Object.freeze({ width: 4, height: 12, depth: 4 })
+    }),
+    slim: Object.freeze({
+        id: 'slim',
+        textureWidth: ATLAS_SIZE,
+        textureHeight: ATLAS_SIZE,
+        head: Object.freeze({ width: 8, height: 8, depth: 8 }),
+        body: Object.freeze({ width: 8, height: 12, depth: 4 }),
+        arm: Object.freeze({ width: 3, height: 12, depth: 4 }),
+        leg: Object.freeze({ width: 4, height: 12, depth: 4 })
+    })
+});
+
+const skin = (id, name, price, model, team, head, body, arms, legs) =>
+    Object.freeze({ id, name, price, model, team, head, body, arms, legs });
+
+export const AVATAR_SKINS = Object.freeze({
+    default: skin('default', 'Custom Canvas', 0, 'classic', null, '#ffd8a8', '#cc3333', '#cc3333', '#222244'),
+    neon: skin('neon', 'Neon Runner', 250, 'slim', null, '#66ffaa', '#aa44ff', '#4488ff', '#111122'),
+    samurai: skin('samurai', 'Cyber Samurai', 350, 'classic', null, '#ffd8a8', '#222222', '#aa3333', '#444444'),
+    frost: skin('frost', 'Frost Guard', 300, 'classic', null, '#ffffff', '#4488ff', '#88ccff', '#224477'),
+    astro: skin('astro', 'Astro Courier', 420, 'slim', null, '#d7f1ff', '#253d76', '#6ecbff', '#19264d'),
+    arcade: skin('arcade', 'Arcade Ace', 380, 'classic', null, '#ffd2b0', '#21b8d6', '#ff5f9e', '#263057'),
+    moss: skin('moss', 'Moss Golem', 450, 'classic', null, '#b7d695', '#456b47', '#719c58', '#304936'),
+    blue_default: skin('blue_default', 'Blue Default', 0, 'classic', 'blue', '#ffd8a8', '#3355cc', '#3355cc', '#172b70'),
+    red_guard: skin('red_guard', 'Red Guard', 0, 'classic', 'red', '#ffd8a8', '#cc3333', '#a82424', '#651c2a')
+});
+
+export const TEAM_SKIN_IDS = Object.freeze({ blue: 'blue_default', red: 'red_guard' });
+
 const PALETTE = [
-    '#000000','#ffffff','#ff4444','#4488ff','#44dd44','#ffaa00','#aa44ff','#ff66aa',
-    '#88ccff','#ffd8a8','#8b4513','#dddddd','#ff8844','#66ffaa','#ffdd44','#888888'
+    '#000000', '#ffffff', '#ff4444', '#4488ff', '#44dd44', '#ffaa00', '#aa44ff', '#ff66aa',
+    '#88ccff', '#ffd8a8', '#8b4513', '#dddddd', '#ff8844', '#66ffaa', '#ffdd44', '#888888'
 ];
 
-export const AVATAR_SKINS = {
-    default: { id: 'default', name: 'Custom Canvas', price: 0, head: '#ffd8a8', body: '#cc3333', arms: '#cc3333', legs: '#222244' },
-    neon: { id: 'neon', name: 'Neon Runner', price: 250, head: '#66ffaa', body: '#aa44ff', arms: '#4488ff', legs: '#111122' },
-    samurai: { id: 'samurai', name: 'Cyber Samurai', price: 350, head: '#ffd8a8', body: '#222222', arms: '#aa3333', legs: '#444444' },
-    frost: { id: 'frost', name: 'Frost Guard', price: 300, head: '#ffffff', body: '#4488ff', arms: '#88ccff', legs: '#224477' }
+const FRONT_UV = Object.freeze({
+    head: Object.freeze({ x: 8, y: 8, width: 8, height: 8 }),
+    body: Object.freeze({ x: 20, y: 20, width: 8, height: 12 }),
+    leftArm: Object.freeze({ x: 36, y: 52, width: 4, height: 12 }),
+    rightArm: Object.freeze({ x: 44, y: 20, width: 4, height: 12 }),
+    leftLeg: Object.freeze({ x: 20, y: 52, width: 4, height: 12 }),
+    rightLeg: Object.freeze({ x: 4, y: 20, width: 4, height: 12 })
+});
+
+const resolveSkin = value => {
+    if (typeof value === 'string') return AVATAR_SKINS[value] || AVATAR_SKINS.default;
+    return value?.id && AVATAR_SKINS[value.id] ? AVATAR_SKINS[value.id] : AVATAR_SKINS.default;
 };
+
+const resolveModel = value => {
+    const id = typeof value === 'string' ? value : value?.id;
+    return AVATAR_MODELS[id] || AVATAR_MODELS.classic;
+};
+
+const shade = (color, factor) => {
+    const hex = color.replace('#', '');
+    const value = Number.parseInt(hex, 16);
+    const channel = shift => Math.max(0, Math.min(255, Math.round(((value >> shift) & 255) * factor)));
+    return `#${[channel(16), channel(8), channel(0)].map(c => c.toString(16).padStart(2, '0')).join('')}`;
+};
+
+const fill = (pixels, x, y, width, height, color) => {
+    for (let py = y; py < y + height; py++) {
+        for (let px = x; px < x + width; px++) pixels[py * ATLAS_SIZE + px] = color;
+    }
+};
+
+const paintBox = (pixels, x, y, width, depth, height, color) => {
+    fill(pixels, x + depth, y, width, depth, shade(color, 1.08));
+    fill(pixels, x + depth + width, y, width, depth, shade(color, 0.72));
+    fill(pixels, x, y + depth, depth, height, shade(color, 0.82));
+    fill(pixels, x + depth, y + depth, width, height, color);
+    fill(pixels, x + depth + width, y + depth, depth, height, shade(color, 0.9));
+    fill(pixels, x + depth * 2 + width, y + depth, width, height, shade(color, 0.76));
+};
+
+export function createAvatarAtlas(skinId = 'default') {
+    const preset = resolveSkin(skinId);
+    const model = resolveModel(preset.model);
+    const pixels = Array(ATLAS_SIZE * ATLAS_SIZE).fill(null);
+    paintBox(pixels, 0, 0, 8, 8, 8, preset.head);
+    paintBox(pixels, 16, 16, 8, 4, 12, preset.body);
+    paintBox(pixels, 40, 16, model.arm.width, 4, 12, preset.arms);
+    paintBox(pixels, 0, 16, 4, 4, 12, preset.legs);
+    paintBox(pixels, 32, 48, model.arm.width, 4, 12, preset.arms);
+    paintBox(pixels, 16, 48, 4, 4, 12, preset.legs);
+    pixels[11 * ATLAS_SIZE + 10] = '#222222';
+    pixels[11 * ATLAS_SIZE + 13] = '#222222';
+    return pixels;
+}
+
+export function cropAtlasFace(pixels) {
+    if (!Array.isArray(pixels) || pixels.length !== ATLAS_SIZE * ATLAS_SIZE) {
+        return Array(FACE_SIZE * FACE_SIZE).fill(null);
+    }
+    const face = [];
+    for (let y = 0; y < HEAD_FRONT.height; y++) {
+        for (let x = 0; x < HEAD_FRONT.width; x++) {
+            face.push(pixels[(HEAD_FRONT.y + y) * ATLAS_SIZE + HEAD_FRONT.x + x] ?? null);
+        }
+    }
+    return face;
+}
+
+export function migrateAvatarPixels(pixels) {
+    if (!Array.isArray(pixels)) return Array(FACE_SIZE * FACE_SIZE).fill(null);
+    if (pixels.length === ATLAS_SIZE * ATLAS_SIZE) return cropAtlasFace(pixels);
+    if (pixels.length === FACE_SIZE * FACE_SIZE) return pixels.map(pixel => pixel ?? null);
+    if (pixels.length === 16 * 16) {
+        return Array.from({ length: FACE_SIZE * FACE_SIZE }, (_, index) => {
+            const x = (index % FACE_SIZE) * 2;
+            const y = Math.floor(index / FACE_SIZE) * 2;
+            return pixels[y * 16 + x] ?? null;
+        });
+    }
+    return Array(FACE_SIZE * FACE_SIZE).fill(null);
+}
+
+export function composeAvatarAtlas(base = 'default', overlay = []) {
+    const atlas = Array.isArray(base) && base.length === ATLAS_SIZE * ATLAS_SIZE
+        ? base.map(pixel => pixel ?? null)
+        : createAvatarAtlas(base);
+    const face = migrateAvatarPixels(overlay);
+    for (let y = 0; y < FACE_SIZE; y++) {
+        for (let x = 0; x < FACE_SIZE; x++) {
+            const color = face[y * FACE_SIZE + x];
+            if (color != null) atlas[(HEAD_FRONT.y + y) * ATLAS_SIZE + HEAD_FRONT.x + x] = color;
+        }
+    }
+    return atlas;
+}
+
+export function getTeamPresetSkinId(team) {
+    return TEAM_SKIN_IDS[String(team || '').toLowerCase()] || null;
+}
+
+export function layoutAvatarPreview(modelId = 'classic', scale = 1, padding = 1) {
+    const model = resolveModel(modelId);
+    const unit = Number.isFinite(scale) && scale > 0 ? scale : 1;
+    const pad = Number.isFinite(padding) && padding >= 0 ? padding : 0;
+    const silhouetteWidth = model.arm.width * 2 + model.body.width;
+    const contentHeight = model.head.height + model.body.height + model.leg.height;
+    const bodyX = pad + model.arm.width;
+    const centerX = pad + silhouetteWidth / 2;
+    const bodyY = pad + model.head.height;
+    const legY = bodyY + model.body.height;
+    const part = (name, x, y, width, height) => {
+        const uv = FRONT_UV[name];
+        const atlas = name.endsWith('Arm') ? Object.freeze({ ...uv, width: model.arm.width }) : uv;
+        return Object.freeze({
+            name,
+            x: x * unit,
+            y: y * unit,
+            width: width * unit,
+            height: height * unit,
+            atlas
+        });
+    };
+    return Object.freeze({
+        model: model.id,
+        projection: 'front',
+        width: (silhouetteWidth + pad * 2) * unit,
+        height: (contentHeight + pad * 2) * unit,
+        parts: Object.freeze([
+            part('head', centerX - model.head.width / 2, pad, model.head.width, model.head.height),
+            part('leftArm', bodyX - model.arm.width, bodyY, model.arm.width, model.arm.height),
+            part('body', bodyX, bodyY, model.body.width, model.body.height),
+            part('rightArm', bodyX + model.body.width, bodyY, model.arm.width, model.arm.height),
+            part('leftLeg', centerX - model.leg.width, legY, model.leg.width, model.leg.height),
+            part('rightLeg', centerX, legY, model.leg.width, model.leg.height)
+        ])
+    });
+}
+
+export const getAvatarPreviewLayout = layoutAvatarPreview;
 
 export class AvatarPainter {
     constructor(canvasEl, store) {
         this.canvas = canvasEl;
         this.ctx = canvasEl.getContext('2d');
         this.store = store;
-        this.size = GRID;
-        this.cell = PIXEL;
+        this.size = FACE_SIZE;
+        this.cell = EDITOR_PIXEL;
         this.canvas.width = this.size * this.cell;
         this.canvas.height = this.size * this.cell;
         this.color = '#ff8844';
-        this.tool = 'brush'; // brush | fill | erase
-        this.pixels = this._loadOrEmpty();
+        this.tool = 'brush';
+        const saved = this.store?.get?.('customAvatar');
+        const equipped = this.store?.get?.('equippedAvatarSkin');
+        this.skinId = AVATAR_SKINS[saved?.baseSkinId]?.id
+            || AVATAR_SKINS[saved?.skinId]?.id
+            || AVATAR_SKINS[equipped]?.id
+            || 'default';
+        this.pixels = migrateAvatarPixels(saved?.overlay || saved?.pixels);
         this.drawing = false;
         this.onchange = null;
         this._bind();
         this.render();
     }
 
-    _loadOrEmpty() {
-        const saved = this.store?.get?.('customAvatar');
-        if (saved?.pixels?.length === GRID * GRID) return saved.pixels;
-        if (saved?.pixels?.length === 16 * 16) {
-            const pixels = Array(GRID * GRID).fill(null);
-            for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) pixels[(y + 8) * GRID + (x + 8)] = saved.pixels[y * 16 + x];
-            return pixels;
-        }
-        return Array(this.size * this.size).fill(null);
-    }
-
     _bind() {
-        const handle = (e) => {
+        const handle = e => {
             const rect = this.canvas.getBoundingClientRect();
-            const scaleX = this.canvas.width / rect.width;
-            const scaleY = this.canvas.height / rect.height;
-            const x = Math.floor((e.clientX - rect.left) * scaleX / this.cell);
-            const y = Math.floor((e.clientY - rect.top) * scaleY / this.cell);
+            const x = Math.floor((e.clientX - rect.left) * this.canvas.width / rect.width / this.cell);
+            const y = Math.floor((e.clientY - rect.top) * this.canvas.height / rect.height / this.cell);
             if (x < 0 || x >= this.size || y < 0 || y >= this.size) return;
             if (this.tool === 'fill') this._floodFill(x, y, this.color);
-            else if (this.tool === 'erase') this.pixels[y * this.size + x] = null;
-            else this.pixels[y * this.size + x] = this.color;
+            else this.pixels[y * this.size + x] = this.tool === 'erase' ? null : this.color;
             this.render();
         };
-        this.canvas.addEventListener('mousedown', e => { this.drawing = true; handle(e); });
-        this.canvas.addEventListener('mousemove', e => { if (this.drawing) handle(e); });
-        window.addEventListener('mouseup', () => { this.drawing = false; this._save(); });
-        this.canvas.addEventListener('mouseleave', () => { if (this.drawing) { this.drawing = false; this._save(); } });
+        this.canvas.addEventListener('mousedown', e => {
+            this.drawing = true;
+            handle(e);
+        });
+        this.canvas.addEventListener('mousemove', e => {
+            if (this.drawing) handle(e);
+        });
+        globalThis.window?.addEventListener('mouseup', () => {
+            if (!this.drawing) return;
+            this.drawing = false;
+            this._save();
+        });
+        this.canvas.addEventListener('mouseleave', () => {
+            if (!this.drawing) return;
+            this.drawing = false;
+            this._save();
+        });
     }
 
     _floodFill(x, y, newColor) {
-        const idx = y * this.size + x;
-        const target = this.pixels[idx];
+        const visible = cropAtlasFace(this.getAtlasPixels());
+        const target = visible[y * this.size + x];
         if (target === newColor) return;
         const stack = [[x, y]];
+        const visited = new Set();
         while (stack.length) {
             const [cx, cy] = stack.pop();
-            if (cx < 0 || cx >= this.size || cy < 0 || cy >= this.size) continue;
-            const ci = cy * this.size + cx;
-            if (this.pixels[ci] !== target) continue;
-            this.pixels[ci] = newColor;
-            stack.push([cx+1, cy], [cx-1, cy], [cx, cy+1], [cx, cy-1]);
+            const index = cy * this.size + cx;
+            if (cx < 0 || cx >= this.size || cy < 0 || cy >= this.size || visited.has(index)) continue;
+            visited.add(index);
+            if (visible[index] !== target) continue;
+            this.pixels[index] = newColor;
+            stack.push([cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]);
         }
     }
 
-    setColor(c) { this.color = c; }
-    setTool(t) { this.tool = t; }
-    clear() { this.pixels.fill(null); this.render(); this._save(); }
+    setColor(color) {
+        this.color = color;
+    }
 
-    render() {
-        const ctx = this.ctx;
-        // Grid bg
-        ctx.fillStyle = '#1a1a2e';
-        ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-        for (let y = 0; y < this.size; y++) {
-            for (let x = 0; x < this.size; x++) {
-                const c = this.pixels[y * this.size + x];
-                if (c) {
-                    ctx.fillStyle = c;
-                    ctx.fillRect(x * this.cell, y * this.cell, this.cell, this.cell);
-                }
-                // grid line
-                ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-                ctx.strokeRect(x * this.cell, y * this.cell, this.cell, this.cell);
+    setTool(tool) {
+        this.tool = tool;
+    }
+
+    clear() {
+        this.pixels.fill(null);
+        this.render();
+        this._save();
+    }
+
+    getAtlasPixels() {
+        return composeAvatarAtlas(this.skinId, this.pixels);
+    }
+
+    _canvasForAtlas() {
+        const canvas = this.canvas.ownerDocument?.createElement('canvas')
+            || globalThis.document?.createElement('canvas');
+        if (!canvas) return null;
+        canvas.width = ATLAS_SIZE;
+        canvas.height = ATLAS_SIZE;
+        const ctx = canvas.getContext('2d');
+        const pixels = this.getAtlasPixels();
+        for (let y = 0; y < ATLAS_SIZE; y++) {
+            for (let x = 0; x < ATLAS_SIZE; x++) {
+                const color = pixels[y * ATLAS_SIZE + x];
+                if (!color) continue;
+                ctx.fillStyle = color;
+                ctx.fillRect(x, y, 1, 1);
             }
         }
-        this.onchange?.(this.canvas.toDataURL());
+        return canvas;
+    }
+
+    _atlasDataURL() {
+        return this._canvasForAtlas()?.toDataURL() || '';
+    }
+
+    render() {
+        const face = cropAtlasFace(this.getAtlasPixels());
+        this.ctx.fillStyle = '#1a1a2e';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        for (let y = 0; y < this.size; y++) {
+            for (let x = 0; x < this.size; x++) {
+                const color = face[y * this.size + x];
+                if (color) {
+                    this.ctx.fillStyle = color;
+                    this.ctx.fillRect(x * this.cell, y * this.cell, this.cell, this.cell);
+                }
+                this.ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+                this.ctx.strokeRect(x * this.cell, y * this.cell, this.cell, this.cell);
+            }
+        }
+        if (this.onchange) this.onchange(this._atlasDataURL());
     }
 
     _save() {
-        const dataURL = this.canvas.toDataURL();
-        this.store?.set?.('customAvatar', { pixels: this.pixels, dataURL, model: 'classic' });
-        this.store?.set?.('equippedAvatarSkin', 'default');
+        const preset = resolveSkin(this.skinId);
+        const dataURL = this._atlasDataURL();
+        this.store?.set?.('customAvatar', {
+            version: 2,
+            pixels: this.getAtlasPixels(),
+            overlay: this.pixels.slice(),
+            dataURL,
+            model: preset.model,
+            baseSkinId: preset.id,
+            skinId: preset.id
+        });
+        this.store?.set?.('equippedAvatarSkin', preset.id);
         this.onchange?.(dataURL);
     }
 
     applyPreset(skinId) {
-        const skin = AVATAR_SKINS[skinId];
-        if (!skin) return false;
+        if (!AVATAR_SKINS[skinId]) return false;
+        this.skinId = skinId;
         this.pixels.fill(null);
-        const fill = (x0, y0, x1, y1, color) => {
-            for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) this.pixels[y * this.size + x] = color;
-        };
-        fill(8, 8, 16, 16, skin.head);
-        fill(20, 20, 28, 32, skin.body);
-        fill(44, 20, 48, 32, skin.arms);
-        fill(4, 20, 12, 32, skin.legs);
         this.render();
         this._save();
-        this.store?.set?.('equippedAvatarSkin', skinId);
         return true;
     }
 
-    // Skorbord için küçük avatar render (32x32 PNG dataURL)
     toSmallDataURL() {
-        const tmp = document.createElement('canvas');
-        tmp.width = 32; tmp.height = 32;
-        const tctx = tmp.getContext('2d');
-        const step = 32 / 16;
-        for (let y = 0; y < 16; y++) {
-            for (let x = 0; x < 16; x++) {
-                const c = this.pixels[(y + 8) * this.size + (x + 8)];
-                if (c) { tctx.fillStyle = c; tctx.fillRect(x*step, y*step, step+0.5, step+0.5); }
+        const canvas = this.canvas.ownerDocument?.createElement('canvas')
+            || globalThis.document?.createElement('canvas');
+        if (!canvas) return '';
+        canvas.width = 32;
+        canvas.height = 32;
+        const ctx = canvas.getContext('2d');
+        const face = cropAtlasFace(this.getAtlasPixels());
+        for (let y = 0; y < FACE_SIZE; y++) {
+            for (let x = 0; x < FACE_SIZE; x++) {
+                const color = face[y * FACE_SIZE + x];
+                if (!color) continue;
+                ctx.fillStyle = color;
+                ctx.fillRect(x * 4, y * 4, 4, 4);
             }
         }
-        return tmp.toDataURL();
+        return canvas.toDataURL();
     }
 
-    // 3D karakter önizlemesi (Minecraft-style, canvas 2D)
-    renderPreview(previewCanvas, teamColor = '#cc3333') {
+    renderPreview(previewCanvas) {
         if (!previewCanvas) return;
-        const S = 10; // scale: her avatar pikseli = 10px
-        const W = 16 * S;  // 160
-        const H = 22 * S;  // 220
-        previewCanvas.width = W;
-        previewCanvas.height = H;
+        const preset = resolveSkin(this.skinId);
+        const layout = layoutAvatarPreview(preset.model, 8, 1);
+        previewCanvas.width = layout.width;
+        previewCanvas.height = layout.height;
         const ctx = previewCanvas.getContext('2d');
         ctx.imageSmoothingEnabled = false;
-        // Bg
         ctx.fillStyle = '#1a1a2e';
-        ctx.fillRect(0, 0, W, H);
-        const cx = W / 2; // center x
-
-        // Head (avatar yüzü)
-        const headW = 16 * S / 10 * 8; // avatar'ı 80% scale ile kafaya oturt
-        const headH = 16 * S / 10 * 8;
-        const headX = cx - headW / 2;
-        const headY = 0;
-        for (let y = 0; y < 16; y++) {
-            for (let x = 0; x < 16; x++) {
-                const c = this.pixels[(y + 8) * this.size + (x + 8)];
-                if (c) {
-                    ctx.fillStyle = c;
-                    const px = headX + (x / 16) * headW;
-                    const py = headY + (y / 16) * headH;
-                    const pw = Math.ceil((x + 1) / 16 * headW) - Math.ceil(x / 16 * headW);
-                    const ph = Math.ceil((y + 1) / 16 * headH) - Math.ceil(y / 16 * headH);
-                    ctx.fillRect(Math.round(px), Math.round(py), pw || 1, ph || 1);
+        ctx.fillRect(0, 0, layout.width, layout.height);
+        const atlas = this.getAtlasPixels();
+        for (const part of layout.parts) {
+            const uv = part.atlas;
+            const pixelWidth = part.width / uv.width;
+            const pixelHeight = part.height / uv.height;
+            for (let y = 0; y < uv.height; y++) {
+                for (let x = 0; x < uv.width; x++) {
+                    const color = atlas[(uv.y + y) * ATLAS_SIZE + uv.x + x];
+                    if (!color) continue;
+                    ctx.fillStyle = color;
+                    ctx.fillRect(
+                        part.x + x * pixelWidth,
+                        part.y + y * pixelHeight,
+                        pixelWidth,
+                        pixelHeight
+                    );
                 }
             }
+            ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+            ctx.strokeRect(part.x, part.y, part.width, part.height);
         }
-        // Head outline
-        ctx.strokeStyle = 'rgba(0,0,0,0.3)';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(Math.round(headX), Math.round(headY), Math.round(headW), Math.round(headH));
-
-        // Body
-        const bW = 10 * S / 10 * 8;
-        const bH = 8 * S / 10 * 8;
-        const bX = cx - bW / 2;
-        const bY = 9 * S / 10 * 8;
-        ctx.fillStyle = teamColor;
-        ctx.fillRect(Math.round(bX), Math.round(bY), Math.round(bW), Math.round(bH));
-        ctx.strokeRect(Math.round(bX), Math.round(bY), Math.round(bW), Math.round(bH));
-
-        // Arms
-        const aW = 2 * S / 10 * 8;
-        const aH = 7 * S / 10 * 8;
-        // Left arm
-        ctx.fillStyle = teamColor;
-        ctx.fillRect(Math.round(bX - aW), Math.round(bY), Math.round(aW), Math.round(aH));
-        ctx.strokeRect(Math.round(bX - aW), Math.round(bY), Math.round(aW), Math.round(aH));
-        // Right arm
-        ctx.fillRect(Math.round(bX + bW), Math.round(bY), Math.round(aW), Math.round(aH));
-        ctx.strokeRect(Math.round(bX + bW), Math.round(bY), Math.round(aW), Math.round(aH));
-
-        // Legs
-        const lW = 3 * S / 10 * 8;
-        const lH = 5 * S / 10 * 8;
-        const lY = bY + bH;
-        ctx.fillStyle = teamColor;
-        // Left leg
-        const lLX = cx - lW - 1;
-        ctx.fillRect(Math.round(lLX), Math.round(lY), Math.round(lW), Math.round(lH));
-        ctx.strokeRect(Math.round(lLX), Math.round(lY), Math.round(lW), Math.round(lH));
-        // Right leg
-        ctx.fillRect(Math.round(cx + 1), Math.round(lY), Math.round(lW), Math.round(lH));
-        ctx.strokeRect(Math.round(cx + 1), Math.round(lY), Math.round(lW), Math.round(lH));
     }
 
-    static getPalette() { return PALETTE; }
+    static getPalette() {
+        return PALETTE;
+    }
 }

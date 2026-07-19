@@ -48,6 +48,8 @@ export class Network {
         this.readyPlayers = new Set();
         this.onReadyChange = null;
         this.onPartyChat = null;
+        this.onSocialPresence = null;
+        this.onSocialChat = null;
         this.lobbyPassword = '';   // host-set; '' = open lobby
         this.onKicked = null;      // callback() when host kicks us
         this.onTeamChange = null;  // callback(name, team) applied on clients
@@ -64,6 +66,7 @@ export class Network {
         this._reconnectAttempts = 0;
         this._reconnectTimer = null;
         this._joinPromise = null;
+        this._socialRate = new Map();
     }
 
     async initPeer() {
@@ -278,6 +281,24 @@ export class Network {
             if (this.connections.get(conn.peer) !== conn) return;
             this.handleMessage(data, conn.peer);
         });
+        conn.on('close', () => {
+            this._socialRate.delete(`${conn.peer}:socialPresence`);
+            this._socialRate.delete(`${conn.peer}:socialChat`);
+        });
+    }
+
+    _allowSocialPacket(peerId, type, now = Date.now()) {
+        const config = type === 'socialChat'
+            ? { windowMs: 5000, max: 8 }
+            : { windowMs: 1000, max: 30 };
+        const key = `${peerId}:${type}`;
+        let entry = this._socialRate.get(key);
+        if (!entry || now - entry.startedAt >= config.windowMs) {
+            entry = { startedAt: now, count: 0 };
+            this._socialRate.set(key, entry);
+        }
+        entry.count++;
+        return entry.count <= config.max;
     }
 
     // --- ponytail: binary codec for hot-path packets ---
@@ -403,8 +424,24 @@ export class Network {
                 return typeof data.x === 'number' && typeof data.z === 'number';
             case 'chat':
                 return typeof data.text === 'string' && data.text.length <= 500;
+            case 'socialPresence':
+                return typeof data.playerId === 'string'
+                    && data.playerId.length <= 128
+                    && (!data.name || (typeof data.name === 'string' && data.name.length <= 24))
+                    && [data.x, data.y, data.z].every(value => Number.isFinite(value) && Math.abs(value) <= 100);
+            case 'socialChat':
+                return typeof data.playerId === 'string'
+                    && data.playerId.length <= 128
+                    && typeof data.name === 'string'
+                    && data.name.length <= 24
+                    && typeof data.text === 'string'
+                    && data.text.length <= 160;
             case 'teamChange':
                 return data.team === 'red' || data.team === 'blue';
+            case 'lateJoinTeam':
+                return data.team === 'red' || data.team === 'blue';
+            case 'systemChat':
+                return typeof data.text === 'string' && data.text.length <= 160;
             default:
                 return true;
         }
@@ -468,14 +505,47 @@ export class Network {
                 if (!this.isHost) this.game.applyAnnounce(data);
                 break;
             case 'chat':
-                if (data.name !== this.playerName) this.game.addChatMessage(data.name, data.text);
+                if (this.isHost) {
+                    const playerId = this.peerToPlayerId.get(peerId);
+                    const player = this.game.remotePlayers.get(playerId);
+                    if (!player) break;
+                    const trusted = { ...data, name: player.name };
+                    this.game.addChatMessage(trusted.name, trusted.text);
+                    this.broadcast(trusted);
+                } else if (peerId === this.hostConn?.peer && data.name !== this.playerName) {
+                    this.game.addChatMessage(data.name, data.text);
+                }
+                break;
+            case 'systemChat':
+                if (!this.isHost && peerId === this.hostConn?.peer) {
+                    this.game.addChatMessage('SERVER', data.text);
+                }
+                break;
+            case 'socialPresence':
+                if (this.isHost) {
+                    const boundPlayerId = this.peerToPlayerId.get(peerId);
+                    if (boundPlayerId && data.playerId !== boundPlayerId) break;
+                    if (!this._allowSocialPacket(peerId, data.type)) break;
+                }
+                this.onSocialPresence?.(data);
+                if (this.isHost) this.broadcast(data);
+                break;
+            case 'socialChat':
+                if (this.isHost) {
+                    const boundPlayerId = this.peerToPlayerId.get(peerId);
+                    if (boundPlayerId && data.playerId !== boundPlayerId) break;
+                    if (!this._allowSocialPacket(peerId, data.type)) break;
+                }
+                this.onSocialChat?.(data);
                 if (this.isHost) this.broadcast(data);
                 break;
             case 'gameState':
                 if (this.onGameState) this.onGameState(data);
                 break;
             case 'lobbyState':
-                this.game.applyLobbyState(data);
+                if (!this.isHost && peerId === this.hostConn?.peer) {
+                    this.game.applyLobbyState(data);
+                }
                 break;
             case 'gameStart':
                 this.game.startGameFromNetwork(data);
@@ -507,7 +577,9 @@ export class Network {
                 this.game.updateScoresFromNetwork(data);
                 break;
             case 'roundStart':
-                this.game.startRoundFromNetwork(data);
+                if (!this.isHost && peerId === this.hostConn?.peer) {
+                    this.game.startRoundFromNetwork(data);
+                }
                 break;
             case 'roundEnd':
                 this.game.applyRoundEnd?.(data);
@@ -545,7 +617,19 @@ export class Network {
             case 'teamChange':
                 // Hem istemci hem host kendi callback'lerini çalıştırır.
                 // Client sadece uygular, host ise uygulayıp yeni lobbyState'i broadcast eder.
-                if (this.onTeamChange) this.onTeamChange(data.name, data.team);
+                if (this.isHost) {
+                    const playerId = this.peerToPlayerId.get(peerId);
+                    const player = this.game.remotePlayers.get(playerId);
+                    if (player) this.onTeamChange?.(player.name, data.team, playerId);
+                } else if (peerId === this.hostConn?.peer) {
+                    this.onTeamChange?.(data.name, data.team, data.playerId);
+                }
+                break;
+            case 'lateJoinTeam':
+                if (this.isHost) {
+                    const playerId = this.peerToPlayerId.get(peerId);
+                    if (playerId) this.onLateJoinTeam?.(playerId, data.team);
+                }
                 break;
             case 'remoteAttackAnim':
                 if (!this.isHost) this.game.handleRemoteAttackAnim(data);
@@ -561,6 +645,12 @@ export class Network {
                 break;
             case 'powerUpState':
                 if (!this.isHost) this.game.applyPowerUpState(data);
+                break;
+            case 'powerUpPickup':
+                if (this.isHost) this.game.handlePowerUpPickup(data, peerId);
+                break;
+            case 'powerUpGranted':
+                if (!this.isHost) this.game.applyPowerUpGrant(data);
                 break;
             case 'celebrationStart':
                 if (!this.isHost) this.game.applyCelebrationStart(data);
@@ -811,6 +901,7 @@ export class Network {
         this.playerResumeTokens.clear();
         this.allowedMeshPeers.clear();
         this.pendingConnections.clear();
+        this._socialRate.clear();
         if (this.peer) this.peer.destroy();
         this.peer = null;
         this.connected = false;
@@ -874,6 +965,32 @@ export class Network {
 
     sendPartyChat(text) {
         this.broadcast({ type: 'partyChat', name: this.playerName, text });
+    }
+
+    sendSocialPresence(position, rotation, skin = 'character-a') {
+        if (!this.connected) return;
+        this.send({
+            type: 'socialPresence',
+            playerId: this.playerId,
+            name: this.playerName,
+            skin,
+            x: position.x,
+            y: position.y,
+            z: position.z,
+            ry: rotation
+        });
+    }
+
+    sendSocialChat(text) {
+        const clean = String(text || '').trim().slice(0, 160);
+        if (!clean || !this.connected) return false;
+        this.send({
+            type: 'socialChat',
+            playerId: this.playerId,
+            name: this.playerName,
+            text: clean
+        });
+        return true;
     }
 
     // --- Friend DM ---

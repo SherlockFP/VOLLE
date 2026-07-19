@@ -50,6 +50,27 @@ export const CHARACTERS = {
         passive: 'chill_touch',
         desc: 'Deflect ettiği top hedefi yavaşlatır (-20%, 2sn).',
         color: 0x66ccff, price: 500
+    },
+    volt: {
+        id: 'volt', name: 'Volt', emoji: 'V',
+        maxHp: 85, speed: 12, deflectPower: 1.12, staminaMax: 105,
+        passive: 'fast_stam',
+        desc: 'Fast arcade duelist with strong air control.',
+        color: 0x62d8ff, price: 550
+    },
+    nova: {
+        id: 'nova', name: 'Nova', emoji: 'N',
+        maxHp: 110, speed: 9.5, deflectPower: 1.18, staminaMax: 95,
+        passive: 'shield_regen',
+        desc: 'Defensive star striker built for long rallies.',
+        color: 0xb388ff, price: 600
+    },
+    ripple: {
+        id: 'ripple', name: 'Ripple', emoji: 'R',
+        maxHp: 90, speed: 11.5, deflectPower: 1.08, staminaMax: 115,
+        passive: 'chill_touch',
+        desc: 'Mobile trick-shot specialist with tempo control.',
+        color: 0x29e0c1, price: 550
     }
 };
 

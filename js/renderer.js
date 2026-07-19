@@ -43,6 +43,10 @@ export class Renderer {
         this._camera = null;
         this._bloom = null;
         this._quality = 'medium';
+        this._qualityPixelRatioCap = 1.5;
+        this._renderScale = 1;
+        this._targetResolution = null;
+        this._viewport = { width: window.innerWidth, height: window.innerHeight };
     }
 
     _initComposer(camera) {
@@ -65,8 +69,36 @@ export class Renderer {
 
     // Public so main.js can call composer.setSize on window resize
     updateSize(w, h) {
+        this._viewport.width = Math.max(1, w);
+        this._viewport.height = Math.max(1, h);
+        this._applyPixelRatio();
         this.renderer.setSize(w, h);
         this._composer?.setSize(w, h);
+    }
+
+    setResolutionTarget(width, height) {
+        this._targetResolution = Number.isFinite(width) && Number.isFinite(height)
+            ? { width: Math.max(320, width), height: Math.max(240, height) }
+            : null;
+        this._applyPixelRatio();
+        this.updateSize(this._viewport.width, this._viewport.height);
+    }
+
+    setRenderScale(scale = 1) {
+        this._renderScale = Math.min(1.5, Math.max(0.5, Number(scale) || 1));
+        this._applyPixelRatio();
+        this.updateSize(this._viewport.width, this._viewport.height);
+    }
+
+    _applyPixelRatio() {
+        const targetRatio = this._targetResolution
+            ? Math.min(
+                this._targetResolution.width / this._viewport.width,
+                this._targetResolution.height / this._viewport.height
+            )
+            : window.devicePixelRatio;
+        const ratio = Math.min(this._qualityPixelRatioCap, targetRatio * this._renderScale);
+        this.renderer.setPixelRatio(Math.max(0.1, ratio));
     }
 
     bloomStrength(v) {
@@ -84,7 +116,8 @@ export class Renderer {
             medium: { pixelRatio: 1.5, shadows: true, bloom: 0.05 },
             high: { pixelRatio: 2, shadows: true, bloom: 0.08 }
         }[this._quality];
-        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, config.pixelRatio));
+        this._qualityPixelRatioCap = config.pixelRatio;
+        this._applyPixelRatio();
         this.renderer.shadowMap.enabled = config.shadows;
         if (this._bloom) this._bloom.strength = config.bloom;
     }

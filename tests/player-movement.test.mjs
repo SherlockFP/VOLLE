@@ -11,6 +11,8 @@ const helpers = await import(`data:text/javascript,${encodeURIComponent(source.s
 const {
     applyGroundFriction,
     sourceAccelerate,
+    moveHorizontalState,
+    isEditableTarget,
     resolveJump,
     clipInwardVelocity,
     clipMovementState,
@@ -19,7 +21,7 @@ const {
     GROUND_FRICTION,
     STOP_SPEED,
     AIR_WISH_CAP,
-    AIR_SPEED_CAP
+    SLIPPERY_SURFACE_FACTOR
 } = helpers;
 
 const closeTo = (actual, expected, epsilon = 1e-9) => {
@@ -42,28 +44,88 @@ test('ground friction applies while making a 90 degree turn', () => {
     closeTo(turned.z, 10);
 });
 
-test('air acceleration scales by wish speed and caps runaway speed', () => {
+test('air acceleration scales by wish speed', () => {
     const strafed = sourceAccelerate(
         { x: 10, z: 0 },
         { x: 0, z: 1 },
         10,
         AIR_ACCEL,
         1 / 60,
-        AIR_WISH_CAP,
-        10 * AIR_SPEED_CAP
+        AIR_WISH_CAP
     );
     closeTo(strafed.z, 0.94);
+});
 
-    const capped = sourceAccelerate(
-        { x: 15.99, z: 0 },
+test('air acceleration preserves over-cap tangent momentum', () => {
+    const strafed = sourceAccelerate(
+        { x: 20, z: 0 },
         { x: 0, z: 1 },
         10,
         AIR_ACCEL,
         1 / 60,
-        AIR_WISH_CAP,
-        10 * AIR_SPEED_CAP
+        AIR_WISH_CAP
     );
-    closeTo(Math.hypot(capped.x, capped.z), 10 * AIR_SPEED_CAP);
+    closeTo(strafed.x, 20);
+    closeTo(strafed.z, AIR_WISH_CAP);
+    assert.ok(Math.hypot(strafed.x, strafed.z) > 16);
+});
+
+test('slippery factor scales both ground friction and acceleration', () => {
+    const normalCoast = moveHorizontalState({ x: 10, z: 0 }, { x: 0, z: 0 }, 10, 1 / 120, true);
+    const iceCoast = moveHorizontalState(
+        { x: 10, z: 0 },
+        { x: 0, z: 0 },
+        10,
+        1 / 120,
+        true,
+        SLIPPERY_SURFACE_FACTOR
+    );
+    closeTo(
+        10 - iceCoast.velocity.x,
+        (10 - normalCoast.velocity.x) * SLIPPERY_SURFACE_FACTOR
+    );
+
+    const normalAccel = moveHorizontalState({ x: 0, z: 0 }, { x: 1, z: 0 }, 10, 1 / 120, true);
+    const iceAccel = moveHorizontalState(
+        { x: 0, z: 0 },
+        { x: 1, z: 0 },
+        10,
+        1 / 120,
+        true,
+        SLIPPERY_SURFACE_FACTOR
+    );
+    closeTo(iceAccel.velocity.x, normalAccel.velocity.x * SLIPPERY_SURFACE_FACTOR);
+});
+
+test('fixed horizontal substeps are stable across common frame rates', () => {
+    const simulate = fps => {
+        let velocity = { x: 0, z: 0 };
+        let position = { x: 0, z: 0 };
+        for (let i = 0; i < fps; i++) {
+            const moved = moveHorizontalState(velocity, { x: 1, z: 0 }, 10, 1 / fps, true);
+            velocity = moved.velocity;
+            position = {
+                x: position.x + moved.displacement.x,
+                z: position.z + moved.displacement.z
+            };
+        }
+        return { velocity, position };
+    };
+
+    const at120 = simulate(120);
+    for (const fps of [30, 60]) {
+        const result = simulate(fps);
+        closeTo(result.velocity.x, at120.velocity.x);
+        closeTo(result.position.x, at120.position.x);
+    }
+});
+
+test('editable targets are excluded from gameplay keydown', () => {
+    assert.equal(isEditableTarget({ tagName: 'INPUT' }), true);
+    assert.equal(isEditableTarget({ tagName: 'TEXTAREA' }), true);
+    assert.equal(isEditableTarget({ tagName: 'SELECT' }), true);
+    assert.equal(isEditableTarget({ tagName: 'DIV', isContentEditable: true }), true);
+    assert.equal(isEditableTarget({ tagName: 'CANVAS', isContentEditable: false }), false);
 });
 
 test('initial jump and double jump consume separate charges', () => {

@@ -107,7 +107,10 @@ export const BALL_SKINS = {
     lightning: { name: 'Lightning Orb',      color: 0xffee44, glow: 0xffff88, trail: 0xffff66, starColor: 0xffffff },
     bomb:      { name: 'Bomb Ball',          color: 0x222222, glow: 0xff4400, trail: 0xff6600, starColor: 0xff4400, burstTrail: true },
     star:      { name: 'Star Core',          color: 0xffdd44, glow: 0xffffaa, trail: 0xffee88, starColor: 0xffffff },
-    rainbow:   { name: 'Rainbow',            color: 0xff00ff, glow: 0xffffff, trail: 0xff00ff, starColor: 0xffffff, rainbow: true }
+    rainbow:   { name: 'Rainbow',            color: 0xff00ff, glow: 0xffffff, trail: 0xff00ff, starColor: 0xffffff, rainbow: true },
+    plasma:    { name: 'Plasma Pulse',        color: 0x52ddff, glow: 0x72f2ff, trail: 0x39a9ff, starColor: 0xffffff, burstTrail: true },
+    abyss:     { name: 'Abyss Core',          color: 0x23113f, glow: 0x9c5cff, trail: 0x673ab7, starColor: 0xd7b8ff, burstTrail: true },
+    melon:     { name: 'Melon Pop',           color: 0x55d66b, glow: 0xff6b8b, trail: 0x6ee787, starColor: 0xffd6df }
 };
 
 export class Ball {
@@ -310,7 +313,9 @@ export class Ball {
             return false;
         }
         if (!this.active) return;
-        const arenaGravity = this.gravity * (this.arena.config?.lowGravity ? 0.55 : 1);
+        const arenaGravity = this.gravity
+            * (this.arena.config?.lowGravity ? 0.55 : 1)
+            * (this.arena.config?.gameplay?.ballGravityScale ?? 1);
         // ponytail: store previous position for swept sphere hit detection
         this._prevPosition = this.position.clone();
         if (this._noHitTimer > 0) this._noHitTimer -= dt;

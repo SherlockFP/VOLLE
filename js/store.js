@@ -4,6 +4,15 @@
 import { CHARACTERS } from './characters.js';
 import { SKILLS, RUNES, DEFAULT_LOADOUT } from './skills.js';
 import { AVATAR_SKINS } from './avatar.js';
+import { createRankedState, recordRankedMatch as applyRankedMatch } from './ranked-service.js';
+import {
+    activateXpBoost,
+    applyXpBoost,
+    createSocialState,
+    getActiveCosmeticTrials,
+    grantXpBoost,
+    startCosmeticTrial
+} from './social.js';
 
 const KEY = 'dodgball_save_v2';
 const PROFILE_TOKEN_KEY = 'dodgball_profile_token';
@@ -48,6 +57,11 @@ const DEFAULTS = {
     customAvatar: null,
     ownedAvatarSkins: ['default'],
     equippedAvatarSkin: 'default',
+    customMaps: [],
+    crosshairSettings: { style: 'dot', color: '#00ff88', size: 12, gap: 6, thickness: 2, dot: true },
+    mouseSensitivity: 2,
+    rankedState: createRankedState(),
+    socialState: createSocialState(),
     settings: {
         sensitivity: 2, volume: 50, botDifficulty: 'hard', fov: 75,
         quality: 'medium', reduceMotion: false, screenShake: true,
@@ -71,6 +85,9 @@ class StoreClass {
             const raw = localStorage.getItem(KEY);
             if (!raw) return structuredClone(DEFAULTS);
             const parsed = JSON.parse(raw);
+            const legacyElo = Math.min(5000, Math.max(0,
+                Number(parsed.rankedState?.elo ?? parsed.elo ?? parsed.stats?.rankedElo ?? 1000) || 1000
+            ));
             // Deep merge — yeni key'ler eski save'lerde de olsun
             return { ...structuredClone(DEFAULTS), ...parsed,
                 settings: { ...DEFAULTS.settings, ...(parsed.settings||{}) },
@@ -78,6 +95,7 @@ class StoreClass {
                 characterProgress: { ...DEFAULTS.characterProgress, ...(parsed.characterProgress||{}) },
                 battlepass: { ...DEFAULTS.battlepass, ...(parsed.battlepass||{}) },
                 stats: { ...DEFAULTS.stats, ...(parsed.stats||{}) },
+                rankedState: parsed.rankedState || createRankedState({ elo: Math.round(legacyElo) }),
                 ownedAvatarSkins: parsed.ownedAvatarSkins || DEFAULTS.ownedAvatarSkins
             };
         } catch {
@@ -90,6 +108,14 @@ class StoreClass {
 
     get(key) { return this.data[key]; }
     set(key, val) { this.data[key] = val; this.save(); }
+    recordRankedMatch(result) {
+        this.data.rankedState = applyRankedMatch(this.data.rankedState || createRankedState(), result);
+        this.data.elo = this.data.rankedState.elo;
+        this.data.stats.rankedElo = this.data.rankedState.elo;
+        this.data.stats.rankedGames = this.data.rankedState.currentSeason.record.games;
+        this.save();
+        return this.data.rankedState;
+    }
 
     async connectRemote(playerName = this.data.playerName) {
         if (typeof fetch !== 'function') return false;
@@ -217,6 +243,68 @@ class StoreClass {
     ownsSkill(skillId) { return this.data.ownedSkills.includes(skillId); }
     ownsAvatarSkin(skinId) { return (this.data.ownedAvatarSkins || []).includes(skinId); }
 
+    _socialUserId() {
+        return String(this.data.playerName || 'player')
+            .replace(/[^A-Za-z0-9_.:-]/g, '-')
+            .replace(/^-+/, '')
+            .slice(0, 48) || 'player';
+    }
+
+    hasAvatarAccess(skinId) {
+        return this.ownsAvatarSkin(skinId)
+            || getActiveCosmeticTrials(this.data.socialState, this._socialUserId(), Date.now())
+                .some(trial => trial.cosmeticId === skinId);
+    }
+
+    startAvatarTrial(skinId) {
+        if (!AVATAR_SKINS[skinId] || this.ownsAvatarSkin(skinId)) return false;
+        try {
+            this.data.socialState = startCosmeticTrial(this.data.socialState, {
+                userId: this._socialUserId(),
+                cosmeticId: skinId,
+                startedAt: Date.now(),
+                durationMs: 15 * 60 * 1000
+            });
+            this.data.equippedAvatarSkin = skinId;
+            this.save();
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    buyAndActivateXpBoost() {
+        const price = 120;
+        if (this.data.currency < price) return false;
+        const userId = this._socialUserId();
+        const boostId = `boost-${Date.now()}`;
+        try {
+            let social = grantXpBoost(this.data.socialState, {
+                userId,
+                boostId,
+                quantity: 1,
+                multiplier: 1.5,
+                durationMs: 60 * 60 * 1000
+            });
+            social = activateXpBoost(social, { userId, boostId, activatedAt: Date.now() });
+            this.data.socialState = social;
+            this.data.currency -= price;
+            this.data.stats.totalSpent = (this.data.stats.totalSpent || 0) + price;
+            this.save();
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    boostedXp(baseXp) {
+        return applyXpBoost(this.data.socialState, {
+            userId: this._socialUserId(),
+            baseXp: Math.max(0, Math.floor(baseXp)),
+            at: Date.now()
+        });
+    }
+
     buyAvatarSkin(skinId) {
         const skin = AVATAR_SKINS[skinId];
         if (!skin || this.ownsAvatarSkin(skinId) || this.data.currency < skin.price) return false;
@@ -228,7 +316,7 @@ class StoreClass {
     }
 
     equipAvatarSkin(skinId) {
-        if (!this.ownsAvatarSkin(skinId)) return false;
+        if (!this.hasAvatarAccess(skinId)) return false;
         this.data.equippedAvatarSkin = skinId;
         this.save();
         return true;
@@ -349,7 +437,7 @@ class StoreClass {
         return this.data.characterProgress[charId] || { level: 1, xp: 0 };
     }
 
-    getElo() { return this.data.stats.rankedElo || 1000; }
+    getElo() { return this.data.rankedState?.elo ?? this.data.stats.rankedElo ?? 1000; }
     getWinStreak() { return this.data.stats.winStreak || 0; }
 
     reset() { this.data = structuredClone(DEFAULTS); this.save(); }

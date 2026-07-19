@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Volle — 3D First-Person Dodgeball</title>
+    <title>Volle - 3D First-Person Dodgeball</title>
     <meta name="description" content="A 3D first-person dodgeball game with TF2-style cartoonish graphics, P2P multiplayer, and skill-based gameplay">
     <link rel="stylesheet" href="css/style.css">
     <script type="importmap">
@@ -17,6 +17,30 @@
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
 <body>
+    <svg class="ui-sprite" aria-hidden="true">
+        <symbol id="i-ball" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M5 7.5c4.2 1.1 7.1 4.7 7.8 9.7M14.8 3.5c-1.2 4-4.8 6.7-9.7 7.4M20.1 9.2c-3.9.3-7.5 2.9-9.1 7"/></symbol>
+        <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4.5 21c.7-5 3.2-7 7.5-7s6.8 2 7.5 7"/></symbol>
+        <symbol id="i-coins" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7.5" ry="3"/><path d="M4.5 6v5c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3V6M4.5 11v5c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-5"/></symbol>
+        <symbol id="i-ticket" viewBox="0 0 24 24"><path d="M4 6h16v4a2 2 0 0 0 0 4v4H4v-4a2 2 0 0 0 0-4V6Z"/><path d="M12 7.5v2M12 12v2M12 16.5v.5"/></symbol>
+        <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.4 1A8 8 0 0 0 14.8 6L14.5 3h-5L9 6a8 8 0 0 0-1.6 1.1l-2.4-1-2 3.4L5.1 11a7 7 0 0 0 0 2L3 14.5l2 3.4 2.4-1A8 8 0 0 0 9 18l.5 3h5l.4-3a8 8 0 0 0 1.7-1.1l2.4 1 2-3.4-2.1-1.5c.1-.3.1-.7.1-1Z"/></symbol>
+        <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7V5Z"/></symbol>
+        <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
+        <symbol id="i-prev" viewBox="0 0 24 24"><path d="M6 5v14M18 6l-8 6 8 6V6Z"/></symbol>
+        <symbol id="i-next" viewBox="0 0 24 24"><path d="M18 5v14M6 6l8 6-8 6V6Z"/></symbol>
+        <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></symbol>
+        <symbol id="i-map" viewBox="0 0 24 24"><path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3V6Z"/><path d="M9 3v15M15 6v15"/></symbol>
+        <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.2 3 14.8 0 18M12 3c-3 3.2-3 14.8 0 18"/></symbol>
+        <symbol id="i-link" viewBox="0 0 24 24"><path d="m9 15-2 2a3.5 3.5 0 0 1-5-5l3-3a3.5 3.5 0 0 1 5 0M15 9l2-2a3.5 3.5 0 0 1 5 5l-3 3a3.5 3.5 0 0 1-5 0M8 12h8"/></symbol>
+        <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M7 4h10v5a5 5 0 0 1-10 0V4ZM9 20h6M12 14v6M7 6H3v2a4 4 0 0 0 5 4M17 6h4v2a4 4 0 0 1-5 4"/></symbol>
+        <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
+        <symbol id="i-replay" viewBox="0 0 24 24"><path d="M5 8V3L2 6l3 2Z"/><path d="M5 6a9 9 0 1 1-1 10"/></symbol>
+        <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="m14 6-6 6 6 6M8 12h12"/></symbol>
+        <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+        <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
+        <symbol id="i-access" viewBox="0 0 24 24"><circle cx="12" cy="4" r="2"/><path d="M5 8h14M12 6v15M8 11l4 4 4-4M8 21l4-6 4 6"/></symbol>
+        <symbol id="i-shop" viewBox="0 0 24 24"><path d="M4 9v11h16V9M3 9l2-5h14l2 5"/><path d="M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0M9 20v-6h6v6"/></symbol>
+        <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 8a7 7 0 0 1 11.8-1L20 12M4 12l2.1 5a7 7 0 0 0 11.8-1"/></symbol>
+    </svg>
     <!-- Loading Screen -->
     <div id="loading-screen">
         <div class="loading-content">
@@ -35,16 +59,16 @@
     <!-- Damage flash overlay -->
     <div id="damage-flash"></div>
 
-    <!-- ===== MAIN MENU (Premium Esport Theme) ===== -->
+    <!-- ===== MAIN MENU ===== -->
     <div id="main-menu" class="screen ow-screen">
         <div class="ow-mouse-glow"></div>
         <div class="ow-cursor"></div>
         <div class="ow-menu">
-            <!-- Top bar: profile · nav tabs · currency + settings -->
             <header class="ow-topbar">
                 <div class="ow-profile">
-                    <div class="ow-avatar" id="ow-avatar">🏐</div>
+                    <div class="ow-avatar" id="ow-avatar"><svg class="ui-icon" aria-hidden="true"><use href="#i-ball"></use></svg></div>
                     <div class="ow-profile-info">
+                        <span class="ow-eyebrow">PLAYER CARD</span>
                         <input type="text" id="player-name-input" class="ow-name-input" value="Player" maxlength="16">
                         <div class="ow-level">Level <span id="meta-level">1</span></div>
                     </div>
@@ -53,54 +77,66 @@
                 <nav class="ow-tabs">
                     <button id="btn-character" class="ow-tab">Heroes</button>
                     <button id="btn-shop" class="ow-tab">Shop</button>
+                    <button id="btn-social" class="ow-tab">Social</button>
                     <button id="btn-battlepass" class="ow-tab">Battle Pass</button>
                     <button id="btn-daily" class="ow-tab">Challenges</button>
                     <button id="btn-ranked" class="ow-tab">Career</button>
                 </nav>
 
                 <div class="ow-currency">
-                    <span class="ow-coin">🪙 <span id="meta-coins">0</span></span>
-                    <span class="ow-coin ow-pass">🎟️ <span id="meta-bp-tier">0</span></span>
-                    <button id="btn-settings" class="ow-gear" title="Settings">⚙</button>
+                    <span class="ow-coin"><svg class="ui-icon" aria-hidden="true"><use href="#i-coins"></use></svg><span id="meta-coins">0</span></span>
+                    <span class="ow-coin ow-pass"><svg class="ui-icon" aria-hidden="true"><use href="#i-ticket"></use></svg><span id="meta-bp-tier">0</span></span>
+                    <button id="btn-settings" class="ow-gear" title="Settings" aria-label="Open settings"><svg class="ui-icon" aria-hidden="true"><use href="#i-settings"></use></svg></button>
                 </div>
             </header>
 
-            <!-- Center splash -->
-            <div class="ow-splash">
-                <div class="ow-logo">VOLLE</div>
-                <div class="ow-tagline">FIRST PERSON DODGEBALL</div>
-                <div class="ow-mode-chip">Current Mode: <b>Quick Play — Create or Join a Lobby</b></div>
-            </div>
-
-            <!-- Bottom: big PLAY + secondary actions -->
-            <footer class="ow-bottom">
-                <div class="ow-secondary ow-secondary-left">
-                    <button id="btn-practice" class="ow-sbtn">🎯 Practice</button>
-                    <button id="btn-tutorial" class="ow-sbtn">📖 Tutorial</button>
-                    <button id="btn-avatar" class="ow-sbtn">🎨 Avatar</button>
+            <section class="ow-showcase" id="menu-character-showcase" aria-label="Featured original arena runner">
+                <div class="ow-sun-disc" aria-hidden="true"></div>
+                <div class="ow-character" aria-hidden="true">
+                    <span class="ow-character-head"></span>
+                    <span class="ow-character-body"></span>
+                    <span class="ow-character-arm"></span>
+                    <span class="ow-character-ball"></span>
                 </div>
+                <div class="ow-splash">
+                    <span class="ow-kicker">WELCOME TO THE ARENA</span>
+                    <div class="ow-logo">VOLLE</div>
+                    <div class="ow-tagline">FIRST PERSON DODGEBALL</div>
+                    <div class="ow-mode-chip" id="menu-mode-status"><span>QUICK PLAY</span><b>Create or join a lobby</b></div>
+                </div>
+            </section>
 
-                <button id="btn-play-solo" class="ow-play">PLAY</button>
-
+            <aside class="ow-action-panel" aria-label="Play menu">
+                <div class="ow-action-heading">
+                    <span class="ow-kicker">PLAY</span>
+                    <strong>Choose your match</strong>
+                </div>
+                <button id="btn-play-solo" class="ow-play"><svg class="ui-icon" aria-hidden="true"><use href="#i-play"></use></svg><span><b>QUICK PLAY</b><small>Jump into a bot match</small></span></button>
+                <button id="btn-social-lobby" class="ow-social-lobby">
+                    <svg class="ui-icon" aria-hidden="true"><use href="#i-globe"></use></svg>
+                    <span><b>ENTER SOCIAL HUB</b><small>Meet players, chat, practice and find matches</small></span>
+                    <svg class="ui-icon ow-social-lobby-arrow" aria-hidden="true"><use href="#i-play"></use></svg>
+                </button>
                 <div class="ow-secondary ow-secondary-right">
-                    <button id="btn-host-game" class="ow-sbtn">🌐 Host</button>
-                    <button id="btn-join-game" class="ow-sbtn">🔗 Join</button>
-                    <button id="btn-tournament" class="ow-sbtn">🥇 Tournament</button>
+                    <button id="btn-host-game" class="ow-sbtn"><svg class="ui-icon" aria-hidden="true"><use href="#i-globe"></use></svg><span>Host Game</span></button>
+                    <button id="btn-join-game" class="ow-sbtn"><svg class="ui-icon" aria-hidden="true"><use href="#i-link"></use></svg><span>Join Game</span></button>
+                    <button id="btn-practice" class="ow-sbtn"><svg class="ui-icon" aria-hidden="true"><use href="#i-target"></use></svg><span>Practice</span></button>
+                    <button id="btn-tournament" class="ow-sbtn"><svg class="ui-icon" aria-hidden="true"><use href="#i-trophy"></use></svg><span>Tournament</span></button>
+                    <button id="btn-avatar" class="ow-sbtn"><svg class="ui-icon" aria-hidden="true"><use href="#i-user"></use></svg><span>Avatar</span></button>
+                    <button id="btn-map-editor" class="ow-sbtn"><svg class="ui-icon" aria-hidden="true"><use href="#i-map"></use></svg><span>Map Editor</span></button>
                 </div>
-            </footer>
-
-            <!-- Extra links (achievements, leaderboard) -->
-            <div class="ow-extralinks">
-                <button id="btn-replays" class="ow-link">Replays</button>
-                <button id="btn-achievements" class="ow-link">🏅 Achievements</button>
-                <button id="btn-leaderboard" class="ow-link">📊 Leaderboard</button>
-                <span class="ow-hint">WASD move · L-Click deflect · Q skill · Tab scores · Y chat</span>
-            </div>
+                <div class="ow-extralinks">
+                    <button id="btn-replays" class="ow-link"><svg class="ui-icon" aria-hidden="true"><use href="#i-replay"></use></svg>Replays</button>
+                    <button id="btn-achievements" class="ow-link"><svg class="ui-icon" aria-hidden="true"><use href="#i-trophy"></use></svg>Achievements</button>
+                    <button id="btn-leaderboard" class="ow-link"><svg class="ui-icon" aria-hidden="true"><use href="#i-chart"></use></svg>Leaderboard</button>
+                </div>
+                <span class="ow-hint">WASD move / L-Click deflect / Q skill / Tab scores / Y chat</span>
+            </aside>
 
             <!-- Friends sidebar (Messenger-style) -->
             <div id="friends-sidebar" class="friends-sidebar">
                 <div class="friends-sidebar-header">
-                    <button id="fbar-toggle" class="fbar-toggle-btn">◀</button>
+                    <button id="fbar-toggle" class="fbar-toggle-btn" aria-label="Toggle friends panel"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg></button>
                     <span>FRIENDS</span>
                     <span class="friends-sidebar-count" id="fbar-count"></span>
                 </div>
@@ -113,21 +149,87 @@
                         <div id="fbar-offline-list"></div>
                     </div>
                     <div class="friends-sidebar-add">
-                        <input type="text" id="fbar-add-input" placeholder="Add friend…" maxlength="32" autocomplete="off">
+                        <input type="text" id="fbar-add-input" placeholder="Add friend..." maxlength="32" autocomplete="off">
                     </div>
                     <div class="friends-chat-thread hidden" id="fbar-chat">
                         <div class="friends-chat-header">
                             <span class="friends-chat-name" id="fbar-chat-name"></span>
-                            <button class="friends-chat-close" id="fbar-chat-close">✕</button>
+                            <button class="friends-chat-close" id="fbar-chat-close" aria-label="Close chat"><svg class="ui-icon" aria-hidden="true"><use href="#i-close"></use></svg></button>
                         </div>
                         <div class="friends-chat-log" id="fbar-chat-log"></div>
                         <div class="friends-chat-input-row">
-                            <input type="text" id="fbar-chat-input" placeholder="Type a message…" maxlength="120" autocomplete="off">
-                            <button id="fbar-chat-send">➤</button>
+                            <input type="text" id="fbar-chat-input" placeholder="Type a message..." maxlength="120" autocomplete="off">
+                            <button id="fbar-chat-send" aria-label="Send message"><svg class="ui-icon" aria-hidden="true"><use href="#i-play"></use></svg></button>
                         </div>
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- ===== 3D SOCIAL LOBBY HUD ===== -->
+    <div id="social-lobby-hud" class="hidden" aria-label="Social Hub">
+        <header class="social-lobby-status-card">
+            <div class="social-lobby-mark" aria-hidden="true">
+                <svg class="ui-icon"><use href="#i-globe"></use></svg>
+            </div>
+            <div class="social-lobby-heading">
+                <span class="social-lobby-kicker">VOLLE WORLD</span>
+                <strong>SOCIAL HUB</strong>
+                <span id="social-lobby-status">Exploring the plaza</span>
+            </div>
+            <div class="social-lobby-online-pill" title="Players in this lobby">
+                <span class="social-lobby-online-dot" aria-hidden="true"></span>
+                <span id="social-lobby-online">1 online</span>
+            </div>
+        </header>
+
+        <section class="social-lobby-portal-card" aria-live="polite">
+            <span class="social-lobby-portal-label">NEAREST PORTAL</span>
+            <strong id="social-lobby-prompt">Explore the plaza to discover activities</strong>
+            <button id="social-lobby-interact" type="button">
+                <svg class="ui-icon" aria-hidden="true"><use href="#i-play"></use></svg>
+                Interact
+                <kbd>E</kbd>
+            </button>
+        </section>
+
+        <div class="social-lobby-bottom">
+            <section class="social-lobby-controls" aria-label="Social Hub controls">
+                <div class="social-lobby-controls-copy">
+                    <span class="social-lobby-kicker">CONTROLS</span>
+                    <p><kbd>WASD</kbd> Move <kbd>Space</kbd> Jump <kbd>Mouse</kbd> Look <kbd>E</kbd> Interact</p>
+                </div>
+                <div class="social-lobby-actions">
+                    <button id="social-lobby-clans" type="button">
+                        <svg class="ui-icon" aria-hidden="true"><use href="#i-user"></use></svg>
+                        Clans
+                    </button>
+                    <button id="social-lobby-exit" type="button">
+                        <svg class="ui-icon" aria-hidden="true"><use href="#i-close"></use></svg>
+                        Exit Hub
+                    </button>
+                </div>
+            </section>
+
+            <section class="social-lobby-chat" aria-label="Lobby chat">
+                <header>
+                    <span>
+                        <svg class="ui-icon" aria-hidden="true"><use href="#i-link"></use></svg>
+                        LOBBY CHAT
+                    </span>
+                    <small>Local / P2P</small>
+                </header>
+                <div id="social-lobby-chat-log" role="log" aria-live="polite" aria-relevant="additions">
+                    <div class="social-lobby-chat-empty">No messages yet. Say hello.</div>
+                </div>
+                <div class="social-lobby-chat-compose">
+                    <input id="social-lobby-chat-input" type="text" maxlength="120" autocomplete="off" placeholder="Message the lobby..." aria-label="Lobby message">
+                    <button id="social-lobby-chat-send" type="button" aria-label="Send lobby message">
+                        <svg class="ui-icon" aria-hidden="true"><use href="#i-play"></use></svg>
+                    </button>
+                </div>
+            </section>
         </div>
     </div>
 
@@ -280,19 +382,22 @@
     <div id="unified-settings" class="settings-overlay hidden">
         <div class="settings-modal">
             <div class="settings-header">
-                <h2>⚙ Settings</h2>
-                <div class="settings-tabs">
-                    <button class="settings-tab selected" data-tab="0">🎮 Controls</button>
-                    <button class="settings-tab" data-tab="1">🖥️ Video</button>
-                    <button class="settings-tab" data-tab="2">🎯 Game</button>
-                    <button class="settings-tab" data-tab="3">♿ Access</button>
+                <div class="settings-title">
+                    <span class="settings-title-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-settings"></use></svg></span>
+                    <div><span class="settings-kicker">SYSTEM</span><h2>Settings</h2></div>
                 </div>
-                <button id="btn-settings-close" class="settings-close-btn">✕</button>
+                <div class="settings-tabs">
+                    <button class="settings-tab selected" data-tab="0"><svg class="ui-icon" aria-hidden="true"><use href="#i-target"></use></svg>Controls</button>
+                    <button class="settings-tab" data-tab="1"><svg class="ui-icon" aria-hidden="true"><use href="#i-monitor"></use></svg>Video</button>
+                    <button class="settings-tab" data-tab="2"><svg class="ui-icon" aria-hidden="true"><use href="#i-ball"></use></svg>Game</button>
+                    <button class="settings-tab" data-tab="3"><svg class="ui-icon" aria-hidden="true"><use href="#i-access"></use></svg>Access</button>
+                </div>
+                <button id="btn-settings-close" class="settings-close-btn" aria-label="Close settings"><svg class="ui-icon" aria-hidden="true"><use href="#i-close"></use></svg></button>
             </div>
             <div class="settings-scroll">
                 <!-- Controls -->
                 <div class="settings-section">
-                    <h3>🎮 Controls</h3>
+                    <div class="settings-section-heading"><div><span class="settings-kicker">AIM & INPUT</span><h3>Controls</h3></div><p>Tune response and reticle visibility.</p></div>
                     <div class="settings-row">
                         <label>Mouse Sensitivity</label>
                         <input type="range" id="setting-sensitivity" min="1" max="10" value="2" step="0.5">
@@ -337,18 +442,33 @@
                             <span class="toggle-slider"></span>
                         </label>
                     </div>
+                    <div class="crosshair-preview-card">
+                        <div>
+                            <span class="settings-kicker">LIVE PREVIEW</span>
+                            <strong>Crosshair</strong>
+                            <small>Markup hook for settings integration.</small>
+                        </div>
+                        <div id="crosshair-preview" class="crosshair-preview" aria-label="Crosshair preview">
+                            <span id="crosshair-preview-reticle" class="crosshair-preview-reticle" aria-hidden="true"><i></i><i></i><i></i><i></i><b id="crosshair-preview-dot"></b></span>
+                        </div>
+                    </div>
                 </div>
                 <!-- Display -->
                 <div class="settings-section">
-                    <h3>🖥️ Display</h3>
+                    <div class="settings-section-heading"><div><span class="settings-kicker">DISPLAY</span><h3>Video</h3></div><p>Balance clarity and frame rate.</p></div>
                     <div class="settings-row"><label>VSync</label><select id="setting-vsync"><option value="off">Off</option><option value="on" selected>On</option></select></div>
                     <div class="settings-row"><label>FPS Limit</label><select id="setting-fps-limit"><option value="0">Unlimited</option><option value="30">30</option><option value="60" selected>60</option><option value="120">120</option><option value="144">144</option><option value="240">240</option></select></div>
                     <div class="settings-row"><label>Quality</label><select id="setting-quality"><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option></select></div>
                     <div class="settings-row"><label>Resolution</label><select id="setting-resolution"><option value="1280x720">1280×720</option><option value="1366x768">1366×768</option><option value="1600x900">1600×900</option><option value="1920x1080" selected>1920×1080</option><option value="2560x1440">2560×1440</option><option value="3840x2160">3840×2160</option></select></div>
+                    <div class="settings-row settings-row-scale">
+                        <label for="setting-render-scale">Resolution Scale <span class="settings-hint">Lower for more FPS</span></label>
+                        <input type="range" id="setting-render-scale" min="50" max="150" value="100" step="5">
+                        <output id="setting-render-scale-value" for="setting-render-scale">100%</output>
+                    </div>
                 </div>
                 <!-- Gameplay -->
                 <div class="settings-section">
-                    <h3>🎯 Gameplay</h3>
+                    <div class="settings-section-heading"><div><span class="settings-kicker">MATCH</span><h3>Gameplay</h3></div><p>Default rules for hosted and local games.</p></div>
                     <div class="settings-row">
                         <label>Bot Difficulty</label>
                         <select id="setting-bot-difficulty">
@@ -400,7 +520,7 @@
                     </div>
                 </div>
                 <div class="settings-section">
-                    <h3>♿ Accessibility</h3>
+                    <div class="settings-section-heading"><div><span class="settings-kicker">COMFORT</span><h3>Accessibility</h3></div><p>Reduce visual intensity and improve readability.</p></div>
                     <div class="settings-row settings-row-toggle"><label>Reduce Motion</label><label class="toggle-switch"><input type="checkbox" id="setting-reduce-motion"><span class="toggle-slider"></span></label></div>
                     <div class="settings-row settings-row-toggle"><label>Screen Shake</label><label class="toggle-switch"><input type="checkbox" id="setting-screen-shake" checked><span class="toggle-slider"></span></label></div>
                     <div class="settings-row settings-row-toggle"><label>Screen Flash</label><label class="toggle-switch"><input type="checkbox" id="setting-screen-flash" checked><span class="toggle-slider"></span></label></div>
@@ -434,17 +554,23 @@
 
     <!-- ===== SHOP ===== -->
     <div id="shop-screen" class="screen hidden">
-        <div class="panel wide-panel">
-            <h1>🛒 Shop</h1>
-            <div class="meta-stats"><span class="meta-stat">🪙 <span id="shop-coins">0</span></span></div>
-            <div class="shop-tabs" id="shop-tabs">
-                <button class="shop-tab selected" data-tab="chars">Characters</button>
-<button class="shop-tab" data-tab="balls">Balls</button>
-<button class="shop-tab" data-tab="avatars">Character Skins</button>
-<button class="shop-tab" data-tab="skills">Skills</button>
+        <div class="panel wide-panel shell-panel shop-shell">
+            <header class="shell-header">
+                <div class="shell-title"><span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-shop"></use></svg></span><div><span class="shell-kicker">GEAR UP</span><h1>Arena Shop</h1><p>Unlock original competitors, equipment, and styles.</p></div></div>
+                <div class="meta-stats"><span class="meta-stat"><svg class="ui-icon" aria-hidden="true"><use href="#i-coins"></use></svg><span id="shop-coins">0</span><small>credits</small></span></div>
+            </header>
+            <div class="shop-toolbar">
+                <div class="shop-tabs" id="shop-tabs" aria-label="Shop categories">
+                    <button class="shop-tab selected" data-tab="chars">Characters</button>
+                    <button class="shop-tab" data-tab="balls">Balls</button>
+                    <button class="shop-tab" data-tab="avatars">Character Skins</button>
+                    <button class="shop-tab" data-tab="skills">Skills</button>
+                    <button class="shop-tab" data-tab="boosts">Boosts</button>
+                </div>
+                <span class="shop-note">Owned items can be equipped instantly.</span>
             </div>
             <div class="shop-grid" id="shop-grid"></div>
-            <button id="btn-shop-back" class="btn btn-secondary" style="margin-top: 20px;">← Back</button>
+            <button id="btn-shop-back" class="btn btn-secondary shell-back"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back to menu</button>
         </div>
     </div>
 
@@ -465,7 +591,7 @@
     <div id="avatar-screen" class="screen hidden">
         <div class="panel wide-panel">
             <h1>🎨 Avatar Painter</h1>
-            <h2>Paint your 64×64 Minecraft-style character skin</h2>
+            <h2>Choose a team skin, then paint its 8×8 face overlay</h2>
             <div class="avatar-layout">
                 <canvas id="avatar-canvas"></canvas>
                 <div class="avatar-tools">
@@ -482,7 +608,44 @@
                     <canvas id="avatar-preview"></canvas>
                 </div>
             </div>
+            <h3>Team Skin Library</h3>
+            <div id="avatar-skin-library" class="avatar-skin-library"></div>
             <button id="btn-avatar-back" class="btn btn-secondary" style="margin-top: 20px;">← Back</button>
+        </div>
+    </div>
+
+    <!-- ===== MAP EDITOR ===== -->
+    <div id="map-editor-screen" class="screen hidden">
+        <div class="panel wide-panel map-editor-panel">
+            <h1>🧱 Map Editor</h1>
+            <p>Click the arena to place safe primitive obstacles. Custom maps are local and playable in solo/practice.</p>
+            <div class="map-editor-layout">
+                <canvas id="map-editor-canvas" width="760" height="520"></canvas>
+                <div class="map-editor-tools">
+                    <label>Name <input id="map-editor-name" maxlength="48" value="Custom Arena"></label>
+                    <label>Tool
+                        <select id="map-editor-tool">
+                            <option value="select">Select</option>
+                            <option value="add">Add</option>
+                            <option value="delete">Delete</option>
+                        </select>
+                    </label>
+                    <label>Primitive
+                        <select id="map-editor-primitive">
+                            <option value="box">Box</option>
+                            <option value="cylinder">Cylinder</option>
+                            <option value="sphere">Sphere</option>
+                            <option value="cone">Cone</option>
+                        </select>
+                    </label>
+                    <label>Width <input id="map-editor-width" type="number" min="20" max="300" value="100"></label>
+                    <label>Length <input id="map-editor-length" type="number" min="20" max="300" value="120"></label>
+                    <div id="map-editor-status" aria-live="polite">0 / 64 props</div>
+                    <button id="btn-map-delete" class="btn btn-secondary">Delete selected</button>
+                    <button id="btn-map-save" class="btn btn-primary">Save & Play Solo</button>
+                    <button id="btn-map-editor-back" class="btn btn-secondary">← Back</button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -512,6 +675,7 @@
             <h1>🏆 Ranked Profile</h1>
             <h2>Climb the ranks — espor mode</h2>
             <div id="ranked-info"></div>
+            <button id="btn-ranked-play" class="btn btn-primary ranked-play"><svg class="ui-icon" aria-hidden="true"><use href="#i-play"></use></svg>Play Ranked</button>
             <button id="btn-ranked-back" class="btn btn-secondary" style="margin-top: 20px;">← Back</button>
         </div>
     </div>
@@ -539,13 +703,64 @@
         </div>
     </div>
 
-    <!-- ===== TOURNAMENT ===== -->
+    <!-- ===== REPLAYS ===== -->
     <div id="replays-screen" class="screen hidden">
-        <div class="panel wide-panel">
-            <h1>Match Replays</h1>
-            <h2>Latest 10 local matches</h2>
+        <div class="panel wide-panel shell-panel replay-shell">
+            <header class="shell-header">
+                <div class="shell-title"><span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-replay"></use></svg></span><div><span class="shell-kicker">MATCH VAULT</span><h1>Replays</h1><p>Review, copy, or remove your latest 10 local matches.</p></div></div>
+            </header>
             <div id="replay-list" class="replay-list"></div>
-            <button id="btn-replays-back" class="btn btn-secondary" style="margin-top: 20px;">Back</button>
+            <button id="btn-replays-back" class="btn btn-secondary shell-back"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back to menu</button>
+        </div>
+    </div>
+
+    <!-- ===== SOCIAL / CLANS ===== -->
+    <div id="social-screen" class="screen hidden">
+        <div class="panel wide-panel shell-panel social-shell">
+            <header class="shell-header">
+                <div class="shell-title">
+                    <span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-user"></use></svg></span>
+                    <div><span class="shell-kicker">SOCIAL HUB</span><h1>Clans</h1><p>Find a crew, coordinate matches, and keep the team together.</p></div>
+                </div>
+                <span class="social-status"><i aria-hidden="true"></i>Local social preview</span>
+            </header>
+            <div class="social-layout">
+                <section class="social-clans" aria-labelledby="social-clans-title">
+                    <div class="social-section-title">
+                        <div><span class="shell-kicker">YOUR NETWORK</span><h2 id="social-clans-title">Clan list</h2></div>
+                        <span class="social-count">CREWS</span>
+                    </div>
+                    <div id="social-clan-list" class="social-clan-list" aria-live="polite">
+                        <div class="social-empty">
+                            <svg class="ui-icon" aria-hidden="true"><use href="#i-user"></use></svg>
+                            <strong>No clans yet</strong>
+                            <span>Create one below or join an invite.</span>
+                        </div>
+                    </div>
+                    <form class="social-create" onsubmit="return false">
+                        <label for="social-clan-name">Create a clan</label>
+                        <div class="social-input-row">
+                            <input id="social-clan-name" type="text" maxlength="24" placeholder="Clan name" autocomplete="off">
+                            <button id="social-create-clan" class="btn btn-primary" type="button">Create</button>
+                        </div>
+                    </form>
+                </section>
+                <section class="social-chat" aria-labelledby="social-chat-title">
+                    <div class="social-section-title">
+                        <div><span class="shell-kicker">CLAN CHANNEL</span><h2 id="social-chat-title">Crew chat</h2></div>
+                        <span class="social-channel"># general</span>
+                    </div>
+                    <div id="social-chat-log" class="social-chat-log" aria-live="polite">
+                        <div class="social-chat-welcome"><strong>Start the conversation.</strong><span>Messages from your selected clan will appear here.</span></div>
+                    </div>
+                    <div class="social-input-row social-chat-compose">
+                        <label class="sr-only" for="social-chat-input">Clan message</label>
+                        <input id="social-chat-input" type="text" maxlength="160" placeholder="Message your clan..." autocomplete="off">
+                        <button id="social-chat-send" class="btn btn-primary" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#i-play"></use></svg>Send</button>
+                    </div>
+                </section>
+            </div>
+            <button id="social-back" class="btn btn-secondary shell-back"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back to menu</button>
         </div>
     </div>
 
@@ -560,17 +775,6 @@
             </div>
             <div id="tournament-bracket"></div>
             <button id="btn-tournament-back" class="btn btn-secondary" style="margin-top: 20px;">← Back</button>
-        </div>
-    </div>
-
-    <!-- ===== TUTORIAL ===== -->
-    <div id="tutorial-screen" class="screen hidden">
-        <div class="panel wide-panel">
-            <h1>📖 Tutorial</h1>
-            <h2>Learn the basics</h2>
-            <div id="tutorial-steps"></div>
-            <button id="btn-tutorial-start" class="btn btn-primary">Start Tutorial</button>
-            <button id="btn-tutorial-back" class="btn btn-secondary">← Back</button>
         </div>
     </div>
 
@@ -602,6 +806,7 @@
         <div id="hud-speed" class="hud-speed-text"></div>
         <!-- Spectator target info -->
         <div id="spectator-info" class="hidden hud-spectator-info"></div>
+        <div id="late-join-status" class="hidden late-join-status"></div>
 
         <!-- Ball affix indicator — pill badge top-center -->
         <div id="ball-affix-indicator" class="hidden"></div>
@@ -708,6 +913,42 @@
     <!-- ===== ENHANCED KILLCAM OVERLAY ===== -->
     <div id="killcam-overlay"><div class="killcam-killer"></div></div>
 
+    <!-- ===== REPLAY PLAYBACK CONTROLS ===== -->
+    <div id="replay-controls" class="replay-controls hidden" role="region" aria-label="Replay playback controls">
+        <div class="replay-controls-top">
+            <span class="replay-live-mark"><i aria-hidden="true"></i>REPLAY</span>
+            <output id="replay-time" class="replay-time" aria-live="off">00:00 / 00:00</output>
+            <button id="replay-exit" class="replay-control-btn replay-exit" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#i-close"></use></svg><span>Exit</span></button>
+        </div>
+        <div class="replay-controls-main">
+            <div class="replay-transport" aria-label="Replay transport">
+                <button id="replay-prev" class="replay-control-btn" type="button" aria-label="Previous replay event"><svg class="ui-icon" aria-hidden="true"><use href="#i-prev"></use></svg></button>
+                <button id="replay-toggle-pause" class="replay-control-btn replay-pause" type="button" aria-label="Pause replay"><svg class="ui-icon" aria-hidden="true"><use href="#i-pause"></use></svg></button>
+                <button id="replay-next" class="replay-control-btn" type="button" aria-label="Next replay event"><svg class="ui-icon" aria-hidden="true"><use href="#i-next"></use></svg></button>
+            </div>
+            <label class="replay-seek-wrap" for="replay-seek">
+                <span class="sr-only">Replay position</span>
+                <input id="replay-seek" type="range" min="0" max="1000" value="0" step="1">
+            </label>
+            <label class="replay-select-wrap" for="replay-speed">
+                <span>Speed</span>
+                <select id="replay-speed">
+                    <option value="0.5">0.5x</option>
+                    <option value="1" selected>1x</option>
+                    <option value="2">2x</option>
+                </select>
+            </label>
+            <label class="replay-select-wrap replay-camera-wrap" for="replay-camera-mode">
+                <span>Camera</span>
+                <select id="replay-camera-mode">
+                    <option value="first-person">First-person</option>
+                    <option value="chase" selected>Chase</option>
+                    <option value="free-roam">Free-roam</option>
+                </select>
+            </label>
+        </div>
+    </div>
+
     <!-- ===== TEAM SWITCH OVERLAY (M) ===== -->
     <div id="team-overlay" class="hidden">
         <div class="team-popup">
@@ -731,31 +972,39 @@
 
     <!-- ===== SCOREBOARD OVERLAY (Tab) ===== -->
     <div id="scoreboard-overlay" class="hidden">
-        <h3 style="text-align: center; margin-bottom: 12px; color: var(--accent);">SCOREBOARD</h3>
-        <table class="scoreboard-table">
-            <thead>
-                <tr>
-                    <th>Player</th>
-                    <th>Team</th>
-                    <th>Rank</th>
-                    <th>Lv</th>
-                    <th>Score</th>
-                    <th>Deflects</th>
-                    <th>Hits</th>
-                </tr>
-            </thead>
-            <tbody id="scoreboard-body"></tbody>
-        </table>
-        <div id="scoreboard-ping" style="text-align:center;color:var(--text-dim);margin-top:10px;font-size:0.85em;">Ping: <span id="scoreboard-ping-value">—</span></div>
+        <div class="scoreboard-shell">
+            <header class="scoreboard-header">
+                <div><span class="shell-kicker">LIVE MATCH</span><h3>Scoreboard</h3></div>
+                <span id="scoreboard-ping">PING <b id="scoreboard-ping-value">--</b></span>
+            </header>
+            <div class="scoreboard-scroll">
+                <table class="scoreboard-table">
+                    <thead>
+                        <tr>
+                            <th>Player</th>
+                            <th>Team</th>
+                            <th>Rank</th>
+                            <th>Lv</th>
+                            <th>Score</th>
+                            <th>Deflects</th>
+                            <th>Hits</th>
+                        </tr>
+                    </thead>
+                    <tbody id="scoreboard-body"></tbody>
+                </table>
+            </div>
+            <span class="scoreboard-hint">Hold Tab to view</span>
+        </div>
     </div>
 
     <!-- ===== GAME OVER ===== -->
     <div id="game-over-screen" class="screen hidden">
-        <div class="panel">
+        <div class="panel shell-panel game-over-panel">
+            <span class="shell-kicker">MATCH COMPLETE</span>
             <h1 id="winner-text">RED Wins!</h1>
-            <h2>Final Scores</h2>
-
-            <table class="scoreboard-table">
+            <h2>Final scoreboard</h2>
+            <div class="scoreboard-scroll">
+              <table class="scoreboard-table">
                 <thead>
                     <tr>
                         <th>Player</th>
@@ -768,10 +1017,13 @@
                     </tr>
                 </thead>
                 <tbody id="scoreboard-body-final"></tbody>
-            </table>
+              </table>
+            </div>
 
-            <button id="btn-play-again" class="btn btn-primary" style="margin-top: 20px;">🔄 Play Again</button>
-            <button id="btn-main-menu" class="btn btn-secondary">← Main Menu</button>
+            <div class="game-over-actions">
+                <button id="btn-play-again" class="btn btn-primary"><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg>Play Again</button>
+                <button id="btn-main-menu" class="btn btn-secondary"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Main Menu</button>
+            </div>
         </div>
     </div>
 
@@ -834,7 +1086,7 @@
     <div id="post-game-screen" class="hidden">
         <div class="pg-overlay">
             <div class="pg-panel">
-                <h2 class="pg-title" id="pg-result"></h2>
+                <header class="pg-header"><div><span class="shell-kicker">MATCH REPORT</span><h2 class="pg-title" id="pg-result"></h2></div><svg class="ui-icon pg-header-mark" aria-hidden="true"><use href="#i-trophy"></use></svg></header>
                 <div class="pg-winner" id="pg-winner"></div>
                 <div class="pg-level" id="pg-level"></div>
                 <div class="pg-xp-bar-wrap">
@@ -851,9 +1103,9 @@
                     </div>
                 </div>
                 <div class="pg-buttons">
-                    <button id="pg-play-again" class="btn btn-primary">🔄 Play Again</button>
-                    <button id="pg-lobby" class="btn btn-secondary">🏠 Lobby</button>
-                    <button id="pg-main-menu" class="btn btn-secondary">← Main Menu</button>
+                    <button id="pg-play-again" class="btn btn-primary"><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg>Play Again</button>
+                    <button id="pg-lobby" class="btn btn-secondary"><svg class="ui-icon" aria-hidden="true"><use href="#i-globe"></use></svg>Lobby</button>
+                    <button id="pg-main-menu" class="btn btn-secondary"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Main Menu</button>
                 </div>
             </div>
         </div>
