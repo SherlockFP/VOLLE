@@ -3,13 +3,13 @@
 import { GAME_MODES } from './gamemodes.js';
 import { MAPS } from './arena.js';
 
-const COMMANDS = {
+export const COMMANDS = {
     help: {
         desc: 'Show all commands',
         run: (game, args, log) => {
             log('╔══ Available Commands ══╗');
             Object.entries(COMMANDS).forEach(([cmd, info]) => {
-                log(`  ${cmd} ${info.args || ''} — ${info.desc}`);
+                log(`  ${cmd} ${info.args || ''} — ${info.desc}${commandNeedsHost(info) ? ' [HOST]' : ''}`);
             });
             log('╚════════════════════════╝');
             return true;
@@ -17,6 +17,7 @@ const COMMANDS = {
     },
     sv_prematchduration: {
         desc: 'Set pre-game countdown in seconds',
+        hostOnly: true,
         args: '<seconds>',
         run: (game, args, log) => {
             const val = parseFloat(args[0]);
@@ -28,6 +29,7 @@ const COMMANDS = {
     },
     sv_roundrestartdelay: {
         desc: 'Set round-end restart delay',
+        hostOnly: true,
         args: '<seconds>',
         run: (game, args, log) => {
             const val = parseFloat(args[0]);
@@ -39,6 +41,7 @@ const COMMANDS = {
     },
     sv_restartround: {
         desc: 'Restart the current round',
+        hostOnly: true,
         run: (game, args, log) => {
             if (game.state === 'PLAYING' || game.state === 'ROUND_END' || game.state === 'COUNTDOWN') {
                 game.startRound();
@@ -51,6 +54,7 @@ const COMMANDS = {
     },
     sv_bot_add: {
         desc: 'Add a bot to a team',
+        hostOnly: true,
         args: '<red|blue>',
         run: (game, args, log) => {
             const team = args[0] === 'blue' ? 'blue' : 'red';
@@ -61,6 +65,7 @@ const COMMANDS = {
     },
     sv_bot_remove: {
         desc: 'Remove the last bot',
+        hostOnly: true,
         run: (game, args, log) => {
             game.removeBot();
             log('Bot removed');
@@ -69,6 +74,7 @@ const COMMANDS = {
     },
     sv_selectmap: {
         desc: 'Switch to a different map',
+        hostOnly: true,
         args: '<mapid>',
         run: (game, args, log) => {
             const id = args[0];
@@ -80,6 +86,7 @@ const COMMANDS = {
     },
     sv_selectmode: {
         desc: 'Change game mode',
+        hostOnly: true,
         args: '<modeid>',
         run: (game, args, log) => {
             const id = args[0];
@@ -91,6 +98,7 @@ const COMMANDS = {
     },
     sv_timescale: {
         desc: 'Set game speed multiplier',
+        hostOnly: true,
         args: '<0.1-5>',
         run: (game, args, log) => {
             const val = parseFloat(args[0]);
@@ -102,6 +110,7 @@ const COMMANDS = {
     },
     sv_gravity: {
         desc: 'Set ball gravity',
+        hostOnly: true,
         args: '<value>',
         run: (game, args, log) => {
             const val = parseFloat(args[0]);
@@ -113,6 +122,7 @@ const COMMANDS = {
     },
     sv_ballspeed: {
         desc: 'Set base ball speed',
+        hostOnly: true,
         args: '<value>',
         run: (game, args, log) => {
             const val = parseFloat(args[0]);
@@ -125,6 +135,7 @@ const COMMANDS = {
     },
     sv_maxspeed: {
         desc: 'Set max speed multiplier (base × mult)',
+        hostOnly: true,
         args: '<multiplier>',
         run: (game, args, log) => {
             const val = parseFloat(args[0]);
@@ -136,6 +147,7 @@ const COMMANDS = {
     },
     sv_ricochet: {
         desc: 'Set ricochet chance (0-1)',
+        hostOnly: true,
         args: '<0-1>',
         run: (game, args, log) => {
             const val = parseFloat(args[0]);
@@ -147,6 +159,7 @@ const COMMANDS = {
     },
     sv_difficulty: {
         desc: 'Set bot difficulty',
+        hostOnly: true,
         args: '<easy|medium|hard>',
         run: (game, args, log) => {
             const d = args[0];
@@ -158,6 +171,7 @@ const COMMANDS = {
     },
     sv_portals: {
         desc: 'Toggle portal system',
+        hostOnly: true,
         args: '<0|1>',
         run: (game, args, log) => {
             const val = parseInt(args[0]);
@@ -203,6 +217,7 @@ const COMMANDS = {
     },
     sv_bot_kick: {
         desc: 'Kick a bot by name',
+        hostOnly: true,
         args: '<name>',
         run: (game, args, log) => {
             const name = args.join(' ');
@@ -218,6 +233,7 @@ const COMMANDS = {
     },
     sv_bot_kickall: {
         desc: 'Kick all bots',
+        hostOnly: true,
         run: (game, args, log) => {
             const count = game.bots.length;
             game.bots.forEach(b => { b.remove(); game.scoreboard.removePlayer(b.name); });
@@ -229,6 +245,7 @@ const COMMANDS = {
     },
     sv_playergravity: {
         desc: 'Set player gravity (default -20)',
+        hostOnly: true,
         args: '<value>',
         run: (game, args, log) => {
             const val = parseFloat(args[0]);
@@ -240,6 +257,7 @@ const COMMANDS = {
     },
     sv_damagemul: {
         desc: 'Set damage multiplier',
+        hostOnly: true,
         args: '<0.1-5>',
         run: (game, args, log) => {
             const val = parseFloat(args[0]);
@@ -251,6 +269,7 @@ const COMMANDS = {
     },
     mp_restartgame: {
         desc: 'Restart game after N seconds',
+        hostOnly: true,
         args: '<seconds>',
         run: (game, args, log) => {
             const delay = parseFloat(args[0]) || 3;
@@ -266,6 +285,7 @@ const COMMANDS = {
     },
     endgame_1: {
         desc: 'Force end game — RED wins (30s celebration)',
+        hostOnly: true,
         run: (game, args, log) => {
             game.scoreboard.redScore = 999;
             game.scoreboard.blueScore = 0;
@@ -276,6 +296,7 @@ const COMMANDS = {
     },
     endgame_2: {
         desc: 'Force end game — BLUE wins (30s celebration)',
+        hostOnly: true,
         run: (game, args, log) => {
             game.scoreboard.redScore = 0;
             game.scoreboard.blueScore = 999;
@@ -331,6 +352,7 @@ const COMMANDS = {
     },
     sv_ffa: {
         desc: 'Switch to FFA mode and restart',
+        hostOnly: true,
         run: (game, args, log) => {
             game.selectMode('ffa');
             game.scoreboard.reset();
@@ -341,6 +363,10 @@ const COMMANDS = {
         }
     },
 };
+
+export function commandNeedsHost(command) {
+    return command?.hostOnly === true;
+}
 
 export class Console {
     constructor() {
@@ -354,7 +380,6 @@ export class Console {
         this.inputEl = null;
         this.outputEl = null;
         this.game = null;
-        this.isHost = true; // solo mode = host always
     }
 
     init(game) {
@@ -438,7 +463,8 @@ export class Console {
         if (!matches.length) { this._acEl.style.display = 'none'; this._acIdx = -1; return; }
         this._acEl.innerHTML = matches.map(([cmd, info], i) => {
             const sel = i === this._acIdx ? ' style="background: var(--accent, #ff8800); color: #000;"' : '';
-            return `<div${sel} data-cmd="${cmd}"><b>${cmd}</b> <span style="color:#888;font-size:11px">${info.desc}</span></div>`;
+            const hostLabel = commandNeedsHost(info) ? ' [HOST]' : '';
+            return `<div${sel} data-cmd="${cmd}"><b>${cmd}</b> <span style="color:#888;font-size:11px">${info.desc}${hostLabel}</span></div>`;
         }).join('');
         this._acEl.querySelectorAll('div').forEach((d, i) => {
             d.style.cssText = 'padding: 3px 10px; cursor: pointer;' + (i === this._acIdx ? 'background: var(--accent, #ff8800); color: #000;' : '');
@@ -555,7 +581,13 @@ export class Console {
         const command = COMMANDS[cmd];
         if (!command) {
             this.log(`Unknown command: ${cmd}. Type help`);
-            return;
+            return false;
+        }
+
+        const isHost = !this.game?.network?.connected || this.game.network.isHost === true;
+        if (commandNeedsHost(command) && !isHost) {
+            this.log(`Host only command: ${cmd}`);
+            return false;
         }
 
         const result = command.run(this.game, args, (msg) => this.log(msg));
@@ -563,6 +595,7 @@ export class Console {
             this.lines = [];
             this.outputEl.textContent = '';
         }
+        return result;
     }
 
     navigateHistory(dir) {

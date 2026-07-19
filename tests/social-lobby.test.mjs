@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 
 const modulePath = new URL('../js/social-lobby.js', import.meta.url);
 const source = await readFile(modulePath, 'utf8');
@@ -73,4 +73,24 @@ test('runtime keeps CC0 assets local and preserves procedural fallback', () => {
     assert.match(source, /Promise\.allSettled/);
     assert.match(source, /\['a', 'f', 'k', 'r'\]/);
     assert.match(source, /character-\$\{id\}\.glb/);
+});
+
+test('every social hub GLB ships each external texture it references', async () => {
+    const assetRoot = new URL('../assets/cc0/kenney/', import.meta.url);
+    const glbs = [
+        ...['a', 'f', 'k', 'r'].map(id => new URL(`blocky-characters/character-${id}.glb`, assetRoot)),
+        ...['banner', 'column', 'statue', 'tree', 'trophy', 'wall-gate']
+            .map(name => new URL(`mini-arena/${name}.glb`, assetRoot)),
+        ...['block-moving-blue', 'chest', 'flag', 'platform-ramp', 'platform', 'spring', 'tree']
+            .map(name => new URL(`platformer-kit/${name}.glb`, assetRoot))
+    ];
+
+    for (const glb of glbs) {
+        const bytes = await readFile(glb);
+        const jsonLength = bytes.readUInt32LE(12);
+        const json = JSON.parse(bytes.subarray(20, 20 + jsonLength).toString('utf8').trim());
+        for (const image of json.images || []) {
+            await assert.doesNotReject(access(new URL(image.uri, glb)), `${glb.pathname} -> ${image.uri}`);
+        }
+    }
 });

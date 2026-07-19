@@ -24,6 +24,9 @@ import { Friends } from './friends.js';
 import { CHARACTERS } from './characters.js';
 import { appendClanMessage, createClan, listClans } from './social.js';
 import { SocialLobby } from './social-lobby.js';
+import { applyUiPreferences, loadUiPreferences, normalizeTheme, normalizeUiScale } from './ui-theme.js';
+import { initSettingsTabs } from './settings-controller.js';
+import { formatMapSize } from './map-display.js';
 
 class App {
     constructor() {
@@ -132,6 +135,8 @@ class App {
 
         // Tab key → scoreboard
         document.addEventListener('keydown', e => {
+            if (e.code === 'Backquote') this.ui.hideScoreboard();
+
             // Console visible → skip all other handlers
             if (this.gameConsole?.visible) return;
 
@@ -261,6 +266,7 @@ class App {
                 if (this.game.state === STATES.PLAYING || this.game.state === STATES.COUNTDOWN) {
                     // Countdown'da ESC → özel menü değil, direkt pause
                     this.game.setState(STATES.PAUSED);
+                    this.ui.hideScoreboard();
                     this.player.unlock();
                     this.ui.setPlayerTarget(false);
                     pauseEl?.classList.remove('hidden');
@@ -278,9 +284,11 @@ class App {
             }
         }, { signal: this._mainAbort.signal });
         document.addEventListener('keyup', e => {
-            if (e.code === 'Tab') {
-                this.ui.hideScoreboard();
-            }
+            if (e.code !== 'Tab') return;
+            e.preventDefault();
+            this.ui.hideScoreboard();
+        }, { signal: this._mainAbort.signal });
+        document.addEventListener('keyup', e => {
             if (e.code === 'KeyZ') {
                 this.closeEmoteWheel();
             }
@@ -1009,19 +1017,27 @@ class App {
             if (el) el.addEventListener('input', onChange);
         };
 
-        // Settings tab switching
-        const tabs = document.querySelectorAll('.settings-tab');
-        const sections = document.querySelectorAll('.settings-section');
-        tabs.forEach(tab => {
-            tab.addEventListener('click', () => {
-                tabs.forEach(t => t.classList.remove('selected'));
-                tab.classList.add('selected');
-                const idx = parseInt(tab.dataset.tab);
-                sections.forEach((s, i) => s.style.display = i === idx ? '' : 'none');
-            });
+        this.settingsTabs = initSettingsTabs(document);
+        const uiPreferences = loadUiPreferences(this.store);
+        const themeInput = document.getElementById('setting-theme');
+        if (themeInput) themeInput.value = uiPreferences.theme;
+        const uiScaleInput = document.getElementById('setting-ui-scale');
+        if (uiScaleInput) uiScaleInput.value = Math.round(uiPreferences.scale * 100);
+        const uiScaleOutput = document.getElementById('setting-ui-scale-value');
+        if (uiScaleOutput) uiScaleOutput.textContent = `${Math.round(uiPreferences.scale * 100)}%`;
+        applyUiPreferences(document.documentElement, uiPreferences);
+
+        bindSetting('setting-theme', event => {
+            const theme = normalizeTheme(event.target.value);
+            this.store.set('uiTheme', theme);
+            applyUiPreferences(document.documentElement, loadUiPreferences(this.store));
         });
-        // Init: show only first section
-        sections.forEach((s, i) => s.style.display = i === 0 ? '' : 'none');
+        bindSetting('setting-ui-scale', event => {
+            const scale = normalizeUiScale(Number(event.target.value) / 100);
+            this.store.set('uiScale', scale);
+            document.getElementById('setting-ui-scale-value').textContent = `${Math.round(scale * 100)}%`;
+            applyUiPreferences(document.documentElement, loadUiPreferences(this.store));
+        });
 
         bindSetting('setting-sensitivity', e => {
             const value = parseFloat(e.target.value);
@@ -1103,6 +1119,7 @@ class App {
                 s[key] = checkbox ? e.target.checked : e.target.value;
                 this.store.set('settings', s);
                 this.applyAccessibility();
+                applyUiPreferences(document.documentElement, loadUiPreferences(this.store));
             });
         };
         bindAccessibility('setting-reduce-motion', 'reduceMotion');
@@ -2022,7 +2039,7 @@ class App {
             const mapCfg = Arena.MAPS[id];
             if (mapCfg) {
                 const weatherEmoji = { clear: '☀️', rain: '🌧️', storm: '⛈️', snow: '❄️', indoor: '🏟️' }[mapCfg.weather] || '☀️';
-                dot.title = `${weatherEmoji} ${mapCfg.weather} · ${mapCfg.size}`;
+                dot.title = `${weatherEmoji} ${mapCfg.weather} · ${formatMapSize(mapCfg)}`;
             }
             dotsContainer.appendChild(dot);
         });
@@ -2056,15 +2073,7 @@ class App {
         if (weatherEl) weatherEl.textContent = weatherMap[config.weather] || '☀️';
 
         const sizeEl = document.getElementById('carousel-size');
-        if (sizeEl) {
-            const size = typeof config.size === 'string'
-                ? config.size
-                : config.courtWidth >= 130 ? 'xxl'
-                    : config.courtWidth >= 115 ? 'large'
-                        : config.courtWidth <= 80 ? 'small'
-                            : 'medium';
-            sizeEl.textContent = size;
-        }
+        if (sizeEl) sizeEl.textContent = formatMapSize(config);
 
         // Update dots
         document.querySelectorAll('.carousel-dot').forEach((dot, i) => {
@@ -2081,6 +2090,7 @@ class App {
     // --- SETTINGS MODAL ---
 
     openSettingsModal() {
+        this.ui.hideScoreboard();
         const modal = document.getElementById('unified-settings');
         if (modal) modal.classList.remove('hidden');
         // ponytail: round/match ayarları sadece lobi sahibinde değişebilir
@@ -2691,6 +2701,7 @@ class App {
     }
 
     openChat() {
+        this.ui.hideScoreboard();
         // In lobby, just focus the lobby chat panel input
         if (this.game.state === STATES.LOBBY) {
             const li = document.getElementById('lobby-chat-input');

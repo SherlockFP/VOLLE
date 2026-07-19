@@ -5,7 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Volle - 3D First-Person Dodgeball</title>
     <meta name="description" content="A 3D first-person dodgeball game with TF2-style cartoonish graphics, P2P multiplayer, and skill-based gameplay">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%2349b8ff'/%3E%3Cpath d='M8 12c5 1 8 5 9 12M20 5c-2 6-7 9-13 10M26 12c-5 0-9 3-11 8' fill='none' stroke='white' stroke-width='2'/%3E%3C/svg%3E">
     <link rel="stylesheet" href="css/style.css?v=1.74">
+    <link rel="stylesheet" href="css/ui-tokens.css?v=1">
+    <link rel="stylesheet" href="css/ui-shell.css?v=1">
     <script type="importmap">
     {
         "imports": {
@@ -393,16 +396,16 @@
                     <div><span class="settings-kicker">SYSTEM</span><h2>Settings</h2></div>
                 </div>
                 <div class="settings-tabs">
-                    <button class="settings-tab selected" data-tab="0"><svg class="ui-icon" aria-hidden="true"><use href="#i-target"></use></svg>Controls</button>
-                    <button class="settings-tab" data-tab="1"><svg class="ui-icon" aria-hidden="true"><use href="#i-monitor"></use></svg>Video</button>
-                    <button class="settings-tab" data-tab="2"><svg class="ui-icon" aria-hidden="true"><use href="#i-ball"></use></svg>Game</button>
-                    <button class="settings-tab" data-tab="3"><svg class="ui-icon" aria-hidden="true"><use href="#i-access"></use></svg>Access</button>
+                    <button class="settings-tab selected" data-tab="controls" role="tab"><svg class="ui-icon" aria-hidden="true"><use href="#i-target"></use></svg>Controls</button>
+                    <button class="settings-tab" data-tab="video" role="tab"><svg class="ui-icon" aria-hidden="true"><use href="#i-monitor"></use></svg>Video</button>
+                    <button class="settings-tab" data-tab="game" role="tab"><svg class="ui-icon" aria-hidden="true"><use href="#i-ball"></use></svg>Game</button>
+                    <button class="settings-tab" data-tab="access" role="tab"><svg class="ui-icon" aria-hidden="true"><use href="#i-access"></use></svg>Access</button>
                 </div>
                 <button id="btn-settings-close" class="settings-close-btn" aria-label="Close settings"><svg class="ui-icon" aria-hidden="true"><use href="#i-close"></use></svg></button>
             </div>
             <div class="settings-scroll">
                 <!-- Controls -->
-                <div class="settings-section">
+                <div class="settings-section" data-settings-section="controls">
                     <div class="settings-section-heading"><div><span class="settings-kicker">AIM & INPUT</span><h3>Controls</h3></div><p>Tune response and reticle visibility.</p></div>
                     <div class="settings-row">
                         <label>Mouse Sensitivity</label>
@@ -460,7 +463,7 @@
                     </div>
                 </div>
                 <!-- Display -->
-                <div class="settings-section">
+                <div class="settings-section" data-settings-section="video">
                     <div class="settings-section-heading"><div><span class="settings-kicker">DISPLAY</span><h3>Video</h3></div><p>Balance clarity and frame rate.</p></div>
                     <div class="settings-row"><label>VSync</label><select id="setting-vsync"><option value="off">Off</option><option value="on" selected>On</option></select></div>
                     <div class="settings-row"><label>FPS Limit</label><select id="setting-fps-limit"><option value="0">Unlimited</option><option value="30">30</option><option value="60" selected>60</option><option value="120">120</option><option value="144">144</option><option value="240">240</option></select></div>
@@ -473,7 +476,7 @@
                     </div>
                 </div>
                 <!-- Gameplay -->
-                <div class="settings-section">
+                <div class="settings-section" data-settings-section="game">
                     <div class="settings-section-heading"><div><span class="settings-kicker">MATCH</span><h3>Gameplay</h3></div><p>Default rules for hosted and local games.</p></div>
                     <div class="settings-row">
                         <label>Bot Difficulty</label>
@@ -525,8 +528,20 @@
                         </label>
                     </div>
                 </div>
-                <div class="settings-section">
+                <div class="settings-section" data-settings-section="access">
                     <div class="settings-section-heading"><div><span class="settings-kicker">COMFORT</span><h3>Accessibility</h3></div><p>Reduce visual intensity and improve readability.</p></div>
+                    <div class="settings-row">
+                        <label for="setting-theme">Interface Theme</label>
+                        <select id="setting-theme">
+                            <option value="dark">Dark</option>
+                            <option value="soft-spectrum">Soft Spectrum</option>
+                        </select>
+                    </div>
+                    <div class="settings-row settings-row-scale">
+                        <label for="setting-ui-scale">UI Scale</label>
+                        <input id="setting-ui-scale" type="range" min="80" max="120" value="100" step="5">
+                        <output id="setting-ui-scale-value" for="setting-ui-scale">100%</output>
+                    </div>
                     <div class="settings-row settings-row-toggle"><label>Reduce Motion</label><label class="toggle-switch"><input type="checkbox" id="setting-reduce-motion"><span class="toggle-slider"></span></label></div>
                     <div class="settings-row settings-row-toggle"><label>Screen Shake</label><label class="toggle-switch"><input type="checkbox" id="setting-screen-shake" checked><span class="toggle-slider"></span></label></div>
                     <div class="settings-row settings-row-toggle"><label>Screen Flash</label><label class="toggle-switch"><input type="checkbox" id="setting-screen-flash" checked><span class="toggle-slider"></span></label></div>
@@ -1046,28 +1061,6 @@
         </div>
     </div>
 
-    <!-- ===== SETTINGS PANEL (tabbed) ===== -->
-    <div id="settings-panel" class="hidden">
-        <div class="settings-box">
-            <div class="settings-tabs">
-                <button class="active" data-tab="gameplay">GAMEPLAY</button>
-                <button data-tab="audio">AUDIO</button>
-                <button data-tab="graphics">GRAPHICS</button>
-            </div>
-            <div class="settings-content" id="settings-gameplay">
-                <div class="settings-row"><label>FOV</label><input type="range" min="60" max="120" value="75" id="set-fov"><span class="value">75</span></div>
-                <div class="settings-row"><label>Sensitivity</label><input type="range" min="1" max="10" value="5" id="set-sens"><span class="value">5</span></div>
-            </div>
-            <div class="settings-content hidden" id="settings-audio">
-                <div class="settings-row"><label>Music</label><input type="range" min="0" max="100" value="50" id="set-music"><span class="value">50</span></div>
-                <div class="settings-row"><label>SFX</label><input type="range" min="0" max="100" value="70" id="set-sfx"><span class="value">70</span></div>
-            </div>
-            <div class="settings-content hidden" id="settings-graphics">
-                <div class="settings-row"><label>Bloom</label><input type="range" min="0" max="100" value="15" id="set-bloom"><span class="value">15</span></div>
-            </div>
-            <button class="btn btn-primary" style="margin: 0 24px 24px;" onclick="document.getElementById('settings-panel').classList.add('hidden')">CLOSE</button>
-        </div>
-    </div>
 
     <!-- ===== PAUSE MENU (ESC) ===== -->
     <div id="pause-menu" class="hidden">

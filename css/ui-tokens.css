@@ -1,0 +1,56 @@
+:root,
+:root[data-theme="dark"] {
+  --ui-scale: 1;
+  --ui-bg: #070b14;
+  --ui-bg-elevated: #0e1625;
+  --ui-surface: #141f31;
+  --ui-surface-2: #1a2940;
+  --ui-border: #2b3b55;
+  --ui-text: #f4f7fb;
+  --ui-muted: #a9b5c7;
+  --ui-primary: #ff725e;
+  --ui-primary-hover: #ff8a76;
+  --ui-info: #55d7f2;
+  --ui-focus: #8be8fa;
+  --ui-danger: #ff5d72;
+  --ui-success: #4ed7a8;
+  --ui-warning: #ffc665;
+  --ui-shadow: 0 24px 64px rgb(0 0 0 / 0.42);
+}
+
+:root[data-theme="soft-spectrum"] {
+  --ui-bg: #0b0b18;
+  --ui-bg-elevated: #121329;
+  --ui-surface: #191b36;
+  --ui-surface-2: #22264a;
+  --ui-border: #393e67;
+  --ui-text: #f7f5ff;
+  --ui-muted: #b9b4cf;
+  --ui-primary: #bb8cff;
+  --ui-primary-hover: #cba8ff;
+  --ui-info: #68d9df;
+  --ui-focus: #ffd07d;
+  --ui-danger: #ff83a8;
+  --ui-success: #74dfbd;
+  --ui-warning: #ffd07d;
+}
+
+:focus-visible {
+  outline: 3px solid var(--ui-focus);
+  outline-offset: 3px;
+}
+
+.reduce-motion *,
+.reduce-motion *::before,
+.reduce-motion *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  scroll-behavior: auto !important;
+  transition-duration: 0.001ms !important;
+}
+
+.high-contrast,
+:root.high-contrast {
+  --ui-border: #ffffff;
+  --ui-muted: #ffffff;
+}

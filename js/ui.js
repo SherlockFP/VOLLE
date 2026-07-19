@@ -61,6 +61,7 @@ export class UI {
     }
 
     showSettings() {
+        this.hideScoreboard();
         const panel = document.getElementById('settings-panel');
         if (panel) panel.classList.remove('hidden');
     }
@@ -71,6 +72,7 @@ export class UI {
     }
 
     showScreen(name) {
+        this.hideScoreboard();
         Object.values(this.screens).forEach(s => { if (s) s.classList.add('hidden'); });
         const target = this.screens[name];
         if (target) {
@@ -141,16 +143,22 @@ export class UI {
             const row = document.createElement('tr');
             row.className = p.team;
             const rank = p.rank || (p.isBot ? ['🥉','🥈','🥇'][Math.min(2, i)] : '🔰');
-            const level = p.level || (p.isBot ? Math.floor(Math.random() * 20 + 1) : (store?.get?.('level') || 1));
-            row.innerHTML = `
-                <td class="team-${p.team}">${p.name}${p.isYou ? ' 👈' : ''}</td>
-                <td>${p.team.toUpperCase()}</td>
-                <td>${rank}</td>
-                <td>${level}</td>
-                <td>${p.score}</td>
-                <td>${p.deflections}</td>
-                <td>${p.hits}</td>
-            `;
+            const level = p.level || (p.isBot ? Math.min(20, i + 1) : (store?.get?.('level') || 1));
+            const values = [
+                `${p.name}${p.isYou ? ' (YOU)' : ''}`,
+                String(p.team || '').toUpperCase(),
+                String(rank),
+                String(level),
+                String(p.score ?? 0),
+                String(p.deflections ?? 0),
+                String(p.hits ?? 0)
+            ];
+            values.forEach((value, cellIndex) => {
+                const cell = document.createElement('td');
+                cell.textContent = value;
+                if (cellIndex === 0) cell.className = `team-${p.team}`;
+                row.appendChild(cell);
+            });
             tbody.appendChild(row);
         });
     }

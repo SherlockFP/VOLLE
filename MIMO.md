@@ -1,6 +1,6 @@
 # MIMO.md — 2BALL Project Current State
 
-> **Last updated:** 2026-07-11 by MiMoCode (mimo-auto)
+> **Last updated:** 2026-07-19
 > **Status:** Active development. Phase 1 (7/7) complete, Phase 2-4 pending.
 > **Tech Stack:** Three.js + PeerJS + vanilla JS (ES modules), browser-based 3D dodgeball.
 
@@ -11,6 +11,20 @@
 2BALL (dodgb) is a 3D first-person dodgeball game with esport aspirations. Browser-based, no install needed. P2P multiplayer via PeerJS, 7 characters, 8 skills, 8 runes, ranked ELO, tournament bracket, daily challenges, replay system, and more.
 
 **Run:** `node server.js` → open `http://localhost:8000`
+
+---
+
+## Phase 1 — UI Foundation & Hardening ✅
+
+- **Themes:** `dark` and `soft-spectrum`, persisted through `Store`.
+- **UI scale:** 80%–120%, applied immediately through `--ui-scale` and persisted.
+- **Unified settings:** one modal with Controls, Video, Game, and Accessibility tabs; compact-height content scrolls inside the modal.
+- **Accessibility:** keyboard focus ring, reduced-motion mode, and high-contrast token overrides.
+- **Scoreboard:** hostile player names render through `textContent`; deterministic bot levels; full-viewport centered hold-Tab overlay; release/conflicting surfaces hide it; overflowing rows scroll inside the shell.
+- **Console authority:** shared-state commands are marked `hostOnly`; connected clients receive `Host only command: <command>` before mutation. Offline/host execution remains allowed. Help/autocomplete show `[HOST]`.
+- **Verification:** `node --test tests/ui-foundation.test.mjs` → **21/21 passed**; `npm test` → **129/129 passed**; `npm run check` → **48 JavaScript files syntax-valid**. Responsive browser matrix passed at 1280×720, 1366×768, 1920×1080, and 2560×1080. Social Hub texture smoke load passed with non-zero transfers for all six restored texture paths. Map carousel tooltips no longer emit `[object Object]`. The document declares an inline favicon, eliminating the browser's `/favicon.ico` 404 probe.
+
+Key files: `js/ui-theme.js`, `js/settings-controller.js`, `css/ui-tokens.css`, `css/ui-shell.css`, `tests/ui-foundation.test.mjs`.
 
 ---
 
@@ -185,7 +199,7 @@ dodgb/
 
 - `graphify-out/` is stale (last run before recent commits). Run `/graphify` to update.
 - `PLAN.md` contains both completed and pending items — check this file (MIMO.md) for current status.
-- No unit tests yet — self-checks are debug-mode only (`?debug` in URL).
+- Automated Node tests are available via `npm test`; Phase 1 UI coverage lives in `tests/ui-foundation.test.mjs`.
 - PeerJS P2P requires both peers to be on same network or use a signaling server.
 
 ---

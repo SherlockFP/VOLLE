@@ -710,16 +710,7 @@ body.social-hub-active #menu-particles {
 /* ===== SCOREBOARD OVERLAY ===== */
 
 #scoreboard-overlay {
-    position: fixed;
-    top: 50%; left: 50%;
-    transform: translate(-50%, -50%);
     z-index: 160;
-    background: var(--panel);
-    backdrop-filter: blur(20px);
-    border-radius: 16px;
-    padding: 20px 30px;
-    min-width: 500px;
-    border: 1px solid rgba(255,255,255,0.08);
 }
 
 /* Team switch popup (M) */
@@ -2093,7 +2084,6 @@ body.social-hub-active #menu-particles {
 @media (max-width: 600px) {
     .panel { min-width: 90%; padding: 24px; }
     .panel h1 { font-size: 2em; }
-    #scoreboard-overlay { min-width: 90%; }
     #chat-log, #chat-input { width: 240px; }
 }
 
@@ -5446,29 +5436,6 @@ select:focus-visible,
     border-radius: 5px;
 }
 
-#scoreboard-overlay {
-    inset: 0;
-    width: auto;
-    max-width: none;
-    padding: clamp(12px, 5vw, 70px);
-    display: grid;
-    place-items: center;
-    color: var(--shell-ink);
-    background: rgba(13, 55, 80, 0.52);
-    backdrop-filter: blur(12px);
-}
-
-.scoreboard-shell {
-    width: min(980px, 100%);
-    max-height: min(680px, calc(100dvh - 32px));
-    padding: clamp(16px, 3vw, 28px);
-    overflow: hidden;
-    background: rgba(247, 252, 255, 0.96);
-    border: 1px solid #fff;
-    border-radius: 26px;
-    box-shadow: 0 30px 70px rgba(8, 41, 61, 0.3);
-}
-
 .scoreboard-header {
     margin-bottom: 16px;
     display: flex;
@@ -5959,16 +5926,6 @@ select:focus-visible,
 
     .shop-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    #scoreboard-overlay {
-        padding: 8px;
-    }
-
-    .scoreboard-shell {
-        max-height: calc(100dvh - 16px);
-        padding: 14px;
-        border-radius: 20px;
     }
 
     .game-over-actions,
