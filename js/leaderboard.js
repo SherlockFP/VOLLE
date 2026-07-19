@@ -26,7 +26,14 @@ function generateFakes() {
         const name = ADJ[Math.floor(rng() * ADJ.length)] + NOUN[Math.floor(rng() * NOUN.length)];
         const elo = Math.round(800 + rng() * 1600); // 800..2400
         // ponytail: index suffix guarantees unique tags (gamer handles do this anyway)
-        players.push({ name: `${name}${i}`, elo, fake: true });
+        const classes = ['scout', 'soldier', 'tank'];
+        players.push({
+            name: `${name}${i}`,
+            elo,
+            weeklyElo: Math.max(0, elo - Math.round(rng() * 220)),
+            classId: classes[i % classes.length],
+            fake: true
+        });
     }
     return players;
 }
@@ -37,6 +44,13 @@ class LeaderboardClass {
         if (!this.players) {
             this.players = generateFakes();
             this._save();
+        } else {
+            const classes = ['scout', 'soldier', 'tank'];
+            this.players = this.players.map((player, index) => ({
+                ...player,
+                weeklyElo: Number(player.weeklyElo) || Math.max(0, player.elo - (index * 17 % 220)),
+                classId: player.classId || classes[index % classes.length]
+            }));
         }
     }
 
@@ -59,6 +73,25 @@ class LeaderboardClass {
 
     getTop(n = 10) {
         return this._merged().sort((a, b) => b.elo - a.elo).slice(0, n);
+    }
+
+    getFiltered(filter = 'global', {
+        limit = 20,
+        friends = [],
+        classId = ''
+    } = {}) {
+        const friendSet = new Set(friends.map(name => String(name).toLowerCase()));
+        let players = this._merged();
+        if (filter === 'friends') {
+            players = players.filter(player => !player.fake || friendSet.has(player.name.toLowerCase()));
+        } else if (filter === 'class' && classId) {
+            players = players.filter(player => !player.fake || player.classId === classId);
+        }
+        const scoreKey = filter === 'weekly' ? 'weeklyElo' : 'elo';
+        return players
+            .map(player => ({ ...player, displayElo: player[scoreKey] ?? player.elo }))
+            .sort((a, b) => b.displayElo - a.displayElo)
+            .slice(0, limit);
     }
 
     // 1-indexed rank a player with this ELO would hold.

@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Volle - 3D First-Person Dodgeball</title>
-    <meta name="description" content="A 3D first-person dodgeball game with TF2-style cartoonish graphics, P2P multiplayer, and skill-based gameplay">
-    <link rel="icon" type="image/png" href="assets/generated/volle-logo-512.png">
+    <title>Warrball - Competitive Ball Combat</title>
+    <meta name="description" content="Warrball is a fast, competitive first-person ball combat game. Master movement, classes, and the arena.">
+    <link rel="icon" type="image/png" href="assets/generated/warrball-logo.png">
     <link rel="stylesheet" href="css/style.css?v=1.74">
     <link rel="stylesheet" href="css/ui-tokens.css?v=1">
     <link rel="stylesheet" href="css/ui-shell.css?v=1">
@@ -48,8 +48,8 @@
     <!-- Loading Screen -->
     <div id="loading-screen">
         <div class="loading-content">
-            <img class="brand-mark brand-mark-loading" src="assets/generated/volle-logo-512.png" alt="">
-            <div class="loading-logo">VOLLE</div>
+            <img class="brand-mark brand-mark-loading" src="assets/generated/warrball-logo.png" alt="">
+            <div class="loading-logo">WARRBALL</div>
             <div class="loading-bar-track"><div class="loading-bar-fill"></div></div>
             <div class="loading-status">Loading assets...</div>
         </div>
@@ -61,13 +61,34 @@
                 <span></span><i></i><b></b>
             </div>
             <div class="match-loading-copy">
-                <img class="brand-mark brand-mark-match" src="assets/generated/volle-logo-512.png" alt="">
+                <img class="brand-mark brand-mark-match" src="assets/generated/warrball-logo.png" alt="">
                 <span id="match-loading-mode">CLASSIC</span>
                 <h2 id="match-loading-map">BEACH OPEN</h2>
                 <p id="match-loading-tip">Tip: move after every throw.</p>
             </div>
-            <div class="match-loading-track"><span></span></div>
-            <small>VOLLE COMPETITIVE NETWORK</small>
+            <div class="match-loading-track"><span id="match-loading-progress"></span></div>
+            <b id="match-loading-percent" class="match-loading-percent">0%</b>
+            <small>WARRBALL COMPETITIVE NETWORK</small>
+        </div>
+    </div>
+    <div id="ranked-queue-overlay" class="command-overlay hidden" role="dialog" aria-modal="true">
+        <div class="command-card queue-card">
+            <span class="shell-kicker">COMPETITIVE MATCHMAKING</span>
+            <h2 id="ranked-queue-title">Searching...</h2>
+            <p id="ranked-queue-status">Finding the closest ELO lobby.</p>
+            <div class="queue-pulse"><i></i><i></i><i></i></div>
+            <button id="ranked-queue-cancel" class="btn btn-secondary">Cancel</button>
+        </div>
+    </div>
+    <div id="draft-overlay" class="command-overlay hidden" role="dialog" aria-modal="true">
+        <div class="command-card draft-card">
+            <header><div><span class="shell-kicker">COMPETITIVE DRAFT</span><h2>Choose team and class</h2></div><small>One class change each round</small></header>
+            <div class="draft-teams">
+                <button class="draft-team red" data-draft-team="red"><b>RED</b><span>Join red door</span></button>
+                <button class="draft-team blue" data-draft-team="blue"><b>BLUE</b><span>Join blue door</span></button>
+            </div>
+            <div id="draft-class-list" class="draft-class-list"></div>
+            <button id="draft-confirm" class="btn btn-primary" disabled>LOCK PICK</button>
         </div>
     </div>
 
@@ -121,8 +142,8 @@
                 </div>
                 <div class="ow-splash">
                     <span class="ow-kicker">WELCOME TO THE ARENA</span>
-                    <img class="brand-mark brand-mark-menu" src="assets/generated/volle-logo-512.png" alt="Volle emblem">
-                    <div class="ow-logo">VOLLE</div>
+                    <img class="brand-mark brand-mark-menu" src="assets/generated/warrball-logo.png" alt="Warrball emblem">
+                    <div class="ow-logo">WARRBALL</div>
                     <div class="ow-tagline">FIRST PERSON DODGEBALL</div>
                     <div class="ow-mode-chip" id="menu-mode-status"><span>QUICK PLAY</span><b>Create or join a lobby</b></div>
                 </div>
@@ -157,6 +178,7 @@
                     <button id="btn-replays" class="ow-link"><svg class="ui-icon" aria-hidden="true"><use href="#i-replay"></use></svg>Replays</button>
                     <button id="btn-achievements" class="ow-link"><svg class="ui-icon" aria-hidden="true"><use href="#i-trophy"></use></svg>Achievements</button>
                     <button id="btn-leaderboard" class="ow-link"><svg class="ui-icon" aria-hidden="true"><use href="#i-chart"></use></svg>Leaderboard</button>
+                    <button id="btn-social-center" class="ow-link"><svg class="ui-icon" aria-hidden="true"><use href="#i-user"></use></svg>Community</button>
                     <button id="btn-patchnotes" class="ow-link"><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg>Patch Notes</button>
                 </div>
                 <span class="ow-hint">WASD move / L-Click deflect / Q skill / Tab scores / Y chat</span>
@@ -200,7 +222,7 @@
         <div class="social-hub-browser-card">
             <header class="social-hub-browser-header">
                 <div>
-                    <span class="social-hub-browser-kicker">VOLLE WORLD</span>
+                    <span class="social-hub-browser-kicker">WARRBALL WORLD</span>
                     <h2 id="social-hub-browser-title">SOCIAL HUBS</h2>
                     <p>Choose a world. Empty worlds open a new public room.</p>
                 </div>
@@ -223,7 +245,7 @@
                 <svg class="ui-icon"><use href="#i-globe"></use></svg>
             </div>
             <div class="social-lobby-heading">
-                <span class="social-lobby-kicker">VOLLE WORLD</span>
+                <span class="social-lobby-kicker">WARRBALL WORLD</span>
                 <strong>SOCIAL HUB</strong>
                 <span id="social-lobby-status">Exploring Island</span>
             </div>
@@ -252,6 +274,12 @@
                     <p><kbd>WASD</kbd> Move <kbd>Space</kbd> Swim up <kbd>C</kbd> Dive <kbd>Y</kbd> Chat</p>
                 </div>
                 <div class="social-lobby-actions">
+                    <button id="social-lobby-inspect" type="button" aria-label="Inspect nearest player" title="Inspect nearest player">
+                        <svg class="ui-icon" aria-hidden="true"><use href="#i-user"></use></svg>
+                    </button>
+                    <button id="social-lobby-photo" type="button" aria-label="Photo mode" title="Photo mode">
+                        <svg class="ui-icon" aria-hidden="true"><use href="#i-monitor"></use></svg>
+                    </button>
                     <button id="social-lobby-exit" type="button" aria-label="Exit Hub" title="Exit Hub">
                         <svg class="ui-icon" aria-hidden="true"><use href="#i-close"></use></svg>
                     </button>
@@ -329,7 +357,7 @@
     <div id="lobby-screen" class="screen hidden">
         <!-- Top bar -->
         <div class="cs-topbar">
-            <div class="cs-roomcode"><img class="brand-mark brand-mark-room" src="assets/generated/volle-logo-512.png" alt=""> Room: <span id="room-code">LOCAL</span></div>
+            <div class="cs-roomcode"><img class="brand-mark brand-mark-room" src="assets/generated/warrball-logo.png" alt=""> Room: <span id="room-code">LOCAL</span></div>
             <div class="cs-lobby-name">
                 <input id="lobby-name-input" class="cs-lobby-name-input" type="text" maxlength="32" placeholder="Lobby Name" value="Lobby" spellcheck="false">
             </div>
@@ -520,7 +548,7 @@
                         </div>
                     </div>
                     <div class="crosshair-code-row">
-                        <input id="crosshair-code-input" type="text" maxlength="2048" placeholder="VOLLE-X1 crosshair code" aria-label="Crosshair share code">
+                        <input id="crosshair-code-input" type="text" maxlength="2048" placeholder="WARRBALL-X1 crosshair code" aria-label="Crosshair share code">
                         <button id="crosshair-code-copy" class="btn btn-secondary btn-small" type="button">Copy</button>
                         <button id="crosshair-code-paste" class="btn btn-secondary btn-small" type="button">Paste</button>
                         <button id="crosshair-code-import" class="btn btn-primary btn-small" type="button">Apply</button>
@@ -591,6 +619,17 @@
                             <span class="toggle-slider"></span>
                         </label>
                     </div>
+                    <div class="settings-row settings-row-toggle">
+                        <label>Experimental Netcode <span class="settings-hint">Interpolation + prediction + lag compensation</span></label>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="setting-experimental-netcode">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="settings-row">
+                        <label>Diagnostics <span class="settings-hint">Copy recent errors and state transitions</span></label>
+                        <button id="copy-crash-report" class="btn btn-secondary btn-small" type="button">Copy crash report</button>
+                    </div>
                 </div>
                 <div class="settings-section" data-settings-section="access">
                     <div class="settings-section-heading"><div><span class="settings-kicker">COMFORT</span><h3>Accessibility</h3></div><p>Reduce visual intensity and improve readability.</p></div>
@@ -654,7 +693,7 @@
                 <span class="shop-note">Owned items can be equipped instantly.</span>
             </div>
             <div class="shop-banner">
-                <img src="assets/generated/volle-shop-roster.webp" alt="VOLLE arena character roster">
+                <img src="assets/generated/volle-shop-roster.webp" alt="Warrball arena character roster">
                 <div><span class="shell-kicker">ORIGINAL ROSTER</span><strong>Find your movement style</strong><p>Every class changes health, speed, stamina and deflect power.</p></div>
             </div>
             <div class="shop-grid" id="shop-grid"></div>
@@ -792,6 +831,19 @@
         </div>
     </div>
 
+    <div id="social-center-screen" class="screen hidden">
+        <div class="panel wide-panel shell-panel community-shell">
+            <header class="shell-header"><div class="shell-title"><span class="shell-icon"><svg class="ui-icon"><use href="#i-user"></use></svg></span><div><span class="shell-kicker">COMMUNITY</span><h1>Squad Center</h1><p>Party, ready check, friends, recent players and safety.</p></div></div></header>
+            <div class="community-layout">
+                <section class="community-party"><header><h2>Party</h2><button id="party-ready-check" class="btn btn-primary btn-small">Ready check</button></header><div id="community-party-list"></div></section>
+                <section class="community-friends"><header><h2>Friends & invites</h2></header><div class="community-add"><input id="community-friend-name" maxlength="32" placeholder="Player name"><button id="community-friend-add" class="btn btn-secondary btn-small">Invite</button></div><div id="community-friend-list"></div></section>
+                <section class="community-recent"><header><h2>Recently played</h2></header><div id="community-recent-list"></div></section>
+                <section class="community-showcase"><header><h2>Profile showcase</h2></header><div id="community-showcase-preview" class="showcase-preview"><span>POSE</span><b id="showcase-pose-name">HERO</b></div><label>Skin<select id="showcase-skin"><option value="default">Default</option><option value="neon">Neon</option><option value="frost">Frost</option><option value="astro">Astro</option></select></label><label>Emote<select id="showcase-emote"><option value="wave">Wave</option><option value="cheer">Cheer</option><option value="dance">Dance</option></select></label><label>Pose<select id="showcase-pose"><option value="hero">Hero</option><option value="victory">Victory</option><option value="guard">Guard</option></select></label><button id="photo-mode-toggle" class="btn btn-secondary btn-small">Photo mode</button></section>
+            </div>
+            <button id="btn-social-center-back" class="btn btn-secondary shell-back">Back to menu</button>
+        </div>
+    </div>
+
     <!-- ===== PLAYER PROFILE ===== -->
     <div id="screen-profile" class="screen hidden">
         <div class="profile-container">
@@ -806,6 +858,7 @@
     <div id="leaderboard-screen" class="screen hidden">
         <div class="panel wide-panel leaderboard-shell">
             <header class="leaderboard-header"><div><span class="shell-kicker">GLOBAL LADDER</span><h1>Leaderboard</h1><p>Live ELO standings across every completed match.</p></div><span class="leaderboard-mark" aria-hidden="true">ELO</span></header>
+            <div id="leaderboard-filters" class="leaderboard-filters"><button class="selected" data-filter="global">Global</button><button data-filter="weekly">Weekly</button><button data-filter="friends">Friends</button><button data-filter="class">My class</button></div>
             <div class="leaderboard-table-wrap"><table class="scoreboard-table" id="leaderboard-table">
             <thead><tr><th>#</th><th>Player</th><th>ELO</th><th>Rank</th></tr></thead>
                 <tbody id="leaderboard-body"></tbody></table></div>
@@ -880,7 +933,7 @@
         <div class="panel wide-panel shell-panel patchnotes-shell">
             <header class="shell-header">
                 <div class="shell-title"><span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg></span><div><span class="shell-kicker">LIVE DEVELOPMENT</span><h1>Patch Notes</h1><p>Built by Sherlock. Polished with player feedback.</p></div></div>
-                <span class="patch-version">VOLLE v0.10</span>
+                <span class="patch-version">WARRBALL v0.10</span>
             </header>
             <div class="patch-timeline">
                 <article class="patch-card current">
@@ -911,7 +964,7 @@
                     </ul>
                 </article>
             </div>
-            <footer class="patch-footer"><strong>By Sherlock</strong><span>Thanks for helping VOLLE grow.</span></footer>
+            <footer class="patch-footer"><strong>By Sherlock</strong><span>Thanks for helping WARRBALL grow.</span></footer>
             <button id="btn-patchnotes-back" class="btn btn-secondary shell-back"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back to menu</button>
         </div>
     </div>
@@ -1110,13 +1163,13 @@
             </label>
         </div>
     </div>
-    <div id="case-reel" class="case-reel hidden" role="dialog" aria-modal="true" aria-label="Case opening"><div class="case-reel-card"><div class="case-reel-top"><span>VOLLE CASE OPENING</span><button id="case-reel-skip" type="button">SKIP</button></div><div class="case-reel-window"><div id="case-reel-track" class="case-reel-track"></div></div><div id="case-reel-result" class="case-reel-result" aria-live="polite"></div></div></div>
+    <div id="case-reel" class="case-reel hidden" role="dialog" aria-modal="true" aria-label="Case opening"><div class="case-reel-card"><div class="case-reel-top"><span>WARRBALL CASE OPENING</span><button id="case-reel-skip" type="button">SKIP</button></div><div class="case-reel-window"><div id="case-reel-track" class="case-reel-track"></div></div><div id="case-reel-result" class="case-reel-result" aria-live="polite"></div><div id="case-reward-preview" class="case-reward-preview" aria-label="3D reward preview"><i></i></div></div></div>
 
     <!-- ===== TEAM SWITCH OVERLAY (M) ===== -->
     <div id="team-overlay" class="hidden">
         <div class="team-popup">
             <header class="team-command-header">
-                <div><span>VOLLE COMMAND</span><h3>Choose your class</h3></div>
+                <div><span>WARRBALL COMMAND</span><h3>Choose your class</h3></div>
                 <kbd>M</kbd>
             </header>
             <div class="team-popup-grid">

@@ -128,7 +128,7 @@ test('runtime keeps the island assets local without a retired map runtime', () =
     assert.match(source, /_installHubMap\(map, model\)/);
     assert.match(source, /new THREE\.ShaderMaterial/);
     assert.match(source, /new THREE\.DirectionalLight/);
-    assert.match(source, /volle-harbor-plaza/);
+    assert.match(source, /warrball-harbor-plaza/);
     assert.match(source, /selectMap\(mapId/);
     assert.match(source, /\['a', 'f', 'k', 'r'\]/);
     assert.match(source, /character-\$\{id\}\.glb/);

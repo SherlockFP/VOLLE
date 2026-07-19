@@ -230,7 +230,7 @@ test('index loads UI foundation after legacy styles', () => {
 
 test('index declares a local favicon so the browser does not probe a missing default path', () => {
   const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-  assert.match(html, /<link[^>]+rel="icon"[^>]+href="(?:data:image\/svg\+xml,|assets\/generated\/volle-logo-512\.png)"/);
+  assert.match(html, /<link[^>]+rel="icon"[^>]+href="(?:data:image\/svg\+xml,|assets\/generated\/warrball-logo\.png)"/);
 });
 
 test('Phase 1 static integration assertions remain true', () => {

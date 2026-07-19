@@ -399,7 +399,7 @@ export class Console {
         this.game = game;
         this.buildUI();
         this.bindKeys();
-        this.log('═══ DODGBALL Console ═══');
+        this.log('═══ WARRBALL Console ═══');
         this.log('Type help for commands');
     }
 

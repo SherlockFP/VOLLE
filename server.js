@@ -111,6 +111,9 @@ const server = http.createServer(async (req, res) => {
             players: b.players || 1,
             map: b.map || 'Unknown',
             mode: b.mode || 'Classic',
+            ranked: b.ranked === true,
+            averageElo: Math.max(0, Math.min(5000, Number(b.averageElo) || 1000)),
+            maxPlayers: Math.max(2, Math.min(16, Number(b.maxPlayers) || 8)),
             updatedAt: Date.now()
         });
         sendJson(res, { ok: true });
@@ -191,5 +194,5 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-    console.log(`\n  DODGBALL running on port ${PORT}\n  Local: http://localhost:${PORT}\n`);
+    console.log(`\n  WARRBALL running on port ${PORT}\n  Local: http://localhost:${PORT}\n`);
 });

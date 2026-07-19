@@ -8,7 +8,7 @@
 
 ## What Is This?
 
-2BALL (dodgb) is a 3D first-person dodgeball game with esport aspirations. Browser-based, no install needed. P2P multiplayer via PeerJS, 7 characters, 8 skills, 8 runes, ranked ELO, tournament bracket, daily challenges, replay system, and more.
+Warrball is a 3D first-person ball combat game with esport aspirations. Browser-based, no install needed. P2P multiplayer via PeerJS, class abilities, ranked ELO, tournament bracket, daily challenges, replay system, and more.
 
 **Run:** `node server.js` → open `http://localhost:8000`
 

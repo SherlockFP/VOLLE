@@ -37,6 +37,7 @@ export class UI {
             achievements: document.getElementById('achievements-screen'),
             daily: document.getElementById('daily-screen'),
             ranked: document.getElementById('ranked-screen'),
+            socialCenter: document.getElementById('social-center-screen'),
             leaderboard: document.getElementById('leaderboard-screen'),
             replays: document.getElementById('replays-screen'),
             social: document.getElementById('social-screen'),
@@ -206,12 +207,18 @@ export class UI {
             });
             const action = document.createElement('td');
             if (!p.isYou && !p.isBot) {
+                const inspect = document.createElement('button');
+                inspect.type = 'button';
+                inspect.className = 'scoreboard-safety inspect';
+                inspect.textContent = 'Inspect';
+                inspect.addEventListener?.('click', () => this.onPlayerInspect?.(p));
                 const safety = document.createElement('button');
                 safety.type = 'button';
                 safety.className = 'scoreboard-safety';
                 safety.textContent = 'Report';
                 safety.setAttribute?.('aria-label', `Mute or report ${p.name}`);
                 safety.addEventListener?.('click', () => this.onPlayerSafety?.(p));
+                action.appendChild(inspect);
                 action.appendChild(safety);
             } else action.textContent = '-';
             row.appendChild(action);
@@ -1044,7 +1051,8 @@ export class UI {
             Object.values(KNIVES).filter(knife => owned.has(knife.id)).forEach(knife => {
                 const card = document.createElement('div');
                 card.className = `shop-card inventory-card rarity-${knife.rarity}`;
-                card.innerHTML = `<div class="knife-preview" style="--knife-color:${knife.color}" aria-hidden="true"></div><div class="char-name">${knife.name}</div><div class="char-desc">${knife.rarity.toUpperCase()} / ${knife.teams.map(t => t.toUpperCase()).join(' + ')}</div><div class="inventory-actions">${knife.teams.map(team => equipped[team] === knife.id ? `<span class="shop-owned">${team.toUpperCase()} equipped</span>` : `<button class="btn btn-small knife-equip" data-id="${knife.id}" data-team="${team}">Equip ${team}</button>`).join('')}</div>`;
+                const kills = Number(store.get('knifeStats')?.[knife.id]) || 0;
+                card.innerHTML = `<div class="knife-preview knife-preview-3d model-${knife.model}" style="--knife-color:${knife.color};--knife-accent:${knife.accent}" aria-hidden="true"></div><div class="char-name">${knife.name}</div><div class="char-desc">${knife.rarity.toUpperCase()} / ${knife.teams.map(t => t.toUpperCase()).join(' + ')}</div><div class="stat-track"><span>STATTRACK</span><b>${String(kills).padStart(6, '0')}</b></div><button class="btn btn-small knife-inspect" data-id="${knife.id}">3D Inspect</button><div class="inventory-actions">${knife.teams.map(team => equipped[team] === knife.id ? `<span class="shop-owned">${team.toUpperCase()} equipped</span>` : `<button class="btn btn-small knife-equip" data-id="${knife.id}" data-team="${team}">Equip ${team}</button>`).join('')}</div>`;
                 grid.appendChild(card);
             });
         }
@@ -1086,14 +1094,26 @@ export class UI {
             return `<div class="case-reel-item rarity-${item.rarity || result.reward.rarity}"><span class="case-reel-orb ${item.type === 'avatar' ? 'avatar' : ''}" aria-hidden="true"></span><small>${type}</small><b>${item.name || item.id}</b></div>`;
         }).join('');
         resultEl.textContent = '';
+        const preview = document.getElementById('case-reward-preview');
+        if (preview) {
+            preview.className = 'case-reward-preview';
+            preview.removeAttribute('style');
+        }
         overlay.classList.remove('hidden');
         let settled = false;
         const finish = () => {
             if (settled) return;
             settled = true;
             track.classList.add('settled');
-            resultEl.innerHTML = `<span>${result.duplicate ? `Duplicate +${result.refund}` : 'UNLOCKED'}</span><strong>${result.reward.name}</strong>`;
-            setTimeout(() => overlay.classList.add('hidden'), 1800);
+            const rewardPreview = document.getElementById('case-reward-preview');
+            if (rewardPreview) {
+                rewardPreview.className = `case-reward-preview active rarity-${result.reward.rarity || 'common'} ${result.reward.type === 'avatar' ? 'avatar' : `model-${result.reward.model || 'classic'}`}`;
+                rewardPreview.style.setProperty('--reward-color', result.reward.color || result.reward.body || '#55eadc');
+                rewardPreview.style.setProperty('--reward-accent', result.reward.accent || result.reward.head || '#153e64');
+            }
+            resultEl.innerHTML = `<span>${result.duplicate ? `Duplicate +${result.refund}` : 'UNLOCKED - INVENTORY READY'}</span><strong>${result.reward.name}</strong>`;
+            this.onCaseRewardReveal?.(result.reward);
+            setTimeout(() => overlay.classList.add('hidden'), 3600);
         };
         requestAnimationFrame(() => {
             const selected = track.children[targetIndex];
@@ -1248,9 +1268,13 @@ export class UI {
         const winRate = games ? Math.round(wins / games * 100) : 0;
         const contracts = store.getSeasonContracts();
         const rankedState = store.get('rankedState') || {};
-        const season = rankedState.season || {};
-        const history = Array.isArray(rankedState.history) ? rankedState.history.slice(-5).reverse() : [];
-        const placementGames = Math.min(5, Number(season.placementGames) || 0);
+        const season = rankedState.currentSeason || {};
+        const history = Array.isArray(season.matches) ? season.matches.slice(-8).reverse() : [];
+        const placementTarget = Number(season.placements?.required) || 5;
+        const placementGames = Math.min(
+            placementTarget,
+            Number(season.placements?.completed) || 0
+        );
         el.innerHTML = `
             <div class="career-dashboard">
                 <section class="career-rank-card">
@@ -1277,9 +1301,9 @@ export class UI {
                     <div class="career-milestone-card"><span class="shell-kicker">MASTERY</span><strong>${store.get('level') || 1}</strong><p>Account level</p></div>
                 </section>
                 <section class="career-season-history">
-                    <header><span class="shell-kicker">COMPETITIVE</span><h2>${season.name || 'Launch Season'}</h2><small>Placements ${placementGames}/5</small></header>
-                    <div class="career-placement-track"><i style="width:${placementGames * 20}%"></i></div>
-                    <div class="career-history-list">${history.length ? history.map(match => `<div><b class="${match.won ? 'win' : 'loss'}">${match.won ? 'WIN' : 'LOSS'}</b><span>${match.mode || 'competitive'} - ${match.map || 'arena'}</span><strong>${match.delta >= 0 ? '+' : ''}${match.delta || 0} ELO</strong></div>`).join('') : '<p>Complete competitive matches to build your history.</p>'}</div>
+                    <header><span class="shell-kicker">COMPETITIVE</span><h2>${season.id || 'Launch Season'}</h2><small>Placements ${placementGames}/${placementTarget}</small></header>
+                    <div class="career-placement-track"><i style="width:${placementGames / placementTarget * 100}%"></i></div>
+                    <div class="career-history-list">${history.length ? history.map(match => `<div><b class="${match.result === 'win' ? 'win' : 'loss'}">${match.result.toUpperCase()}</b><span>Opponent ${match.opponentElo} ELO</span><strong>${match.delta >= 0 ? '+' : ''}${match.delta || 0} ELO</strong></div>`).join('') : '<p>Complete competitive matches to build your history.</p>'}</div>
                 </section>
                 <section class="career-contracts">
                     <header><span class="shell-kicker">LAUNCH SEASON</span><h2>Season Contracts</h2></header>
@@ -1345,19 +1369,24 @@ export class UI {
     }
 
     // ===== LEADERBOARD EKRANI =====
-    renderLeaderboard(store) {
+    renderLeaderboard(store, filter = 'global') {
         const tbody = document.getElementById('leaderboard-body');
         if (!tbody) return;
         tbody.innerHTML = '';
-        const top = Leaderboard.getTop(20);
+        const top = Leaderboard.getFiltered(filter, {
+            limit: 20,
+            friends: store.get('socialProfile')?.friends || [],
+            classId: store.get('selectedChar')
+        });
         const myElo = store.getElo();
         const myName = 'You';
         top.forEach((p, i) => {
-            const rank = getRank(p.elo);
+            const displayElo = p.displayElo ?? p.elo;
+            const rank = getRank(displayElo);
             const isMe = p.name === myName;
             const row = document.createElement('tr');
             row.className = isMe ? 'is-you' : '';
-            const cells = [i + 1, `${p.name}${isMe ? ' (You)' : ''}`, p.elo, `${rank.emoji} ${rank.name}`];
+            const cells = [i + 1, `${p.name}${isMe ? ' (You)' : ''}`, displayElo, `${rank.emoji} ${rank.name}`];
             cells.forEach((value, index) => {
                 const cell = document.createElement('td');
                 cell.textContent = String(value);

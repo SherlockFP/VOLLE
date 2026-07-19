@@ -28,6 +28,9 @@ import {
     queueForNextRound,
     selectQueuedTeam
 } from './late-join.js';
+import { shouldEndOvertime, shouldStartOvertime } from './competitive-service.js';
+import { normalizeNetcode, predictPosition, rewindSnapshot, sampleSnapshots } from './experimental-netcode.js';
+import { RuntimeLog } from './runtime-safety.js';
 
 const BASE_HIT_DAMAGE = 25;
 
@@ -72,6 +75,7 @@ export class Game {
         };
 
         this.state = STATES.MENU;
+        this.experimentalNetcode = normalizeNetcode();
         this.ball = new Ball(renderer, arena);
         this.scoreboard = new Scoreboard();
         this.bots = [];
@@ -278,6 +282,7 @@ export class Game {
 
     setState(s) {
         const prev = this.state;
+        RuntimeLog.auditTransition(prev, s);
         this.state = s;
         if (s === STATES.ROUND_END && prev !== STATES.ROUND_END) this.onRoundEnd?.();
         if (s === STATES.LOBBY || s === STATES.MENU || s === STATES.SOCIAL_HUB) {
@@ -303,7 +308,7 @@ export class Game {
         this.scoreboard.setMaxRounds(parseInt(document.getElementById('setting-max-rounds')?.value || 16));
         this.scoreboard.addPlayer(this.playerName, 'red', { isYou: true });
         this.addBot('blue');
-        this.state = STATES.LOBBY;
+        this.setState(STATES.LOBBY);
         this._startMusic();
         this.updateLobbyUI();
     }
@@ -1411,13 +1416,22 @@ export class Game {
             }
             const isClient = this.network?.connected && !this.network?.isHost;
             if (!isClient && this.roundRestartTimer <= 0) {
-                if (this.mode?.mutators?.overtime && Math.abs(this.scoreboard.redScore - this.scoreboard.blueScore) >= 2) {
+                if (this._overtimeExtends > 0 && shouldEndOvertime({
+                    redScore: this.scoreboard.redScore,
+                    blueScore: this.scoreboard.blueScore,
+                    roundsExtended: this._overtimeExtends
+                })) {
                     this.endGame();
                 } else if (this.scoreboard.isTimeUp() || this.scoreboard.isMaxRounds()) {
-                    if (this.mode?.mutators?.overtime && this.scoreboard.redScore === this.scoreboard.blueScore && this._overtimeExtends < 2) {
+                    if (shouldStartOvertime({
+                        redScore: this.scoreboard.redScore,
+                        blueScore: this.scoreboard.blueScore,
+                        timeUp: this.scoreboard.isTimeUp(),
+                        maxRounds: this.scoreboard.isMaxRounds()
+                    }) && this._overtimeExtends < 8) {
                         this._overtimeExtends++;
                         this.scoreboard.maxRounds++;
-                        this.announce('🔥 OVERTIME! First to lead by 2 wins!', null, 0, 3000);
+                        this.announce('OVERTIME - next round breaks the tie!', null, 0, 3000);
                         this.startRound();
                     } else {
                         this.endGame();
@@ -1812,6 +1826,7 @@ export class Game {
                 x: pos.x, y: pos.y, z: pos.z,
                 ax: aimDir.x, ay: aimDir.y, az: aimDir.z,
                 bx: this.ball.position.x, by: this.ball.position.y, bz: this.ball.position.z,
+                ping: Math.min(250, Math.max(0, this.network?.getPing?.() || 0)),
                 flick: { vertical: localFlick?.vertical || 0, horizontal: localFlick?.horizontal || 0, power: localFlick?.power || 0 }
             });
             // Effects
@@ -2878,7 +2893,7 @@ export class Game {
         this.audio.playScore();
 
         // 30 second celebration — winners punch losers, no menu
-        this.state = STATES.CELEBRATION;
+        this.setState(STATES.CELEBRATION);
         this._celebrationTimer = 30;
         this._winningTeam = winner === 'RED' ? 'red' : winner === 'BLUE' ? 'blue' : null;
         this._won = this._winningTeam !== null && this.player.team === this._winningTeam;
@@ -3023,7 +3038,7 @@ export class Game {
     }
 
     _onCelebrationEnd() {
-        this.state = STATES.GAME_OVER;
+        this.setState(STATES.GAME_OVER);
         this.player.unlock(); // free mouse for XP screen buttons
         this.player._celebNoAttack = false; // attack restriction cleared
         const gm = document.getElementById('game-message');
@@ -3405,7 +3420,8 @@ export class Game {
     // interpolate eder (30Hz snapshot aktarımı akıcı görülür).
     invokeRemoteSnapshots(dt) {
         if (!this.remotePlayers.size) return;
-        const interpDelay = 60;
+        const netcode = normalizeNetcode(this.experimentalNetcode);
+        const interpDelay = netcode.enabled ? netcode.interpolationMs : 60;
         const now = performance.now();
         const renderTime = now - interpDelay;
         for (const p of this.remotePlayers.values()) {
@@ -3425,18 +3441,13 @@ export class Game {
                 p.group.position.copy(p.position).add(new THREE.Vector3(0, yOff, 0));
                 continue;
             }
-            // Find two snapshots bracketing renderTime
-            let t1 = buf[0], t2 = buf[buf.length - 1];
-            for (let i = 1; i < buf.length; i++) {
-                if (buf[i].time >= renderTime) {
-                    t1 = buf[i - 1];
-                    t2 = buf[i];
-                    break;
-                }
-            }
+            const sample = sampleSnapshots(buf, renderTime);
+            let t1 = sample.from, t2 = sample.to;
             if (renderTime >= t2.time) {
-                const lead = Math.min((renderTime - t2.time) / 1000, 0.08);
-                p.position.set(t2.x + (t2.vx || 0) * lead, t2.y + (t2.vy || 0) * lead, t2.z + (t2.vz || 0) * lead);
+                const maxLead = (netcode.enabled ? netcode.maxExtrapolationMs : 80);
+                const predicted = predictPosition(t2, { x: t2.vx, y: t2.vy, z: t2.vz }, Math.min(renderTime - t2.time, maxLead),
+                    netcode.enabled ? netcode.predictionStrength : 1);
+                p.position.set(predicted.x, predicted.y, predicted.z);
             } else if (t1 === t2 || t1.time === t2.time) {
                 p.position.set(t1.x, t1.y, t1.z);
             } else {
@@ -3489,7 +3500,19 @@ export class Game {
 
         p.aimDir.set(data.ax ?? p.aimDir.x, data.ay ?? p.aimDir.y, data.az ?? p.aimDir.z).normalize();
 
-        const attackPos = new THREE.Vector3(data.x ?? p.position.x, data.y ?? p.position.y, data.z ?? p.position.z);
+        let attackPos = new THREE.Vector3(data.x ?? p.position.x, data.y ?? p.position.y, data.z ?? p.position.z);
+        const netcode = normalizeNetcode(this.experimentalNetcode);
+        if (netcode.enabled && p._posBuffer?.length > 1) {
+            const rewind = rewindSnapshot(p._posBuffer, now, data.ping, netcode.lagCompensationMs);
+            if (rewind) {
+                const { from, to, alpha } = rewind;
+                attackPos = new THREE.Vector3(
+                    from.x + (to.x - from.x) * alpha,
+                    from.y + (to.y - from.y) * alpha,
+                    from.z + (to.z - from.z) * alpha
+                );
+            }
+        }
         const clientBallPos = new THREE.Vector3(data.bx ?? this.ball.position.x, data.by ?? this.ball.position.y, data.bz ?? this.ball.position.z);
         // ponytail: trust client range check; also accept if near authoritative ball pos
         // (client ball render lags via smoothing, so clientBallPos can desync from host ball)
@@ -4237,7 +4260,7 @@ export class Game {
     applyCelebrationStart(data) {
         if (!data || this.network?.isHost) return;
         // Client celebration state'ine gir — winner/loser UI'ı göster
-        this.state = STATES.CELEBRATION;
+        this.setState(STATES.CELEBRATION);
         this._celebrationTimer = data.duration || 30;
         this._winningTeam = data.winner || null;
         this._won = this._winningTeam !== null && this.player.team === this._winningTeam;
@@ -4291,7 +4314,7 @@ export class Game {
 
     applyGameOver(data) {
         if (!data || this.network?.isHost) return;
-        this.state = STATES.GAME_OVER;
+        this.setState(STATES.GAME_OVER);
         this.player.unlock();
         this.player._celebNoAttack = false;
         this._hideCelebrationBanner();

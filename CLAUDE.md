@@ -1,4 +1,4 @@
-# 2BALL Project
+# Warrball Project
 
 ## IMPORTANT: Read This First
 Before working on this project, ALWAYS read `MIMO.md` — it contains the current state, completed features, pending features, and file structure. For older dev history, see `docs/wiki/2BALL_Development_Log.md`.

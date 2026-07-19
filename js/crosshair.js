@@ -1,4 +1,5 @@
-export const CROSSHAIR_CODE_PREFIX = 'VOLLE-X1';
+export const CROSSHAIR_CODE_PREFIX = 'WARRBALL-X1';
+const LEGACY_CROSSHAIR_CODE_PREFIXES = Object.freeze(['VOLLE-X1']);
 export const MAX_CROSSHAIR_CODE_LENGTH = 2048;
 export const CROSSHAIR_STYLES = Object.freeze(['cross', 'dot', 'circle']);
 
@@ -203,7 +204,8 @@ export function exportCrosshairCode(config) {
 export function importCrosshairCode(code) {
     if (typeof code !== 'string' || code.length > MAX_CROSSHAIR_CODE_LENGTH) return null;
     const parts = code.split('.');
-    if (parts.length !== 3 || parts[0] !== CROSSHAIR_CODE_PREFIX) return null;
+    const supportedPrefixes = [CROSSHAIR_CODE_PREFIX, ...LEGACY_CROSSHAIR_CODE_PREFIXES];
+    if (parts.length !== 3 || !supportedPrefixes.includes(parts[0])) return null;
 
     const [, payload, expectedChecksum] = parts;
     if (!BASE64URL.test(payload) || !CHECKSUM.test(expectedChecksum)) return null;

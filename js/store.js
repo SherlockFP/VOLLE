@@ -20,6 +20,8 @@ import {
     grantXpBoost,
     startCosmeticTrial
 } from './social.js';
+import { createSocialProfile } from './social-service.js';
+import { DEFAULT_NETCODE, normalizeNetcode } from './experimental-netcode.js';
 
 const KEY = 'dodgball_save_v2';
 const PROFILE_TOKEN_KEY = 'dodgball_profile_token';
@@ -78,6 +80,7 @@ const DEFAULTS = {
     equippedAvatarSkin: 'default',
     ownedKnives: ['training'],
     equippedKnives: { red: 'training', blue: 'training' },
+    knifeStats: {},
     dailyRewards: { lastLoginClaim: '', loginStreak: 0, lastFreeCase: '' },
     casePity: {},
     seasonContracts: createSeasonContractState(),
@@ -98,6 +101,8 @@ const DEFAULTS = {
     mouseSensitivity: 2,
     rankedState: createRankedState(),
     socialState: createSocialState(),
+    socialProfile: createSocialProfile(),
+    experimentalNetcode: { ...DEFAULT_NETCODE },
     settings: {
         sensitivity: 2, volume: 50, musicVolume: 2, soundVolume: 50, botDifficulty: 'hard', fov: 75,
         quality: 'medium', reduceMotion: false, screenShake: true,
@@ -150,6 +155,7 @@ class StoreClass {
                 ownedAvatarSkins: parsed.ownedAvatarSkins || DEFAULTS.ownedAvatarSkins,
                 ownedKnives: Array.isArray(parsed.ownedKnives) ? parsed.ownedKnives.filter(id => KNIVES[id]) : DEFAULTS.ownedKnives,
                 equippedKnives: { ...DEFAULTS.equippedKnives, ...(parsed.equippedKnives || {}) },
+                knifeStats: parsed.knifeStats && typeof parsed.knifeStats === 'object' ? parsed.knifeStats : {},
                 dailyRewards: { ...DEFAULTS.dailyRewards, ...(parsed.dailyRewards || {}) },
                 casePity: parsed.casePity && typeof parsed.casePity === 'object' ? parsed.casePity : {},
                 seasonContracts: createSeasonContractState(parsed.seasonContracts),
@@ -158,7 +164,9 @@ class StoreClass {
                         ? parsed.movementTrials.best
                         : {},
                     rewarded: Array.isArray(parsed.movementTrials?.rewarded) ? parsed.movementTrials.rewarded : []
-                }
+                },
+                socialProfile: createSocialProfile(parsed.socialProfile),
+                experimentalNetcode: normalizeNetcode(parsed.experimentalNetcode)
             };
         } catch {
             return structuredClone(DEFAULTS);
@@ -177,6 +185,15 @@ class StoreClass {
         this.data.stats.rankedGames = this.data.rankedState.currentSeason.record.games;
         this.save();
         return this.data.rankedState;
+    }
+
+    addKnifeKill(knifeId, amount = 1) {
+        if (!KNIVES[knifeId]) return 0;
+        const current = Math.max(0, Number(this.data.knifeStats?.[knifeId]) || 0);
+        const next = current + Math.max(0, Math.floor(Number(amount) || 0));
+        this.data.knifeStats = { ...(this.data.knifeStats || {}), [knifeId]: next };
+        this.save();
+        return next;
     }
 
     async connectRemote(playerName = this.data.playerName) {

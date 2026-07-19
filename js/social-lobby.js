@@ -5,7 +5,7 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 const ISLAND_BOUNDS = Object.freeze({ minX: -220, maxX: 220, minY: -12, maxY: 110, minZ: -220, maxZ: 220 });
 const ISLAND_GROUND_Y = 0;
 export const SOCIAL_HUB_MAPS = Object.freeze({
-    island: Object.freeze({ id: 'island', name: 'Island', bounds: ISLAND_BOUNDS, spawn: Object.freeze({ x: 0, y: 2, z: 28 }), credit: 'VOLLE Harbor Plaza - CC0 Kenney props' })
+    island: Object.freeze({ id: 'island', name: 'Island', bounds: ISLAND_BOUNDS, spawn: Object.freeze({ x: 0, y: 2, z: 28 }), credit: 'Warrball Harbor Plaza - CC0 Kenney props' })
 });
 
 const SOCIAL_MAP_BLOCKS = Object.freeze({
@@ -123,7 +123,7 @@ export function createSocialLobbyArena(mapId = 'island') {
     return {
         bounds: map.bounds,
         ceilingHeight: map.bounds.maxY,
-        config: { name: `VOLLE Social Hub - ${map.name}`, lowGravity: false, slippery: false, gameplay: { sandTraction: 1 } },
+        config: { name: `Warrball Social Hub - ${map.name}`, lowGravity: false, slippery: false, gameplay: { sandTraction: 1 } },
         collidables,
         getNearbyCollidables: position => grid.query(position),
         platforms: [{ x: 0, z: 0, y: ISLAND_GROUND_Y, halfWidth: (map.bounds.maxX - map.bounds.minX) / 2 - 6, halfDepth: (map.bounds.maxZ - map.bounds.minZ) / 2 - 6 }],
@@ -207,6 +207,9 @@ export class SocialLobby {
         this.renderer = renderer;
         this.scene = renderer?.scene;
         this.player = player;
+        this.onAssetProgress = options.onAssetProgress || null;
+        this.onPoseArea = options.onPoseArea || null;
+        this._insidePoseArea = false;
         this.root = new THREE.Group();
         this.root.name = 'social-lobby';
         this.root.visible = false;
@@ -228,12 +231,13 @@ export class SocialLobby {
         this._boundaryColliders = this.arena.collidables.filter(collider => collider.invisibleBoundary);
         this._buildIslandWorld();
         this.scene?.add(this.root);
-        this.ready = this._loadAssets();
+        this._assetLoadPromise = null;
+        this.ready = Promise.resolve();
     }
 
     _buildIslandWorld() {
         this.islandWorld = new THREE.Group();
-        this.islandWorld.name = 'volle-harbor-plaza';
+        this.islandWorld.name = 'warrball-harbor-plaza';
         this.islandWorld.visible = true;
         box(this.islandWorld, [440, 2, 440], [0, -1, 0], 0x087b88);
         box(this.islandWorld, [180, .18, 26], [0, .05, 0], 0x30d1ca, { castShadow: false });
@@ -251,6 +255,13 @@ export class SocialLobby {
         beacon.position.set(0, 6.8, -8);
         fountain.add(beacon);
         this.islandWorld.add(fountain);
+        const posePad = new THREE.Mesh(
+            new THREE.CylinderGeometry(8, 8, .5, 32),
+            new THREE.MeshStandardMaterial({ color: 0x1d9f9b, emissive: 0x0d615f, emissiveIntensity: .8, roughness: .3 })
+        );
+        posePad.position.set(34, .3, 24);
+        posePad.userData.poseArea = true;
+        this.islandWorld.add(posePad);
         for (const [x, z, w, d, h, color] of [[-145,-145,92,32,25,0x235d78],[145,-145,92,32,25,0x286d83],[-145,145,92,32,20,0x225267],[145,145,92,32,20,0x2a6a68],[-174,0,24,124,17,0x1c536b],[174,0,24,124,17,0x235d78],[0,-174,124,24,17,0x1d5368],[0,174,124,24,17,0x246f75]]) {
             box(this.islandWorld, [w, h, d], [x, h / 2, z], color);
             box(this.islandWorld, [w * .8, .5, d + .35], [x, h + .25, z], 0x63e7dc);
@@ -294,9 +305,17 @@ export class SocialLobby {
     async _loadAssets() {
         const loader = new GLTFLoader();
         loader.setMeshoptDecoder(MeshoptDecoder);
+        const total = CHARACTER_ASSETS.length + PROP_ASSETS.length;
+        let loaded = 0;
+        const complete = value => {
+            loaded++;
+            this.onAssetProgress?.({ loaded, total, progress: loaded / total });
+            return value;
+        };
         const characterJobs = CHARACTER_ASSETS.map((url, index) => loader.loadAsync(url)
             .then(gltf => this._installCharacter(gltf, index))
-            .catch(() => null));
+            .catch(() => null)
+            .then(complete));
         const propJobs = PROP_ASSETS.map(([url, position, scale, rotationY]) => loader.loadAsync(url)
             .then(gltf => {
                 if (this._disposed) return;
@@ -307,7 +326,8 @@ export class SocialLobby {
                 setMeshShadows(model);
                 this.islandWorld.add(model);
             })
-            .catch(() => null));
+            .catch(() => null)
+            .then(complete));
         const mapJobs = Object.values(SOCIAL_HUB_MAPS)
             .filter(map => map.asset)
             .map(map => loader.loadAsync(map.asset)
@@ -315,6 +335,12 @@ export class SocialLobby {
                 .catch(() => null));
         await Promise.allSettled([...characterJobs, ...propJobs, ...mapJobs]);
         return this;
+    }
+
+    loadAssets() {
+        if (!this._assetLoadPromise) this._assetLoadPromise = this._loadAssets();
+        this.ready = this._assetLoadPromise;
+        return this._assetLoadPromise;
     }
 
     selectMap(mapId = 'island') {
@@ -408,6 +434,13 @@ export class SocialLobby {
         this._elapsed += step;
         if (this.drivePlayer) this.player?.update?.(step);
         for (const mixer of this.mixers) mixer.update(step);
+        const position = this.player?.getPosition?.();
+        if (position) {
+            const inside = Math.hypot(position.x - 34, position.z - 24) < 8;
+            if (inside && !this._insidePoseArea) this.onPoseArea?.(true);
+            if (!inside && this._insidePoseArea) this.onPoseArea?.(false);
+            this._insidePoseArea = inside;
+        }
         for (const visitor of this.visitors.values()) {
             if (!visitor.local) continue;
             visitor.group.position.y = (visitor.group.userData.baseY || 0) + Math.sin(this._elapsed * 1.8) * 0.025;

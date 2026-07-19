@@ -1,6 +1,6 @@
-# VOLLE CC0 Asset Manifest
+# Warrball CC0 Asset Manifest
 
-Only the runtime files used by VOLLE are included. Original license files remain
+Only the runtime files used by Warrball are included. Original license files remain
 beside each pack.
 
 ## Kenney Blocky Characters

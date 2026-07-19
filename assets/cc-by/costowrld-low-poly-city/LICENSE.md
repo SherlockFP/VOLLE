@@ -5,6 +5,6 @@
 - License: Creative Commons Attribution 4.0 International
 - License text: https://creativecommons.org/licenses/by/4.0/
 
-The VOLLE copy was modified for the Social Hub: meshes were flattened and joined,
+The Warrball copy was modified for the Social Hub: meshes were flattened and joined,
 geometry was simplified, textures were limited to 1024 px, Meshopt compression was
 applied, and gameplay collision data was generated from the source scene.

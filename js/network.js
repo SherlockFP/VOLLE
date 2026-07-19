@@ -43,6 +43,7 @@ export class Network {
         this.onPlayerJoin = null;
         this.onPlayerLeave = null;
         this.onGameState = null;
+        this.onPartyReady = null;
         this.connected = false;
         this.isParty = false;
         this.readyPlayers = new Set();
@@ -421,7 +422,10 @@ export class Network {
             case 'ballState':
                 return typeof data.x === 'number' && typeof data.y === 'number' && typeof data.z === 'number';
             case 'attack':
-                return typeof data.name === 'string' && typeof data.x === 'number' && typeof data.y === 'number';
+                return typeof data.name === 'string'
+                    && typeof data.x === 'number'
+                    && typeof data.y === 'number'
+                    && (data.ping === undefined || (Number.isFinite(data.ping) && data.ping >= 0 && data.ping <= 250));
             case 'position':
                 return typeof data.x === 'number' && typeof data.z === 'number';
             case 'chat':
@@ -444,6 +448,10 @@ export class Network {
                 return data.team === 'red' || data.team === 'blue';
             case 'systemChat':
                 return typeof data.text === 'string' && data.text.length <= 160;
+            case 'partyReady':
+                return typeof data.name === 'string'
+                    && data.name.length <= 32
+                    && typeof data.ready === 'boolean';
             default:
                 return true;
         }
@@ -522,6 +530,18 @@ export class Network {
             case 'systemChat':
                 if (!this.isHost && peerId === this.hostConn?.peer) {
                     this.game.addChatMessage('SERVER', data.text);
+                }
+                break;
+            case 'partyReady':
+                if (this.isHost) {
+                    const playerId = this.peerToPlayerId.get(peerId);
+                    const player = this.game?.remotePlayers?.get(playerId);
+                    if (!player) break;
+                    const ready = { type: 'partyReady', name: player.name, ready: data.ready };
+                    this.onPartyReady?.(ready);
+                    this.broadcast(ready);
+                } else if (peerId === this.hostConn?.peer) {
+                    this.onPartyReady?.(data);
                 }
                 break;
             case 'socialPresence':

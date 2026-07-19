@@ -18,9 +18,9 @@ function checksum(payload) {
     return (hash >>> 0).toString(16).padStart(8, '0');
 }
 
-function codeFor(value) {
+function codeFor(value, prefix = 'WARRBALL-X1') {
     const payload = Buffer.from(JSON.stringify(value)).toString('base64url');
-    return `VOLLE-X1.${payload}.${checksum(payload)}`;
+    return `${prefix}.${payload}.${checksum(payload)}`;
 }
 
 function createTarget() {
@@ -127,8 +127,9 @@ test('export and import round-trip a normalized config without mutation', () => 
     const before = structuredClone(input);
     const code = exportCrosshairCode(input);
 
-    assert.match(code, /^VOLLE-X1\.[A-Za-z0-9_-]+\.[0-9a-f]{8}$/);
+    assert.match(code, /^WARRBALL-X1\.[A-Za-z0-9_-]+\.[0-9a-f]{8}$/);
     assert.deepEqual(importCrosshairCode(code), normalizeCrosshairConfig(input));
+    assert.deepEqual(importCrosshairCode(codeFor(normalizeCrosshairConfig(input), 'VOLLE-X1')), normalizeCrosshairConfig(input));
     assert.deepEqual(input, before);
 });
 
@@ -144,8 +145,8 @@ test('invalid checksum and unknown payload keys are rejected', () => {
 
 test('malformed, oversized, and non-object imports fail closed', () => {
     assert.equal(importCrosshairCode(null), null);
-    assert.equal(importCrosshairCode('VOLLE-X2.bad.00000000'), null);
-    assert.equal(importCrosshairCode('VOLLE-X1.***.00000000'), null);
+    assert.equal(importCrosshairCode('WARRBALL-X2.bad.00000000'), null);
+    assert.equal(importCrosshairCode('WARRBALL-X1.***.00000000'), null);
     assert.equal(importCrosshairCode(codeFor([])), null);
     assert.equal(importCrosshairCode('x'.repeat(MAX_CROSSHAIR_CODE_LENGTH + 1)), null);
 });
