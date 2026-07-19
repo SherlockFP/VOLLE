@@ -333,6 +333,7 @@ class App {
         const ballSkin = this.store.get('equippedBall') || 'classic';
         this.game.ball.setSkin(ballSkin);
         const knifeId = this.store.get('equippedKnives')?.[this.player.team] || 'training';
+        this.player.knifeId = knifeId;
         this.player.setKnifeStyle?.(KNIVES[knifeId] || KNIVES.training);
         this.ui.updateBallSkin?.(ballSkin);
         // FOV
@@ -402,9 +403,17 @@ class App {
             const avatar = this.store.get('customAvatar');
             const charId = this.store.get('selectedChar') || 'rally';
             if (avatar?.dataURL) {
+                avEl.style.backgroundImage = '';
                 avEl.innerHTML = `<img src="${avatar.dataURL}" style="width:100%;height:100%;border-radius:50%;image-rendering:pixelated">`;
             } else {
-                avEl.textContent = CHARACTERS[charId]?.emoji || '🏐';
+                const index = Object.keys(CHARACTERS).indexOf(charId);
+                const x = (Math.max(0, index) % 4) * (100 / 3);
+                const y = Math.floor(Math.max(0, index) / 4) * 50;
+                avEl.replaceChildren();
+                avEl.style.backgroundImage = "url('assets/generated/characters/character-atlas.png')";
+                avEl.style.backgroundSize = '400% 300%';
+                avEl.style.backgroundPosition = `${x}% ${y}%`;
+                avEl.style.backgroundRepeat = 'no-repeat';
             }
         }
         // ponytail fix OW2-gap2: player-name-input'u store'dan init et
@@ -1589,9 +1598,9 @@ class App {
                 else Spectator.prevTarget();
             } else if (this.game.state === STATES.CELEBRATION) {
                 e.preventDefault();
-                const weapons = ['fists', 'pistol', 'rocket'];
+                const weapons = ['fists', 'rocket'];
                 const index = weapons.indexOf(this.game._celebWeapon);
-                this.game.selectCelebrationWeapon(weapons[(index + (e.deltaY > 0 ? 1 : 2)) % 3]);
+                this.game.selectCelebrationWeapon(weapons[(index + 1) % weapons.length]);
             }
         }, { passive: false });
 
@@ -3054,6 +3063,7 @@ class App {
             if (prev.name !== this.game.playerName) { extra.name = this.game.playerName; prev.name = this.game.playerName; }
             if (prev.team !== p.team) { extra.team = p.team; prev.team = p.team; }
             if (prev.charId !== p.charId) { extra.charId = p.charId; prev.charId = p.charId; }
+            if (prev.knifeId !== p.knifeId) { extra.knifeId = p.knifeId; prev.knifeId = p.knifeId; }
             if (prev.alive !== p.alive) { extra.alive = p.alive; prev.alive = p.alive; }
             if (prev.hp !== p.hp) { extra.hp = p.hp; prev.hp = p.hp; }
             this.network.sendPosition(pos, p.euler.y, extra);
@@ -3349,6 +3359,7 @@ class App {
                     if (prev.name !== this.game.playerName) { extra.name = this.game.playerName; prev.name = this.game.playerName; }
                     if (prev.team !== p.team) { extra.team = p.team; prev.team = p.team; }
                     if (prev.charId !== p.charId) { extra.charId = p.charId; prev.charId = p.charId; }
+                    if (prev.knifeId !== p.knifeId) { extra.knifeId = p.knifeId; prev.knifeId = p.knifeId; }
                     if (prev.alive !== p.alive) { extra.alive = p.alive; prev.alive = p.alive; }
                     if (prev.hp !== p.hp) { extra.hp = p.hp; prev.hp = p.hp; }
                     this._p2pLastFull.set(lastKey, prev);

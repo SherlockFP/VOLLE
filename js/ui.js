@@ -11,6 +11,14 @@ import { getRank, getRankProgress } from './ranked.js';
 import { Leaderboard } from './leaderboard.js';
 import { Arena } from './arena.js';
 
+const CHARACTER_ATLAS = 'assets/generated/characters/character-atlas.png';
+
+function characterPortrait(index) {
+    const x = (index % 4) * (100 / 3);
+    const y = Math.floor(index / 4) * 50;
+    return `<div class="char-portrait" style="background-image:url('${CHARACTER_ATLAS}');background-position:${x}% ${y}%"></div>`;
+}
+
 export class UI {
     constructor() {
         this.screens = {
@@ -848,7 +856,7 @@ export class UI {
         grid.innerHTML = '';
         const owned = store.get('unlockedChars');
         const selected = store.get('selectedChar');
-        Object.values(CHARACTERS).forEach(c => {
+        Object.values(CHARACTERS).forEach((c, index) => {
             const card = document.createElement('div');
             const isOwned = owned.includes(c.id);
             const isSelected = selected === c.id;
@@ -857,7 +865,7 @@ export class UI {
             card.className = `char-card ${isSelected ? 'selected' : ''} ${!isOwned ? 'locked' : ''}`;
             card.dataset.char = c.id;
             card.innerHTML = `
-                <div class="char-emoji">${c.emoji}</div>
+                ${characterPortrait(index)}
                 <div class="char-name">${c.name}</div>
                 <div class="char-stats">
                     ❤️${c.maxHp} 💨${c.speed} 🎯${c.deflectPower}
@@ -912,11 +920,11 @@ export class UI {
         grid.innerHTML = '';
 
         if (tab === 'chars') {
-            Object.values(CHARACTERS).forEach(c => {
+            Object.values(CHARACTERS).forEach((c, index) => {
                 if (!c.price) return;
                 const owned = store.ownsCharacter(c.id);
                 const card = document.createElement('div');
-                card.className = `shop-card ${owned ? 'owned' : ''}`;
+                card.className = `shop-card char-${c.id} ${owned ? 'owned' : ''}`;
                 card.innerHTML = `<div class="char-emoji">${c.emoji}</div><div class="char-name">${c.name}</div><div class="char-desc">${c.desc}</div>${owned ? '<div class="shop-owned">Owned</div>' : `<button class="btn btn-primary btn-small shop-buy" data-type="char" data-id="${c.id}">🪙 ${c.price}</button>`}`;
                 grid.appendChild(card);
             });

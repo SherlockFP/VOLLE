@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { applyCharacter } from './characters.js';
 import { applyRunes, tickSkillCooldowns, useSkill, DEFAULT_LOADOUT, ULTIMATES } from './skills.js';
+import { createKnifeModel, disposeObject3D } from './weapon-models.js';
 
 const STAMINA_PER_DEFLECT = 7;
 const STAMINA_REGEN = 20;     // per second
@@ -253,6 +254,8 @@ export class Player {
         this.attackDuration = ATTACK_COOLDOWN;
         this.canAttack = true;
         this.swingAnim = 0;
+        this.rocketCooldown = 0;
+        this._rocketQueued = false;
         this.stamina = 100;          // ponytail: stamina gate blocks mouse-1 spam
         this.staminaMax = 100;
         this.exhausted = false;
@@ -360,21 +363,8 @@ export class Player {
         this.gloveMesh.position.set(0, 0, -0.36);
         this.armGroup.add(this.gloveMesh);
 
-        this.knifeGroup = new THREE.Group();
-        const blade = new THREE.Mesh(
-            new THREE.BoxGeometry(0.055, 0.018, 0.46),
-            new THREE.MeshStandardMaterial({ color: 0xd7f3ff, metalness: 0.82, roughness: 0.22, emissive: 0x071018 })
-        );
-        blade.position.z = -0.25;
-        const tip = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.14, 4), blade.material);
-        tip.rotation.x = -Math.PI / 2;
-        tip.position.z = -0.55;
-        const handle = new THREE.Mesh(
-            new THREE.BoxGeometry(0.1, 0.07, 0.2),
-            this.renderer.createToonMaterial(0x152631)
-        );
-        handle.position.z = 0.08;
-        this.knifeGroup.add(blade, tip, handle);
+        this.knifeStyle = { id: 'training', color: '#d7f3ff' };
+        this.knifeGroup = createKnifeModel(this.knifeStyle);
         this.knifeGroup.position.set(0.03, -0.02, -0.34);
         this.knifeGroup.rotation.z = -0.12;
         this.armGroup.add(this.knifeGroup);
@@ -390,13 +380,14 @@ export class Player {
     }
 
     setKnifeStyle(style = {}) {
-        const color = style.color || '#d7f3ff';
-        this.knifeGroup?.traverse(mesh => {
-            if (mesh.material?.metalness != null) {
-                mesh.material.color.set(color);
-                mesh.material.emissive?.set(color).multiplyScalar(0.08);
-            }
-        });
+        this.knifeStyle = { ...style };
+        const visible = this.knifeGroup?.visible !== false;
+        disposeObject3D(this.knifeGroup);
+        this.knifeGroup = createKnifeModel(style);
+        this.knifeGroup.position.set(0.03, -0.02, -0.34);
+        this.knifeGroup.rotation.z = -0.12;
+        this.knifeGroup.visible = visible;
+        this.armGroup.add(this.knifeGroup);
     }
 
     setupInput() {
@@ -440,6 +431,14 @@ export class Player {
             if (e.button === 0 && this.alive && (state === 'PLAYING' || state === 'CELEBRATION')) {
                 this.tryAttack();
             }
+            if (e.button === 2 && this.alive && state === 'PLAYING' && this.charId === 'soldier'
+                && this.rocketCooldown <= 0) {
+                e.preventDefault();
+                this._rocketQueued = true;
+            }
+        }, { signal });
+        document.addEventListener('contextmenu', e => {
+            if (this.game?.state === 'PLAYING' && this.charId === 'soldier') e.preventDefault();
         }, { signal });
         // ponytail: Q tuşu aktif skill (sadece oyun sırasında)
         document.addEventListener('keydown', e => {
@@ -468,6 +467,7 @@ export class Player {
         this._longJumpWasDown = false;
         this._jumpHeld = false;
         this._skillQueued = false;
+        this._rocketQueued = false;
         this._strafeHistory = [];
     }
 
@@ -588,6 +588,7 @@ export class Player {
         this.flickY *= decay;
 
         // Attack cooldown
+        this.rocketCooldown = Math.max(0, this.rocketCooldown - dt);
         if (this.attackCooldown > 0) {
             this.attackCooldown -= dt;
             if (this.attackCooldown <= 0) {
@@ -888,6 +889,18 @@ export class Player {
         }
         this.hp = Math.max(0, this.hp - amount);
         return this.hp <= 0;
+    }
+
+    applyRocketImpulse(origin, strength = 1) {
+        const away = this.position.clone().sub(origin);
+        away.y = 0;
+        if (away.lengthSq() < 0.001) away.copy(this.getAimDirection()).multiplyScalar(-1).setY(0).normalize();
+        else away.normalize();
+        this.velocity.x += away.x * 11 * strength;
+        this.velocity.z += away.z * 11 * strength;
+        this.verticalVel = Math.max(this.verticalVel, 10.5 * strength);
+        this.onGround = false;
+        this._jumpHeld = true;
     }
 
     // Deflect sonrası: consecutiveMisses sıfırla, lifesteal rune uygula.

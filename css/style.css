@@ -2153,6 +2153,32 @@ body.social-hub-active #menu-particles {
     font-size: 2.5em;
     margin-bottom: 6px;
 }
+.char-portrait,
+.shop-card .char-emoji {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    border-radius: 10px;
+    margin-bottom: 9px;
+    background-image: url('../assets/generated/characters/character-atlas.png');
+    background-size: 400% 300%;
+    background-repeat: no-repeat;
+    box-shadow: inset 0 0 0 1px rgba(108, 225, 255, 0.24);
+}
+.shop-card .char-emoji {
+    height: auto;
+    font-size: 0;
+}
+.shop-card.char-rally .char-emoji { background-position: 0 0; }
+.shop-card.char-tank .char-emoji { background-position: 33.333% 0; }
+.shop-card.char-scout .char-emoji { background-position: 66.667% 0; }
+.shop-card.char-sniper .char-emoji { background-position: 100% 0; }
+.shop-card.char-guardian .char-emoji { background-position: 0 50%; }
+.shop-card.char-blazer .char-emoji { background-position: 33.333% 50%; }
+.shop-card.char-frost .char-emoji { background-position: 66.667% 50%; }
+.shop-card.char-volt .char-emoji { background-position: 100% 50%; }
+.shop-card.char-nova .char-emoji { background-position: 0 100%; }
+.shop-card.char-ripple .char-emoji { background-position: 33.333% 100%; }
+.shop-card.char-soldier .char-emoji { background-position: 66.667% 100%; }
 .char-name {
     font-weight: 800;
     margin-bottom: 4px;

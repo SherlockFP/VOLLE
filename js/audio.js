@@ -46,7 +46,7 @@ export class Audio {
 
     // Preload TF2 sfx via fetch+blob. Uses .sfx aliases so IDM doesn't grab .mp3 URLs.
     async preloadSfx(basePath) {
-        const sounds = ['tf2_crit', 'tf2_domination', 'tf2_explosion', 'tf2_hit', 'tf2_you_are_dead', 'tf2_victory', 'tf2_scout_scream', 'tf2_notification', 'tf2_frying_pan', 'tf2_medic', 'tf2_you_failed'];
+        const sounds = ['tf2_crit', 'tf2_domination', 'tf2_explosion', 'tf2_hit', 'tf2_you_are_dead', 'tf2_victory', 'tf2_scout_scream', 'tf2_notification', 'tf2_frying_pan', 'tf2_medic', 'tf2_you_failed', 'rocket_fire'];
         this._sfxAudios = {};
         for (const name of sounds) {
             const url = `${basePath}${name}.sfx`;

@@ -1,7 +1,7 @@
 // game.js — Full game: chat, team switch, death fx, minimap, aim deflection,
 // damage ramp, skill system, map ban, damage meter, portal handling.
 import * as THREE from 'three';
-import { Ball } from './ball.js';
+import { Ball, networkBallStep } from './ball.js';
 import { Bot } from './bot.js';
 import { Scoreboard } from './scoreboard.js';
 import { calcDamage, missRampDamage } from './characters.js';
@@ -15,6 +15,14 @@ import { SKILLS, useSkill, ULTIMATES } from './skills.js';
 import { outlineVertexShader } from './shaders/toon.vert.js';
 import { isNewerSequence } from './network.js';
 import { resolveKillerName, segmentIntersectsSphere } from './combat.js';
+import {
+    createKnifeModel,
+    createKnucklesModel,
+    createRocketLauncherModel,
+    createRocketProjectileModel,
+    disposeObject3D
+} from './weapon-models.js';
+import { KNIVES } from './cosmetics.js';
 import {
     activateQueuedEntity,
     isLiveJoinState,
@@ -63,6 +71,9 @@ export class Game {
         this.bots = [];
         this.remotePlayers = new Map();
         this._pendingLethalHit = null;
+        this._pendingLethalVictim = null;
+        this.rockets = [];
+        this._remoteRocketCooldowns = new Map();
         // Player name → remote-Avatar Sprite cache, böylece aynı oyuncu için sprite bir kez oluşur.
         this._avatarCache = new Map();
 
@@ -635,6 +646,7 @@ export class Game {
     startRound() {
         this.clearBlackHoles();
         this.clearSplitBalls();
+        this._clearRockets();
         this._hideKillcam();
         this._overtime = false;
         this._overtimeTimer = 0;
@@ -901,6 +913,11 @@ export class Game {
         const rightArm = new THREE.Mesh(armGeo, armMat);
         rightArm.position.set(0.4, 1.1, 0);
         group.add(rightArm);
+        const knifeGroup = createKnifeModel(KNIVES.training);
+        knifeGroup.scale.setScalar(0.72);
+        knifeGroup.position.set(0, -0.42, -0.28);
+        knifeGroup.rotation.set(-0.35, 0, -0.15);
+        rightArm.add(knifeGroup);
 
         // Legs
         const legMat = new THREE.MeshBasicMaterial({ color });
@@ -945,7 +962,7 @@ export class Game {
         const p = {
             peerId, name, team, group,
             playerId: peerId,
-            headMesh, bodyMesh, leftArm, rightArm, leftLeg, rightLeg,
+            headMesh, bodyMesh, leftArm, rightArm, leftLeg, rightLeg, knifeGroup,
             targetOutline,
             _outlineActive: false, _teamColor: color,
             _avatarBodyColors: null,
@@ -966,6 +983,15 @@ export class Game {
             getPosition() { return this.position.clone(); },
             getAimDirection() { return this.aimDir.clone(); },
             isAttacking() { return this.attacking; },
+            setKnifeStyle(style = KNIVES.training) {
+                const nextKnife = createKnifeModel(style);
+                nextKnife.scale.setScalar(0.72);
+                nextKnife.position.set(0, -0.42, -0.28);
+                nextKnife.rotation.set(-0.35, 0, -0.15);
+                disposeObject3D(this.knifeGroup);
+                this.knifeGroup = nextKnife;
+                this.rightArm.add(nextKnife);
+            },
             recordDamageDealt(amount) { this.totalDamageDealt += amount; },
             onMissDeflect() { this.consecutiveMisses++; },
             onSuccessfulDeflect() { this.consecutiveMisses = 0; },
@@ -1030,6 +1056,109 @@ export class Game {
         if (distance < 15) return 0.8;
         if (distance < 30) return 0.6;
         return 0.5;
+    }
+
+    _fireRocket(owner, position, direction, visualOnly = false) {
+        const dir = direction.clone().normalize();
+        const mesh = createRocketProjectileModel(owner?.team || 'red');
+        mesh.position.copy(position).addScaledVector(dir, 1.15);
+        mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), dir);
+        this.renderer.scene.add(mesh);
+        this.rockets.push({
+            mesh,
+            position: mesh.position.clone(),
+            previous: mesh.position.clone(),
+            velocity: dir.multiplyScalar(31),
+            owner,
+            team: owner?.team || 'red',
+            life: 3.2,
+            visualOnly
+        });
+        this.audio?.playSfx?.('rocket_fire', 0.72);
+        this.juice?.shake?.(0.08);
+        return mesh;
+    }
+
+    _explodeRocket(rocket) {
+        const origin = rocket.position.clone();
+        this.juice?.burst?.(origin, 0xff8a35, 30, 18);
+        this.juice?.shockwave?.(origin, 0xffaa44);
+        this.juice?.shake?.(0.35);
+        this.audio?.playSfx?.('tf2_explosion', 0.55);
+        this.audio?.playExplosion?.();
+        if (!rocket.visualOnly && this.network?.isHost) {
+            this.network.broadcastSkillEffect('soldier_rocket_explode', null, null, {
+                x: origin.x, y: origin.y, z: origin.z
+            });
+        }
+
+        if (!rocket.visualOnly && (!this.network?.connected || this.network?.isHost)) {
+            let eliminated = false;
+            for (const target of this.getAllTargets()) {
+                if (!target?.alive) continue;
+                const targetPos = target.getPosition();
+                const distance = targetPos.distanceTo(origin);
+                if (distance > 6.2) continue;
+                const strength = Math.max(0.25, 1 - distance / 7);
+                if (target.applyRocketImpulse) target.applyRocketImpulse(origin, strength);
+                else {
+                    const away = target.position.clone().sub(origin).setY(0);
+                    if (away.lengthSq() > 0.001) target.position.addScaledVector(away.normalize(), 1.7 * strength);
+                }
+                if (target === rocket.owner || target.team === rocket.team) continue;
+                const damage = Math.round(62 * strength);
+                if (!target.takeDamage?.(damage)) continue;
+                target.die?.();
+                target.alive = false;
+                if (target.group) target.group.visible = false;
+                this.scoreboard.recordDeath(target.name || this.playerName);
+                this.spawnDeathExplosion(targetPos, target.team);
+                eliminated = true;
+            }
+            if (eliminated && this._checkTeamElimination()) {
+                this.setState(STATES.ROUND_END);
+                this.roundRestartTimer = this.roundRestartDelay;
+            }
+        }
+        disposeObject3D(rocket.mesh);
+    }
+
+    _clearRockets() {
+        for (const rocket of this.rockets) disposeObject3D(rocket.mesh);
+        this.rockets.length = 0;
+    }
+
+    _updateRockets(dt) {
+        if (!this.rockets.length) return;
+        const bounds = this.arena.bounds;
+        for (let i = this.rockets.length - 1; i >= 0; i--) {
+            const rocket = this.rockets[i];
+            rocket.life -= dt;
+            rocket.previous.copy(rocket.position);
+            rocket.position.addScaledVector(rocket.velocity, dt);
+            rocket.mesh.position.copy(rocket.position);
+            rocket.mesh.rotateZ(dt * 4);
+            const flame = rocket.mesh.userData.flame;
+            if (flame) flame.scale.setScalar(0.82 + Math.random() * 0.38);
+
+            let hit = rocket.life <= 0
+                || rocket.position.x < bounds.minX || rocket.position.x > bounds.maxX
+                || rocket.position.z < bounds.minZ || rocket.position.z > bounds.maxZ
+                || rocket.position.y < 0.25
+                || rocket.position.y > (this.arena.ceilingHeight || bounds.maxY || 30);
+            if (!hit) {
+                hit = this.arena.collidables?.some(item =>
+                    rocket.position.distanceToSquared(item.pos) <= (item.radius + 0.2) ** 2
+                ) || false;
+            }
+            if (!hit && !rocket.visualOnly) {
+                hit = this.getAllTargets().some(target => target !== rocket.owner && target.alive
+                    && segmentIntersectsSphere(rocket.previous, rocket.position, target.getPosition(), target.radius + 0.35));
+            }
+            if (!hit) continue;
+            this._explodeRocket(rocket);
+            this.rockets.splice(i, 1);
+        }
     }
 
     updateMapHazards(dt) {
@@ -1164,6 +1293,7 @@ export class Game {
 
         // Emote sprite'ları güncelle
         this.emotes.update(dt);
+        if (this.state === STATES.PLAYING || this.state === STATES.CELEBRATION) this._updateRockets(dt);
 
         if (this.state === STATES.PLAYING) {
             this.updatePlaying(dt);
@@ -1191,18 +1321,16 @@ export class Game {
                 this.ui.showMessage?.(`🎉 ${Math.ceil(this._celebrationTimer)}s`, 900);
             }
 
-            // Weapon switch 1/2/3 — gloves / pistol / rocket
+            // Weapon switch 1/2 - knuckles / rocket
             const CELEB_WEAPONS = {
-                fists:  { name: '🥊 GLOVES', dmg: 50,  range: 3.5, splash: 0, glove: this.player.team === 'red' ? 0xee5555 : 0x5577dd },
-                pistol: { name: '🔫 PISTOL', dmg: 34,  range: 14,  splash: 0, glove: 0x888888 },
-                rocket: { name: '🚀 ROCKET', dmg: 100, range: 20,  splash: 6, glove: 0xff8800 },
+                fists:  { name: 'KNUCKLES', dmg: 50, range: 3.5, splash: 0, glove: this.player.team === 'red' ? 0xee5555 : 0x5577dd },
+                rocket: { name: 'ROCKET', dmg: 62, range: 20, splash: 6, glove: 0xff8800 },
             };
             if (!this._celebWeapon) this._celebWeapon = 'fists';
             const prevW = this._celebWeapon;
             // Manual weapon selection with 1/2/3 keys
             if (this.player.keys['Digit1']) this._celebWeapon = 'fists';
-            if (this.player.keys['Digit2']) this._celebWeapon = 'pistol';
-            if (this.player.keys['Digit3']) this._celebWeapon = 'rocket';
+            if (this.player.keys['Digit2']) this._celebWeapon = 'rocket';
             const weapon = CELEB_WEAPONS[this._celebWeapon];
             if (this._celebWeapon !== prevW) {
                 this._setCelebrationGloveColor(weapon.glove);
@@ -1213,6 +1341,12 @@ export class Game {
 
             // Winner attacks losers with the selected weapon
             if (this.player.attacking && this.player.team === this._winningTeam) {
+                if (this._celebWeapon === 'rocket') {
+                    this._spawnMuzzleFlash('rocket');
+                    this._fireRocket(this.player, this.player.getPosition(), this.player.getAimDirection());
+                    this.player.attacking = false;
+                    return;
+                }
                 this._playWeaponSound(this._celebWeapon);
                 this._spawnMuzzleFlash(this._celebWeapon);
                 const ppos = this.player.getPosition();
@@ -1481,6 +1615,26 @@ export class Game {
                 }
             });
         }
+        if (this.player._rocketQueued) {
+            this.player._rocketQueued = false;
+            if (this.player.charId === 'soldier' && this.player.rocketCooldown <= 0) {
+                this.player.rocketCooldown = 0.82;
+                const aim = this.player.getAimDirection();
+                if (this.network?.connected && !this.network?.isHost) {
+                    this.network.sendSkillUse({
+                        skill: 'soldier_rocket',
+                        ax: aim.x, ay: aim.y, az: aim.z,
+                        x: this.player.position.x, y: this.player.position.y, z: this.player.position.z
+                    });
+                } else {
+                    this._fireRocket(this.player, this.player.getPosition(), aim);
+                    this.network?.broadcastSkillEffect?.('soldier_rocket', this.network.playerId, this.network.peer?.id, {
+                        x: this.player.position.x, y: this.player.position.y, z: this.player.position.z,
+                        ax: aim.x, ay: aim.y, az: aim.z
+                    });
+                }
+            }
+        }
         if (!this.ball.active) return;
 
         // Spin-Dodge (A-D-A-D) — orbit the ball
@@ -1655,6 +1809,7 @@ export class Game {
         // (host is authoritative and still enforces it via remoteAttack).
         const ballDir = new THREE.Vector3().subVectors(this.ball.position, pos).normalize();
         if (!skipAimCheck && aimDir.dot(ballDir) < -0.2) return;
+        this._cancelPendingLethalHit(this.player);
 
         // ponytail: client-side prediction. Deflect locally for instant feedback,
         // send intent to host. Host broadcasts authoritative state to correct if needed.
@@ -1892,11 +2047,13 @@ export class Game {
             const conservativeHp = this._oneHitKill ? 0 : (hitTarget.hp <= BASE_HIT_DAMAGE ? hitTarget.hp - 1 : 0);
             if (this._oneHitKill || conservativeHp <= 0) {
                 if (this._pendingLethalHit) clearTimeout(this._pendingLethalHit);
+                this._pendingLethalVictim = hitTarget;
                 this._pendingLethalHit = setTimeout(() => {
-        this._pendingLethalHit = null;
-        this._ballTarget = null;
-        this._ballTargetTime = 0;
-        this._ballPredicting = false;
+                    this._pendingLethalHit = null;
+                    this._pendingLethalVictim = null;
+                    this._ballTarget = null;
+                    this._ballTargetTime = 0;
+                    this._ballPredicting = false;
                     // Re-check: still alive? (client attack may have deflected)
                     if (hitTarget.alive !== false) {
                         this._doApplyHit(hitTarget, name, scorerName, attacker, shot);
@@ -1907,6 +2064,14 @@ export class Game {
         }
 
         this._doApplyHit(hitTarget, name, scorerName, attacker, shot);
+    }
+
+    _cancelPendingLethalHit(deflector) {
+        if (!this._pendingLethalHit || this._pendingLethalVictim !== deflector) return false;
+        clearTimeout(this._pendingLethalHit);
+        this._pendingLethalHit = null;
+        this._pendingLethalVictim = null;
+        return true;
     }
 
     _doApplyHit(hitTarget, name, scorerName, attacker, shot) {
@@ -2712,6 +2877,7 @@ export class Game {
         const stats = this.scoreboard.getPlayerStats();
         this.clearBlackHoles();
         this.clearSplitBalls();
+        this._clearRockets();
         if (this.affixes) this.affixes.clearRound();
         this.chaosManager?.clear();
         this.currentBallAffix = null;
@@ -2750,7 +2916,7 @@ export class Game {
             this.player.setHandVisible?.(true);
             this._setCelebrationGloveColor(this.player.team === 'red' ? 0xee5555 : 0x5577dd);
             this._buildCelebWeapons();
-            this._showCelebWeaponHUD?.('fists');
+            this._showCelebWeapon('fists');
         } else {
             this.player.setHandVisible?.(false);
         }
@@ -2761,7 +2927,7 @@ export class Game {
             wh.classList.add('hidden');
             wh.style.display = 'none';
         }
-        if (this._won) this.ui.showMessage?.('WINNER LOADOUT: 1 Gloves / 2 Pistol / 3 Rocket', 4000);
+        if (this._won) this.ui.showMessage?.('WINNER LOADOUT: 1 Knuckles / 2 Rocket', 4000);
 
         // P2P: celebration state'ini client'lara yayınla
         if (this.network?.isHost) {
@@ -2781,11 +2947,10 @@ export class Game {
     }
 
     selectCelebrationWeapon(weaponId) {
-        if (this.state !== STATES.CELEBRATION || !this._won || !['fists', 'pistol', 'rocket'].includes(weaponId)) return;
+        if (this.state !== STATES.CELEBRATION || !this._won || !['fists', 'rocket'].includes(weaponId)) return;
         this._celebWeapon = weaponId;
         const colors = {
             fists: this.player.team === 'red' ? 0xee5555 : 0x5577dd,
-            pistol: 0x888888,
             rocket: 0xff8800
         };
         this._setCelebrationGloveColor(colors[weaponId]);
@@ -2808,49 +2973,19 @@ export class Game {
         }
         this._celebWpnMeshes = {};
 
-        // Pistol — görünür silah modeli (Half-Life tarzı)
-        const pistol = new THREE.Group();
-        // Gövde
-        const pBody = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.16, 0.28), new THREE.MeshBasicMaterial({ color: 0x444444 }));
-        pBody.position.z = -0.02;
-        pistol.add(pBody);
-        // Namlu
-        const pBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.05, 0.25, 8), new THREE.MeshBasicMaterial({ color: 0x222222 }));
-        pBarrel.rotation.x = Math.PI / 2;
-        pBarrel.position.set(0, 0, -0.28);
-        pistol.add(pBarrel);
-        // Tetik
-        const pTrigger = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.08, 0.04), new THREE.MeshBasicMaterial({ color: 0x333333 }));
-        pTrigger.position.set(0, -0.12, 0.06);
-        pistol.add(pTrigger);
-        pistol.position.set(0.25, -0.2, -0.45);
-        cam.add(pistol);
-        this._celebWpnMeshes.pistol = pistol;
+        const knuckles = createKnucklesModel(this.player.team);
+        knuckles.position.set(0.28, -0.24, -0.48);
+        knuckles.rotation.set(-0.22, 0.08, -0.12);
+        cam.add(knuckles);
+        this._celebWpnMeshes.fists = knuckles;
 
-        // Rocket — büyük kırmızı roket
-        const rocket = new THREE.Group();
-        const rBody = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.12, 0.4, 8), new THREE.MeshBasicMaterial({ color: 0xcc3333 }));
-        rBody.rotation.x = Math.PI / 2;
-        rocket.add(rBody);
-        const rNose = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.15, 8), new THREE.MeshBasicMaterial({ color: 0xff8800 }));
-        rNose.rotation.x = Math.PI / 2;
-        rNose.position.set(0, 0, -0.28);
-        rocket.add(rNose);
-        // Arka kanatçıklar
-        for (let i = 0; i < 3; i++) {
-            const fin = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.1, 0.08), new THREE.MeshBasicMaterial({ color: 0xff6600 }));
-            const a = (i / 3) * Math.PI * 2;
-            fin.position.set(Math.cos(a) * 0.14, 0, 0.18);
-            fin.rotation.y = a;
-            rocket.add(fin);
-        }
-        rocket.position.set(0.25, -0.2, -0.5);
-        cam.add(rocket);
-        this._celebWpnMeshes.rocket = rocket;
-
-        // Başlangıçta gizle (fists = gloves görünür)
-        pistol.visible = false;
-        rocket.visible = false;
+        const launcher = createRocketLauncherModel(this.player.team);
+        launcher.position.set(0.3, -0.24, -0.58);
+        launcher.rotation.set(-0.08, 0.04, 0);
+        launcher.scale.setScalar(0.88);
+        launcher.visible = false;
+        cam.add(launcher);
+        this._celebWpnMeshes.rocket = launcher;
     }
 
     _showCelebWeapon(weaponId) {
@@ -2859,9 +2994,9 @@ export class Game {
             this._celebWpnMeshes[k].visible = (k === weaponId);
         });
         // Silah seçilince el/diveni gizle (Half-Life tarzı)
-        const hasWeapon = weaponId !== 'fists';
-        if (this.player.handMesh) this.player.handMesh.visible = !hasWeapon;
-        if (this.player.gloveMesh) this.player.gloveMesh.visible = !hasWeapon;
+        if (this.player.handMesh) this.player.handMesh.visible = false;
+        if (this.player.gloveMesh) this.player.gloveMesh.visible = false;
+        if (this.player.knifeGroup) this.player.knifeGroup.visible = false;
         this._showCelebWeaponHUD(weaponId);
     }
 
@@ -2870,8 +3005,7 @@ export class Game {
         if (!el) return;
         const weapons = [
             ['fists', '1', 'KNUCKLES'],
-            ['pistol', '2', 'PISTOL'],
-            ['rocket', '3', 'ROCKET']
+            ['rocket', '2', 'ROCKET']
         ];
         el.replaceChildren(...weapons.map(([id, slot, name]) => {
             const item = document.createElement('button');
@@ -2896,10 +3030,6 @@ export class Game {
                 osc.type = 'square';
                 osc.frequency.value = 80 + Math.random() * 40;
                 gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
-            } else if (type === 'pistol') {
-                osc.type = 'sawtooth';
-                osc.frequency.value = 900 + Math.random() * 300;
-                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.06);
             } else if (type === 'rocket') {
                 osc.type = 'sine';
                 osc.frequency.setValueAtTime(250, ctx.currentTime);
@@ -3275,6 +3405,10 @@ export class Game {
         p.group.visible = p.alive;
         p.hp = data.hp ?? p.hp;
         if (data.charId) p.charId = data.charId;
+        if (data.knifeId && data.knifeId !== p.knifeId && KNIVES[data.knifeId]) {
+            p.knifeId = data.knifeId;
+            p.setKnifeStyle?.(KNIVES[data.knifeId]);
+        }
         if (data.ax !== undefined) p.aimDir.set(data.ax, data.ay, data.az).normalize();
         // ponytail: peer-to-peer mesh handles position directly. Host only relays as fallback if peer silent >500ms.
         if (this.network?.isHost) {
@@ -3296,6 +3430,11 @@ export class Game {
         const now = performance.now();
         const renderTime = now - interpDelay;
         for (const p of this.remotePlayers.values()) {
+            p.attackTimer = Math.max(0, (p.attackTimer || 0) - dt);
+            if (p.rightArm) {
+                const targetSwing = p.attackTimer > 0 ? -1.2 : 0;
+                p.rightArm.rotation.x += (targetSwing - p.rightArm.rotation.x) * (1 - Math.exp(-18 * dt));
+            }
             const buf = p._posBuffer;
             if (!buf || buf.length < 2) {
                 // Not enough data yet — stick with current pos
@@ -3381,6 +3520,7 @@ export class Game {
             if (this._pendingLethalHit) {
                 clearTimeout(this._pendingLethalHit);
                 this._pendingLethalHit = null;
+                this._pendingLethalVictim = null;
             }
             if (!p.alive) {
                 p.alive = true;
@@ -3441,6 +3581,20 @@ export class Game {
         const p = this.remotePlayers.get(playerId);
         if (!p || p.queuedForNextRound || !data.skill) return;
         const skillId = data.skill;
+        if (skillId === 'soldier_rocket') {
+            const now = performance.now();
+            if (p.charId !== 'soldier' || now < (this._remoteRocketCooldowns.get(playerId) || 0)) return;
+            const aim = new THREE.Vector3(Number(data.ax), Number(data.ay), Number(data.az));
+            if (![aim.x, aim.y, aim.z].every(Number.isFinite) || aim.lengthSq() < 0.5) return;
+            this._remoteRocketCooldowns.set(playerId, now + 820);
+            aim.normalize();
+            this._fireRocket(p, p.getPosition(), aim);
+            this.network.broadcastSkillEffect(skillId, playerId, p.peerId, {
+                x: p.position.x, y: p.position.y, z: p.position.z,
+                ax: aim.x, ay: aim.y, az: aim.z
+            });
+            return;
+        }
         const target = this.ball.targetPlayer;
         // Remote player bir Player instance'ı değil — useSkill fonksiyonunu doğrudan çağır.
         const ok = useSkill(p, skillId, { ball: this.ball, target, game: this });
@@ -3832,36 +3986,14 @@ export class Game {
         this.ball._prevPosition.copy(this.ball.position);
         const elapsed = (performance.now() - this._ballTargetTime) / 1000;
         // ponytail: extrapolate target forward by velocity × elapsed since snapshot
-        const tx = this._ballTarget.x + this._ballTarget.vx * elapsed;
-        const ty = this._ballTarget.y + this._ballTarget.vy * elapsed;
-        const tz = this._ballTarget.z + this._ballTarget.vz * elapsed;
-        const dx = tx - this.ball.position.x;
-        const dy = ty - this.ball.position.y;
-        const dz = tz - this.ball.position.z;
-        const distSq = dx*dx + dy*dy + dz*dz;
-        // ponytail: adaptive smoothing — high-speed balls need faster convergence; distance-error boost
-        const speed = Math.sqrt(this._ballTarget.vx**2 + this._ballTarget.vy**2 + this._ballTarget.vz**2);
-        const errDist = Math.sqrt(distSq);
-        const errBoost = errDist > 2 ? Math.min(2, (errDist - 2) * 0.3) : 0;
-        const smoothK = (18 + Math.min(50, speed * 1.0)) * (1 + errBoost);  // 18 at rest → 68 at 50 m/s; teleports converge up to 2x faster
-        // ponytail: snap threshold scales with speed — fast balls cover more ground per frame
-        const snapThreshold = 25 + speed * speed * 0.04;  // 25 at rest → 125 at 50 m/s
-        if (distSq > snapThreshold) {
-            this.ball.position.set(tx, ty, tz);
-            this._ballStuckTimer = 0;
-        } else if (distSq > 0.0001) {
-            const factor = 1 - Math.exp(-dt * smoothK);
-            this.ball.position.x += dx * factor;
-            this.ball.position.y += dy * factor;
-            this.ball.position.z += dz * factor;
-            this._ballStuckTimer = 0;
-        } else {
-            this._ballStuckTimer = (this._ballStuckTimer || 0) + dt;
-            if (this._ballStuckTimer > 1.0) {
-                this.ball.position.set(tx, ty, tz);
-                this._ballStuckTimer = 0;
-            }
-        }
+        const next = networkBallStep(
+            this.ball.position,
+            { x: this._ballTarget.vx, y: this._ballTarget.vy, z: this._ballTarget.vz },
+            this._ballTarget,
+            dt,
+            elapsed
+        );
+        this.ball.position.set(next.x, next.y, next.z);
         this.ball.velocity.set(this._ballTarget.vx, this._ballTarget.vy, this._ballTarget.vz);
         // ponytail: mesh position handled by _clientVisualUpdate in game.update — not here
     }
@@ -4003,6 +4135,36 @@ export class Game {
     // Client: host'tan gelen skill efektini oynat (ses + mesaj + görsel).
     handleSkillEffect(data = {}) {
         if (!data || this.network?.isHost) return;
+        if (data.skill === 'soldier_rocket' && data.pos) {
+            const aim = new THREE.Vector3(data.pos.ax, data.pos.ay, data.pos.az);
+            if (aim.lengthSq() > 0.5) {
+                const owner = this.remotePlayers.get(data.playerId) || { team: 'red' };
+                this._fireRocket(owner, new THREE.Vector3(data.pos.x, data.pos.y, data.pos.z), aim, true);
+            }
+            return;
+        }
+        if (data.skill === 'soldier_rocket_explode' && data.pos) {
+            const origin = new THREE.Vector3(data.pos.x, data.pos.y, data.pos.z);
+            let index = -1;
+            let distance = Infinity;
+            this.rockets.forEach((rocket, candidate) => {
+                const d = rocket.position.distanceToSquared(origin);
+                if (rocket.visualOnly && d < distance) {
+                    distance = d;
+                    index = candidate;
+                }
+            });
+            if (index >= 0) {
+                const [rocket] = this.rockets.splice(index, 1);
+                rocket.position.copy(origin);
+                this._explodeRocket(rocket);
+            } else {
+                this.juice?.burst?.(origin, 0xff8a35, 30, 18);
+                this.juice?.shockwave?.(origin, 0xffaa44);
+                this.audio?.playSfx?.('tf2_explosion', 0.55);
+            }
+            return;
+        }
         const skill = SKILLS[data.skill];
         const name = skill ? skill.name.toUpperCase() : (data.skill || 'SKILL');
         this.ui?.showMessage?.(`${name}!`, 800);
@@ -4153,6 +4315,7 @@ export class Game {
         this.player.setHandVisible?.(this._prevHandVisible);
         if (this.player.handMesh) this.player.handMesh.visible = true;
         if (this.player.gloveMesh) this.player.gloveMesh.visible = true;
+        if (this.player.knifeGroup) this.player.knifeGroup.visible = true;
         if (this._celebWpnMeshes && this.player.camera) {
             Object.values(this._celebWpnMeshes).forEach(mesh => {
                 mesh.traverse(child => {

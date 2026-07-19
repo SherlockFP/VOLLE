@@ -55,6 +55,47 @@ export function sampleBoundedVelocity(previous, current, dt, maxSpeed = 14) {
     return velocity;
 }
 
+export function smoothSampledVelocity(previous, sampled, dt, response = 12) {
+    const from = finitePoint(previous) ? previous : { x: 0, y: 0, z: 0 };
+    const to = finitePoint(sampled) ? sampled : { x: 0, y: 0, z: 0 };
+    const safeDt = clamp(Number.isFinite(dt) ? dt : 0, 0, 0.1);
+    const alpha = 1 - Math.exp(-Math.max(0, response) * safeDt);
+    return {
+        x: from.x + (to.x - from.x) * alpha,
+        y: from.y + (to.y - from.y) * alpha,
+        z: from.z + (to.z - from.z) * alpha
+    };
+}
+
+export function networkBallStep(position, velocity, target, dt, packetAge) {
+    if (!finitePoint(position) || !finitePoint(velocity) || !finitePoint(target)) {
+        return finitePoint(position) ? { ...position } : { x: 0, y: 0, z: 0 };
+    }
+    const safeDt = clamp(Number.isFinite(dt) ? dt : 0, 0, 0.05);
+    const age = clamp(Number.isFinite(packetAge) ? packetAge : 0, 0, 0.08);
+    const speed = Math.hypot(velocity.x, velocity.y, velocity.z);
+    const predicted = {
+        x: position.x + velocity.x * safeDt,
+        y: position.y + velocity.y * safeDt,
+        z: position.z + velocity.z * safeDt
+    };
+    const host = {
+        x: target.x + velocity.x * age,
+        y: target.y + velocity.y * age,
+        z: target.z + velocity.z * age
+    };
+    const dx = host.x - predicted.x;
+    const dy = host.y - predicted.y;
+    const dz = host.z - predicted.z;
+    if (dx * dx + dy * dy + dz * dz > 144) return host;
+    const correction = 1 - Math.exp(-safeDt * (10 + Math.min(14, speed * 0.25)));
+    return {
+        x: predicted.x + dx * correction,
+        y: predicted.y + dy * correction,
+        z: predicted.z + dz * correction
+    };
+}
+
 export function predictLeadTarget(target, targetVelocity, projectile, projectileSpeed) {
     if (!finitePoint(target)) return { x: 0, y: 0, z: 0 };
     const velocity = finitePoint(targetVelocity) ? targetVelocity : { x: 0, y: 0, z: 0 };
@@ -736,6 +777,7 @@ export class Ball {
         this._steeringActive = false;
         this._steeringAge = 0;
         this._steeringTargetSample = null;
+        this._steeringTargetVelocity = { x: 0, y: 0, z: 0 };
         this._steeringWaypoint = null;
         this._steeringPlaneNormal = null;
         this._steeringPhase = 'torso';
@@ -772,6 +814,8 @@ export class Ball {
         const steeringDt = steeringActiveDt(oldAge, dt);
         this._steeringAge += Number.isFinite(dt) && dt > 0 ? dt : 0;
         const sampledVelocity = sampleBoundedVelocity(this._steeringTargetSample, targetPos, dt);
+        const filteredVelocity = smoothSampledVelocity(this._steeringTargetVelocity, sampledVelocity, dt);
+        this._steeringTargetVelocity = filteredVelocity;
         this._steeringTargetSample.copy(targetPos);
         if (steeringDt <= 0) return 0;
 
@@ -782,7 +826,7 @@ export class Ball {
         }
         const target = this._steeringPhase === 'waypoint'
             ? this._steeringWaypoint
-            : predictLeadTarget(targetPos, sampledVelocity, this.position, this.currentSpeed);
+            : predictLeadTarget(targetPos, this._steeringTargetVelocity, this.position, this.currentSpeed);
         const desired = new THREE.Vector3(target.x, target.y, target.z).sub(this.position);
         if (desired.lengthSq() < 0.000001) return steeringDt;
         desired.normalize();

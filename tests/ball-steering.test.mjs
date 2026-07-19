@@ -14,12 +14,37 @@ const {
     createWideWaypoint,
     hasCrossedTargetPlane,
     isSteeringControlLocked,
+    networkBallStep,
     predictLeadTarget,
     sampleBoundedVelocity,
+    smoothSampledVelocity,
     splitSteeringDisplacement,
     steeringActiveDt,
     steeringTurnAlpha
 } = ballModule;
+
+test('sample smoothing absorbs target jitter without changing direction instantly', () => {
+    const filtered = smoothSampledVelocity(
+        { x: 0, y: 0, z: 0 },
+        { x: 14, y: 0, z: 0 },
+        1 / 60
+    );
+    assert.ok(filtered.x > 0);
+    assert.ok(filtered.x < 14);
+    assert.deepEqual(smoothSampledVelocity(filtered, { x: NaN }, -1), filtered);
+});
+
+test('network ball prediction advances every frame and bounds packet extrapolation', () => {
+    const position = { x: 0, y: 1, z: 0 };
+    const velocity = { x: 20, y: 0, z: 0 };
+    const target = { x: 0, y: 1, z: 0 };
+    const fresh = networkBallStep(position, velocity, target, 1 / 60, 0);
+    const stale = networkBallStep(position, velocity, target, 1 / 60, 5);
+
+    assert.ok(fresh.x > 0);
+    assert.ok(stale.x > fresh.x);
+    assert.ok(stale.x < 2);
+});
 
 test('straight shot leads a moving target with bounded sampled velocity', () => {
     const velocity = sampleBoundedVelocity(

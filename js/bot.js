@@ -4,6 +4,8 @@ import * as THREE from 'three';
 import { applyCharacter, CHARACTERS } from './characters.js';
 import { applyRunes, tickSkillCooldowns, useSkill } from './skills.js';
 import { outlineVertexShader } from './shaders/toon.vert.js';
+import { createKnifeModel } from './weapon-models.js';
+import { KNIVES } from './cosmetics.js';
 
 // ponytail: depthTest:true — sprites hide behind walls, no punch-through
 const DISABLE_SPRITES = false;
@@ -166,6 +168,12 @@ export class Bot {
         const rightHand = new THREE.Mesh(handGeo, handMat);
         rightHand.position.set(0, -0.35, 0);
         this.rightArm.add(rightHand);
+        this.knifeId = 'training';
+        this.knifeGroup = createKnifeModel(KNIVES.training);
+        this.knifeGroup.scale.setScalar(0.68);
+        this.knifeGroup.position.set(0, -0.45, -0.28);
+        this.knifeGroup.rotation.set(-0.35, 0, -0.15);
+        this.rightArm.add(this.knifeGroup);
 
         // Name label + avatar sprites above the head
         if (!DISABLE_SPRITES) this.buildNameSprite();

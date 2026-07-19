@@ -71,6 +71,13 @@ export const CHARACTERS = {
         passive: 'chill_touch',
         desc: 'Mobile trick-shot specialist with tempo control.',
         color: 0x29e0c1, price: 550
+    },
+    soldier: {
+        id: 'soldier', name: 'Soldier', emoji: 'S',
+        maxHp: 110, speed: 9.5, deflectPower: 1.0, staminaMax: 105,
+        passive: 'rocket_jump',
+        desc: 'Sağ tıkla roket atar. Patlama itişini kullanarak rocket jump yapar.',
+        color: 0xd94c48, price: 650
     }
 };
 
