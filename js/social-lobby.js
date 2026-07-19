@@ -13,11 +13,13 @@ const SOCIAL_LOBBY_BOUNDS = Object.freeze({
 const ISLAND_BOUNDS = Object.freeze({ minX: -96, maxX: 96, minY: 0, maxY: 72, minZ: -96, maxZ: 96 });
 export const SOCIAL_HUB_MAPS = Object.freeze({
     city: Object.freeze({ id: 'city', name: 'City', bounds: SOCIAL_LOBBY_BOUNDS, spawn: Object.freeze({ x: 0, y: 1.7, z: -8 }), credit: 'City by costoWRLD - CC BY' }),
-    island: Object.freeze({ id: 'island', name: 'Island', bounds: ISLAND_BOUNDS, spawn: Object.freeze({ x: 0, y: 2.2, z: 20 }), credit: 'Island world - VOLLE preview' })
+    island: Object.freeze({ id: 'island', name: 'Island', bounds: ISLAND_BOUNDS, spawn: Object.freeze({ x: 0, y: 2.2, z: 20 }), credit: 'Olann Island - local OBJ conversion' })
 });
 const CITY_ASSET = 'assets/cc-by/costowrld-low-poly-city/low-poly-city-social-hub.glb';
+const ISLAND_ASSET = 'assets/user-content/olann-island/olann-island.glb';
 const CITY_COLLIDERS = 'assets/cc-by/costowrld-low-poly-city/colliders.json';
 const CITY_SCALE = 0.66;
+const ISLAND_SCALE = 250;
 const CITY_COLLIDER_SCALE = CITY_SCALE / 0.6;
 const CITY_CENTER = Object.freeze({ x: 130.3742904663086, z: -56.472755432128906 });
 
@@ -161,6 +163,23 @@ function tuneCityMaterials(root) {
     });
 }
 
+function tuneIslandMaterials(root) {
+    root.traverse(child => {
+        if (!child.isMesh) return;
+        child.castShadow = false;
+        child.receiveShadow = true;
+        child.frustumCulled = true;
+        const materials = Array.isArray(child.material) ? child.material : [child.material];
+        for (const entry of materials) {
+            if (!entry) continue;
+            if (entry.map) entry.map.colorSpace = THREE.SRGBColorSpace;
+            if (entry.emissiveMap) entry.emissiveMap.colorSpace = THREE.SRGBColorSpace;
+            if (entry.transparent) entry.depthWrite = false;
+            entry.roughness = Math.max(0.62, Number(entry.roughness) || 0);
+        }
+    });
+}
+
 function material(color, roughness = 0.78) {
     return new THREE.MeshStandardMaterial({ color, roughness, metalness: 0.04 });
 }
@@ -202,6 +221,8 @@ export class SocialLobby {
         this.cityMapBlocks = [];
         this.cityModel = null;
         this.cityLoadError = null;
+        this.islandModel = null;
+        this.islandLoadError = null;
 
         this._buildFallbackPlaza();
         this._buildIslandWorld();
@@ -325,6 +346,12 @@ export class SocialLobby {
                 this.cityLoadError = error;
                 return null;
             });
+        const islandJob = loader.loadAsync(ISLAND_ASSET)
+            .then(gltf => this._installIsland(gltf))
+            .catch(error => {
+                this.islandLoadError = error;
+                return null;
+            });
         const characterJobs = CHARACTER_ASSETS.map((url, index) => loader.loadAsync(url)
             .then(gltf => this._installCharacter(gltf, index))
             .catch(() => null));
@@ -348,7 +375,7 @@ export class SocialLobby {
                 }
             })
             .catch(() => null));
-        await Promise.allSettled([cityJob, ...characterJobs, ...propJobs]);
+        await Promise.allSettled([cityJob, islandJob, ...characterJobs, ...propJobs]);
         return this;
     }
 
@@ -387,13 +414,26 @@ export class SocialLobby {
         ];
     }
 
+    _installIsland(gltf) {
+        if (this._disposed) return;
+        const model = gltf.scene;
+        model.name = 'olann-island';
+        model.scale.setScalar(ISLAND_SCALE);
+        tuneIslandMaterials(model);
+        model.visible = this.mapId === 'island';
+        this.root.add(model);
+        this.islandModel = model;
+        this.islandWorld.visible = false;
+    }
+
     selectMap(mapId = 'city') {
         const map = getSocialHubMap(mapId);
         this.mapId = map.id;
         this.arena = this.arenas[map.id];
         this._boundaryColliders = this.arena.collidables.filter(collider => collider.invisibleBoundary);
         if (this.player && this.active) this.player.arena = this.arena;
-        if (this.islandWorld) this.islandWorld.visible = map.id === 'island';
+        if (this.islandWorld) this.islandWorld.visible = map.id === 'island' && !this.islandModel;
+        if (this.islandModel) this.islandModel.visible = map.id === 'island';
         if (this.cityModel) this.cityModel.visible = map.id === 'city';
         if (this.fallbackWorld) this.fallbackWorld.visible = map.id === 'city' && !this.cityModel;
         this._presenceDirty = true;

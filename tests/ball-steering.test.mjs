@@ -75,10 +75,13 @@ test('wide shot creates a deterministic side/back waypoint and switches at targe
 
     assert.deepEqual(first, second);
     assert.notEqual(first.position.x, target.x);
-    assert.ok(first.position.z < target.z);
+    assert.ok(Math.abs(first.position.x - target.x) <= 3.25);
+    assert.ok(first.position.z <= target.z - 6);
+    assert.ok(Math.abs(first.position.z - target.z) > Math.abs(first.position.x - target.x));
     assert.equal(hasCrossedTargetPlane({ x: 0, y: 1, z: -9 }, target, first.planeNormal), false);
     assert.equal(hasCrossedTargetPlane({ x: 0, y: 1, z: -11 }, target, first.planeNormal), true);
     assert.equal(createWideWaypoint(origin, { x: 0, y: 0, z: -1 }, target), null);
+    assert.notEqual(createWideWaypoint(origin, { x: 0.4, y: 0, z: -1 }, target), null);
 });
 
 test('control delay preserves initial aim for 0.074 seconds', () => {

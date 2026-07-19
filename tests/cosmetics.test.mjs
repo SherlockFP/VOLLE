@@ -2,11 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CASES, KNIVES, canEquipKnife, getCaseDropRates, rollCase } from '../js/cosmetics.js';
 
-test('case boundaries resolve only catalog knives', () => {
+test('case boundaries resolve catalog cosmetics', () => {
     assert.equal(rollCase('missing', () => 0), null);
     assert.equal(rollCase('kickoff', () => 0).id, 'tide');
-    assert.equal(rollCase('kickoff', () => 0.999999).id, 'sherlock');
-    for (const drop of CASES.kickoff.drops) assert.ok(KNIVES[drop.id]);
+    assert.equal(rollCase('kickoff', () => 0.999999).id, 'arcade');
+    assert.equal(rollCase('kickoff', () => 0.92).type, 'avatar');
+    for (const drop of CASES.kickoff.drops.filter(drop => !drop.type)) assert.ok(KNIVES[drop.id]);
 });
 
 test('team-exclusive knives cannot cross-equip', () => {
@@ -19,13 +20,13 @@ test('team-exclusive knives cannot cross-equip', () => {
 test('case drop rates are normalized and expose every drop', () => {
     const rates = getCaseDropRates('kickoff');
     assert.equal(rates.length, CASES.kickoff.drops.length);
-    assert.equal(rates.reduce((sum, drop) => sum + drop.chance, 0), 1);
-    assert.deepEqual(rates.map(drop => Math.round(drop.chance * 100)), [38, 38, 20, 4]);
+    assert.ok(Math.abs(rates.reduce((sum, drop) => sum + drop.chance, 0) - 1) < 1e-12);
+    assert.deepEqual(rates.map(drop => Math.round(drop.chance * 100)), [28, 28, 16, 3, 12, 7, 4, 2]);
 });
 
 test('minimum rarity rolls only within the eligible case pool', () => {
     assert.equal(rollCase('kickoff', () => 0, { minimumRarity: 'epic' }).id, 'prism');
-    assert.equal(rollCase('kickoff', () => 0.999, { minimumRarity: 'epic' }).id, 'sherlock');
+    assert.equal(rollCase('kickoff', () => 0.999, { minimumRarity: 'epic' }).id, 'arcade');
     const rates = getCaseDropRates('kickoff', { minimumRarity: 'epic' });
-    assert.deepEqual(rates.map(drop => Math.round(drop.chance * 100)), [83, 17]);
+    assert.deepEqual(rates.map(drop => Math.round(drop.chance * 100)), [64, 12, 16, 8]);
 });

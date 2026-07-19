@@ -67,6 +67,13 @@ test('case opening charges once, handles duplicates, and enforces team equip', (
     assert.equal(Store.openCase('missing', () => 0), null);
 });
 
+test('case opening can unlock a character skin', () => {
+    Store.reset();
+    const result = Store.openCase('kickoff', () => 0.92);
+    assert.equal(result.reward.type, 'avatar');
+    assert.ok(Store.get('ownedAvatarSkins').includes(result.reward.id));
+});
+
 test('case pity guarantees epic or better on the tenth non-premium run', () => {
     Store.reset();
     Store.grant({ currency: 1000 });

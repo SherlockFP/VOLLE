@@ -84,6 +84,12 @@ class App {
         };
         this.game.onMatchLoading = data => this._showMatchLoading(900, data);
         this.game.onLateJoinActivated = team => this._exitLateJoinSpectator(team);
+        this.game.onMatchComplete = () => {
+            this.awardMatchRewards();
+            this.refreshMetaStats();
+            this.ui.updateContractTracker(Daily, this.store);
+        };
+        this.game.onRoundEnd = () => this._queueRoundReplay();
         this.player.game = this.game;
         this.player.audio = this.audio;
         this.socialLobby = new SocialLobby(this.renderer, this.player, {
@@ -156,17 +162,21 @@ class App {
 
             // Console visible → skip all other handlers
             if (this.gameConsole?.visible) return;
-            if (isEditableTarget(e.target) && e.code !== 'Escape') return;
 
             // While typing in chat, only Enter/Escape matter (handled below).
             if (this.chatOpen) {
                 if (e.code === 'Enter') {
+                    e.preventDefault();
+                    e.stopPropagation();
                     this.sendChatFromInput();
                 } else if (e.code === 'Escape') {
+                    e.preventDefault();
+                    e.stopPropagation();
                     this.closeChat();
                 }
                 return;
             }
+            if (isEditableTarget(e.target) && e.code !== 'Escape') return;
 
             if (e.code === 'Tab' && [STATES.PLAYING, STATES.COUNTDOWN, STATES.CELEBRATION, STATES.ROUND_END].includes(this.game.state)) {
                 e.preventDefault();
@@ -210,6 +220,14 @@ class App {
 
             // Chat açıkken M tuşu takım menüsü açmasın.
             if (this.chatOpen) return;
+
+            if (['F1', 'F2', 'F3'].includes(e.code) && this.game.state === STATES.PLAYING) {
+                e.preventDefault();
+                const ping = { F1: ['incoming', 'BALL INCOMING!'], F2: ['help', 'NEED HELP!'], F3: ['save', 'NICE SAVE!'] }[e.code];
+                this.audio.playVoicePing(ping[0]);
+                this.game.broadcastSystemMessage(`${this.game.playerName}: ${ping[1]}`);
+                return;
+            }
 
             // M → team popup (only in-game, lobby has team buttons)
             if (e.code === 'KeyM' && (this.game.state === STATES.PLAYING || this.game.state === STATES.COUNTDOWN)) {
@@ -278,12 +296,13 @@ class App {
                 if (pauseEl && !pauseEl.classList.contains('hidden')) {
                     // ESC while paused → resume
                     pauseEl.classList.add('hidden');
-                    this.game.setState(STATES.PLAYING);
+                    this.game.setState(this._pausedFromState || STATES.PLAYING);
+                    this._pausedFromState = null;
                     this.player.lock();
                     return;
                 }
-                if (this.game.state === STATES.PLAYING || this.game.state === STATES.COUNTDOWN) {
-                    // Countdown'da ESC → özel menü değil, direkt pause
+                if ([STATES.PLAYING, STATES.COUNTDOWN, STATES.ROUND_END, STATES.CELEBRATION].includes(this.game.state)) {
+                    this._pausedFromState = this.game.state;
                     this.game.setState(STATES.PAUSED);
                     this.ui.hideScoreboard();
                     this.player.unlock();
@@ -464,7 +483,7 @@ class App {
             this.ui.showMessage?.(`Ranked ${won ? 'win' : draw ? 'draw' : 'loss'}: ${ranked.elo} ELO`, 3500);
             this._rankedMatch = null;
         }
-        const coins = 30 + myStat.deflections * 2 + myStat.score * 5 + (won ? 50 : 0);
+        const coins = won ? 5 : 1;
         const xp = this.store.boostedXp(50 + myStat.deflections * 3 + (won ? 100 : 30));
         const result = this.store.grant({ currency: coins, xp });
         const matchId = globalThis.crypto?.randomUUID?.()
@@ -683,19 +702,11 @@ class App {
             this.ui.showScreen('lobby');
             this.ui.showMessage?.(`Ranked opponent: ${this._rankedMatch.opponentElo} ELO`, 2200);
         });
-        bind('btn-social', () => {
-            this._renderSocial();
-            this.ui.showScreen('social');
-        });
+        bind('btn-social', () => this._openSocialHubBrowser());
         bind('btn-social-lobby', () => this._openSocialHubBrowser());
         bind('social-hub-browser-close', () => this._closeSocialHubBrowser());
         bind('social-hub-browser-refresh', () => this._refreshSocialHubList());
         bind('social-lobby-exit', () => this._exitSocialLobby());
-        bind('social-lobby-clans', () => {
-            this._leaveSocialLobby();
-            this._renderSocial();
-            this.ui.showScreen('social');
-        });
         bind('social-lobby-chat-send', () => this._sendSocialLobbyChat());
         document.getElementById('social-lobby-chat-input')?.addEventListener('keydown', event => {
             if (event.key === 'Enter') {
@@ -782,7 +793,8 @@ class App {
         // Pause menu
         bind('pause-resume', () => {
             document.getElementById('pause-menu')?.classList.add('hidden');
-            this.game.setState(STATES.PLAYING);
+            this.game.setState(this._pausedFromState || STATES.PLAYING);
+            this._pausedFromState = null;
             this.player.lock();
         });
         bind('pause-settings', () => {
@@ -908,6 +920,7 @@ class App {
             await this._showMatchLoading(950);
             this.player.lock();
             this.game.startGame();
+            this.ui.updateContractTracker(Daily, this.store);
             if (this.network.connected && this.network.isHost) {
                 this.network.broadcast({ type: 'gameStart', ...this.game.snapshotState() });
             }
@@ -919,6 +932,15 @@ class App {
             });
             this._lastRally = this.game.rallyCount;
             if (startButton) startButton.disabled = false;
+        });
+
+        bind('btn-party-ready', () => {
+            const button = document.getElementById('btn-party-ready');
+            const ready = !button?.classList.contains('is-ready');
+            button?.classList.toggle('is-ready', ready);
+            button?.setAttribute('aria-pressed', String(ready));
+            if (button) button.textContent = ready ? 'READY!' : 'READY';
+            this.game.broadcastSystemMessage(`${this.game.playerName} is ${ready ? 'READY' : 'not ready'}`);
         });
 
         bind('btn-add-bot-red', () => {
@@ -964,7 +986,7 @@ class App {
 
         // Game over
         bind('btn-play-again', () => {
-            this.game.scoreboard.reset();
+            this.awardMatchRewards();
             this.game.startGame();
             this.player.lock();
         });
@@ -988,7 +1010,7 @@ class App {
         // Post-game screen actions
         window._postGameAction = (action) => {
             if (action === 'play_again') {
-                this.game.scoreboard.reset();
+                this.awardMatchRewards();
                 this.game.startGame();
                 this.player.lock();
             } else if (action === 'lobby') {
@@ -1247,6 +1269,12 @@ class App {
                 if (visible) renderCrosshair(hud, config, dynamicScale);
             }
             if (preview) renderCrosshair(preview, config, dynamicScale);
+            const previewCard = document.querySelector('.crosshair-preview-card');
+            if (previewCard) {
+                previewCard.style.setProperty('--preview-crosshair-color', config.color);
+                previewCard.style.setProperty('--preview-crosshair-opacity', `${Math.round(config.opacity * 18)}%`);
+                previewCard.classList.toggle('has-outline', config.outline);
+            }
             return config;
         };
         bindSetting('setting-crosshair', e => {
@@ -1446,6 +1474,7 @@ class App {
                 updateCSLobbyInfo();
             });
         });
+        document.getElementById('match-modifier')?.addEventListener('change', event => this.game.setMatchModifier(event.target.value));
         updateCSLobbyInfo();
         this.initCarousel();
 
@@ -1650,6 +1679,7 @@ class App {
                 this.ui.showMessage?.(result
                     ? `${result.duplicate ? `Duplicate +${result.refund} coins` : 'Unlocked'}: ${result.reward.name}`
                     : !box ? 'Case unavailable.' : `Need ${box.price} coins - Balance ${balance}`);
+                if (result) this.ui.showCaseReel(box, result);
                 this.ui.renderShop(this.store, 'cases');
                 this.refreshMetaStats();
                 return;
@@ -1689,11 +1719,6 @@ class App {
                 e.preventDefault();
                 if (e.deltaY > 0) Spectator.cycleTarget();
                 else Spectator.prevTarget();
-            } else if (this.game.state === STATES.CELEBRATION) {
-                e.preventDefault();
-                const weapons = ['fists', 'rocket'];
-                const index = weapons.indexOf(this.game._celebWeapon);
-                this.game.selectCelebrationWeapon(weapons[(index + 1) % weapons.length]);
             }
         }, { passive: false });
 
@@ -2179,6 +2204,15 @@ class App {
         }
     }
 
+    _queueRoundReplay() {
+        const end = Math.max(0, performance.now() - (Replay.startTs || performance.now()));
+        const replay = { meta: Replay.meta || {}, events: Replay.events.slice(), duration: end };
+        this._latestRoundReplay = extractReplayHighlight(replay, {
+            label: 'Last 5 Seconds', start: Math.max(0, end - 5000), end
+        });
+        this.ui.showMessage?.('Last 5 seconds captured - replay available after match', 1800);
+    }
+
     _startReplay(replay) {
         this._exitReplay(false);
         this.game.selectMap(replay.meta?.map);
@@ -2271,7 +2305,7 @@ class App {
         if (!this.game.emotes.wheelOpen) return;
         // Seçilmediyse kapat, seçildiyse showEmote çağrıldı
         this.game.emotes.hideWheel();
-        if (this.game.state === STATES.PLAYING) this.player.lock();
+        if ([STATES.PLAYING, STATES.COUNTDOWN, STATES.ROUND_END, STATES.CELEBRATION].includes(this.game.state)) this.player.lock();
     }
 
     // Tournament başlat — bracket oluştur, UI'da göster.
@@ -3445,6 +3479,7 @@ class App {
         const socialChatFocused = document.activeElement?.id === 'social-lobby-chat-input';
         const canLock = (this.game.state === STATES.PLAYING
             || this.game.state === STATES.COUNTDOWN
+            || this.game.state === STATES.ROUND_END
             || this.game.state === STATES.CELEBRATION
             || this.game.state === STATES.SOCIAL_HUB)
             && !Spectator.active

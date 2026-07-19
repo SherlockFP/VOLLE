@@ -382,10 +382,12 @@ class StoreClass {
             this.data.currency -= box.price;
             this.data.stats.totalSpent = (this.data.stats.totalSpent || 0) + box.price;
         }
-        const duplicate = this.data.ownedKnives.includes(reward.id);
+        const isAvatar = reward.type === 'avatar';
+        const owned = isAvatar ? this.data.ownedAvatarSkins : this.data.ownedKnives;
+        const duplicate = owned.includes(reward.id);
         const refund = duplicate ? (free ? 35 : Math.floor(box.price * 0.35)) : 0;
         if (refund) this.data.currency += refund;
-        else if (this.data.ownedKnives.length < 64) this.data.ownedKnives.push(reward.id);
+        else if (owned.length < 64) owned.push(reward.id);
         const premium = reward.rarity === 'epic' || reward.rarity === 'legendary';
         this.data.casePity = { ...(this.data.casePity || {}), [caseId]: premium ? 0 : pityBefore + 1 };
         this.save();

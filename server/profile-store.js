@@ -127,9 +127,7 @@ class ProfileStore {
         const matchId = typeof match?.matchId === 'string' ? match.matchId.slice(0, 64) : '';
         if (!matchId) return { status: 400, error: 'matchId required' };
         if (record.rewardedMatches.includes(matchId)) return { status: 409, error: 'reward already claimed' };
-        const deflections = Math.max(0, Math.min(100, Number(match.deflections) || 0));
-        const score = Math.max(0, Math.min(50, Number(match.score) || 0));
-        const coins = Math.min(500, 30 + deflections * 2 + score * 5 + (match.won ? 50 : 0));
+        const coins = match.won === true ? 5 : 1;
         record.currency += coins;
         record.rewardedMatches.push(matchId);
         record.rewardedMatches = record.rewardedMatches.slice(-50);

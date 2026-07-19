@@ -3356,11 +3356,11 @@ body.social-hub-active #menu-particles {
 /* ponytail: celebration winner banner — top of screen during 30s celebration */
 #celebration-banner {
     position: fixed;
-    top: 0; left: 0; right: 0;
+    top: clamp(88px, 13vh, 142px); left: 0; right: 0;
     z-index: 480;
     text-align: center;
-    padding: 18px 12px 22px;
-    background: linear-gradient(180deg, rgba(0,0,0,0.55), transparent);
+    padding: 10px 12px 14px;
+    background: linear-gradient(180deg, rgba(0,0,0,0.38), transparent);
     pointer-events: none;
     animation: cbDrop 0.5s ease-out;
 }
@@ -3376,6 +3376,7 @@ body.social-hub-active #menu-particles {
     color: var(--text-dim);
     margin-top: 4px;
 }
+#celebration-banner .cb-sub:empty { display: none; }
 .cb-red { color: #ff5555; }
 .cb-blue { color: #5599ff; }
 .cb-draw { color: var(--accent); }

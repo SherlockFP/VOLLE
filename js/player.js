@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { applyCharacter } from './characters.js';
 import { applyRunes, tickSkillCooldowns, useSkill, DEFAULT_LOADOUT, ULTIMATES } from './skills.js';
-import { createKnifeModel, disposeObject3D } from './weapon-models.js';
+import { createKnifeModel, createRocketLauncherModel, disposeObject3D } from './weapon-models.js';
 
 const STAMINA_PER_DEFLECT = 7;
 const STAMINA_REGEN = 20;     // per second
@@ -418,6 +418,7 @@ export class Player {
             this.loadout.runes = runeIds;
         }
         this.loadout.char = charId;
+        this._syncViewmodelWeapon();
     }
 
     buildHandMesh() {
@@ -449,12 +450,12 @@ export class Player {
 
         this.knifeStyle = { id: 'training', color: '#d7f3ff' };
         this.knifeGroup = createKnifeModel(this.knifeStyle);
-        this.knifeGroup.position.set(0.03, -0.02, -0.34);
-        this.knifeGroup.rotation.z = -0.12;
+        this.knifeGroup.position.set(0.08, -0.08, -0.5);
+        this.knifeGroup.rotation.set(-0.08, 0.18, -0.34);
         this.armGroup.add(this.knifeGroup);
 
         this.camera.add(this.armGroup);
-        this.armGroup.visible = false; // default off — toggle via sv_hand
+        this.armGroup.visible = true;
 
         // ponytail: tek el — sol el kaldırıldı
     }
@@ -465,11 +466,23 @@ export class Player {
 
     setKnifeStyle(style = {}) {
         this.knifeStyle = { ...style };
+        this._syncViewmodelWeapon();
+    }
+
+    _syncViewmodelWeapon() {
+        if (!this.armGroup) return;
         const visible = this.knifeGroup?.visible !== false;
         disposeObject3D(this.knifeGroup);
-        this.knifeGroup = createKnifeModel(style);
-        this.knifeGroup.position.set(0.03, -0.02, -0.34);
-        this.knifeGroup.rotation.z = -0.12;
+        if (this.charId === 'soldier') {
+            this.knifeGroup = createRocketLauncherModel(this.team);
+            this.knifeGroup.position.set(0.11, -0.1, -0.52);
+            this.knifeGroup.rotation.set(-0.12, -0.16, 0.04);
+            this.knifeGroup.scale.setScalar(0.72);
+        } else {
+            this.knifeGroup = createKnifeModel(this.knifeStyle);
+            this.knifeGroup.position.set(0.08, -0.08, -0.5);
+            this.knifeGroup.rotation.set(-0.08, 0.18, -0.34);
+        }
         this.knifeGroup.visible = visible;
         this.armGroup.add(this.knifeGroup);
     }
@@ -688,11 +701,16 @@ export class Player {
             const swing = Math.sin(this.swingAnim * Math.PI) * 0.7;
             this.armGroup.rotation.x = -swing;
             this.armGroup.position.z = -0.3 - swing * 0.3;
+            if (this.knifeGroup?.userData.weaponType === 'knife') {
+                this.knifeGroup.rotation.z = -0.34 + swing * 1.25;
+                this.knifeGroup.rotation.x = -0.08 - swing * 0.4;
+            }
         } else {
             const bob = Math.sin(performance.now() / 600) * 0.008;
             this.armGroup.position.y = -0.3 + bob;
             this.armGroup.rotation.x = 0;
             this.armGroup.position.z = -0.3;
+            if (this.knifeGroup?.userData.weaponType === 'knife') this.knifeGroup.rotation.set(-0.08, 0.18, -0.34);
         }
 
         // Movement (chill yavaşlatması uygulanır)
@@ -1139,7 +1157,7 @@ export class Player {
         this.ultimateCharge = 0;
         this.ultimateActive = false;
         this._qHoldTimer = 0;
-        // ponytail: hand default OFF — auto-start'ta görünmez, sv_hand ile açılır
+        this.setHandVisible(true);
     }
 
     setSensitivity(val) { this.sensitivity = val; }

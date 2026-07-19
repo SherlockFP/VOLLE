@@ -1,3 +1,5 @@
+import { AVATAR_SKINS } from './avatar.js';
+
 export const KNIVES = Object.freeze({
     training: Object.freeze({ id: 'training', name: 'Training Edge', rarity: 'common', color: '#d7f3ff', teams: ['red', 'blue'] }),
     tide: Object.freeze({ id: 'tide', name: 'Tidal Fang', rarity: 'rare', color: '#36d8ca', teams: ['blue'] }),
@@ -10,11 +12,24 @@ export const CASES = Object.freeze({
     kickoff: Object.freeze({
         id: 'kickoff', name: 'Kickoff Case', price: 120,
         drops: Object.freeze([
-            { id: 'tide', weight: 38 }, { id: 'flare', weight: 38 },
-            { id: 'prism', weight: 20 }, { id: 'sherlock', weight: 4 }
+            { id: 'tide', weight: 28 }, { id: 'flare', weight: 28 },
+            { id: 'prism', weight: 16 }, { id: 'sherlock', weight: 3 },
+            { id: 'neon', type: 'avatar', rarity: 'rare', weight: 12 },
+            { id: 'frost', type: 'avatar', rarity: 'rare', weight: 7 },
+            { id: 'astro', type: 'avatar', rarity: 'epic', weight: 4 },
+            { id: 'arcade', type: 'avatar', rarity: 'legendary', weight: 2 }
         ])
     })
 });
+
+function resolveCaseDrop(drop) {
+    if (drop.type === 'avatar') {
+        const skin = AVATAR_SKINS[drop.id];
+        return skin ? { ...skin, type: 'avatar', rarity: drop.rarity } : null;
+    }
+    const knife = KNIVES[drop.id];
+    return knife ? { ...knife, type: 'knife' } : null;
+}
 
 export function secureCosmeticRandom() {
     if (globalThis.crypto?.getRandomValues) {
@@ -30,13 +45,13 @@ export function rollCase(caseId, random = secureCosmeticRandom, options = {}) {
     if (!box) return null;
     const rarityRank = { common: 0, rare: 1, epic: 2, legendary: 3 };
     const minimumRank = rarityRank[options.minimumRarity] ?? -1;
-    const drops = box.drops.filter(drop => (rarityRank[KNIVES[drop.id]?.rarity] ?? 0) >= minimumRank);
+    const drops = box.drops.filter(drop => (rarityRank[resolveCaseDrop(drop)?.rarity] ?? 0) >= minimumRank);
     if (!drops.length) return null;
     const total = drops.reduce((sum, drop) => sum + drop.weight, 0);
     let roll = Math.min(0.999999, Math.max(0, Number(random()) || 0)) * total;
     for (const drop of drops) {
         roll -= drop.weight;
-        if (roll < 0) return KNIVES[drop.id] || null;
+        if (roll < 0) return resolveCaseDrop(drop);
     }
     return null;
 }
@@ -46,12 +61,14 @@ export function getCaseDropRates(caseId, options = {}) {
     if (!box) return [];
     const rarityRank = { common: 0, rare: 1, epic: 2, legendary: 3 };
     const minimumRank = rarityRank[options.minimumRarity] ?? -1;
-    const drops = box.drops.filter(drop => (rarityRank[KNIVES[drop.id]?.rarity] ?? 0) >= minimumRank);
+    const drops = box.drops.filter(drop => (rarityRank[resolveCaseDrop(drop)?.rarity] ?? 0) >= minimumRank);
     const total = drops.reduce((sum, drop) => sum + drop.weight, 0);
     return drops.map(drop => ({
         id: drop.id,
-        name: KNIVES[drop.id]?.name || drop.id,
-        rarity: KNIVES[drop.id]?.rarity || 'common',
+        name: resolveCaseDrop(drop)?.name || drop.id,
+        rarity: resolveCaseDrop(drop)?.rarity || 'common',
+        type: resolveCaseDrop(drop)?.type || 'knife',
+        preview: resolveCaseDrop(drop)?.type === 'avatar' ? resolveCaseDrop(drop) : null,
         chance: total > 0 ? drop.weight / total : 0
     }));
 }

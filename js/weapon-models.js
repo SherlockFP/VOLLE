@@ -11,19 +11,23 @@ export function createKnifeModel(style = {}) {
     const dark = mat(0x101820, 0.6, 0.32);
     const accent = mat(color.clone().offsetHSL(0, 0.08, -0.18), 0.72, 0.24);
 
-    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.025, 0.48), bladeMat);
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.115, 0.035, 0.44), bladeMat);
     blade.position.z = -0.24;
-    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.041, 0.16, 4), bladeMat);
-    tip.rotation.x = -Math.PI / 2;
-    tip.position.z = -0.56;
-    const guard = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.045, 0.065), accent);
-    guard.position.z = 0.035;
-    const handle = new THREE.Mesh(new THREE.BoxGeometry(0.095, 0.075, 0.22), dark);
-    handle.position.z = 0.16;
-    const pommel = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.06, 8), accent);
+    const edge = new THREE.Mesh(new THREE.BoxGeometry(0.125, 0.012, 0.36), accent);
+    edge.position.set(0, -0.022, -0.27);
+    const tip = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.012, 0.14, 4), bladeMat);
+    tip.rotation.x = Math.PI / 2;
+    tip.rotation.z = Math.PI / 4;
+    tip.position.z = -0.52;
+    const guard = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.055, 0.07), accent);
+    guard.position.z = 0.025;
+    const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.25, 8), dark);
+    handle.rotation.x = Math.PI / 2;
+    handle.position.z = 0.17;
+    const pommel = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.06, 8), accent);
     pommel.rotation.x = Math.PI / 2;
     pommel.position.z = 0.3;
-    group.add(blade, tip, guard, handle, pommel);
+    group.add(blade, edge, tip, guard, handle, pommel);
     group.userData.weaponType = 'knife';
     return group;
 }

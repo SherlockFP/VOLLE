@@ -98,7 +98,7 @@
                 <nav class="ow-tabs">
                     <button id="btn-character" class="ow-tab">Heroes</button>
                     <button id="btn-shop" class="ow-tab">Shop</button>
-                    <button id="btn-social" class="ow-tab">Social</button>
+                    <button id="btn-social" class="ow-tab">Social Hub</button>
                     <button id="btn-battlepass" class="ow-tab">Battle Pass</button>
                     <button id="btn-daily" class="ow-tab">Challenges</button>
                     <button id="btn-ranked" class="ow-tab">Career</button>
@@ -252,10 +252,6 @@
                     <p><kbd>WASD</kbd> Move <kbd>Space</kbd> Swim up <kbd>C</kbd> Dive <kbd>Y</kbd> Chat</p>
                 </div>
                 <div class="social-lobby-actions">
-                    <button id="social-lobby-clans" type="button">
-                        <svg class="ui-icon" aria-hidden="true"><use href="#i-user"></use></svg>
-                        Clans
-                    </button>
                     <button id="social-lobby-exit" type="button">
                         <svg class="ui-icon" aria-hidden="true"><use href="#i-close"></use></svg>
                         Exit Hub
@@ -390,6 +386,7 @@
                         <button class="cs-mode-btn mode-btn" data-mode="competitive">🏆 Competitive</button>
                         <button class="cs-mode-btn mode-btn" data-mode="pinball">PB Pinball</button>
                     </div>
+                    <label class="match-modifier" for="match-modifier"><span>MAP MODIFIER</span><select id="match-modifier"><option value="none">Standard rules</option><option value="lowgrav">Low gravity</option><option value="pinball">Pinball bounce</option><option value="night">Night lights</option></select></label>
                 </div>
 
                 <!-- Settings button (opens unified modal) -->
@@ -429,6 +426,7 @@
             </div>
             <button id="btn-start-game" class="cs-btn-start">▶ START GAME</button>
             <div class="cs-bottom-right">
+                <button id="btn-party-ready" class="cs-btn-ready" type="button" aria-pressed="false">READY</button>
                 <span class="cs-bot-count" id="cs-bot-count">Bots: 4</span>
             </div>
         </div>
@@ -1025,6 +1023,7 @@
             <div class="ult-ring"><div class="ult-fill" id="ult-fill"></div><div class="ult-text" id="ult-pct">0</div></div>
             <div class="ult-ready hidden" id="ult-ready">Q — ULTIMATE</div>
         </div>
+        <aside id="contract-tracker" class="contract-tracker hidden" aria-live="polite"></aside>
 
         <!-- Controls hint -->
         <div id="controls-hint">WASD move · Space jump · L-Click deflect · flick ↑ lob / ↓ spike · Y chat · M teams · Tab scores · B ball skin</div>
@@ -1117,10 +1116,15 @@
             </label>
         </div>
     </div>
+    <div id="case-reel" class="case-reel hidden" role="dialog" aria-modal="true" aria-label="Case opening"><div class="case-reel-card"><div class="case-reel-top"><span>VOLLE CASE OPENING</span><button id="case-reel-skip" type="button">SKIP</button></div><div class="case-reel-window"><div id="case-reel-track" class="case-reel-track"></div></div><div id="case-reel-result" class="case-reel-result" aria-live="polite"></div></div></div>
 
     <!-- ===== TEAM SWITCH OVERLAY (M) ===== -->
     <div id="team-overlay" class="hidden">
         <div class="team-popup">
+            <header class="team-command-header">
+                <div><span>VOLLE COMMAND</span><h3>Choose your class</h3></div>
+                <kbd>M</kbd>
+            </header>
             <h3 style="text-align:center;margin-bottom:12px;color:var(--accent);">TEAMS</h3>
             <div class="team-popup-grid">
                 <div class="team-col red" id="team-col-red">
@@ -1142,6 +1146,7 @@
     <section id="class-switcher-template" class="class-switcher hidden" aria-label="Class selection">
         <header><span>CLASS</span><small id="class-switch-status">Choose once each round</small></header>
         <div id="class-switch-list" class="class-switch-list"></div>
+        <div id="class-switch-detail" class="class-switch-detail" aria-live="polite"></div>
     </section>
 
     <!-- ===== SCOREBOARD OVERLAY (Tab) ===== -->

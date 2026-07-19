@@ -152,6 +152,7 @@ export class UI {
         label.textContent = state;
         root.classList.toggle('hidden', safeSpeed < 4 && state === 'MOVE');
         root.classList.toggle('boost', safeSpeed >= 11 || state === 'BHOP');
+        root.classList.toggle('bhop', state === 'BHOP');
         root.classList.toggle('longjump', state === 'LONGJUMP');
     }
 
@@ -235,7 +236,7 @@ export class UI {
         overlay.classList.remove('hidden');
         const classSwitcher = document.getElementById('class-switcher-template');
         const popup = overlay.querySelector('.team-popup');
-        if (classSwitcher && popup && classSwitcher.parentElement !== popup) popup.appendChild(classSwitcher);
+        if (classSwitcher && popup && classSwitcher.parentElement !== popup) popup.insertBefore(classSwitcher, popup.children[1] || null);
         classSwitcher?.classList.remove('hidden');
         this._renderTeamLists(game);
         this._renderClassSwitch(game);
@@ -315,21 +316,31 @@ export class UI {
         this.updateScoreboardTable('scoreboard-body-final', stats);
     }
 
-    showCountdown(num, callback) {
+    showCountdown(num, callback, token = ++this._countdownToken) {
         const el = document.getElementById('countdown');
         if (!el) return;
         el.classList.remove('hidden');
         el.textContent = num;
         el.classList.add('countdown-anim');
         setTimeout(() => {
+            if (token !== this._countdownToken) return;
             el.classList.remove('countdown-anim');
             if (num > 1) {
-                this.showCountdown(num - 1, callback);
+                this.showCountdown(num - 1, callback, token);
             } else {
                 el.textContent = 'GO!';
-                setTimeout(() => { el.classList.add('hidden'); if (callback) callback(); }, 500);
+                setTimeout(() => {
+                    if (token !== this._countdownToken) return;
+                    el.classList.add('hidden');
+                    if (callback) callback();
+                }, 500);
             }
         }, 1000);
+    }
+
+    cancelCountdown() {
+        this._countdownToken = (this._countdownToken || 0) + 1;
+        document.getElementById('countdown')?.classList.add('hidden');
     }
 
     showRoundBanner(round, redScore, blueScore) {
@@ -1010,7 +1021,7 @@ export class UI {
                         Epic+ guarantee: ${pity.nextGuaranteed ? 'NEXT OPEN' : `${pity.count}/${pity.threshold}`}
                     </div>
                     <div class="case-drop-rates">${rates.map(drop =>
-                        `<span class="rarity-${drop.rarity}"><b>${drop.name}</b><em>${(drop.chance * 100).toFixed(0)}%</em></span>`
+                        `<span class="rarity-${drop.rarity} case-drop ${drop.type}">${drop.preview ? `<i class="case-avatar-preview" style="--case-head:${drop.preview.head};--case-body:${drop.preview.body};--case-arms:${drop.preview.arms}"></i>` : ''}<b>${drop.name}<small>${drop.type === 'avatar' ? 'CHARACTER SKIN' : 'KNIFE'}</small></b><em>${(drop.chance * 100).toFixed(0)}%</em></span>`
                     ).join('')}</div>
                     <button class="btn btn-primary btn-small case-open" data-id="${box.id}">${box.price} coins / Open</button>`;
                 grid.appendChild(card);
@@ -1025,6 +1036,51 @@ export class UI {
                 grid.appendChild(card);
             });
         }
+    }
+
+    updateContractTracker(daily, store) {
+        const tracker = document.getElementById('contract-tracker');
+        if (!tracker) return;
+        const dailies = daily?.getChallenges?.() || [];
+        const contracts = store?.getSeasonContracts?.() || [];
+        const items = [
+            ...dailies.filter(item => !item.claimed).slice(0, 2).map(item => ({ ...item, tag: 'DAILY' })),
+            ...contracts.filter(item => !item.claimed).slice(0, 1).map(item => ({ ...item, tag: 'WEEKLY' }))
+        ];
+        if (!items.length) return tracker.classList.add('hidden');
+        tracker.classList.remove('hidden');
+        tracker.innerHTML = `<header>LIVE OBJECTIVES</header>${items.map(item => {
+            const progress = Math.min(item.target, item.progress || 0);
+            return `<div class="contract-track-row"><small>${item.tag}</small><b>${item.name}</b><span>${progress}/${item.target}</span><i><em style="width:${Math.round(progress / item.target * 100)}%"></em></i></div>`;
+        }).join('')}`;
+    }
+
+    showCaseReel(box, result) {
+        const overlay = document.getElementById('case-reel');
+        const track = document.getElementById('case-reel-track');
+        const resultEl = document.getElementById('case-reel-result');
+        if (!overlay || !track || !resultEl || !result?.reward) return;
+        const drops = box?.drops || [];
+        const ids = Array.from({ length: 18 }, (_, index) => drops[index % Math.max(1, drops.length)]?.id || result.reward.id);
+        ids.splice(14, 0, result.reward.id);
+        track.className = 'case-reel-track';
+        track.innerHTML = ids.map(id => {
+            const item = drops.find(drop => drop.id === id) || result.reward;
+            return `<div class="case-reel-item rarity-${item.rarity || result.reward.rarity}"><small>${item.type === 'avatar' ? 'SKIN' : 'KNIFE'}</small><b>${item.name || id}</b></div>`;
+        }).join('');
+        resultEl.textContent = '';
+        overlay.classList.remove('hidden');
+        let settled = false;
+        const finish = () => {
+            if (settled) return;
+            settled = true;
+            track.classList.add('settled');
+            resultEl.textContent = `${result.duplicate ? `Duplicate +${result.refund}` : 'UNLOCKED'}: ${result.reward.name}`;
+            setTimeout(() => overlay.classList.add('hidden'), 1800);
+        };
+        requestAnimationFrame(() => track.classList.add('spin'));
+        const timer = setTimeout(finish, 2300);
+        document.getElementById('case-reel-skip')?.addEventListener('click', () => { clearTimeout(timer); finish(); }, { once: true });
     }
 
     // ===== BATTLEPASS EKRANI =====
@@ -1227,15 +1283,43 @@ export class UI {
     _renderClassSwitch(game) {
         const list = document.getElementById('class-switch-list');
         const status = document.getElementById('class-switch-status');
+        const detail = document.getElementById('class-switch-detail');
         if (!list) return;
         const round = Number(game.scoreboard?.roundNum) || 0;
         const locked = game.state === 'PLAYING' && game.player?._classChangeRound === round;
         if (status) status.textContent = locked ? 'Class change used this round' : 'One change per round';
+        const selected = CHARACTERS[game.player?.charId] || CHARACTERS.rally;
+        if (detail) {
+            detail.replaceChildren();
+            const badge = document.createElement('span');
+            badge.className = 'class-switch-detail-badge';
+            badge.textContent = selected.emoji || selected.name.slice(0, 1);
+            badge.style.setProperty('--class-color', `#${selected.color.toString(16).padStart(6, '0')}`);
+            const copy = document.createElement('div');
+            const title = document.createElement('strong');
+            title.textContent = selected.name;
+            const desc = document.createElement('p');
+            desc.textContent = selected.desc;
+            copy.append(title, desc);
+            const stats = document.createElement('small');
+            stats.textContent = `HP ${selected.maxHp} | SPD ${selected.speed} | POWER ${selected.deflectPower.toFixed(2)}`;
+            detail.append(badge, copy, stats);
+        }
         list.replaceChildren(...Object.values(CHARACTERS).map(character => {
             const button = document.createElement('button');
             button.type = 'button';
             button.className = `class-switch-choice${game.player?.charId === character.id ? ' selected' : ''}`;
-            button.textContent = character.name;
+            button.setAttribute('role', 'listitem');
+            button.setAttribute('aria-label', `${character.name}: ${character.desc}`);
+            button.style.setProperty('--class-color', `#${character.color.toString(16).padStart(6, '0')}`);
+            const badge = document.createElement('span');
+            badge.className = 'class-switch-avatar';
+            badge.textContent = character.emoji || character.name.slice(0, 1);
+            const name = document.createElement('b');
+            name.textContent = character.name;
+            const stat = document.createElement('small');
+            stat.textContent = `${character.maxHp} HP`;
+            button.append(badge, name, stat);
             button.disabled = locked || game.player?.charId === character.id;
             button.addEventListener('click', () => this.onClassSelect?.(character.id));
             return button;

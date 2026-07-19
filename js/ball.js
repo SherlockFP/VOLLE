@@ -5,7 +5,7 @@ import { ObjectPool } from './objectPool.js';
 
 export const STEERING_CONTROL_WINDOW = 0.074;
 const STEERING_TICK = 1 / 66;
-const WIDE_SHOT_DOT = Math.cos(35 * Math.PI / 180);
+const WIDE_SHOT_DOT = Math.cos(20 * Math.PI / 180);
 
 const finitePoint = p => p && Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z);
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
@@ -121,8 +121,10 @@ export function createWideWaypoint(origin, aimDirection, target) {
     if (direct.x * aim.x + direct.z * aim.z >= WIDE_SHOT_DOT) return null;
     const cross = direct.x * aim.z - direct.z * aim.x;
     const sideSign = cross === 0 ? (direct.x >= 0 ? 1 : -1) : Math.sign(cross);
-    const sideDistance = clamp(directLength * 0.45, 4, 8);
-    const backDistance = clamp(directLength * 0.25, 3, 6);
+    // Keep wide throws mostly on the target's forward/back axis. A small lateral
+    // offset makes the route readable without orbiting around the player.
+    const sideDistance = clamp(directLength * 0.16, 1.25, 3.25);
+    const backDistance = clamp(directLength * 0.68, 6, 12);
     return {
         position: {
             x: target.x + direct.x * backDistance - direct.z * sideSign * sideDistance,
@@ -441,7 +443,7 @@ export class Ball {
                     this._homingAge = (this._homingAge || 0) + dt;
                     const ageBoost = this._homingAge > 0 ? 1 + Math.floor(this._homingAge / 2) * 0.5 : 1;
                     // ponytail: softer steer at close range — prevents aggressive snap
-                    const s = dist < 1.5 ? 12.0 : dist < 3 ? 20.0 : 11.4;
+                    const s = dist < 1.5 ? 4.8 : dist < 3 ? 6.8 : 4.2;
                     const steer = Math.min(s * speedFactor * ageBoost * dt, 1);
                     const newDir = velDir.lerp(desired, steer).normalize();
                     this.velocity.copy(newDir.multiplyScalar(this.currentSpeed));
@@ -480,7 +482,7 @@ export class Ball {
                         : 1;
                     this._homingAge = (this._homingAge || 0) + dt;
                     const ageBoost = this._homingAge > 0 ? 1 + Math.floor(this._homingAge / 2) * 0.5 : 1;
-                    const s = dist < 1.5 ? 12.0 : dist < 3 ? 20.0 : 11.4;
+                    const s = dist < 1.5 ? 4.8 : dist < 3 ? 6.8 : 4.2;
                     const steer = Math.min(s * speedFactor * ageBoost * dt, 1);
                     const newDir = velDir.lerp(desired, steer).normalize();
                     this.velocity.copy(newDir.multiplyScalar(this.currentSpeed));

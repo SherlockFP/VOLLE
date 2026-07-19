@@ -17,7 +17,6 @@ import { isNewerSequence } from './network.js';
 import { resolveKillerName, segmentIntersectsSphere } from './combat.js';
 import {
     createKnifeModel,
-    createKnucklesModel,
     createRocketLauncherModel,
     createRocketProjectileModel,
     disposeObject3D
@@ -134,6 +133,7 @@ export class Game {
         this.juice = new Juice(this.player.camera, this.renderer);
         this.emotes = new EmoteSystem(this.renderer.scene);
         this.mode = GAME_MODES.classic;
+        this.matchModifier = 'none';
         this._oneHitKill = false;
         this._activeBlackHoles = [];
         this._splitBalls = [];
@@ -272,6 +272,7 @@ export class Game {
     setState(s) {
         const prev = this.state;
         this.state = s;
+        if (s === STATES.ROUND_END && prev !== STATES.ROUND_END) this.onRoundEnd?.();
         if (s === STATES.LOBBY || s === STATES.MENU || s === STATES.SOCIAL_HUB) {
             if (prev !== STATES.LOBBY && prev !== STATES.MENU && prev !== STATES.SOCIAL_HUB) this._startMusic();
         } else if (s === STATES.PLAYING || s === STATES.COUNTDOWN) {
@@ -552,15 +553,20 @@ export class Game {
     }
 
     startGame(skipPreGame = false) {
+        this._cancelCountdown?.();
+        this.ui.cancelCountdown?.();
         this._rewardsClaimed = false;
+        this.applyMatchModifier();
         this.setState(STATES.COUNTDOWN);
         // Lobby'de gösterilen bot dummy'leri oyun başlamadan temizle
         for (const [peerId, p] of this.remotePlayers) {
             if (p.isBotEntity) this.removeRemotePlayer(peerId);
         }
-        this.scoreboard.reset();
+        const { timeLimit, maxRounds } = this.scoreboard;
+        this.scoreboard = new Scoreboard();
+        this.scoreboard.setTimeLimit(timeLimit);
+        this.scoreboard.setMaxRounds(maxRounds);
         // ponytail: force full reset — clear all players and re-register from current entities
-        this.scoreboard.players.clear();
         this.scoreboard.addPlayer(this.playerName, this.player.team, { isYou: true });
         this.bots.forEach(b => this.scoreboard.addPlayer(b.name, b.team, { isBot: true }));
         // ponytail: per-team spawn index for 6m spacing
@@ -745,6 +751,7 @@ export class Game {
     selectMode(modeId) {
         if (this.state !== STATES.LOBBY && this.state !== STATES.MENU) return;
         applyMode(this, modeId);
+        this.applyMatchModifier();
         this.ui.showMessage?.(`Mode: ${this.mode.name}`, 1400);
         if (this.network?.isHost) {
             this.network.broadcast({ type: 'modeChange', modeId });
@@ -759,6 +766,21 @@ export class Game {
     getAllTargets() {
         return [this.player, ...this.bots, ...this.remotePlayers.values()]
             .filter(p => !p.queuedForNextRound);
+    }
+
+    setMatchModifier(modifier = 'none') {
+        if (this.state !== STATES.LOBBY && this.state !== STATES.MENU) return false;
+        this.matchModifier = ['none', 'lowgrav', 'pinball', 'night'].includes(modifier) ? modifier : 'none';
+        this.applyMatchModifier();
+        this.ui.showMessage?.(`Modifier: ${this.matchModifier === 'none' ? 'Standard' : this.matchModifier}`, 1400);
+        return true;
+    }
+
+    applyMatchModifier() {
+        const modifier = this.matchModifier || 'none';
+        if (modifier === 'lowgrav') { this.player.gravity = -7; this.player.jumpForce = 12; }
+        if (modifier === 'pinball') this.ball._pinballBounce = true;
+        if (modifier === 'night') this.renderer?.setClearColor?.(0x03101f, 1);
     }
 
     getAliveTeammates(team = this.player.team) {
@@ -1093,32 +1115,20 @@ export class Game {
         }
 
         if (!rocket.visualOnly && (!this.network?.connected || this.network?.isHost)) {
-            let eliminated = false;
-            for (const target of this.getAllTargets()) {
-                if (!target?.alive) continue;
-                const targetPos = target.getPosition();
-                const distance = targetPos.distanceTo(origin);
-                if (distance > 6.2) continue;
-                const strength = Math.max(0.25, 1 - distance / 7);
-                if (target.applyRocketImpulse) target.applyRocketImpulse(origin, strength);
-                else {
-                    const away = target.position.clone().sub(origin).setY(0);
-                    if (away.lengthSq() > 0.001) target.position.addScaledVector(away.normalize(), 1.7 * strength);
+            // Soldier rockets are a self-movement tool, never an attack.
+            const owner = rocket.owner;
+            if (owner?.alive) {
+                const ownerPos = owner.getPosition();
+                const distance = ownerPos.distanceTo(origin);
+                if (distance <= 6.2) {
+                    const strength = Math.max(0.25, 1 - distance / 7);
+                    if (owner.applyRocketImpulse) owner.applyRocketImpulse(origin, strength);
+                    else {
+                        const away = owner.position.clone().sub(origin).setY(0);
+                        if (away.lengthSq() > 0.001) owner.position.addScaledVector(away.normalize(), 1.7 * strength);
+                    }
+                    this.onRocketJump?.({ strength, origin });
                 }
-                if (target === rocket.owner) this.onRocketJump?.({ strength, origin });
-                if (target === rocket.owner || target.team === rocket.team) continue;
-                const damage = Math.round(62 * strength);
-                if (!target.takeDamage?.(damage)) continue;
-                target.die?.();
-                target.alive = false;
-                if (target.group) target.group.visible = false;
-                this.scoreboard.recordDeath(target.name || this.playerName);
-                this.spawnDeathExplosion(targetPos, target.team);
-                eliminated = true;
-            }
-            if (eliminated && this._checkTeamElimination()) {
-                this.setState(STATES.ROUND_END);
-                this.roundRestartTimer = this.roundRestartDelay;
             }
         }
         disposeObject3D(rocket.mesh);
@@ -1151,10 +1161,6 @@ export class Game {
                 hit = this.arena.collidables?.some(item =>
                     rocket.position.distanceToSquared(item.pos) <= (item.radius + 0.2) ** 2
                 ) || false;
-            }
-            if (!hit && !rocket.visualOnly) {
-                hit = this.getAllTargets().some(target => target !== rocket.owner && target.alive
-                    && segmentIntersectsSphere(rocket.previous, rocket.position, target.getPosition(), target.radius + 0.35));
             }
             if (!hit) continue;
             this._explodeRocket(rocket);
@@ -1322,76 +1328,16 @@ export class Game {
                 this.ui.showMessage?.(`🎉 ${Math.ceil(this._celebrationTimer)}s`, 900);
             }
 
-            // Weapon switch 1/2 - knuckles / rocket
-            const CELEB_WEAPONS = {
-                fists:  { name: 'KNUCKLES', dmg: 50, range: 3.5, splash: 0, glove: this.player.team === 'red' ? 0xee5555 : 0x5577dd },
-                rocket: { name: 'ROCKET', dmg: 62, range: 20, splash: 6, glove: 0xff8800 },
-            };
-            if (!this._celebWeapon) this._celebWeapon = 'fists';
-            const prevW = this._celebWeapon;
-            // Manual weapon selection with 1/2/3 keys
-            if (this.player.keys['Digit1']) this._celebWeapon = 'fists';
-            if (this.player.keys['Digit2']) this._celebWeapon = 'rocket';
-            const weapon = CELEB_WEAPONS[this._celebWeapon];
-            if (this._celebWeapon !== prevW) {
-                this._setCelebrationGloveColor(weapon.glove);
-                this._showCelebWeapon(this._celebWeapon);
-            }
+            this._celebWeapon = 'rocket';
             const wh = document.getElementById('celeb-weapon-hud');
             if (wh) wh.style.display = '';
 
-            // Winner attacks losers with the selected weapon
+            // Winner attacks losers with rockets only.
             if (this.player.attacking && this.player.team === this._winningTeam) {
-                if (this._celebWeapon === 'rocket') {
-                    this._spawnMuzzleFlash('rocket');
-                    this._fireRocket(this.player, this.player.getPosition(), this.player.getAimDirection());
-                    this.player.attacking = false;
-                    return;
-                }
-                this._playWeaponSound(this._celebWeapon);
-                this._spawnMuzzleFlash(this._celebWeapon);
-                const ppos = this.player.getPosition();
-                let best = null, bestDist = weapon.range;
-                for (const bot of this.bots) {
-                    if (!bot.alive || bot.team === this._winningTeam) continue;
-                    const d = ppos.distanceTo(bot.getPosition());
-                    if (d < bestDist) { bestDist = d; best = bot; }
-                }
-                if (best) {
-                    // Primary + splash targets (rocket)
-                    const bpos = best.getPosition().clone();
-                    const targets = [best];
-                    if (weapon.splash > 0) {
-                        for (const bot of this.bots) {
-                            if (bot === best || !bot.alive || bot.team === this._winningTeam) continue;
-                            if (bot.getPosition().distanceTo(bpos) < weapon.splash) targets.push(bot);
-                        }
-                    }
-                    for (const t of targets) {
-                        const lethal = t.takeDamage?.(weapon.dmg);
-                        const tp = t.getPosition().clone();
-                        const sp = tp.clone().project(this.player.camera);
-                        const sx = (sp.x * 0.5 + 0.5) * window.innerWidth;
-                        const sy = (-sp.y * 0.5 + 0.5) * window.innerHeight;
-                        this.ui.spawnDamageNumber(sx, sy, weapon.dmg, lethal);
-                        if (lethal) {
-                            t.alive = false;
-                            t.group.visible = false;
-                            this.spawnDeathExplosion(tp, t.team);
-                            this.juice.burst(tp, 0xff0000, 24, 16); // blood everywhere
-                        } else {
-                            this.juice.burst(tp, 0xff0000, 8, 6);
-                        }
-                    }
-                    // Roket patlaması — büyük patlama efekti
-                    if (weapon.splash > 0) {
-                        this._spawnExplosion(bpos, 0xff6600, 40);
-                        this.juice.shake(0.8);
-                    }
-                    this._playBoo();
-                    this.juice.shake(weapon.splash > 0 ? 0.5 : 0.3);
-                }
+                this._spawnMuzzleFlash('rocket');
+                this._fireRocket(this.player, this.player.getPosition(), this.player.getAimDirection());
                 this.player.attacking = false;
+                return;
             }
             // Bots participate during celebration — everyone moves freely
             this.bots.forEach(bot => {
@@ -2899,25 +2845,27 @@ export class Game {
         }
         this._finalStats = stats;
         this._finalWinner = winner;
-        this._showCelebrationBanner(this._winningTeam, `GAME OVER — ${winner} TEAM WINS!`);
+        this._showCelebrationBanner(this._winningTeam);
 
         // ponytail: let everyone move/look, only winners shoot
         this.ball.deactivate();
         // Kaybedenler vuramaz
         this.player._celebNoAttack = (this.player.team !== this._winningTeam);
+        this.player.respawn();
+        this.bots.forEach(bot => { if (!bot.alive) bot.respawn(); });
         this.ui.setPlayerTarget(false);
         this.bots.forEach(bot => bot.setTargetOutline(false));
         this.remotePlayers.forEach(p => p.setTargetOutline?.(false));
 
-        // Show first-person glove viewmodel for the punch/weapon fun
-        this._celebWeapon = 'fists';
+        // Show the winner's rocket launcher viewmodel.
+        this._celebWeapon = 'rocket';
         this._prevHandVisible = this.player.armGroup?.visible ?? false;
         const wh = document.getElementById('celeb-weapon-hud');
         if (this._won) {
             this.player.setHandVisible?.(true);
-            this._setCelebrationGloveColor(this.player.team === 'red' ? 0xee5555 : 0x5577dd);
+            this._setCelebrationGloveColor(0xff8800);
             this._buildCelebWeapons();
-            this._showCelebWeapon('fists');
+            this._showCelebWeapon('rocket');
         } else {
             this.player.setHandVisible?.(false);
         }
@@ -2928,7 +2876,7 @@ export class Game {
             wh.classList.add('hidden');
             wh.style.display = 'none';
         }
-        if (this._won) this.ui.showMessage?.('WINNER LOADOUT: 1 Knuckles / 2 Rocket', 4000);
+        if (this._won) this.ui.showMessage?.('WINNER LOADOUT: ROCKET', 4000);
 
         // P2P: celebration state'ini client'lara yayınla
         if (this.network?.isHost) {
@@ -2948,14 +2896,10 @@ export class Game {
     }
 
     selectCelebrationWeapon(weaponId) {
-        if (this.state !== STATES.CELEBRATION || !this._won || !['fists', 'rocket'].includes(weaponId)) return;
-        this._celebWeapon = weaponId;
-        const colors = {
-            fists: this.player.team === 'red' ? 0xee5555 : 0x5577dd,
-            rocket: 0xff8800
-        };
-        this._setCelebrationGloveColor(colors[weaponId]);
-        this._showCelebWeapon(weaponId);
+        if (this.state !== STATES.CELEBRATION || !this._won || weaponId !== 'rocket') return;
+        this._celebWeapon = 'rocket';
+        this._setCelebrationGloveColor(0xff8800);
+        this._showCelebWeapon('rocket');
     }
 
     _buildCelebWeapons() {
@@ -2973,12 +2917,6 @@ export class Game {
             });
         }
         this._celebWpnMeshes = {};
-
-        const knuckles = createKnucklesModel(this.player.team);
-        knuckles.position.set(0.28, -0.24, -0.48);
-        knuckles.rotation.set(-0.22, 0.08, -0.12);
-        cam.add(knuckles);
-        this._celebWpnMeshes.fists = knuckles;
 
         const launcher = createRocketLauncherModel(this.player.team);
         launcher.position.set(0.3, -0.24, -0.58);
@@ -3004,10 +2942,7 @@ export class Game {
     _showCelebWeaponHUD(weaponId) {
         const el = document.getElementById('celeb-weapon-hud');
         if (!el) return;
-        const weapons = [
-            ['fists', '1', 'KNUCKLES'],
-            ['rocket', '2', 'ROCKET']
-        ];
+        const weapons = [['rocket', '2', 'ROCKET']];
         el.replaceChildren(...weapons.map(([id, slot, name]) => {
             const item = document.createElement('button');
             item.type = 'button';
@@ -3027,11 +2962,7 @@ export class Game {
             const osc = ctx.createOscillator();
             const gain = ctx.createGain();
             gain.gain.value = 0.06;
-            if (type === 'fists') {
-                osc.type = 'square';
-                osc.frequency.value = 80 + Math.random() * 40;
-                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
-            } else if (type === 'rocket') {
+            if (type === 'rocket') {
                 osc.type = 'sine';
                 osc.frequency.setValueAtTime(250, ctx.currentTime);
                 osc.frequency.exponentialRampToValueAtTime(40, ctx.currentTime + 0.35);
@@ -3080,6 +3011,7 @@ export class Game {
             ? `DRAW: Red ${this.scoreboard.redScore} - ${this.scoreboard.blueScore} Blue`
             : `${this._finalWinner} TEAM WINS: Red ${this.scoreboard.redScore} - ${this.scoreboard.blueScore} Blue`;
         const playerStats = this.scoreboard.getPlayerStats();
+        this.onMatchComplete?.();
         this.ui.showPostGame(this._won, xp, 1, kills, this.rallyCount, this.audio, { winnerText, playerStats });
         // P2P: gameOver state'ini client'lara yayınla
         if (this.network?.isHost) {
@@ -4258,16 +4190,17 @@ export class Game {
         this._won = this._winningTeam !== null && this.player.team === this._winningTeam;
         this.ball.deactivate();
         this.player._celebNoAttack = (this.player.team !== this._winningTeam);
+        this.player.respawn();
         this.ui.setPlayerTarget(false);
         this.bots.forEach(bot => bot.setTargetOutline(false));
         this.remotePlayers.forEach(p => p.setTargetOutline?.(false));
-        this._celebWeapon = 'fists';
+        this._celebWeapon = 'rocket';
         this._prevHandVisible = this.player.armGroup?.visible ?? false;
         this.player.setHandVisible?.(this._won);
         if (this._won) {
-            this._setCelebrationGloveColor(this.player.team === 'red' ? 0xee5555 : 0x5577dd);
+            this._setCelebrationGloveColor(0xff8800);
             this._buildCelebWeapons();
-            this._showCelebWeapon('fists');
+            this._showCelebWeapon('rocket');
         } else {
             const wh = document.getElementById('celeb-weapon-hud');
             if (wh) {
@@ -4282,20 +4215,20 @@ export class Game {
             this.audio?.playSfx?.('tf2_you_failed', 0.5);
         }
         // ponytail: show winner banner at top during celebration
-        this._showCelebrationBanner(data.winner, data.message);
+        this._showCelebrationBanner(data.winner);
     }
 
-    _showCelebrationBanner(winner, message) {
+    _showCelebrationBanner(winner) {
         const banner = document.getElementById('celebration-banner');
         if (!banner) return;
         const teamEl = document.getElementById('cb-team');
         const subEl = document.getElementById('cb-sub');
         const cls = winner === 'red' ? 'cb-red' : winner === 'blue' ? 'cb-blue' : 'cb-draw';
         if (teamEl) {
-            teamEl.textContent = winner ? `${winner.toUpperCase()} TEAM WINS!` : 'DRAW!';
+            teamEl.textContent = winner ? (this._won ? 'VICTORY' : 'LOSE') : 'DRAW';
             teamEl.className = 'cb-team ' + cls;
         }
-        if (subEl) subEl.textContent = message || '';
+        if (subEl) subEl.textContent = '';
         banner.classList.remove('hidden');
     }
 
@@ -4334,6 +4267,7 @@ export class Game {
         const winnerText = winner === 'DRAW'
             ? `DRAW: RED ${data.redScore} - ${data.blueScore} BLUE`
             : `${winner} TEAM WINS: RED ${data.redScore} - ${data.blueScore} BLUE`;
+        this.onMatchComplete?.();
         this.ui.showPostGame?.(this._won, data.xp || 0, 1, data.kills || 0, data.rally || 0, this.audio, { winnerText, playerStats: data.playerStats || [] });
     }
 

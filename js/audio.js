@@ -222,6 +222,12 @@ export class Audio {
         osc.stop(t + 0.3);
     }
 
+    playVoicePing(kind = 'incoming') {
+        if (!this.ctx) return;
+        const notes = { incoming: [740, 620, 740], help: [430, 370, 430], save: [660, 830, 990] }[kind] || [600, 760];
+        notes.forEach((note, index) => setTimeout(() => this._osc('triangle', note, 0.12, 0.1), index * 95));
+    }
+
     // UI click — short tick for menu buttons
     playClick() {
         if (!this.ctx) return;

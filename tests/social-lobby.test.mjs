@@ -120,11 +120,13 @@ test('runtime keeps assets local and preserves procedural fallback', () => {
     assert.match(source, /_buildFallbackPlaza\(\)/);
     assert.match(source, /Promise\.allSettled/);
     assert.match(source, /low-poly-city-social-hub\.glb/);
+    assert.match(source, /olann-island\/olann-island\.glb/);
     assert.match(source, /setMeshoptDecoder\(MeshoptDecoder\)/);
     assert.match(source, /createSocialBoundaryColliders/);
     assert.match(source, /THREE\.SRGBColorSpace/);
     assert.match(source, /getMapBlocks\(\)/);
     assert.match(source, /_buildIslandWorld\(\)/);
+    assert.match(source, /_installIsland\(gltf\)/);
     assert.match(source, /selectMap\(mapId/);
     assert.match(source, /\['a', 'f', 'k', 'r'\]/);
     assert.match(source, /character-\$\{id\}\.glb/);
