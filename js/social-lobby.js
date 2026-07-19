@@ -8,8 +8,8 @@ const CONSTRUCT_BOUNDS = Object.freeze({ minX: -118, maxX: 118, minY: -12, maxY:
 const CITY_BOUNDS = Object.freeze({ minX: -120, maxX: 120, minY: -12, maxY: 78, minZ: -120, maxZ: 120 });
 export const SOCIAL_HUB_MAPS = Object.freeze({
     island: Object.freeze({ id: 'island', name: 'Island', bounds: ISLAND_BOUNDS, spawn: Object.freeze({ x: 0, y: 2, z: 28 }), credit: 'VOLLE Harbor Plaza - CC0 Kenney props' }),
-    construct: Object.freeze({ id: 'construct', name: 'Construct', bounds: CONSTRUCT_BOUNDS, spawn: Object.freeze({ x: 0, y: 2, z: 92 }), asset: 'assets/user-content/social-hub/construct.glb', assetScale: 2.25, credit: 'Garrys Map Construct by Providence Secretary (NIEZDE) - CC BY' }),
-    city: Object.freeze({ id: 'city', name: 'Chicken City', bounds: CITY_BOUNDS, spawn: Object.freeze({ x: 0, y: 2, z: 86 }), asset: 'assets/user-content/social-hub/chicken-city.glb', assetScale: 1.5, credit: 'Chicken Gun Fruzzer City by amogusstrikesback2 - CC BY' })
+    construct: Object.freeze({ id: 'construct', name: 'Construct', bounds: CONSTRUCT_BOUNDS, spawn: Object.freeze({ x: 0, y: 2, z: 92 }), asset: 'assets/user-content/social-hub/construct.glb', assetScale: 2.25, assetGroundY: -1.6, credit: 'Garrys Map Construct by Providence Secretary (NIEZDE) - CC BY' }),
+    city: Object.freeze({ id: 'city', name: 'Chicken City', bounds: CITY_BOUNDS, spawn: Object.freeze({ x: 0, y: 2, z: 86 }), asset: 'assets/user-content/social-hub/chicken-city.glb', assetScale: 1.5, assetGroundY: -18.45, credit: 'Chicken Gun Fruzzer City by amogusstrikesback2 - CC BY' })
 });
 
 const SOCIAL_MAP_BLOCKS = Object.freeze({
@@ -247,10 +247,10 @@ export class SocialLobby {
         this.islandWorld = new THREE.Group();
         this.islandWorld.name = 'volle-harbor-plaza';
         this.islandWorld.visible = true;
-        box(this.islandWorld, [440, 2, 440], [0, -1, 0], 0x103a48);
-        box(this.islandWorld, [180, .18, 26], [0, .05, 0], 0x245d6a, { castShadow: false });
-        box(this.islandWorld, [26, .18, 180], [0, .06, 0], 0x245d6a, { castShadow: false });
-        const plaza = new THREE.Mesh(new THREE.CircleGeometry(56, 48), material(0x2e8590, .52));
+        box(this.islandWorld, [440, 2, 440], [0, -1, 0], 0x087b88);
+        box(this.islandWorld, [180, .18, 26], [0, .05, 0], 0x30d1ca, { castShadow: false });
+        box(this.islandWorld, [26, .18, 180], [0, .06, 0], 0x30d1ca, { castShadow: false });
+        const plaza = new THREE.Mesh(new THREE.CircleGeometry(56, 48), material(0x62eee0, .46));
         plaza.rotation.x = -Math.PI / 2;
         plaza.position.y = .12;
         plaza.receiveShadow = true;
@@ -283,8 +283,22 @@ export class SocialLobby {
             cylinder(this.islandWorld, 3.4, 8, [x, 4, z], 0x1a5968);
             cylinder(this.islandWorld, 4.1, .5, [x, 8.1, z], 0x6be7dc);
         }
-        const sky = new THREE.Mesh(new THREE.SphereGeometry(520, 36, 24), new THREE.MeshBasicMaterial({ color: 0x4ba7c3, side: THREE.BackSide, fog: false }));
+        const sky = new THREE.Mesh(new THREE.SphereGeometry(520, 48, 32), new THREE.ShaderMaterial({
+            side: THREE.BackSide,
+            depthWrite: false,
+            uniforms: { sunDirection: { value: new THREE.Vector3(-.55, .72, -.42).normalize() } },
+            vertexShader: 'varying vec3 vDir; void main() { vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+            fragmentShader: `varying vec3 vDir; uniform vec3 sunDirection;
+                float hash(vec2 p) { return fract(sin(dot(p, vec2(41.31, 289.17))) * 27358.5); }
+                float noise(vec2 p) { vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f); return mix(mix(hash(i),hash(i+vec2(1.,0.)),f.x),mix(hash(i+vec2(0.,1.)),hash(i+vec2(1.,1.)),f.x),f.y); }
+                void main() { float h=clamp(vDir.y*.65+.42,0.,1.); vec3 sky=mix(vec3(.20,.72,.90),vec3(.02,.16,.48),h); float sun=pow(max(dot(vDir,sunDirection),0.),900.); float haze=pow(max(dot(vDir,sunDirection),0.),14.); float cloud=noise(vDir.xz*8.+vDir.y*3.); float cloudMask=smoothstep(.68,.8,cloud)*smoothstep(.02,.55,vDir.y); sky=mix(sky,vec3(.96,1.,1.),cloudMask*.55); sky+=vec3(1.,.82,.43)*(sun+haze*.16); gl_FragColor=vec4(sky,1.); }`
+        }));
         this.islandWorld.add(sky);
+        const sun = new THREE.DirectionalLight(0xfff0bd, 2.4);
+        sun.position.set(-90, 130, -70);
+        sun.castShadow = true;
+        this.islandWorld.add(sun);
+        this.islandWorld.add(new THREE.HemisphereLight(0x8ef6ff, 0x117b75, 1.35));
         this.root.add(this.islandWorld);
         this.mapWorlds = { island: this.islandWorld };
     }
@@ -332,7 +346,8 @@ export class SocialLobby {
         model.updateMatrixWorld(true);
         const bounds = new THREE.Box3().setFromObject(model);
         const center = bounds.getCenter(new THREE.Vector3());
-        model.position.set(-center.x, -bounds.min.y, -center.z);
+        const groundY = Number.isFinite(map.assetGroundY) ? map.assetGroundY * (map.assetScale || 1) : bounds.min.y;
+        model.position.set(-center.x, -groundY, -center.z);
         model.updateMatrixWorld(true);
         tuneHubMaterials(model);
         const world = new THREE.Group();

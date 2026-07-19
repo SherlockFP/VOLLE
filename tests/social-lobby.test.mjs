@@ -105,6 +105,8 @@ test('each social hub map has a bounded spawn and collision layout', () => {
     assert.ok(city.collidables.length > 8);
     assert.match(SOCIAL_HUB_MAPS.construct.credit, /CC BY/);
     assert.match(SOCIAL_HUB_MAPS.city.credit, /CC BY/);
+    assert.equal(SOCIAL_HUB_MAPS.construct.assetGroundY, -1.6);
+    assert.equal(SOCIAL_HUB_MAPS.city.assetGroundY, -18.45);
 });
 
 test('map state handles exact bounds and invalid optional inputs', () => {
@@ -135,6 +137,9 @@ test('runtime keeps the island assets local without a retired map runtime', () =
     assert.match(source, /_installHubMap\(map, model\)/);
     assert.match(source, /assets\/user-content\/social-hub\/construct\.glb/);
     assert.match(source, /assets\/user-content\/social-hub\/chicken-city\.glb/);
+    assert.match(source, /assetGroundY/);
+    assert.match(source, /new THREE\.ShaderMaterial/);
+    assert.match(source, /new THREE\.DirectionalLight/);
     assert.match(source, /volle-harbor-plaza/);
     assert.match(source, /selectMap\(mapId/);
     assert.match(source, /\['a', 'f', 'k', 'r'\]/);
