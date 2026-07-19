@@ -565,8 +565,7 @@ export class Game {
     }
 
     startGame(skipPreGame = false) {
-        this._cancelCountdown?.();
-        this.ui.cancelCountdown?.();
+        this.cancelPreGame();
         this._rewardsClaimed = false;
         this.onMatchStart?.();
         this.applyMatchModifier();
@@ -650,6 +649,16 @@ export class Game {
             [3, 2, 1].forEach((n, i) => setTimeout(() => { if (!cancelled) this.audio.playBeep(440); }, i * 1000));
         }));
         this._cancelCountdown = () => { cancelled = true; this._preGameActive = false; this.ui.hideMessage?.(); };
+    }
+
+    cancelPreGame() {
+        this._cancelCountdown?.();
+        this._cancelCountdown = () => {};
+        this._preGameActive = false;
+        this.preGameTimer = 0;
+        this.ball._warmup = false;
+        this.ui.cancelCountdown?.();
+        this.ui.hideMatchIntro?.();
     }
 
     _applyBallAffix() {

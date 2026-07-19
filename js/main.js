@@ -831,6 +831,7 @@ class App {
             document.getElementById('pause-menu')?.classList.add('hidden');
             this.player.unlock();
             this.ui.setPlayerTarget(false);
+            this.game.cancelPreGame?.();
             this.network?.closeLobby();
             this.game.bots.forEach(b => b.remove());
             this.game.bots = [];
@@ -1022,6 +1023,7 @@ class App {
 
         bind('btn-main-menu', () => {
             this.awardMatchRewards();
+            this.game.cancelPreGame?.();
             this.network?.closeLobby();
             this.game.bots.forEach(b => b.remove());
             this.game.bots = [];
@@ -2885,6 +2887,9 @@ class App {
         this._lobbyCode = null;
         // Tell peers + tear down the P2P connection.
         this.network?.closeLobby?.();
+        this.game.cancelPreGame?.();
+        this.game.ball.deactivate();
+        this.game.setState(STATES.MENU);
         this._cleanupLobbyEntities();
         this.ui.showScreen('mainMenu');
     }
@@ -2896,6 +2901,7 @@ class App {
         this._cleanupListeners();
         this._lobbyCode = null;
         this.network?.disconnect();
+        this.game.cancelPreGame?.();
         this._cleanupLobbyEntities();
         this.game.ball.deactivate();
         this.game.setState(STATES.MENU);

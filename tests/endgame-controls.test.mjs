@@ -67,8 +67,9 @@ test('new matches cancel old countdowns and rebuild a zero-score board', async (
     const game = await readFile(new URL('../js/game.js', import.meta.url), 'utf8');
     const ui = await readFile(new URL('../js/ui.js', import.meta.url), 'utf8');
 
-    assert.match(game, /this\._cancelCountdown\?\.\(\);/);
+    assert.match(game, /this\.cancelPreGame\(\);/);
     assert.match(game, /this\.ui\.cancelCountdown\?\.\(\);/);
+    assert.match(game, /this\.ui\.hideMatchIntro\?\.\(\);/);
     assert.match(game, /this\.scoreboard = new Scoreboard\(\);/);
     assert.match(ui, /cancelCountdown\(\)/);
 });
