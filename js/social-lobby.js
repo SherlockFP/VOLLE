@@ -4,10 +4,8 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 
 const ISLAND_BOUNDS = Object.freeze({ minX: -220, maxX: 220, minY: -12, maxY: 110, minZ: -220, maxZ: 220 });
 const ISLAND_GROUND_Y = 0;
-const CITY_BOUNDS = Object.freeze({ minX: -120, maxX: 120, minY: -12, maxY: 78, minZ: -200, maxZ: 120 });
 export const SOCIAL_HUB_MAPS = Object.freeze({
-    island: Object.freeze({ id: 'island', name: 'Island', bounds: ISLAND_BOUNDS, spawn: Object.freeze({ x: 0, y: 2, z: 28 }), credit: 'VOLLE Harbor Plaza - CC0 Kenney props' }),
-    city: Object.freeze({ id: 'city', name: 'Chicken City', bounds: CITY_BOUNDS, spawn: Object.freeze({ x: 0, y: 2, z: 20 }), asset: 'assets/user-content/social-hub/chicken-city.glb', assetScale: 1.5, assetGroundY: -18.45, worldOffset: Object.freeze({ x: 0, z: -80 }), credit: 'Chicken Gun Fruzzer City by amogusstrikesback2 - CC BY' })
+    island: Object.freeze({ id: 'island', name: 'Island', bounds: ISLAND_BOUNDS, spawn: Object.freeze({ x: 0, y: 2, z: 28 }), credit: 'VOLLE Harbor Plaza - CC0 Kenney props' })
 });
 
 const SOCIAL_MAP_BLOCKS = Object.freeze({
@@ -15,11 +13,6 @@ const SOCIAL_MAP_BLOCKS = Object.freeze({
         [-145, -145, 46, 16], [145, -145, 46, 16], [-145, 145, 46, 16], [145, 145, 46, 16],
         [-174, 0, 12, 62], [174, 0, 12, 62], [0, -174, 62, 12], [0, 174, 62, 12],
         [-82, -86, 30, 10], [82, -86, 30, 10], [-82, 86, 30, 10], [82, 86, 30, 10]
-    ]),
-    city: Object.freeze([
-        [-82, -76, 24, 18], [0, -76, 22, 18], [80, -76, 24, 18],
-        [-88, -4, 18, 31], [-38, 2, 18, 24], [38, 2, 18, 24], [88, -4, 18, 31],
-        [-78, 75, 28, 19], [0, 78, 23, 18], [78, 75, 28, 19]
     ])
 });
 

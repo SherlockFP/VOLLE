@@ -312,6 +312,7 @@ export class Ball {
         this.lastShotBy = null;
         this._homingAge = 0;
         this._bounceTimestamps = [];
+        this._visualPosition = null;
         this._resetSteering();
         this.clearTrail();
         this.updateColor();
@@ -1156,7 +1157,10 @@ export class Ball {
 
     // Client-side: visual-only update when lerping from network
     _clientVisualUpdate(dt) {
-        this.mesh.position.copy(this.position);
+        if (!this._visualPosition) this._visualPosition = this.mesh.position.clone();
+        const blend = 1 - Math.exp(-22 * Math.min(Math.max(dt || 0, 0), 0.05));
+        this._visualPosition.lerp(this.position, blend);
+        this.mesh.position.copy(this._visualPosition);
         if (this._noHitTimer > 0) this._noHitTimer -= dt;
 
         // Rotation

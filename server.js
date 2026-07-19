@@ -137,14 +137,14 @@ const server = http.createServer(async (req, res) => {
     if (urlPath === '/api/social-hubs' && req.method === 'POST') {
         const b = await readBody(req);
         const mapId = String(b.mapId || '').toLowerCase();
-        if (!b.code || !['city', 'island'].includes(mapId)) {
+        if (!b.code || mapId !== 'island') {
             sendJson(res, { error: 'valid code and mapId required' }, 400);
             return;
         }
         socialHubs.set(b.code, {
             code: b.code,
             mapId,
-            mapName: mapId === 'island' ? 'Island' : 'City',
+            mapName: 'Island',
             hostName: String(b.hostName || 'Host').slice(0, 32),
             players: Math.max(1, Math.min(32, Number(b.players) || 1)),
             updatedAt: Date.now()

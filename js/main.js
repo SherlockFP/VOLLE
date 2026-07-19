@@ -3836,7 +3836,7 @@ class App {
                         const dz = ball.position.z - pz;
                         const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
                         this._ballSendSkipCount = (this._ballSendSkipCount || 0) + 1;
-                        if (dist < 0.15 && this._ballSendSkipCount < 8) shouldSend = false;
+                        if (dist < 0.1 && this._ballSendSkipCount < 1) shouldSend = false;
                         else this._ballSendSkipCount = 0;
                     }
                     if (shouldSend) {

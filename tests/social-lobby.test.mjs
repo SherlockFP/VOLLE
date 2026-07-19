@@ -87,7 +87,6 @@ test('map state normalizes and clamps player and visitors', () => {
 
 test('each social hub map has a bounded spawn and collision layout', () => {
     const arena = createSocialLobbyArena('island');
-    const city = createSocialLobbyArena('city');
     const state = getSocialLobbyMapState({ x: 220, z: -220 }, [], 'island');
     const spawn = arena.getPlayerSpawn();
 
@@ -98,12 +97,7 @@ test('each social hub map has a bounded spawn and collision layout', () => {
     assert.equal(arena.collidables.filter(collider => collider.invisibleBoundary).length, 4);
     assert.equal(arena.getWaterAt({ x: 80, z: 0 }), null);
     assert.equal(arena.getWaterAt({ x: 0, z: 0 }), null);
-    assert.deepEqual([city.getPlayerSpawn().x, city.getPlayerSpawn().y, city.getPlayerSpawn().z], [0, 2, 20]);
-    assert.ok(city.collidables.length > 8);
-    assert.match(SOCIAL_HUB_MAPS.city.credit, /CC BY/);
-    assert.equal(SOCIAL_HUB_MAPS.city.assetGroundY, -18.45);
-    assert.deepEqual(SOCIAL_HUB_MAPS.city.worldOffset, { x: 0, z: -80 });
-    assert.equal('construct' in SOCIAL_HUB_MAPS, false);
+    assert.deepEqual(Object.keys(SOCIAL_HUB_MAPS), ['island']);
 });
 
 test('map state handles exact bounds and invalid optional inputs', () => {
@@ -113,13 +107,13 @@ test('map state handles exact bounds and invalid optional inputs', () => {
 });
 
 test('invisible hub boundaries enclose every map edge', () => {
-    const boundaries = createSocialBoundaryColliders(createSocialLobbyArena('city').bounds);
+    const boundaries = createSocialBoundaryColliders(createSocialLobbyArena().bounds);
     assert.equal(boundaries.length, 4);
     assert.ok(boundaries.every(collider => collider.invisibleBoundary));
-    assert.ok(boundaries.some(collider => collider.maxX <= -120));
-    assert.ok(boundaries.some(collider => collider.minX >= 120));
-    assert.ok(boundaries.some(collider => collider.maxZ <= -120));
-    assert.ok(boundaries.some(collider => collider.minZ >= 120));
+    assert.ok(boundaries.some(collider => collider.maxX <= -220));
+    assert.ok(boundaries.some(collider => collider.minX >= 220));
+    assert.ok(boundaries.some(collider => collider.maxZ <= -220));
+    assert.ok(boundaries.some(collider => collider.minZ >= 220));
 });
 
 test('runtime keeps the island assets local without a retired map runtime', () => {
@@ -132,21 +126,12 @@ test('runtime keeps the island assets local without a retired map runtime', () =
     assert.match(source, /getMapBlocks\(\)/);
     assert.match(source, /_buildIslandWorld\(\)/);
     assert.match(source, /_installHubMap\(map, model\)/);
-    assert.match(source, /assets\/user-content\/social-hub\/chicken-city\.glb/);
-    assert.match(source, /assetGroundY/);
-    assert.match(source, /worldOffset/);
     assert.match(source, /new THREE\.ShaderMaterial/);
     assert.match(source, /new THREE\.DirectionalLight/);
     assert.match(source, /volle-harbor-plaza/);
     assert.match(source, /selectMap\(mapId/);
     assert.match(source, /\['a', 'f', 'k', 'r'\]/);
     assert.match(source, /character-\$\{id\}\.glb/);
-});
-
-test('optimized Chicken City hub asset ships locally', async () => {
-    const file = await readFile(new URL('../assets/user-content/social-hub/chicken-city.glb', import.meta.url));
-    assert.ok(file.length > 100_000);
-    assert.equal(file.subarray(0, 4).toString('ascii'), 'glTF');
 });
 
 test('collider grid returns only the current spatial cell', () => {

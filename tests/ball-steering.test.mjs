@@ -47,6 +47,11 @@ test('network ball prediction advances every frame and bounds packet extrapolati
     assert.ok(stale.x < 2);
 });
 
+test('client ball visual smoothing is frame-rate bounded', () => {
+    assert.match(source, /1 - Math\.exp\(-22 \* Math\.min\(Math\.max\(dt \|\| 0, 0\), 0\.05\)\)/);
+    assert.match(source, /this\._visualPosition\.lerp\(this\.position, blend\)/);
+});
+
 test('straight shot leads a moving target with bounded sampled velocity', () => {
     const velocity = sampleBoundedVelocity(
         { x: 0, y: 1, z: -10 },
