@@ -4,12 +4,10 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 
 const ISLAND_BOUNDS = Object.freeze({ minX: -220, maxX: 220, minY: -12, maxY: 110, minZ: -220, maxZ: 220 });
 const ISLAND_GROUND_Y = 0;
-const CONSTRUCT_BOUNDS = Object.freeze({ minX: -118, maxX: 118, minY: -12, maxY: 90, minZ: -150, maxZ: 150 });
 const CITY_BOUNDS = Object.freeze({ minX: -120, maxX: 120, minY: -12, maxY: 78, minZ: -120, maxZ: 120 });
 export const SOCIAL_HUB_MAPS = Object.freeze({
     island: Object.freeze({ id: 'island', name: 'Island', bounds: ISLAND_BOUNDS, spawn: Object.freeze({ x: 0, y: 2, z: 28 }), credit: 'VOLLE Harbor Plaza - CC0 Kenney props' }),
-    construct: Object.freeze({ id: 'construct', name: 'Construct', bounds: CONSTRUCT_BOUNDS, spawn: Object.freeze({ x: 0, y: 2, z: 92 }), asset: 'assets/user-content/social-hub/construct.glb', assetScale: 2.25, assetGroundY: -1.6, credit: 'Garrys Map Construct by Providence Secretary (NIEZDE) - CC BY' }),
-    city: Object.freeze({ id: 'city', name: 'Chicken City', bounds: CITY_BOUNDS, spawn: Object.freeze({ x: 0, y: 2, z: 86 }), asset: 'assets/user-content/social-hub/chicken-city.glb', assetScale: 1.5, assetGroundY: -18.45, credit: 'Chicken Gun Fruzzer City by amogusstrikesback2 - CC BY' })
+    city: Object.freeze({ id: 'city', name: 'Chicken City', bounds: CITY_BOUNDS, spawn: Object.freeze({ x: 0, y: 2, z: 24 }), asset: 'assets/user-content/social-hub/chicken-city.glb', assetScale: 1.5, assetGroundY: -18.45, credit: 'Chicken Gun Fruzzer City by amogusstrikesback2 - CC BY' })
 });
 
 const SOCIAL_MAP_BLOCKS = Object.freeze({
@@ -17,11 +15,6 @@ const SOCIAL_MAP_BLOCKS = Object.freeze({
         [-145, -145, 46, 16], [145, -145, 46, 16], [-145, 145, 46, 16], [145, 145, 46, 16],
         [-174, 0, 12, 62], [174, 0, 12, 62], [0, -174, 62, 12], [0, 174, 62, 12],
         [-82, -86, 30, 10], [82, -86, 30, 10], [-82, 86, 30, 10], [82, 86, 30, 10]
-    ]),
-    construct: Object.freeze([
-        [-82, -104, 30, 18], [0, -104, 28, 18], [82, -104, 30, 18],
-        [-92, -28, 18, 34], [92, -28, 18, 34], [-70, 48, 30, 22], [70, 48, 30, 22],
-        [-95, 110, 18, 24], [0, 110, 40, 22], [95, 110, 18, 24], [0, 6, 12, 12]
     ]),
     city: Object.freeze([
         [-82, -76, 24, 18], [0, -76, 22, 18], [80, -76, 24, 18],

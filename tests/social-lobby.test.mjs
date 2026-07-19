@@ -87,7 +87,6 @@ test('map state normalizes and clamps player and visitors', () => {
 
 test('each social hub map has a bounded spawn and collision layout', () => {
     const arena = createSocialLobbyArena('island');
-    const construct = createSocialLobbyArena('construct');
     const city = createSocialLobbyArena('city');
     const state = getSocialLobbyMapState({ x: 220, z: -220 }, [], 'island');
     const spawn = arena.getPlayerSpawn();
@@ -99,14 +98,11 @@ test('each social hub map has a bounded spawn and collision layout', () => {
     assert.equal(arena.collidables.filter(collider => collider.invisibleBoundary).length, 4);
     assert.equal(arena.getWaterAt({ x: 80, z: 0 }), null);
     assert.equal(arena.getWaterAt({ x: 0, z: 0 }), null);
-    assert.deepEqual([construct.getPlayerSpawn().x, construct.getPlayerSpawn().y, construct.getPlayerSpawn().z], [0, 2, 92]);
-    assert.deepEqual([city.getPlayerSpawn().x, city.getPlayerSpawn().y, city.getPlayerSpawn().z], [0, 2, 86]);
-    assert.ok(construct.collidables.length > 8);
+    assert.deepEqual([city.getPlayerSpawn().x, city.getPlayerSpawn().y, city.getPlayerSpawn().z], [0, 2, 24]);
     assert.ok(city.collidables.length > 8);
-    assert.match(SOCIAL_HUB_MAPS.construct.credit, /CC BY/);
     assert.match(SOCIAL_HUB_MAPS.city.credit, /CC BY/);
-    assert.equal(SOCIAL_HUB_MAPS.construct.assetGroundY, -1.6);
     assert.equal(SOCIAL_HUB_MAPS.city.assetGroundY, -18.45);
+    assert.equal('construct' in SOCIAL_HUB_MAPS, false);
 });
 
 test('map state handles exact bounds and invalid optional inputs', () => {
@@ -135,7 +131,6 @@ test('runtime keeps the island assets local without a retired map runtime', () =
     assert.match(source, /getMapBlocks\(\)/);
     assert.match(source, /_buildIslandWorld\(\)/);
     assert.match(source, /_installHubMap\(map, model\)/);
-    assert.match(source, /assets\/user-content\/social-hub\/construct\.glb/);
     assert.match(source, /assets\/user-content\/social-hub\/chicken-city\.glb/);
     assert.match(source, /assetGroundY/);
     assert.match(source, /new THREE\.ShaderMaterial/);
@@ -146,16 +141,10 @@ test('runtime keeps the island assets local without a retired map runtime', () =
     assert.match(source, /character-\$\{id\}\.glb/);
 });
 
-test('optimized Construct and Chicken City hub assets ship locally', async () => {
-    const assets = [
-        new URL('../assets/user-content/social-hub/construct.glb', import.meta.url),
-        new URL('../assets/user-content/social-hub/chicken-city.glb', import.meta.url)
-    ];
-    for (const asset of assets) {
-        const file = await readFile(asset);
-        assert.ok(file.length > 100_000);
-        assert.equal(file.subarray(0, 4).toString('ascii'), 'glTF');
-    }
+test('optimized Chicken City hub asset ships locally', async () => {
+    const file = await readFile(new URL('../assets/user-content/social-hub/chicken-city.glb', import.meta.url));
+    assert.ok(file.length > 100_000);
+    assert.equal(file.subarray(0, 4).toString('ascii'), 'glTF');
 });
 
 test('collider grid returns only the current spatial cell', () => {
