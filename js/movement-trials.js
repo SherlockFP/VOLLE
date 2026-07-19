@@ -2,36 +2,15 @@ const SAMPLE_INTERVAL = 100;
 const MAX_SAMPLES = 750;
 
 export const MOVEMENT_TRIALS = Object.freeze({
-    surf_line: Object.freeze({
-        id: 'surf_line',
-        name: 'Surf Line',
-        description: 'Carry air speed through Dropworks.',
-        map: 'dropworks',
-        targetDistance: 160,
-        timeLimit: 60_000,
-        requiredAirMs: 2500,
-        reward: 180
-    }),
     bhop_sprint: Object.freeze({
         id: 'bhop_sprint',
-        name: 'Bhop Sprint',
+        name: 'Bhop Course',
         description: 'Chain momentum across Neon District.',
         map: 'neon',
         targetDistance: 140,
         timeLimit: 50_000,
         requiredPeakSpeed: 18,
         reward: 160
-    }),
-    rocket_circuit: Object.freeze({
-        id: 'rocket_circuit',
-        name: 'Rocket Circuit',
-        description: 'Use three rocket jumps in Mega Pinball.',
-        map: 'mega_pinball',
-        targetDistance: 120,
-        timeLimit: 75_000,
-        requiredRocketJumps: 3,
-        character: 'soldier',
-        reward: 220
     })
 });
 

@@ -2032,3 +2032,35 @@ body.high-contrast #main-menu :is(.ow-topbar, .ow-showcase, .ow-action-panel, .f
         width: 100%;
     }
 }
+
+/* Social hub room browser */
+.social-hub-browser { position: fixed; inset: 0; z-index: 16000; display: grid; place-items: center; padding: clamp(16px, 4vw, 48px); background: rgba(3, 17, 30, .68); backdrop-filter: blur(14px); }
+.social-hub-browser.hidden { display: none; }
+.social-hub-browser-card { width: min(920px, 100%); max-height: min(760px, calc(100dvh - 32px)); overflow: auto; box-sizing: border-box; padding: clamp(20px, 4vw, 38px); border: 1px solid rgba(123, 234, 255, .32); border-radius: 28px; color: #eafcff; background: linear-gradient(145deg, rgba(12, 55, 78, .98), rgba(5, 24, 43, .98)); box-shadow: 0 36px 90px rgba(0, 0, 0, .42); }
+.social-hub-browser-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
+.social-hub-browser-kicker { display: block; color: #69f1e4; font-size: .72rem; font-weight: 900; letter-spacing: .2em; }
+.social-hub-browser-header h2 { margin: 5px 0 8px; font-size: clamp(2rem, 5vw, 3.6rem); letter-spacing: -.04em; }
+.social-hub-browser-header p { margin: 0; color: rgba(220, 247, 255, .72); }
+.social-hub-browser-close { display: grid; width: 44px; height: 44px; place-items: center; flex: 0 0 auto; border: 1px solid rgba(160, 234, 255, .3); border-radius: 14px; color: #eafcff; background: rgba(255,255,255,.08); cursor: pointer; transition: background .18s ease, transform .18s ease; }
+.social-hub-browser-close:hover, .social-hub-room-enter:hover { background: rgba(89, 227, 223, .2); transform: translateY(-2px); }
+.social-hub-room-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 30px 0 18px; }
+.social-hub-room { position: relative; min-height: 190px; overflow: hidden; padding: 22px; border: 1px solid rgba(140, 227, 255, .24); border-radius: 20px; background: linear-gradient(145deg, rgba(105, 232, 255, .15), rgba(19, 86, 119, .18)); }
+.social-hub-room.island { background: linear-gradient(145deg, rgba(72, 217, 193, .2), rgba(20, 83, 143, .2)); }
+.social-hub-room::after { content: ''; position: absolute; width: 160px; height: 160px; right: -55px; bottom: -78px; border: 1px solid rgba(192, 250, 255, .18); border-radius: 50%; }
+.social-hub-room-meta, .social-hub-room h3, .social-hub-room p, .social-hub-room-enter { position: relative; z-index: 1; }
+.social-hub-room-meta { display: flex; justify-content: space-between; gap: 10px; color: #7cf5e5; font-size: .72rem; font-weight: 900; letter-spacing: .12em; }
+.social-hub-room h3 { margin: 18px 0 6px; font-size: 1.6rem; }
+.social-hub-room p { min-height: 40px; margin: 0 0 18px; color: rgba(225, 249, 255, .72); font-size: .88rem; }
+.social-hub-room-enter { min-height: 42px; padding: 0 15px; border: 1px solid rgba(120, 243, 232, .44); border-radius: 11px; color: #eaffff; background: rgba(45, 171, 182, .24); font-weight: 800; cursor: pointer; transition: background .18s ease, transform .18s ease; }
+.social-hub-browser-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: rgba(211, 246, 255, .6); font-size: .8rem; }
+.social-hub-browser-footer i { display: inline-block; width: 8px; height: 8px; margin-right: 7px; border-radius: 999px; background: #65f4d0; box-shadow: 0 0 12px #65f4d0; }
+@media (max-width: 620px) { .social-hub-room-list { grid-template-columns: 1fr; } .social-hub-browser-card { padding: 20px; border-radius: 20px; } }
+
+.class-switcher { margin-top: 16px; padding-top: 14px; border-top: 1px solid rgba(143, 230, 244, .2); }
+.class-switcher header { display: flex; justify-content: space-between; gap: 12px; color: #dffcff; font-size: .78rem; font-weight: 900; letter-spacing: .12em; }
+.class-switcher header small { color: rgba(210, 244, 255, .58); font-size: .68rem; letter-spacing: .03em; }
+.class-switch-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 7px; margin-top: 10px; }
+.class-switch-choice { min-height: 46px; padding: 7px; border: 1px solid rgba(120, 221, 241, .24); border-radius: 10px; color: #dffcff; background: rgba(19, 79, 105, .45); cursor: pointer; font-size: .73rem; font-weight: 800; transition: transform .18s ease, background .18s ease; }
+.class-switch-choice:hover:not(:disabled) { transform: translateY(-1px); background: rgba(71, 200, 193, .24); }
+.class-switch-choice.selected { border-color: #75f3e7; background: rgba(72, 206, 190, .24); }
+.class-switch-choice:disabled { opacity: .48; cursor: not-allowed; }

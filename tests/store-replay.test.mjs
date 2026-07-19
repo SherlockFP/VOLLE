@@ -11,6 +11,14 @@ globalThis.localStorage = {
 
 const { Store } = await import('../js/store.js');
 const { ReplayClass } = await import('../js/replay.js');
+const { CHARACTERS } = await import('../js/characters.js');
+
+test('every class is available without a currency purchase', () => {
+    Store.reset();
+    assert.deepEqual(new Set(Store.get('unlockedChars')), new Set(Object.keys(CHARACTERS)));
+    assert.equal(Store.ownsCharacter('soldier'), true);
+    assert.equal(Store.setLoadout({ char: 'soldier' }), true);
+});
 
 test('coin purchases reject insufficient funds and persist ownership', () => {
     Store.reset();

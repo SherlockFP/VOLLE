@@ -25,7 +25,7 @@ import { tournament } from './tournament.js';
 import { Friends } from './friends.js';
 import { CHARACTERS } from './characters.js';
 import { appendClanMessage, createClan, listClans } from './social.js';
-import { SocialLobby, getSocialLobbyMapState } from './social-lobby.js';
+import { SOCIAL_HUB_MAPS, SocialLobby, getSocialLobbyMapState } from './social-lobby.js';
 import { applyUiPreferences, loadUiPreferences, normalizeTheme, normalizeUiScale } from './ui-theme.js';
 import { initSettingsTabs } from './settings-controller.js';
 import { formatMapSize } from './map-display.js';
@@ -168,8 +168,9 @@ class App {
                 return;
             }
 
-            if (e.code === 'Tab' && this.game.state === STATES.PLAYING) {
+            if (e.code === 'Tab' && [STATES.PLAYING, STATES.COUNTDOWN, STATES.CELEBRATION, STATES.ROUND_END].includes(this.game.state)) {
                 e.preventDefault();
+                e.stopPropagation();
                 this.ui.showScoreboard();
                 this.ui.updateScoreboard(this.game.scoreboard.getPlayerStats());
             }
@@ -211,7 +212,7 @@ class App {
             if (this.chatOpen) return;
 
             // M → team popup (only in-game, lobby has team buttons)
-            if (e.code === 'KeyM' && this.game.state === STATES.PLAYING) {
+            if (e.code === 'KeyM' && (this.game.state === STATES.PLAYING || this.game.state === STATES.COUNTDOWN)) {
                 e.preventDefault();
                 this.toggleTeamPopup();
             }
@@ -297,12 +298,12 @@ class App {
                     document.getElementById('social-lobby-chat-input')?.focus();
                 }
             }
-        }, { signal: this._mainAbort.signal });
+        }, { signal: this._mainAbort.signal, capture: true });
         document.addEventListener('keyup', e => {
             if (e.code !== 'Tab') return;
             e.preventDefault();
             this.ui.hideScoreboard();
-        }, { signal: this._mainAbort.signal });
+        }, { signal: this._mainAbort.signal, capture: true });
         document.addEventListener('keyup', e => {
             if (e.code === 'KeyZ') {
                 this.closeEmoteWheel();
@@ -686,7 +687,9 @@ class App {
             this._renderSocial();
             this.ui.showScreen('social');
         });
-        bind('btn-social-lobby', () => this._enterSocialLobby());
+        bind('btn-social-lobby', () => this._openSocialHubBrowser());
+        bind('social-hub-browser-close', () => this._closeSocialHubBrowser());
+        bind('social-hub-browser-refresh', () => this._refreshSocialHubList());
         bind('social-lobby-exit', () => this._exitSocialLobby());
         bind('social-lobby-clans', () => {
             this._leaveSocialLobby();
@@ -888,6 +891,7 @@ class App {
         // Spectator toggle for the M-menu. UI shows a Spectate/Leave button that
         // calls this; also keeps ui.spectating in sync for the button label.
         this.ui.onToggleSpectate = () => this.toggleSpectate();
+        this.ui.onClassSelect = charId => this._changeRoundClass(charId);
 
         bind('btn-start-game', async () => {
             if (this.network.connected && !this.isLobbyHost()) {
@@ -1757,7 +1761,107 @@ class App {
         }
     }
 
-    _enterSocialLobby() {
+    _socialHubApi(path, options = {}) {
+        return fetch(path, options).then(response => response.json()).catch(() => ({}));
+    }
+
+    async _openSocialHubBrowser() {
+        const browser = document.getElementById('social-hub-browser');
+        if (!browser) return;
+        this.player.unlock();
+        browser.classList.remove('hidden');
+        await this._refreshSocialHubList();
+        clearInterval(this._socialHubRefreshTimer);
+        this._socialHubRefreshTimer = setInterval(() => this._refreshSocialHubList(), 8000);
+    }
+
+    _closeSocialHubBrowser() {
+        clearInterval(this._socialHubRefreshTimer);
+        this._socialHubRefreshTimer = null;
+        document.getElementById('social-hub-browser')?.classList.add('hidden');
+    }
+
+    async _refreshSocialHubList() {
+        const response = await this._socialHubApi('/api/social-hubs');
+        const active = Array.isArray(response) ? response : [];
+        const container = document.getElementById('social-hub-room-list');
+        if (!container) return;
+        const byMap = new Map(active.map(room => [room.mapId, room]));
+        container.replaceChildren(...Object.values(SOCIAL_HUB_MAPS).map(map => {
+            const room = byMap.get(map.id) || null;
+            const card = document.createElement('article');
+            card.className = `social-hub-room ${map.id}`;
+            const meta = document.createElement('div');
+            meta.className = 'social-hub-room-meta';
+            meta.innerHTML = `<span>${room ? 'ACTIVE ROOM' : 'OPEN WORLD'}</span><span>${room?.players || 0} ONLINE</span>`;
+            const title = document.createElement('h3');
+            title.textContent = map.name;
+            const copy = document.createElement('p');
+            copy.textContent = room ? `${room.hostName}'s public ${map.name} room is ready.` : `No one is here yet. Open the first ${map.name} room.`;
+            const join = document.createElement('button');
+            join.type = 'button';
+            join.className = 'social-hub-room-enter';
+            join.textContent = room ? 'Join room' : `Open ${map.name}`;
+            join.addEventListener('click', () => this._joinSocialHubRoom(map.id, room?.code));
+            card.append(meta, title, copy, join);
+            return card;
+        }));
+    }
+
+    async _registerSocialHub(code) {
+        if (!code || !this._socialHubMapId) return;
+        await this._socialHubApi('/api/social-hubs', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code, mapId: this._socialHubMapId, hostName: this.game.playerName, players: this.network.connections.size + 1 })
+        });
+    }
+
+    _setupSocialHubHost(code) {
+        this.network.onPlayerJoin = (name, playerId, avatar, peerId) => {
+            this.network.broadcast({ type: 'newPeer', playerId, peerId, name });
+            this._registerSocialHub(code);
+            this._appendSocialLobbyChat('VOLLE', `${name} entered the hub.`, true);
+        };
+        this.network.onPlayerLeave = playerId => {
+            this.socialLobby.removeRemoteVisitor(playerId);
+            this._registerSocialHub(code);
+        };
+        this._socialHubKeepAlive = setInterval(() => {
+            if (this.network.connected && this.network.isHost) this._registerSocialHub(code);
+        }, 12000);
+    }
+
+    async _joinSocialHubRoom(mapId, roomCode) {
+        const map = SOCIAL_HUB_MAPS[mapId];
+        if (!map) return;
+        const name = document.getElementById('player-name-input')?.value?.trim() || this.store.get('playerName') || 'Player';
+        this.game.playerName = name;
+        this.network.playerName = name;
+        this._socialHubMapId = mapId;
+        this._closeSocialHubBrowser();
+        try {
+            if (roomCode) {
+                this.network.onHostLeft = () => {
+                    if (this.socialLobby.active) this._exitSocialLobby();
+                    this.ui.showMessage?.('Social Hub host left.', 2500);
+                };
+                await this.network.joinGame(roomCode, name);
+            } else {
+                const code = await this.network.hostGame(name);
+                this._socialHubCode = code;
+                this._setupSocialHubHost(code);
+                await this._registerSocialHub(code);
+            }
+            await this._showMatchLoading(950, { name: map.name, modeName: 'Social Hub' });
+            this._enterSocialLobby(mapId);
+        } catch (error) {
+            this._socialHubCode = null;
+            this.network.disconnect();
+            this.ui.showMessage?.(`Could not join ${map.name}.`, 2500);
+        }
+    }
+
+    _enterSocialLobby(mapId = this._socialHubMapId || 'city') {
         if (this.socialLobby.active) return;
         this._longJumpTrack = null;
         const name = document.getElementById('player-name-input')?.value?.trim()
@@ -1784,23 +1888,32 @@ class App {
         document.body.classList.add('social-hub-active');
         this.game.setState(STATES.SOCIAL_HUB);
         this.player.setHandVisible(false);
-        this.socialLobby.enter();
+        const map = this.socialLobby.selectMap(mapId);
+        this.socialLobby.enter(undefined, map.id);
         const status = document.getElementById('social-lobby-status');
-        if (status) status.textContent = 'Loading Low Poly City...';
+        if (status) status.textContent = `Loading ${map.name}...`;
+        const mapTitle = document.getElementById('social-lobby-map-title');
+        if (mapTitle) mapTitle.innerHTML = `<svg class="ui-icon" aria-hidden="true"><use href="#i-map"></use></svg> ${map.name.toUpperCase()} MAP`;
+        const mapCredit = document.getElementById('social-lobby-map-credit');
+        if (mapCredit) mapCredit.textContent = map.credit;
         this.socialLobby.ready.then(() => {
             if (!this.socialLobby.active || !status) return;
-            status.textContent = this.socialLobby.cityModel
-                ? (this.network.connected
-                    ? 'Low Poly City - party presence active'
-                    : 'Low Poly City - offline exploration')
-                : 'City unavailable - fallback plaza active';
+            status.textContent = map.id === 'city' && !this.socialLobby.cityModel
+                ? 'City unavailable - fallback plaza active'
+                : `${map.name} - public room active`;
         });
-        this._appendSocialLobbyChat('VOLLE', 'Welcome to Low Poly City. Explore, chat, bhop, and try the movement course.', true);
+        this._appendSocialLobbyChat('VOLLE', `Welcome to ${map.name}. Explore and chat with the room.`, true);
         this.player.lock();
     }
 
     _leaveSocialLobby() {
         if (!this.socialLobby.active) return;
+        clearInterval(this._socialHubKeepAlive);
+        this._socialHubKeepAlive = null;
+        if (this._socialHubCode) this._socialHubApi(`/api/social-hubs/${encodeURIComponent(this._socialHubCode)}`, { method: 'DELETE' });
+        this._socialHubCode = null;
+        this._socialHubMapId = null;
+        if (this.network.connected) this.network.closeLobby();
         this._longJumpTrack = null;
         this.socialLobby.exit();
         for (const id of this._socialRemoteSeen.keys()) this.socialLobby.removeRemoteVisitor(id);
@@ -1839,7 +1952,7 @@ class App {
         const canvas = document.getElementById('social-lobby-map');
         const ctx = canvas?.getContext?.('2d');
         if (!canvas || !ctx) return;
-        const state = getSocialLobbyMapState(this.player, presence);
+        const state = getSocialLobbyMapState(this.player, presence, this.socialLobby.mapId);
         const width = canvas.width;
         const height = canvas.height;
         const point = marker => ({ x: marker.x * width, y: marker.z * height });
@@ -1866,21 +1979,6 @@ class App {
             const blockHeight = Math.max(1, (block.maxZ - block.minZ) / rangeZ * height);
             ctx.fillRect(x, y, blockWidth, blockHeight);
         }
-        const practice = state.practice;
-        ctx.fillStyle = 'rgba(255,211,107,0.18)';
-        ctx.strokeStyle = 'rgba(255,211,107,0.64)';
-        ctx.fillRect(
-            practice.minX * width,
-            practice.minZ * height,
-            (practice.maxX - practice.minX) * width,
-            (practice.maxZ - practice.minZ) * height
-        );
-        ctx.strokeRect(
-            practice.minX * width,
-            practice.minZ * height,
-            (practice.maxX - practice.minX) * width,
-            (practice.maxZ - practice.minZ) * height
-        );
         for (const visitor of state.visitors) {
             const marker = point(visitor);
             ctx.fillStyle = visitor.local ? 'rgba(255,255,255,0.38)' : '#72bfff';
@@ -2284,7 +2382,7 @@ class App {
         const mapId = match.map || this.arena?.mapId;
         const config = Arena.MAPS[mapId] || this.arena?.config || {};
         const mode = match.mode || this.game?.mode?.id || 'classic';
-        const modeName = GAME_MODES[mode]?.name || this.game?.mode?.name || mode;
+        const modeName = match.modeName || GAME_MODES[mode]?.name || this.game?.mode?.name || mode;
         const tips = [
             'Tip: move after every throw.',
             'Tip: pass angles beat raw power.',
@@ -2294,7 +2392,7 @@ class App {
         const mapEl = document.getElementById('match-loading-map');
         const modeEl = document.getElementById('match-loading-mode');
         const tipEl = document.getElementById('match-loading-tip');
-        if (mapEl) mapEl.textContent = config.name || String(mapId || 'Arena');
+        if (mapEl) mapEl.textContent = match.name || config.name || String(mapId || 'Arena');
         if (modeEl) modeEl.textContent = String(modeName).toUpperCase();
         if (tipEl) tipEl.textContent = tips[Math.floor(Math.random() * tips.length)];
         overlay.classList.remove('hidden', 'active');
@@ -2848,6 +2946,25 @@ class App {
             this.ui.showTeamPopup(this.game);
             this.player.unlock(); // free the mouse for clicking
         }
+    }
+
+    _changeRoundClass(charId) {
+        const character = CHARACTERS[charId];
+        if (!character || this.player.charId === charId) return false;
+        const round = Number(this.game.scoreboard?.roundNum) || 0;
+        if (this.game.state === STATES.PLAYING && this.player._classChangeRound === round) {
+            this.ui.showMessage?.('You can change class once per round.', 1800);
+            return false;
+        }
+        const loadout = this.store.get('loadout') || DEFAULT_LOADOUT;
+        this.player.applyLoadout(charId, loadout.runes);
+        this.player.loadout.skill = loadout.skill || 'slow';
+        this.player._classChangeRound = round;
+        this.store.set('selectedChar', charId);
+        this.refreshMetaStats();
+        this.ui.showMessage?.(`Class changed to ${character.name}.`, 1600);
+        this.ui._renderClassSwitch?.(this.game);
+        return true;
     }
 
     // Enter/leave spectator from the M-menu. On leave, resume the player.

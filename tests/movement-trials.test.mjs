@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { MovementTrialClass, getGhostPoint } from '../js/movement-trials.js'
+import { MOVEMENT_TRIALS, MovementTrialClass, getGhostPoint } from '../js/movement-trials.js'
 
 test('ghost interpolation returns a smooth point between samples', () => {
     assert.deepEqual(getGhostPoint([
@@ -23,21 +23,6 @@ test('bhop trial completes only after distance and speed requirements', () => {
     assert.equal(complete.record.trialId, 'bhop_sprint')
 })
 
-test('rocket circuit tracks rocket jump requirement', () => {
-    let now = 0
-    const trials = new MovementTrialClass({ now: () => now })
-    trials.start('rocket_circuit', { x: 0, y: 0, z: 0 })
-    trials.addRocketJump()
-    trials.addRocketJump()
-    now = 1000
-    assert.equal(
-        trials.update({ x: 125, y: 0, z: 0 }, { speed: 20, onGround: false, dt: 1 }).status,
-        'running'
-    )
-    trials.addRocketJump()
-    now = 1100
-    assert.equal(
-        trials.update({ x: 126, y: 0, z: 0 }, { speed: 20, onGround: false, dt: 0.1 }).status,
-        'completed'
-    )
+test('movement hub currently exposes only the bhop course', () => {
+    assert.deepEqual(Object.keys(MOVEMENT_TRIALS), ['bhop_sprint'])
 })

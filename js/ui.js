@@ -233,7 +233,12 @@ export class UI {
         const overlay = document.getElementById('team-overlay');
         if (!overlay) return;
         overlay.classList.remove('hidden');
+        const classSwitcher = document.getElementById('class-switcher-template');
+        const popup = overlay.querySelector('.team-popup');
+        if (classSwitcher && popup && classSwitcher.parentElement !== popup) popup.appendChild(classSwitcher);
+        classSwitcher?.classList.remove('hidden');
         this._renderTeamLists(game);
+        this._renderClassSwitch(game);
     }
 
     hideTeamPopup() {
@@ -1217,6 +1222,24 @@ export class UI {
                     }).join('')}</div>
                 </section>
             </div>`;
+    }
+
+    _renderClassSwitch(game) {
+        const list = document.getElementById('class-switch-list');
+        const status = document.getElementById('class-switch-status');
+        if (!list) return;
+        const round = Number(game.scoreboard?.roundNum) || 0;
+        const locked = game.state === 'PLAYING' && game.player?._classChangeRound === round;
+        if (status) status.textContent = locked ? 'Class change used this round' : 'One change per round';
+        list.replaceChildren(...Object.values(CHARACTERS).map(character => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = `class-switch-choice${game.player?.charId === character.id ? ' selected' : ''}`;
+            button.textContent = character.name;
+            button.disabled = locked || game.player?.charId === character.id;
+            button.addEventListener('click', () => this.onClassSelect?.(character.id));
+            return button;
+        }));
     }
 
     // ===== LEADERBOARD EKRANI =====

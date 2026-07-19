@@ -137,7 +137,7 @@
                 <div class="ow-world-grid">
                     <button id="btn-social-lobby" class="ow-social-lobby">
                         <svg class="ui-icon" aria-hidden="true"><use href="#i-globe"></use></svg>
-                        <span><em>LIVE 3D</em><b>ENTER SOCIAL HUB</b><small>Walk, chat, practice movement and meet players</small></span>
+                        <span><em>LIVE 3D</em><b>ENTER SOCIAL HUB</b><small>Browse City and Island rooms, then walk and chat together</small></span>
                         <svg class="ui-icon ow-social-lobby-arrow" aria-hidden="true"><use href="#i-play"></use></svg>
                     </button>
                     <button id="btn-map-editor" class="ow-social-lobby ow-create-map">
@@ -196,6 +196,26 @@
         </div>
     </div>
 
+    <section id="social-hub-browser" class="social-hub-browser hidden" role="dialog" aria-modal="true" aria-labelledby="social-hub-browser-title">
+        <div class="social-hub-browser-card">
+            <header class="social-hub-browser-header">
+                <div>
+                    <span class="social-hub-browser-kicker">VOLLE WORLD</span>
+                    <h2 id="social-hub-browser-title">SOCIAL HUBS</h2>
+                    <p>Choose a world. Empty worlds open a new public room.</p>
+                </div>
+                <button id="social-hub-browser-close" class="social-hub-browser-close" type="button" aria-label="Close Social Hub browser">
+                    <svg class="ui-icon" aria-hidden="true"><use href="#i-close"></use></svg>
+                </button>
+            </header>
+            <div id="social-hub-room-list" class="social-hub-room-list" aria-live="polite"></div>
+            <footer class="social-hub-browser-footer">
+                <span><i></i> Public P2P rooms refresh automatically</span>
+                <button id="social-hub-browser-refresh" type="button" class="btn btn-small">Refresh</button>
+            </footer>
+        </div>
+    </section>
+
     <!-- ===== 3D SOCIAL LOBBY HUD ===== -->
     <div id="social-lobby-hud" class="hidden" aria-label="Social Hub">
         <header class="social-lobby-status-card">
@@ -205,7 +225,7 @@
             <div class="social-lobby-heading">
                 <span class="social-lobby-kicker">VOLLE WORLD</span>
                 <strong>SOCIAL HUB</strong>
-                <span id="social-lobby-status">Exploring the plaza</span>
+                <span id="social-lobby-status">Exploring City</span>
             </div>
             <div class="social-lobby-online-pill" title="Players in this lobby">
                 <span class="social-lobby-online-dot" aria-hidden="true"></span>
@@ -215,14 +235,13 @@
 
         <section class="social-lobby-map-card" aria-label="Social Hub map">
             <div class="social-lobby-map-heading">
-                <span><svg class="ui-icon" aria-hidden="true"><use href="#i-map"></use></svg> CITY MAP</span>
-                <small>City by costoWRLD · CC BY</small>
+                <span id="social-lobby-map-title"><svg class="ui-icon" aria-hidden="true"><use href="#i-map"></use></svg> CITY MAP</span>
+                <small id="social-lobby-map-credit">City by costoWRLD · CC BY</small>
             </div>
             <canvas id="social-lobby-map" width="260" height="180"></canvas>
             <div class="social-lobby-map-legend">
                 <span><i class="map-you"></i>You</span>
                 <span><i class="map-player"></i>Players</span>
-                <span><i class="map-practice"></i>Practice</span>
             </div>
         </section>
 
@@ -230,7 +249,7 @@
             <section class="social-lobby-controls" aria-label="Social Hub controls">
                 <div class="social-lobby-controls-copy">
                     <span class="social-lobby-kicker">CONTROLS</span>
-                    <p><kbd>WASD</kbd> Move <kbd>Space</kbd> Bhop <kbd>Ctrl+Space</kbd> Longjump <kbd>Y</kbd> Chat</p>
+                    <p><kbd>WASD</kbd> Move <kbd>Space</kbd> Swim up <kbd>C</kbd> Dive <kbd>Y</kbd> Chat</p>
                 </div>
                 <div class="social-lobby-actions">
                     <button id="social-lobby-clans" type="button">
@@ -1119,6 +1138,11 @@
             <p style="text-align:center;color:#888;font-size:12px;margin-top:8px;">Click a team to join · Click a player to move · ESC to close · M to toggle</p>
         </div>
     </div>
+
+    <section id="class-switcher-template" class="class-switcher hidden" aria-label="Class selection">
+        <header><span>CLASS</span><small id="class-switch-status">Choose once each round</small></header>
+        <div id="class-switch-list" class="class-switch-list"></div>
+    </section>
 
     <!-- ===== SCOREBOARD OVERLAY (Tab) ===== -->
     <div id="scoreboard-overlay" class="hidden">

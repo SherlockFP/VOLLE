@@ -15,7 +15,9 @@ const moduleSource = source
     .replace(/^import \{ MeshoptDecoder \} from 'three\/addons\/libs\/meshopt_decoder\.module\.js';$/m, 'const MeshoptDecoder = {};');
 const {
     SOCIAL_LOBBY_PROP_COLLIDERS,
+    SOCIAL_HUB_MAPS,
     SocialLobby,
+    createSocialBoundaryColliders,
     createSocialColliderGrid,
     createSocialLobbyArena,
     getSocialLobbyMapState
@@ -33,52 +35,31 @@ test('lobby arena satisfies Player movement contract', () => {
     const spawn = arena.getPlayerSpawn();
 
     assert.deepEqual(arena.bounds, {
-        minX: -153,
-        maxX: 153,
+        minX: -170,
+        maxX: 170,
         minY: 0,
-        maxY: 92,
-        minZ: -153,
-        maxZ: 153
+        maxY: 100,
+        minZ: -170,
+        maxZ: 170
     });
-    assert.equal(arena.ceilingHeight, 92);
+    assert.equal(arena.ceilingHeight, 100);
     assert.deepEqual([spawn.x, spawn.y, spawn.z], [0, 1.7, -8]);
     assert.deepEqual(arena.getHazardAt(spawn), null);
-    assert.ok(Array.isArray(arena.collidables));
+    assert.equal(arena.collidables.filter(collider => collider.invisibleBoundary).length, 4);
     assert.ok(Array.isArray(arena.platforms));
     assert.ok(Array.isArray(arena.jumpPads));
 });
 
-test('loaded solid props have bounded planar collision records', () => {
+test('city removes custom parkour props and keeps collision inside the shipped map', () => {
     const arena = createSocialLobbyArena();
-    assert.ok(SOCIAL_LOBBY_PROP_COLLIDERS.length >= 8);
-
-    for (const collider of SOCIAL_LOBBY_PROP_COLLIDERS) {
-        assert.ok(collider.radius > 0 && collider.radius <= 2.2);
-        assert.ok(collider.position.x - collider.radius >= arena.bounds.minX);
-        assert.ok(collider.position.x + collider.radius <= arena.bounds.maxX);
-        assert.ok(collider.position.z - collider.radius >= arena.bounds.minZ);
-        assert.ok(collider.position.z + collider.radius <= arena.bounds.maxZ);
-    }
-
-    const collidableUrls = SOCIAL_LOBBY_PROP_COLLIDERS.map(collider => collider.url);
-    const passable = [
-        'wall-gate.glb',
-        'banner.glb',
-        'flag.glb',
-        'platform-ramp.glb',
-        'platform.glb',
-        'block-moving-blue.glb',
-        'spring.glb'
-    ];
-    for (const asset of passable) {
-        assert.equal(collidableUrls.some(url => url.endsWith(asset)), false);
-    }
-    assert.match(source, /const collider = \{\s*mesh: model,\s*pos: model\.position\.clone\(\),\s*radius: collisionRadius/s);
-    assert.match(source, /this\._roundColliders\.push\(collider\)/);
+    assert.deepEqual(SOCIAL_LOBBY_PROP_COLLIDERS, []);
+    assert.deepEqual(arena.jumpPads, []);
+    assert.deepEqual(arena.platforms, []);
+    assert.doesNotMatch(source, /_buildPracticeCourse|practice-parkour/);
 });
 
-test('map state normalizes and clamps player, visitors, and practice area', () => {
-    const player = { position: { x: -153, y: 7, z: 153 } };
+test('map state normalizes and clamps player and visitors', () => {
+    const player = { position: { x: -170, y: 7, z: 170 } };
     const presence = [
         { id: 'center', name: 'Center', local: false, position: { x: 0, z: 0 } },
         { id: 'outside', local: true, position: { x: 1000, z: -1000 } },
@@ -88,29 +69,50 @@ test('map state normalizes and clamps player, visitors, and practice area', () =
     const state = getSocialLobbyMapState(player, presence);
 
     assert.deepEqual(state.bounds, {
-        minX: -153,
-        maxX: 153,
+        minX: -170,
+        maxX: 170,
         minY: 0,
-        maxY: 92,
-        minZ: -153,
-        maxZ: 153
+        maxY: 100,
+        minZ: -170,
+        maxZ: 170
     });
     assert.deepEqual(state.player, { x: 0, z: 1 });
     assert.deepEqual(state.visitors, [
         { id: 'center', name: 'Center', local: false, x: 0.5, z: 0.5 },
         { id: 'outside', name: null, local: true, x: 1, z: 0 }
     ]);
-    assert.ok(state.practice.minX >= 0 && state.practice.minX < state.practice.maxX);
-    assert.ok(state.practice.maxX <= 1);
-    assert.ok(state.practice.minZ >= 0 && state.practice.minZ < state.practice.maxZ);
-    assert.ok(state.practice.maxZ <= 1);
+    assert.equal('practice' in state, false);
     assert.deepEqual({ player, presence }, before);
 });
 
+test('island is a separate bounded social map with its own spawn', () => {
+    const arena = createSocialLobbyArena('island');
+    const state = getSocialLobbyMapState({ x: 96, z: -96 }, [], 'island');
+    const spawn = arena.getPlayerSpawn();
+
+    assert.equal(SOCIAL_HUB_MAPS.island.name, 'Island');
+    assert.deepEqual(arena.bounds, { minX: -96, maxX: 96, minY: 0, maxY: 72, minZ: -96, maxZ: 96 });
+    assert.deepEqual([spawn.x, spawn.y, spawn.z], [0, 2.2, 20]);
+    assert.deepEqual(state.player, { x: 1, z: 0 });
+    assert.equal(arena.collidables.filter(collider => collider.invisibleBoundary).length, 4);
+    assert.deepEqual(arena.getWaterAt({ x: 80, z: 0 }), { surfaceY: 3.05, floorY: -5.5 });
+    assert.equal(arena.getWaterAt({ x: 0, z: 0 }), null);
+});
+
 test('map state handles exact bounds and invalid optional inputs', () => {
-    assert.deepEqual(getSocialLobbyMapState({ x: 153, z: -153 }).player, { x: 1, z: 0 });
+    assert.deepEqual(getSocialLobbyMapState({ x: 170, z: -170 }).player, { x: 1, z: 0 });
     assert.equal(getSocialLobbyMapState({ x: Infinity, z: 0 }).player, null);
     assert.deepEqual(getSocialLobbyMapState(null, null).visitors, []);
+});
+
+test('invisible city boundaries enclose every map edge', () => {
+    const boundaries = createSocialBoundaryColliders(createSocialLobbyArena().bounds);
+    assert.equal(boundaries.length, 4);
+    assert.ok(boundaries.every(collider => collider.invisibleBoundary));
+    assert.ok(boundaries.some(collider => collider.maxX <= -170));
+    assert.ok(boundaries.some(collider => collider.minX >= 170));
+    assert.ok(boundaries.some(collider => collider.maxZ <= -170));
+    assert.ok(boundaries.some(collider => collider.minZ >= 170));
 });
 
 test('runtime keeps assets local and preserves procedural fallback', () => {
@@ -119,7 +121,11 @@ test('runtime keeps assets local and preserves procedural fallback', () => {
     assert.match(source, /Promise\.allSettled/);
     assert.match(source, /low-poly-city-social-hub\.glb/);
     assert.match(source, /setMeshoptDecoder\(MeshoptDecoder\)/);
+    assert.match(source, /createSocialBoundaryColliders/);
+    assert.match(source, /THREE\.SRGBColorSpace/);
     assert.match(source, /getMapBlocks\(\)/);
+    assert.match(source, /_buildIslandWorld\(\)/);
+    assert.match(source, /selectMap\(mapId/);
     assert.match(source, /\['a', 'f', 'k', 'r'\]/);
     assert.match(source, /character-\$\{id\}\.glb/);
 });

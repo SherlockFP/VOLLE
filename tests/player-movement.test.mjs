@@ -15,6 +15,7 @@ const {
     isEditableTarget,
     resolveJump,
     resolveLongJump,
+    resolveWaterMovement,
     clipInwardVelocity,
     clipMovementState,
     resolvePlanarBoxCollision,
@@ -216,6 +217,17 @@ test('held bhop jumps before landing friction can reduce speed', () => {
         : landingSpeed;
     assert.equal(jump.kind, 'ground');
     assert.deepEqual(afterMovement, landingSpeed);
+});
+
+test('water movement supports swimming, diving, and a bounded water column', () => {
+    const swim = resolveWaterMovement({ verticalVel: 0, dt: 0.1, swimUp: true, y: 1, surfaceY: 3, floorY: -5 });
+    const dive = resolveWaterMovement({ verticalVel: 0, dt: 0.1, dive: true, y: 1, surfaceY: 3, floorY: -5 });
+    const floor = resolveWaterMovement({ verticalVel: -7, dt: 1, dive: true, y: -5.4, surfaceY: 3, floorY: -5 });
+
+    assert.ok(swim.y > 1);
+    assert.ok(dive.y < 1);
+    assert.equal(swim.submerged, true);
+    assert.equal(floor.y, -4.65);
 });
 
 test('grounded Ctrl+Space+W triggers one capped longjump', () => {

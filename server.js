@@ -24,12 +24,16 @@ const MIME = {
 // --- In-memory lobby registry for the lobby browser (no external deps) ---
 // Hosts register their room code + metadata; clients list + quick-join.
 const lobbies = new Map(); // code -> { code, name, players, map, mode, hostName, updatedAt }
+const socialHubs = new Map(); // code -> { code, mapId, mapName, hostName, players, updatedAt }
 const LOBBY_TTL = 30000; // 30s stale prune
 
 function pruneLobbies() {
     const now = Date.now();
     for (const [code, l] of lobbies) {
         if (now - l.updatedAt > LOBBY_TTL) lobbies.delete(code);
+    }
+    for (const [code, hub] of socialHubs) {
+        if (now - hub.updatedAt > LOBBY_TTL) socialHubs.delete(code);
     }
 }
 
@@ -119,6 +123,37 @@ const server = http.createServer(async (req, res) => {
     if (urlPath === '/api/lobbies' && req.method === 'OPTIONS') {
         res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET,POST,DELETE', 'Access-Control-Allow-Headers': 'Content-Type' });
         res.end();
+        return;
+    }
+
+    // --- Social Hub registry: separate from competitive lobbies. ---
+    if (urlPath === '/api/social-hubs' && req.method === 'GET') {
+        pruneLobbies();
+        sendJson(res, [...socialHubs.values()]);
+        return;
+    }
+    if (urlPath === '/api/social-hubs' && req.method === 'POST') {
+        const b = await readBody(req);
+        const mapId = String(b.mapId || '').toLowerCase();
+        if (!b.code || !['city', 'island'].includes(mapId)) {
+            sendJson(res, { error: 'valid code and mapId required' }, 400);
+            return;
+        }
+        socialHubs.set(b.code, {
+            code: b.code,
+            mapId,
+            mapName: mapId === 'island' ? 'Island' : 'City',
+            hostName: String(b.hostName || 'Host').slice(0, 32),
+            players: Math.max(1, Math.min(32, Number(b.players) || 1)),
+            updatedAt: Date.now()
+        });
+        sendJson(res, { ok: true });
+        return;
+    }
+    if (urlPath.startsWith('/api/social-hubs/') && (req.method === 'DELETE' || req.method === 'POST')) {
+        const code = decodeURIComponent(urlPath.split('/').pop());
+        socialHubs.delete(code);
+        sendJson(res, { ok: true });
         return;
     }
     // sendBeacon can only POST — used by the client's beforeunload to close a lobby.

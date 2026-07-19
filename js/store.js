@@ -66,7 +66,7 @@ const DEFAULTS = {
     level: 1,
     ownedItems: [],         // ball skin + rune ids
     ownedSkills: ['slow'],  // skill ids (slow default)
-    unlockedChars: ['rally'],
+    unlockedChars: Object.keys(CHARACTERS),
     characterProgress: buildCharacterProgress(),
     selectedChar: 'rally',
     equippedBall: 'classic',
@@ -133,6 +133,7 @@ class StoreClass {
                 battlepass: { ...DEFAULTS.battlepass, ...(parsed.battlepass||{}) },
                 stats: { ...DEFAULTS.stats, ...(parsed.stats||{}) },
                 rankedState: parsed.rankedState || createRankedState({ elo: Math.round(legacyElo) }),
+                unlockedChars: Object.keys(CHARACTERS),
                 ownedAvatarSkins: parsed.ownedAvatarSkins || DEFAULTS.ownedAvatarSkins,
                 ownedKnives: Array.isArray(parsed.ownedKnives) ? parsed.ownedKnives.filter(id => KNIVES[id]) : DEFAULTS.ownedKnives,
                 equippedKnives: { ...DEFAULTS.equippedKnives, ...(parsed.equippedKnives || {}) },
@@ -198,7 +199,7 @@ class StoreClass {
 
     _applyRemoteProfile(profile) {
         const fields = [
-            'currency', 'gems', 'unlockedChars', 'ownedBalls',
+            'currency', 'gems', 'ownedBalls',
             'ownedSkills', 'ownedItems', 'ownedAvatarSkins'
         ];
         fields.forEach(field => {
@@ -286,7 +287,7 @@ class StoreClass {
             || this.data.ownedSkills.includes(id);
     }
 
-    ownsCharacter(charId) { return this.data.unlockedChars.includes(charId); }
+    ownsCharacter(charId) { return Boolean(CHARACTERS[charId]); }
     ownsBall(ballId) { return this.data.ownedBalls.includes(ballId); }
     ownsSkill(skillId) { return this.data.ownedSkills.includes(skillId); }
     ownsAvatarSkin(skinId) { return (this.data.ownedAvatarSkins || []).includes(skinId); }
@@ -516,7 +517,7 @@ class StoreClass {
     // Karakter satın al
     buyCharacter(charId) {
         const c = CHARACTERS[charId];
-        if (!c || !c.price) return false;
+        if (!c) return false;
         if (this.ownsCharacter(charId)) return false;
         if (this.data.currency < c.price) return false;
         this.data.currency -= c.price;

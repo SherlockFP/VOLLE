@@ -189,6 +189,14 @@ export function resolveLongJump({
     };
 }
 
+export function resolveWaterMovement({ verticalVel = 0, dt = 0, swimUp = false, dive = false, surfaceY = 3, floorY = -5, y = 0 }) {
+    const step = Math.max(0, Math.min(Number(dt) || 0, 0.1));
+    const input = swimUp ? 16 : dive ? -13 : 3.5;
+    const nextVelocity = Math.max(-7, Math.min(7, (verticalVel + input * step) * Math.exp(-4.5 * step)));
+    const nextY = Math.max(floorY + 0.35, Math.min(surfaceY + 0.25, y + nextVelocity * step));
+    return { verticalVel: nextVelocity, y: nextY, submerged: nextY < surfaceY - 0.2 };
+}
+
 export function clipInwardVelocity(velocity, normal) {
     const normalLength = Math.hypot(normal.x, normal.z);
     if (normalLength === 0) return { ...velocity };
@@ -301,6 +309,7 @@ export class Player {
         this.jumpForce = 8;
         this.gravity = -20;
         this.onGround = true;
+        this.inWater = false;
         this.verticalVel = 0;
         this.jumpsRemaining = 2;  // ponytail: double jump, reset on ground
         this.bhopEnabled = true;
@@ -812,10 +821,28 @@ export class Player {
         }
         this._dashWasDown = ctrlDown;
 
-        // Vertical physics
-        const gravity = this.gravity * (this.arena.config?.lowGravity ? 0.55 : 1);
-        this.verticalVel += gravity * dt;
-        this.position.y += this.verticalVel * dt;
+        // Vertical physics / island water volume. Space swims up, C dives.
+        const water = this.arena.getWaterAt?.(this.position);
+        const swimming = Boolean(water && this.position.y <= water.surfaceY + 0.25);
+        this.inWater = swimming;
+        if (swimming) {
+            const waterState = resolveWaterMovement({
+                verticalVel: this.verticalVel,
+                dt,
+                swimUp: this.keys['Space'],
+                dive: this.keys['KeyC'],
+                surfaceY: water.surfaceY,
+                floorY: water.floorY,
+                y: this.position.y
+            });
+            this.verticalVel = waterState.verticalVel;
+            this.position.y = waterState.y;
+            this.onGround = false;
+        } else {
+            const gravity = this.gravity * (this.arena.config?.lowGravity ? 0.55 : 1);
+            this.verticalVel += gravity * dt;
+            this.position.y += this.verticalVel * dt;
+        }
 
         // Dikey tavan — görünür tavan yok ama haritayı aşma (sonsuz yükselme engeli).
         const ceilY = (this.arena.ceilingHeight > 0 ? this.arena.ceilingHeight : (this.arena.bounds.maxY || 30)) - 0.5;
@@ -841,7 +868,7 @@ export class Player {
                 this.jumpsRemaining = 2;
             }
         }
-        if (this.position.y <= this.height && standingHazard?.kind !== 'void') {
+        if (!swimming && this.position.y <= this.height && standingHazard?.kind !== 'void') {
             if (!this.onGround) {
                 this.jumpsRemaining = 2;
                 if (this.audio) this.audio.playLand();
