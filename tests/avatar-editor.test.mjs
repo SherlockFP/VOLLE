@@ -11,10 +11,12 @@ const {
     AvatarPainter,
     HEAD_FRONT,
     composeAvatarAtlas,
+    composeAvatarBodyAtlas,
     createAvatarAtlas,
     cropAtlasFace,
     getTeamPresetSkinId,
     layoutAvatarPreview,
+    migrateAvatarBodyOverlay,
     migrateAvatarPixels
 } = avatar;
 
@@ -50,6 +52,23 @@ test('face edits overlay the selected base without mutating it', () => {
     assert.deepEqual(base, original);
 });
 
+test('full-body overlay edits visible character parts without replacing the base', () => {
+    const overlay = Array(4096).fill(null);
+    overlay[20 * 64 + 20] = '#123456';
+    overlay[20 * 64 + 44] = '#abcdef';
+
+    const composed = composeAvatarBodyAtlas('frost', overlay);
+    assert.equal(composed[20 * 64 + 20], '#123456');
+    assert.equal(composed[20 * 64 + 44], '#abcdef');
+    assert.equal(composed[20 * 64 + 4], AVATAR_SKINS.frost.legs);
+
+    const legacyFace = Array(64).fill(null);
+    legacyFace[0] = '#face';
+    const migrated = migrateAvatarBodyOverlay(null, legacyFace);
+    assert.equal(migrated.length, 4096);
+    assert.equal(migrated[8 * 64 + 8], '#face');
+});
+
 test('team presets expose team and model metadata and retain identity when saved', () => {
     assert.equal(getTeamPresetSkinId('BLUE'), 'blue_default');
     assert.equal(getTeamPresetSkinId('red'), 'red_guard');
@@ -64,11 +83,13 @@ test('team presets expose team and model metadata and retain identity when saved
         set: (key, value) => values.set(key, value)
     };
     const painter = new AvatarPainter(fakeCanvas(), store);
+    assert.ok(painter.canvas.height > painter.canvas.width);
     assert.equal(painter.applyPreset('red_guard'), true);
     assert.equal(values.get('equippedAvatarSkin'), 'red_guard');
     assert.equal(values.get('customAvatar').baseSkinId, 'red_guard');
     assert.equal(values.get('customAvatar').model, AVATAR_SKINS.red_guard.model);
     assert.equal(values.get('customAvatar').pixels.length, 4096);
+    assert.equal(values.get('customAvatar').bodyOverlay.length, 4096);
     assert.equal(values.get('customAvatar').dataURL, 'data:image/png;size=64x64');
 });
 

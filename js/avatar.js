@@ -1,6 +1,6 @@
 const ATLAS_SIZE = 64;
 const FACE_SIZE = 8;
-const EDITOR_PIXEL = 64;
+const EDITOR_SCALE = 16;
 
 export const HEAD_FRONT = Object.freeze({ x: 8, y: 8, width: 8, height: 8 });
 
@@ -144,6 +144,31 @@ export function composeAvatarAtlas(base = 'default', overlay = []) {
     return atlas;
 }
 
+export function migrateAvatarBodyOverlay(bodyOverlay, legacyFace) {
+    if (Array.isArray(bodyOverlay) && bodyOverlay.length === ATLAS_SIZE * ATLAS_SIZE) {
+        return bodyOverlay.map(pixel => pixel ?? null);
+    }
+    const overlay = Array(ATLAS_SIZE * ATLAS_SIZE).fill(null);
+    const face = migrateAvatarPixels(legacyFace);
+    for (let y = 0; y < FACE_SIZE; y++) {
+        for (let x = 0; x < FACE_SIZE; x++) {
+            overlay[(HEAD_FRONT.y + y) * ATLAS_SIZE + HEAD_FRONT.x + x] = face[y * FACE_SIZE + x];
+        }
+    }
+    return overlay;
+}
+
+export function composeAvatarBodyAtlas(base = 'default', bodyOverlay = []) {
+    const atlas = Array.isArray(base) && base.length === ATLAS_SIZE * ATLAS_SIZE
+        ? base.map(pixel => pixel ?? null)
+        : createAvatarAtlas(base);
+    if (!Array.isArray(bodyOverlay) || bodyOverlay.length !== ATLAS_SIZE * ATLAS_SIZE) return atlas;
+    bodyOverlay.forEach((color, index) => {
+        if (color != null) atlas[index] = color;
+    });
+    return atlas;
+}
+
 export function getTeamPresetSkinId(team) {
     return TEAM_SKIN_IDS[String(team || '').toLowerCase()] || null;
 }
@@ -193,10 +218,6 @@ export class AvatarPainter {
         this.canvas = canvasEl;
         this.ctx = canvasEl.getContext('2d');
         this.store = store;
-        this.size = FACE_SIZE;
-        this.cell = EDITOR_PIXEL;
-        this.canvas.width = this.size * this.cell;
-        this.canvas.height = this.size * this.cell;
         this.color = '#ff8844';
         this.tool = 'brush';
         const saved = this.store?.get?.('customAvatar');
@@ -205,7 +226,10 @@ export class AvatarPainter {
             || AVATAR_SKINS[saved?.skinId]?.id
             || AVATAR_SKINS[equipped]?.id
             || 'default';
-        this.pixels = migrateAvatarPixels(saved?.overlay || saved?.pixels);
+        this.bodyOverlay = migrateAvatarBodyOverlay(
+            saved?.bodyOverlay,
+            saved?.overlay || saved?.pixels
+        );
         this.drawing = false;
         this.onchange = null;
         this._bind();
@@ -214,22 +238,22 @@ export class AvatarPainter {
 
     _bind() {
         const handle = e => {
-            const rect = this.canvas.getBoundingClientRect();
-            const x = Math.floor((e.clientX - rect.left) * this.canvas.width / rect.width / this.cell);
-            const y = Math.floor((e.clientY - rect.top) * this.canvas.height / rect.height / this.cell);
-            if (x < 0 || x >= this.size || y < 0 || y >= this.size) return;
-            if (this.tool === 'fill') this._floodFill(x, y, this.color);
-            else this.pixels[y * this.size + x] = this.tool === 'erase' ? null : this.color;
+            e.preventDefault?.();
+            const target = this._pointerTarget(e);
+            if (!target) return;
+            if (this.tool === 'fill') this._floodFill(target, this.color);
+            else this.bodyOverlay[target.index] = this.tool === 'erase' ? null : this.color;
             this.render();
         };
-        this.canvas.addEventListener('mousedown', e => {
+        this.canvas.addEventListener('pointerdown', e => {
             this.drawing = true;
+            this.canvas.setPointerCapture?.(e.pointerId);
             handle(e);
         });
-        this.canvas.addEventListener('mousemove', e => {
+        this.canvas.addEventListener('pointermove', e => {
             if (this.drawing) handle(e);
         });
-        globalThis.window?.addEventListener('mouseup', () => {
+        globalThis.window?.addEventListener('pointerup', () => {
             if (!this.drawing) return;
             this.drawing = false;
             this._save();
@@ -241,19 +265,38 @@ export class AvatarPainter {
         });
     }
 
-    _floodFill(x, y, newColor) {
-        const visible = cropAtlasFace(this.getAtlasPixels());
-        const target = visible[y * this.size + x];
-        if (target === newColor) return;
-        const stack = [[x, y]];
+    _editorLayout() {
+        return layoutAvatarPreview(resolveSkin(this.skinId).model, EDITOR_SCALE, 1);
+    }
+
+    _pointerTarget(event) {
+        const rect = this.canvas.getBoundingClientRect();
+        const x = (event.clientX - rect.left) * this.canvas.width / rect.width;
+        const y = (event.clientY - rect.top) * this.canvas.height / rect.height;
+        const part = this._editorLayout().parts.find(item =>
+            x >= item.x && x < item.x + item.width && y >= item.y && y < item.y + item.height
+        );
+        if (!part) return null;
+        const atlasX = part.atlas.x + Math.floor((x - part.x) / part.width * part.atlas.width);
+        const atlasY = part.atlas.y + Math.floor((y - part.y) / part.height * part.atlas.height);
+        return { part, atlasX, atlasY, index: atlasY * ATLAS_SIZE + atlasX };
+    }
+
+    _floodFill(target, newColor) {
+        const atlas = this.getAtlasPixels();
+        const oldColor = atlas[target.index];
+        if (oldColor === newColor) return;
+        const uv = target.part.atlas;
+        const stack = [[target.atlasX, target.atlasY]];
         const visited = new Set();
         while (stack.length) {
             const [cx, cy] = stack.pop();
-            const index = cy * this.size + cx;
-            if (cx < 0 || cx >= this.size || cy < 0 || cy >= this.size || visited.has(index)) continue;
+            if (cx < uv.x || cx >= uv.x + uv.width || cy < uv.y || cy >= uv.y + uv.height) continue;
+            const index = cy * ATLAS_SIZE + cx;
+            if (visited.has(index)) continue;
             visited.add(index);
-            if (visible[index] !== target) continue;
-            this.pixels[index] = newColor;
+            if (atlas[index] !== oldColor) continue;
+            this.bodyOverlay[index] = newColor;
             stack.push([cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]);
         }
     }
@@ -267,13 +310,13 @@ export class AvatarPainter {
     }
 
     clear() {
-        this.pixels.fill(null);
+        this.bodyOverlay.fill(null);
         this.render();
         this._save();
     }
 
     getAtlasPixels() {
-        return composeAvatarAtlas(this.skinId, this.pixels);
+        return composeAvatarBodyAtlas(this.skinId, this.bodyOverlay);
     }
 
     _canvasForAtlas() {
@@ -300,20 +343,10 @@ export class AvatarPainter {
     }
 
     render() {
-        const face = cropAtlasFace(this.getAtlasPixels());
-        this.ctx.fillStyle = '#1a1a2e';
-        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-        for (let y = 0; y < this.size; y++) {
-            for (let x = 0; x < this.size; x++) {
-                const color = face[y * this.size + x];
-                if (color) {
-                    this.ctx.fillStyle = color;
-                    this.ctx.fillRect(x * this.cell, y * this.cell, this.cell, this.cell);
-                }
-                this.ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-                this.ctx.strokeRect(x * this.cell, y * this.cell, this.cell, this.cell);
-            }
-        }
+        const layout = this._editorLayout();
+        this.canvas.width = layout.width;
+        this.canvas.height = layout.height;
+        this._drawCharacter(this.canvas, layout, true);
         if (this.onchange) this.onchange(this._atlasDataURL());
     }
 
@@ -323,7 +356,8 @@ export class AvatarPainter {
         this.store?.set?.('customAvatar', {
             version: 2,
             pixels: this.getAtlasPixels(),
-            overlay: this.pixels.slice(),
+            overlay: cropAtlasFace(this.bodyOverlay),
+            bodyOverlay: this.bodyOverlay.slice(),
             dataURL,
             model: preset.model,
             baseSkinId: preset.id,
@@ -336,7 +370,7 @@ export class AvatarPainter {
     applyPreset(skinId) {
         if (!AVATAR_SKINS[skinId]) return false;
         this.skinId = skinId;
-        this.pixels.fill(null);
+        this.bodyOverlay.fill(null);
         this.render();
         this._save();
         return true;
@@ -367,9 +401,13 @@ export class AvatarPainter {
         const layout = layoutAvatarPreview(preset.model, 8, 1);
         previewCanvas.width = layout.width;
         previewCanvas.height = layout.height;
-        const ctx = previewCanvas.getContext('2d');
+        this._drawCharacter(previewCanvas, layout, false);
+    }
+
+    _drawCharacter(canvas, layout, showGrid) {
+        const ctx = canvas.getContext('2d');
         ctx.imageSmoothingEnabled = false;
-        ctx.fillStyle = '#1a1a2e';
+        ctx.fillStyle = '#dff4ff';
         ctx.fillRect(0, 0, layout.width, layout.height);
         const atlas = this.getAtlasPixels();
         for (const part of layout.parts) {
@@ -387,9 +425,18 @@ export class AvatarPainter {
                         pixelWidth,
                         pixelHeight
                     );
+                    if (showGrid) {
+                        ctx.strokeStyle = 'rgba(11, 68, 105, 0.16)';
+                        ctx.strokeRect(
+                            part.x + x * pixelWidth,
+                            part.y + y * pixelHeight,
+                            pixelWidth,
+                            pixelHeight
+                        );
+                    }
                 }
             }
-            ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+            ctx.strokeStyle = showGrid ? 'rgba(11, 68, 105, 0.7)' : 'rgba(0,0,0,0.35)';
             ctx.strokeRect(part.x, part.y, part.width, part.height);
         }
     }

@@ -809,6 +809,7 @@ export class Game {
     removeRemotePlayer(playerId) {
         const p = this.remotePlayers.get(playerId);
         if (!p) return;
+        Object.values(p._avatarPartTextures || {}).forEach(texture => texture.dispose?.());
         this.renderer.scene.remove(p.group);
         this.scoreboard.removePlayer(p.name);
         this.remotePlayers.delete(playerId);
@@ -940,7 +941,7 @@ export class Game {
             setTeam(nextTeam) {
                 this.team = nextTeam;
                 this._teamColor = nextTeam === 'red' ? 0xcc3333 : 0x3355cc;
-                this._avatarBodyColors = null;
+                if (!this.avatar) this._avatarBodyColors = null;
                 _applyTeamColor(this, this._teamColor);
             },
             // Update head texture when avatar changes (mesh sync)
@@ -963,6 +964,13 @@ export class Game {
                 } else {
                     this.headMesh.material.map = null;
                     this.headMesh.material.color.setHex(0xffd0aa);
+                    Object.values(this._avatarPartTextures || {}).forEach(texture => texture.dispose?.());
+                    this._avatarPartTextures = {};
+                    [this.bodyMesh, this.leftArm, this.rightArm, this.leftLeg, this.rightLeg].forEach(mesh => {
+                        if (!mesh) return;
+                        mesh.material.map = null;
+                        mesh.material.needsUpdate = true;
+                    });
                     // Reset body to team color
                     this._avatarBodyColors = null;
                     _applyTeamColor(this, this._teamColor);
@@ -4259,17 +4267,50 @@ function _applyAvatarColors(img, p, fallbackColor) {
         arms: avg(0, 8, 16, 4) || new THREE.Color(fallbackColor),
         legs: avg(0, 12, 16, 4) || new THREE.Color(fallbackColor)
     };
+    if (size === 64) {
+        const texturePart = (mesh, key, x, y, width, height) => {
+            if (!mesh) return;
+            const partCanvas = document.createElement('canvas');
+            partCanvas.width = width;
+            partCanvas.height = height;
+            const partCtx = partCanvas.getContext('2d');
+            partCtx.imageSmoothingEnabled = false;
+            partCtx.drawImage(canvas, x, y, width, height, 0, 0, width, height);
+            const texture = new THREE.CanvasTexture(partCanvas);
+            texture.magFilter = THREE.NearestFilter;
+            texture.minFilter = THREE.NearestFilter;
+            p._avatarPartTextures ||= {};
+            p._avatarPartTextures[key]?.dispose?.();
+            p._avatarPartTextures[key] = texture;
+            if (!mesh.userData.avatarMaterial) {
+                mesh.material = mesh.material.clone();
+                mesh.userData.avatarMaterial = true;
+            }
+            mesh.material.map = texture;
+            mesh.material.needsUpdate = true;
+        };
+        texturePart(p.bodyMesh, 'body', 20, 20, 8, 12);
+        texturePart(p.leftArm, 'leftArm', 36, 52, 4, 12);
+        texturePart(p.rightArm, 'rightArm', 44, 20, 4, 12);
+        texturePart(p.leftLeg, 'leftLeg', 20, 52, 4, 12);
+        texturePart(p.rightLeg, 'rightLeg', 4, 20, 4, 12);
+    }
     _applyFromColors(p);
 }
 
 function _applyFromColors(p) {
     const c = p._avatarBodyColors;
     if (!c) { _applyTeamColor(p, p._teamColor); return; }
-    if (p.bodyMesh) p.bodyMesh.material.color.copy(c.body);
-    if (p.leftArm) p.leftArm.material.color.copy(c.arms);
-    if (p.rightArm) p.rightArm.material.color.copy(c.arms);
-    if (p.leftLeg) p.leftLeg.material.color.copy(c.legs);
-    if (p.rightLeg) p.rightLeg.material.color.copy(c.legs);
+    const apply = (mesh, color) => {
+        if (!mesh) return;
+        if (mesh.material.map) mesh.material.color.setHex(0xffffff);
+        else mesh.material.color.copy(color);
+    };
+    apply(p.bodyMesh, c.body);
+    apply(p.leftArm, c.arms);
+    apply(p.rightArm, c.arms);
+    apply(p.leftLeg, c.legs);
+    apply(p.rightLeg, c.legs);
 }
 
 function _applyTeamColor(p, hex) {

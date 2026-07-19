@@ -144,7 +144,11 @@ const server = http.createServer(async (req, res) => {
             return;
         }
         const ext = path.extname(fullPath).toLowerCase();
-        res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
+        const headers = { 'Content-Type': MIME[ext] || 'application/octet-stream' };
+        if (ext === '.html' || ext === '.css' || ext === '.js') {
+            headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
+        }
+        res.writeHead(200, headers);
         res.end(data);
     });
 });

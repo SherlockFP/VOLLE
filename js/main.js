@@ -1913,6 +1913,8 @@ class App {
         const updatePreview = () => {
             const teamColor = this.game?.player?.team === 'red' ? '#cc3333' : '#3355cc';
             this.avatarPainter.renderPreview(preview, teamColor);
+            const selected = document.getElementById('avatar-selected-skin');
+            if (selected) selected.textContent = AVATAR_SKINS[this.avatarPainter.skinId]?.name || 'Selected skin';
         };
         this.avatarPainter.onchange = updatePreview;
         updatePreview(); // initial render
@@ -1921,16 +1923,33 @@ class App {
         if (paletteEl) {
             paletteEl.innerHTML = '';
             AvatarPainter.getPalette().forEach(c => {
-                const sw = document.createElement('div');
+                const sw = document.createElement('button');
+                sw.type = 'button';
                 sw.className = 'palette-swatch';
                 sw.style.background = c;
-                sw.addEventListener('click', () => this.avatarPainter.setColor(c));
+                sw.title = c;
+                sw.setAttribute('aria-label', `Use ${c}`);
+                sw.addEventListener('click', () => {
+                    this.avatarPainter.setColor(c);
+                    paletteEl.querySelectorAll('.palette-swatch').forEach(item => item.classList.remove('selected'));
+                    sw.classList.add('selected');
+                });
                 paletteEl.appendChild(sw);
             });
+            paletteEl.firstElementChild?.classList.add('selected');
         }
         // Tool buttons
         document.querySelectorAll('[data-tool]').forEach(btn => {
-            btn.addEventListener('click', () => this.avatarPainter.setTool(btn.dataset.tool));
+            if (btn.dataset.avatarBound) return;
+            btn.dataset.avatarBound = 'true';
+            btn.addEventListener('click', () => {
+                this.avatarPainter.setTool(btn.dataset.tool);
+                document.querySelectorAll('[data-tool]').forEach(item => {
+                    const selected = item === btn;
+                    item.classList.toggle('selected', selected);
+                    item.setAttribute('aria-pressed', String(selected));
+                });
+            });
         });
         const library = document.getElementById('avatar-skin-library');
         if (library) {

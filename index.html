@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Volle - 3D First-Person Dodgeball</title>
     <meta name="description" content="A 3D first-person dodgeball game with TF2-style cartoonish graphics, P2P multiplayer, and skill-based gameplay">
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/style.css?v=1.74">
     <script type="importmap">
     {
         "imports": {
@@ -112,18 +112,24 @@
                     <strong>Choose your match</strong>
                 </div>
                 <button id="btn-play-solo" class="ow-play"><svg class="ui-icon" aria-hidden="true"><use href="#i-play"></use></svg><span><b>QUICK PLAY</b><small>Jump into a bot match</small></span></button>
-                <button id="btn-social-lobby" class="ow-social-lobby">
-                    <svg class="ui-icon" aria-hidden="true"><use href="#i-globe"></use></svg>
-                    <span><b>ENTER SOCIAL HUB</b><small>Meet players, chat, practice and find matches</small></span>
-                    <svg class="ui-icon ow-social-lobby-arrow" aria-hidden="true"><use href="#i-play"></use></svg>
-                </button>
+                <div class="ow-world-grid">
+                    <button id="btn-social-lobby" class="ow-social-lobby">
+                        <svg class="ui-icon" aria-hidden="true"><use href="#i-globe"></use></svg>
+                        <span><em>LIVE 3D</em><b>ENTER SOCIAL HUB</b><small>Walk, chat, practice and use activity portals</small></span>
+                        <svg class="ui-icon ow-social-lobby-arrow" aria-hidden="true"><use href="#i-play"></use></svg>
+                    </button>
+                    <button id="btn-map-editor" class="ow-social-lobby ow-create-map">
+                        <svg class="ui-icon" aria-hidden="true"><use href="#i-map"></use></svg>
+                        <span><em>LOCAL CREATOR</em><b>CREATE A MAP</b><small>Build an arena and play it immediately</small></span>
+                        <svg class="ui-icon ow-social-lobby-arrow" aria-hidden="true"><use href="#i-play"></use></svg>
+                    </button>
+                </div>
                 <div class="ow-secondary ow-secondary-right">
                     <button id="btn-host-game" class="ow-sbtn"><svg class="ui-icon" aria-hidden="true"><use href="#i-globe"></use></svg><span>Host Game</span></button>
                     <button id="btn-join-game" class="ow-sbtn"><svg class="ui-icon" aria-hidden="true"><use href="#i-link"></use></svg><span>Join Game</span></button>
                     <button id="btn-practice" class="ow-sbtn"><svg class="ui-icon" aria-hidden="true"><use href="#i-target"></use></svg><span>Practice</span></button>
                     <button id="btn-tournament" class="ow-sbtn"><svg class="ui-icon" aria-hidden="true"><use href="#i-trophy"></use></svg><span>Tournament</span></button>
                     <button id="btn-avatar" class="ow-sbtn"><svg class="ui-icon" aria-hidden="true"><use href="#i-user"></use></svg><span>Avatar</span></button>
-                    <button id="btn-map-editor" class="ow-sbtn"><svg class="ui-icon" aria-hidden="true"><use href="#i-map"></use></svg><span>Map Editor</span></button>
                 </div>
                 <div class="ow-extralinks">
                     <button id="btn-replays" class="ow-link"><svg class="ui-icon" aria-hidden="true"><use href="#i-replay"></use></svg>Replays</button>
@@ -589,36 +595,49 @@
 
     <!-- ===== AVATAR PAINTER ===== -->
     <div id="avatar-screen" class="screen hidden">
-        <div class="panel wide-panel">
-            <h1>🎨 Avatar Painter</h1>
-            <h2>Choose a team skin, then paint its 8×8 face overlay</h2>
+        <div class="panel wide-panel avatar-studio">
+            <header class="avatar-studio-header">
+                <div class="shell-title">
+                    <span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-user"></use></svg></span>
+                    <div><span class="shell-kicker">CHARACTER STUDIO</span><h1>Design Your Runner</h1><p>Choose a base skin, then paint directly on the full character.</p></div>
+                </div>
+                <button id="btn-avatar-back" class="btn btn-secondary avatar-studio-back"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back</button>
+            </header>
             <div class="avatar-layout">
-                <canvas id="avatar-canvas"></canvas>
-                <div class="avatar-tools">
+                <section class="avatar-editor-stage" aria-label="Full character paint surface">
+                    <div class="avatar-stage-label"><span>EDIT SURFACE</span><b>Front body</b></div>
+                    <canvas id="avatar-canvas"></canvas>
+                    <small>Click and drag over the head, body, arms, or legs.</small>
+                </section>
+                <aside class="avatar-tools" aria-label="Paint tools">
+                    <div class="avatar-tool-heading"><span>PAINT</span><b>Tools & colors</b></div>
                     <div class="palette" id="avatar-palette"></div>
-                    <div class="btn-row">
-                        <button class="btn btn-secondary btn-small" data-tool="brush">✏️ Brush</button>
-                        <button class="btn btn-secondary btn-small" data-tool="fill">🪣 Fill</button>
-                        <button class="btn btn-secondary btn-small" data-tool="erase">🧽 Erase</button>
+                    <div class="avatar-tool-grid">
+                        <button class="btn btn-secondary btn-small selected" data-tool="brush">Brush</button>
+                        <button class="btn btn-secondary btn-small" data-tool="fill">Fill</button>
+                        <button class="btn btn-secondary btn-small" data-tool="erase">Erase</button>
                     </div>
-                    <button id="btn-avatar-clear" class="btn btn-secondary btn-small">Clear</button>
-                </div>
-                <div class="avatar-preview-wrap">
-                    <h3>3D Preview</h3>
+                    <button id="btn-avatar-clear" class="btn btn-secondary btn-small">Reset paint</button>
+                </aside>
+                <section class="avatar-preview-wrap" aria-label="Live character preview">
+                    <div class="avatar-stage-label"><span>LIVE PREVIEW</span><b id="avatar-selected-skin">Selected skin</b></div>
                     <canvas id="avatar-preview"></canvas>
-                </div>
+                    <small>Saved automatically when you finish a stroke.</small>
+                </section>
             </div>
-            <h3>Team Skin Library</h3>
+            <div class="avatar-library-heading"><span class="shell-kicker">BASE MODELS</span><h3>Team Skin Library</h3><p>Select a skin first; your paint layer sits above it.</p></div>
             <div id="avatar-skin-library" class="avatar-skin-library"></div>
-            <button id="btn-avatar-back" class="btn btn-secondary" style="margin-top: 20px;">← Back</button>
         </div>
     </div>
 
     <!-- ===== MAP EDITOR ===== -->
     <div id="map-editor-screen" class="screen hidden">
         <div class="panel wide-panel map-editor-panel">
-            <h1>🧱 Map Editor</h1>
-            <p>Click the arena to place safe primitive obstacles. Custom maps are local and playable in solo/practice.</p>
+            <div class="map-editor-title">
+                <span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-map"></use></svg></span>
+                <div><span class="shell-kicker">LOCAL MAP LAB</span><h1>Map Editor</h1><p>Build with safe primitives, save locally, then launch directly into Practice.</p></div>
+            </div>
+            <div class="map-editor-scope"><b>Available now:</b> local creation and playtesting. <b>Not connected yet:</b> online Workshop upload, voting, download.</div>
             <div class="map-editor-layout">
                 <canvas id="map-editor-canvas" width="760" height="520"></canvas>
                 <div class="map-editor-tools">
@@ -1111,6 +1130,6 @@
         </div>
     </div>
 
-    <script type="module" src="js/main.js"></script>
+<script type="module" src="js/main.js?v=1.74"></script>
 </body>
 </html>
