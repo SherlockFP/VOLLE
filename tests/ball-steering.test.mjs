@@ -110,9 +110,9 @@ test('turn rate is frame-rate independent and grows per deflection', () => {
     const halfTick = steeringTurnAlpha(1 / 132, 0);
     const compounded = 1 - (1 - halfTick) ** 2;
 
-    assert.ok(Math.abs(oneTick - 0.28) < 1e-12);
+    assert.ok(Math.abs(oneTick - 0.22) < 1e-12);
     assert.ok(Math.abs(compounded - oneTick) < 1e-12);
-    assert.ok(Math.abs(steeringTurnAlpha(1 / 66, 3) - (0.28 + 3 * 0.022)) < 1e-12);
+    assert.ok(Math.abs(steeringTurnAlpha(1 / 66, 3) - (0.22 + 3 * 0.016)) < 1e-12);
 });
 
 test('spawn, deactivate, and retarget reset steering; clamp repairs non-finite values', () => {

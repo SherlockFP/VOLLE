@@ -81,7 +81,7 @@ export function applyMode(game, modeId) {
 
     // Reset stats to defaults to avoid compounding speed/HP bugs
     game.ball.baseSpeed = 17;
-    game.ball.rallySpeedStep = 0.35;
+    game.ball.rallySpeedStep = 0.30;
     game.ball.maxRallyMultiplier = 6.0;
     game.ball.maxSpeed = game.ball.baseSpeed * game.ball.maxRallyMultiplier * (game.ball.skinConfig?.speedBonus || 1);
 

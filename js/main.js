@@ -40,6 +40,9 @@ import {
 class App {
     constructor() {
         this.chatOpen = false;
+        this._voicePingAttempts = [];
+        this._voicePingMutedUntil = 0;
+        this._lastVoicePingAt = -Infinity;
         this.carouselIndex = 0;
         this.clock = new THREE.Clock();
         this.netSyncTimer = 0;
@@ -90,6 +93,11 @@ class App {
             this.ui.updateContractTracker(Daily, this.store);
         };
         this.game.onRoundEnd = () => this._queueRoundReplay();
+        this.game.onMatchStart = () => {
+            if (Spectator.active) Spectator.exit('match-start');
+            this.ui.spectating = false;
+            this.ui.hideTeamPopup();
+        };
         this.player.game = this.game;
         this.player.audio = this.audio;
         this.socialLobby = new SocialLobby(this.renderer, this.player, {
@@ -224,8 +232,7 @@ class App {
             if (['F1', 'F2', 'F3'].includes(e.code) && this.game.state === STATES.PLAYING) {
                 e.preventDefault();
                 const ping = { F1: ['incoming', 'BALL INCOMING!'], F2: ['help', 'NEED HELP!'], F3: ['save', 'NICE SAVE!'] }[e.code];
-                this.audio.playVoicePing(ping[0]);
-                this.game.broadcastSystemMessage(`${this.game.playerName}: ${ping[1]}`);
+                this._tryVoicePing(ping);
                 return;
             }
 
@@ -275,6 +282,12 @@ class App {
             if (e.code === 'Escape') {
                 if (this.gameConsole?.visible) return;
                 if (this.game.state === STATES.SOCIAL_HUB) {
+                    if (!document.getElementById('social-lobby-chat')?.classList.contains('hidden')) {
+                        e.preventDefault();
+                        document.getElementById('social-lobby-chat')?.classList.add('hidden');
+                        this.player.lock();
+                        return;
+                    }
                     e.preventDefault();
                     this._exitSocialLobby();
                     return;
@@ -313,6 +326,7 @@ class App {
             if (this.game.state === STATES.SOCIAL_HUB) {
                 if (e.code === 'KeyY' || e.code === 'Enter') {
                     e.preventDefault();
+                    document.getElementById('social-lobby-chat')?.classList.remove('hidden');
                     this.player.unlock();
                     document.getElementById('social-lobby-chat-input')?.focus();
                 }
@@ -904,6 +918,7 @@ class App {
         // calls this; also keeps ui.spectating in sync for the button label.
         this.ui.onToggleSpectate = () => this.toggleSpectate();
         this.ui.onClassSelect = charId => this._changeRoundClass(charId);
+        this.ui.onTeamConfirm = team => this._confirmTeamSelection(team);
 
         bind('btn-start-game', async () => {
             if (this.network.connected && !this.isLobbyHost()) {
@@ -1790,6 +1805,24 @@ class App {
         return fetch(path, options).then(response => response.json()).catch(() => ({}));
     }
 
+    _tryVoicePing([sound, message]) {
+        const now = performance.now();
+        this._voicePingAttempts = this._voicePingAttempts.filter(at => now - at < 60_000);
+        if (now < this._voicePingMutedUntil) return false;
+        this._voicePingAttempts.push(now);
+        if (this._voicePingAttempts.length >= 10) {
+            this._voicePingMutedUntil = now + 60_000;
+            this._voicePingAttempts.length = 0;
+            this.ui.showMessage?.('Voice pings muted for 1 minute.', 1800);
+            return false;
+        }
+        if (now - this._lastVoicePingAt < 5_000) return false;
+        this._lastVoicePingAt = now;
+        this.audio.playVoicePing(sound);
+        this.game.broadcastSystemMessage(`${this.game.playerName}: ${message}`);
+        return true;
+    }
+
     async _openSocialHubBrowser() {
         const browser = document.getElementById('social-hub-browser');
         if (!browser) return;
@@ -1886,7 +1919,7 @@ class App {
         }
     }
 
-    _enterSocialLobby(mapId = this._socialHubMapId || 'city') {
+    _enterSocialLobby(mapId = this._socialHubMapId || 'island') {
         if (this.socialLobby.active) return;
         this._longJumpTrack = null;
         const name = document.getElementById('player-name-input')?.value?.trim()
@@ -1903,6 +1936,7 @@ class App {
             handVisible: this.player.armGroup?.visible === true
         };
         this.renderer.renderer.setClearColor(0x8ed8f3);
+        this.renderer.setHubPerformance?.(true);
         if (this.renderer.scene.fog) {
             this.renderer.scene.fog.color.set(0xa9e8f4);
             this.renderer.scene.fog.near = 110;
@@ -1923,9 +1957,7 @@ class App {
         if (mapCredit) mapCredit.textContent = map.credit;
         this.socialLobby.ready.then(() => {
             if (!this.socialLobby.active || !status) return;
-            status.textContent = map.id === 'city' && !this.socialLobby.cityModel
-                ? 'City unavailable - fallback plaza active'
-                : `${map.name} - public room active`;
+            status.textContent = `${map.name} - public room active`;
         });
         this._appendSocialLobbyChat('VOLLE', `Welcome to ${map.name}. Explore and chat with the room.`, true);
         this.player.lock();
@@ -1956,6 +1988,7 @@ class App {
             this.player.setHandVisible(this._hubVisualState.handVisible);
         }
         this._hubVisualState = null;
+        this.renderer.setHubPerformance?.(false);
         this.player.unlock();
         this.game.setState(STATES.MENU);
     }
@@ -2108,6 +2141,7 @@ class App {
         this._appendSocialLobbyChat(name, text);
         this.network.sendSocialChat(text);
         input.blur();
+        document.getElementById('social-lobby-chat')?.classList.add('hidden');
         this.player.lock();
     }
 
@@ -2974,12 +3008,19 @@ class App {
     toggleTeamPopup() {
         if (this.ui.isTeamPopupOpen()) {
             this.ui.hideTeamPopup();
-            if (!Spectator.active && (this.game.state === STATES.PLAYING)) this.player.lock();
+            if (!Spectator.active && [STATES.PLAYING, STATES.COUNTDOWN, STATES.ROUND_END, STATES.CELEBRATION].includes(this.game.state)) this.player.lock();
         } else {
             this.ui.spectating = Spectator.active;
             this.ui.showTeamPopup(this.game);
             this.player.unlock(); // free the mouse for clicking
         }
+    }
+
+    _confirmTeamSelection(team) {
+        if (team !== 'red' && team !== 'blue') return;
+        this.game.switchTeam(team);
+        this.ui.showMessage?.(`Selected ${team.toUpperCase()} team.`, 1200);
+        this.ui._renderTeamLists(this.game);
     }
 
     _changeRoundClass(charId) {
@@ -3510,12 +3551,13 @@ class App {
         if (this.network?.connected) {
             this.game.invokeRemoteSnapshots(dt);
             this.game.invokeBallSmoothing?.(dt);
+            if (this.network.isHost) this.game.ball.renderInterpolated?.((this._bgAccumulator || 0) * 60);
         }
 
         if (this.game.state === STATES.PLAYING || this.game.state === STATES.ROUND_END || this.game.state === STATES.COUNTDOWN || this.game.state === STATES.CELEBRATION) {
-            if (!Spectator.active) this.player.update(dt);
-            if (!Spectator.active) this._updateMovementPolish(false);
-            if (!Spectator.active) this._updateMovementTrial(dt);
+            if (!Spectator.active && !teamPopup) this.player.update(dt);
+            if (!Spectator.active && !teamPopup) this._updateMovementPolish(false);
+            if (!Spectator.active && !teamPopup) this._updateMovementTrial(dt);
             // Host simulation runs in the 60Hz background loop; clients update here.
             if (!this.network?.isHost) this.game.update(dt);
             // Dash trail

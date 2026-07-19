@@ -137,7 +137,7 @@
                 <div class="ow-world-grid">
                     <button id="btn-social-lobby" class="ow-social-lobby">
                         <svg class="ui-icon" aria-hidden="true"><use href="#i-globe"></use></svg>
-                        <span><em>LIVE 3D</em><b>ENTER SOCIAL HUB</b><small>Browse City and Island rooms, then walk and chat together</small></span>
+                        <span><em>LIVE 3D</em><b>ENTER SOCIAL HUB</b><small>Join the Island room, explore, swim, and chat together</small></span>
                         <svg class="ui-icon ow-social-lobby-arrow" aria-hidden="true"><use href="#i-play"></use></svg>
                     </button>
                     <button id="btn-map-editor" class="ow-social-lobby ow-create-map">
@@ -225,7 +225,7 @@
             <div class="social-lobby-heading">
                 <span class="social-lobby-kicker">VOLLE WORLD</span>
                 <strong>SOCIAL HUB</strong>
-                <span id="social-lobby-status">Exploring City</span>
+                <span id="social-lobby-status">Exploring Island</span>
             </div>
             <div class="social-lobby-online-pill" title="Players in this lobby">
                 <span class="social-lobby-online-dot" aria-hidden="true"></span>
@@ -235,8 +235,8 @@
 
         <section class="social-lobby-map-card" aria-label="Social Hub map">
             <div class="social-lobby-map-heading">
-                <span id="social-lobby-map-title"><svg class="ui-icon" aria-hidden="true"><use href="#i-map"></use></svg> CITY MAP</span>
-                <small id="social-lobby-map-credit">City by costoWRLD · CC BY</small>
+                <span id="social-lobby-map-title"><svg class="ui-icon" aria-hidden="true"><use href="#i-map"></use></svg> ISLAND MAP</span>
+                <small id="social-lobby-map-credit">Olann Island - local OBJ conversion</small>
             </div>
             <canvas id="social-lobby-map" width="260" height="180"></canvas>
             <div class="social-lobby-map-legend">
@@ -252,14 +252,13 @@
                     <p><kbd>WASD</kbd> Move <kbd>Space</kbd> Swim up <kbd>C</kbd> Dive <kbd>Y</kbd> Chat</p>
                 </div>
                 <div class="social-lobby-actions">
-                    <button id="social-lobby-exit" type="button">
+                    <button id="social-lobby-exit" type="button" aria-label="Exit Hub" title="Exit Hub">
                         <svg class="ui-icon" aria-hidden="true"><use href="#i-close"></use></svg>
-                        Exit Hub
                     </button>
                 </div>
             </section>
 
-            <section class="social-lobby-chat" aria-label="Lobby chat">
+            <section id="social-lobby-chat" class="social-lobby-chat hidden" aria-label="Lobby chat">
                 <header>
                     <span>
                         <svg class="ui-icon" aria-hidden="true"><use href="#i-link"></use></svg>
@@ -1125,21 +1124,21 @@
                 <div><span>VOLLE COMMAND</span><h3>Choose your class</h3></div>
                 <kbd>M</kbd>
             </header>
-            <h3 style="text-align:center;margin-bottom:12px;color:var(--accent);">TEAMS</h3>
             <div class="team-popup-grid">
                 <div class="team-col red" id="team-col-red">
-                    <div class="team-col-header" id="team-header-red">🔴 RED <span class="team-click-hint">click to join</span></div>
+                    <button class="team-col-header team-door" id="team-header-red" type="button"><span>RED TEAM</span><b>SELECT RED</b></button>
                     <ul class="team-list" id="team-list-red"></ul>
                 </div>
                 <div class="team-col blue" id="team-col-blue">
-                    <div class="team-col-header" id="team-header-blue">🔵 BLUE <span class="team-click-hint">click to join</span></div>
+                    <button class="team-col-header team-door" id="team-header-blue" type="button"><span>BLUE TEAM</span><b>SELECT BLUE</b></button>
                     <ul class="team-list" id="team-list-blue"></ul>
                 </div>
             </div>
             <div class="team-popup-actions">
+                <button id="btn-team-popup-confirm" class="btn btn-primary">JOIN SELECTED TEAM</button>
                 <button id="btn-team-popup-spectate" class="btn btn-small">👁 Spectate</button>
             </div>
-            <p style="text-align:center;color:#888;font-size:12px;margin-top:8px;">Click a team to join · Click a player to move · ESC to close · M to toggle</p>
+            <p style="text-align:center;color:#888;font-size:12px;margin-top:8px;">Choose a door, choose a class, then confirm · ESC to close · M to toggle</p>
         </div>
     </div>
 

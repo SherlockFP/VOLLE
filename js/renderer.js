@@ -43,6 +43,7 @@ export class Renderer {
         this._camera = null;
         this._bloom = null;
         this._quality = 'medium';
+        this._hubPerformanceMode = false;
         this._qualityPixelRatioCap = 1.5;
         this._renderScale = 1;
         this._targetResolution = null;
@@ -118,8 +119,13 @@ export class Renderer {
         }[this._quality];
         this._qualityPixelRatioCap = config.pixelRatio;
         this._applyPixelRatio();
-        this.renderer.shadowMap.enabled = config.shadows;
-        if (this._bloom) this._bloom.strength = config.bloom;
+        this.renderer.shadowMap.enabled = config.shadows && !this._hubPerformanceMode;
+        if (this._bloom) this._bloom.strength = this._hubPerformanceMode ? 0 : config.bloom;
+    }
+
+    setHubPerformance(active = false) {
+        this._hubPerformanceMode = Boolean(active);
+        this.setQuality(this._quality);
     }
 
     createToonMaterial(color) {

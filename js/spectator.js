@@ -66,7 +66,7 @@ export class SpectatorClass {
         this.targets = this._gatherTargets()
         this.targetIdx = clamp(finite(options.targetIndex), 0, Math.max(0, this.targets.length - 1))
         this.active = true
-        this.setCameraMode(options.mode || CAMERA_MODES.CHASE)
+        this.setCameraMode(options.mode || CAMERA_MODES.FREE_ROAM)
         if (typeof document !== 'undefined' && document.pointerLockElement && document.exitPointerLock) {
             document.exitPointerLock()
         }

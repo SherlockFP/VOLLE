@@ -212,6 +212,8 @@ export class UI {
     showScoreboard() {
         const s = this.screens.scoreboardOverlay;
         if (s) s.classList.remove('hidden');
+        const tracker = document.getElementById('contract-tracker');
+        if (tracker?.dataset.ready === 'true') tracker.classList.remove('hidden');
         const dm = document.getElementById('damage-meter');
         if (dm) dm.style.display = '';
     }
@@ -219,6 +221,7 @@ export class UI {
     hideScoreboard() {
         const s = this.screens.scoreboardOverlay;
         if (s) s.classList.add('hidden');
+        document.getElementById('contract-tracker')?.classList.add('hidden');
         const dm = document.getElementById('damage-meter');
         if (dm) dm.style.display = 'none';
     }
@@ -236,7 +239,8 @@ export class UI {
         overlay.classList.remove('hidden');
         const classSwitcher = document.getElementById('class-switcher-template');
         const popup = overlay.querySelector('.team-popup');
-        if (classSwitcher && popup && classSwitcher.parentElement !== popup) popup.insertBefore(classSwitcher, popup.children[1] || null);
+        if (classSwitcher && popup) popup.insertBefore(classSwitcher, popup.querySelector('.team-popup-actions'));
+        this.selectedTeam = game.player.pendingTeam || game.player.team;
         classSwitcher?.classList.remove('hidden');
         this._renderTeamLists(game);
         this._renderClassSwitch(game);
@@ -270,29 +274,26 @@ export class UI {
                 + p.name
                 + (queued ? ' · NEXT ROUND' : '');
             if (isYou) li.classList.add('you');
-            const canMove = isHost || isYou;
-            if (canMove) {
-                li.classList.add('clickable');
-                li.title = 'Click → switch team';
-                li.onclick = () => {
-                    const dest = displayTeam === 'red' ? 'blue' : 'red';
-                    if (isYou) game.switchTeam(dest);
-                    else game.switchPlayerTeam(p.name, dest);
-                    this._renderTeamLists(game);
-                };
-            }
+            li.title = isHost || isYou ? 'Team selection is confirmed below' : '';
             (displayTeam === 'red' ? redList : blueList).appendChild(li);
         });
 
-        // TF2/CSGO-style: click team header to join
-        const joinTeam = (team) => {
-            game.switchTeam(team);
+        const selectTeam = (team) => {
+            this.selectedTeam = team;
             this._renderTeamLists(game);
         };
         const headerRed = document.getElementById('team-header-red');
         const headerBlue = document.getElementById('team-header-blue');
-        if (headerRed) headerRed.onclick = () => joinTeam('red');
-        if (headerBlue) headerBlue.onclick = () => joinTeam('blue');
+        headerRed?.classList.toggle('selected', this.selectedTeam === 'red');
+        headerBlue?.classList.toggle('selected', this.selectedTeam === 'blue');
+        if (headerRed) headerRed.onclick = () => selectTeam('red');
+        if (headerBlue) headerBlue.onclick = () => selectTeam('blue');
+
+        const confirm = document.getElementById('btn-team-popup-confirm');
+        if (confirm) {
+            confirm.textContent = `JOIN ${String(this.selectedTeam || game.player.team).toUpperCase()} TEAM`;
+            confirm.onclick = () => this.onTeamConfirm?.(this.selectedTeam || game.player.team);
+        }
 
         const specBtn = document.getElementById('btn-team-popup-spectate');
         if (specBtn && this.onToggleSpectate) {
@@ -1047,8 +1048,12 @@ export class UI {
             ...dailies.filter(item => !item.claimed).slice(0, 2).map(item => ({ ...item, tag: 'DAILY' })),
             ...contracts.filter(item => !item.claimed).slice(0, 1).map(item => ({ ...item, tag: 'WEEKLY' }))
         ];
-        if (!items.length) return tracker.classList.add('hidden');
-        tracker.classList.remove('hidden');
+        if (!items.length) {
+            tracker.dataset.ready = 'false';
+            return tracker.classList.add('hidden');
+        }
+        tracker.dataset.ready = 'true';
+        tracker.classList.add('hidden');
         tracker.innerHTML = `<header>LIVE OBJECTIVES</header>${items.map(item => {
             const progress = Math.min(item.target, item.progress || 0);
             return `<div class="contract-track-row"><small>${item.tag}</small><b>${item.name}</b><span>${progress}/${item.target}</span><i><em style="width:${Math.round(progress / item.target * 100)}%"></em></i></div>`;

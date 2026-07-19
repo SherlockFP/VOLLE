@@ -2,26 +2,13 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 
-const SOCIAL_LOBBY_BOUNDS = Object.freeze({
-    minX: -170,
-    maxX: 170,
-    minY: 0,
-    maxY: 100,
-    minZ: -170,
-    maxZ: 170
-});
 const ISLAND_BOUNDS = Object.freeze({ minX: -96, maxX: 96, minY: 0, maxY: 72, minZ: -96, maxZ: 96 });
+const ISLAND_GROUND_Y = 16.35;
 export const SOCIAL_HUB_MAPS = Object.freeze({
-    city: Object.freeze({ id: 'city', name: 'City', bounds: SOCIAL_LOBBY_BOUNDS, spawn: Object.freeze({ x: 0, y: 1.7, z: -8 }), credit: 'City by costoWRLD - CC BY' }),
-    island: Object.freeze({ id: 'island', name: 'Island', bounds: ISLAND_BOUNDS, spawn: Object.freeze({ x: 0, y: 2.2, z: 20 }), credit: 'Olann Island - local OBJ conversion' })
+    island: Object.freeze({ id: 'island', name: 'Island', bounds: ISLAND_BOUNDS, spawn: Object.freeze({ x: 0, y: 18.05, z: 20 }), credit: 'Olann Island - local OBJ conversion' })
 });
-const CITY_ASSET = 'assets/cc-by/costowrld-low-poly-city/low-poly-city-social-hub.glb';
 const ISLAND_ASSET = 'assets/user-content/olann-island/olann-island.glb';
-const CITY_COLLIDERS = 'assets/cc-by/costowrld-low-poly-city/colliders.json';
-const CITY_SCALE = 0.66;
 const ISLAND_SCALE = 250;
-const CITY_COLLIDER_SCALE = CITY_SCALE / 0.6;
-const CITY_CENTER = Object.freeze({ x: 130.3742904663086, z: -56.472755432128906 });
 
 const CHARACTER_ASSETS = ['a', 'f', 'k', 'r'].map(
     id => `assets/cc0/kenney/blocky-characters/character-${id}.glb`
@@ -83,8 +70,8 @@ function normalizeMapCoordinate(value, min, max) {
     return Math.min(1, Math.max(0, (value - min) / (max - min)));
 }
 
-function getSocialHubMap(mapId = 'city') {
-    return SOCIAL_HUB_MAPS[String(mapId).toLowerCase()] || SOCIAL_HUB_MAPS.city;
+function getSocialHubMap(mapId = 'island') {
+    return SOCIAL_HUB_MAPS[String(mapId).toLowerCase()] || SOCIAL_HUB_MAPS.island;
 }
 
 function normalizeMapMarker(value, bounds) {
@@ -94,7 +81,7 @@ function normalizeMapMarker(value, bounds) {
     return x === null || z === null ? null : { x, z };
 }
 
-export function getSocialLobbyMapState(player, presence, mapId = 'city') {
+export function getSocialLobbyMapState(player, presence, mapId = 'island') {
     const visitors = Array.isArray(presence) ? presence : [];
     const map = getSocialHubMap(mapId);
     return {
@@ -112,13 +99,13 @@ export function getSocialLobbyMapState(player, presence, mapId = 'city') {
     };
 }
 
-export function createSocialLobbyArena(mapId = 'city') {
+export function createSocialLobbyArena(mapId = 'island') {
     const map = getSocialHubMap(mapId);
     const boundaries = createSocialBoundaryColliders(map.bounds);
     const getWaterAt = map.id === 'island'
         ? position => {
             const radius = Math.hypot(Number(position?.x) || 0, Number(position?.z) || 0);
-            return radius >= 61 && radius <= 94 ? { surfaceY: 3.05, floorY: -5.5 } : null;
+            return radius >= 61 && radius <= 94 ? { surfaceY: 16.25, floorY: 10.5 } : null;
         }
         : () => null;
     return {
@@ -126,7 +113,7 @@ export function createSocialLobbyArena(mapId = 'city') {
         ceilingHeight: map.bounds.maxY,
         config: { name: `VOLLE Social Hub - ${map.name}`, lowGravity: false, slippery: false, gameplay: { sandTraction: 1 } },
         collidables: boundaries,
-        platforms: [],
+        platforms: map.id === 'island' ? [{ x: 0, z: 0, y: ISLAND_GROUND_Y, halfWidth: 60, halfDepth: 60 }] : [],
         jumpPads: [],
         getWaterAt,
         getHazardAt: () => null,
@@ -138,28 +125,7 @@ function setMeshShadows(root) {
     root.traverse(child => {
         if (!child.isMesh) return;
         child.castShadow = true;
-        child.receiveShadow = true;
-    });
-}
-
-function tuneCityMaterials(root) {
-    root.traverse(child => {
-        if (!child.isMesh) return;
-        child.castShadow = false;
-        child.receiveShadow = true;
-        child.frustumCulled = true;
-        const materials = Array.isArray(child.material) ? child.material : [child.material];
-        for (const entry of materials) {
-            if (!entry) continue;
-            if (entry.map) entry.map.colorSpace = THREE.SRGBColorSpace;
-            if (entry.emissiveMap) entry.emissiveMap.colorSpace = THREE.SRGBColorSpace;
-            entry.roughness = Math.max(0.55, Number(entry.roughness) || 0);
-            entry.envMapIntensity = 0.55;
-            if (entry.emissive && entry.color) {
-                entry.emissive.copy(entry.color).multiplyScalar(0.11);
-                entry.emissiveIntensity = Math.max(0.35, Number(entry.emissiveIntensity) || 0);
-            }
-        }
+        child.receiveShadow = false;
     });
 }
 
@@ -204,9 +170,9 @@ export class SocialLobby {
         this.active = false;
         this.drivePlayer = options.drivePlayer !== false;
         this.onPresence = options.onPresence || (() => {});
-        this.mapId = 'city';
-        this.arenas = { city: createSocialLobbyArena('city'), island: createSocialLobbyArena('island') };
-        this.arena = this.arenas.city;
+        this.mapId = 'island';
+        this.arenas = { island: createSocialLobbyArena('island') };
+        this.arena = this.arenas.island;
         this.mixers = [];
         this.visitors = new Map();
         this.characterTemplates = [];
@@ -217,65 +183,12 @@ export class SocialLobby {
         this._roundColliders = [];
         this._fallbackColliders = [];
         this._boundaryColliders = this.arena.collidables.filter(collider => collider.invisibleBoundary);
-        this._cityColliderGrid = null;
-        this.cityMapBlocks = [];
-        this.cityModel = null;
-        this.cityLoadError = null;
         this.islandModel = null;
         this.islandLoadError = null;
 
-        this._buildFallbackPlaza();
         this._buildIslandWorld();
-        this._buildCityLighting();
         this.scene?.add(this.root);
         this.ready = this._loadAssets();
-    }
-
-    _buildFallbackPlaza() {
-        this.fallbackWorld = new THREE.Group();
-        this.fallbackWorld.name = 'social-city-fallback';
-        this.root.add(this.fallbackWorld);
-        const floor = new THREE.Mesh(
-            new THREE.CylinderGeometry(151, 153, 0.8, 64),
-            material(0xbfe9ff)
-        );
-        floor.position.y = -0.4;
-        floor.receiveShadow = true;
-        this.fallbackWorld.add(floor);
-
-        const center = new THREE.Mesh(
-            new THREE.CylinderGeometry(5.8, 6.2, 0.3, 32),
-            material(0xf4fbff)
-        );
-        center.position.set(0, 0.16, -8);
-        center.receiveShadow = true;
-        this.fallbackWorld.add(center);
-
-        for (let i = 0; i < 12; i++) {
-            const angle = i / 12 * Math.PI * 2;
-            const mesh = box(
-                this.fallbackWorld,
-                [2.1, 1.4 + i % 3 * 0.35, 2.1],
-                [Math.cos(angle) * 146, 0.7, Math.sin(angle) * 146],
-                i % 2 ? 0x6ec9ed : 0xffca67
-            );
-            const collider = { mesh, pos: mesh.position.clone(), radius: 1.35 };
-            this.arena.collidables.push(collider);
-            this._roundColliders.push(collider);
-            this._fallbackColliders.push(collider);
-        }
-
-        this._buildFallbackVisitors();
-    }
-
-    _buildCityLighting() {
-        this.cityLights = new THREE.Group();
-        this.cityLights.name = 'social-city-lighting';
-        const skyFill = new THREE.HemisphereLight(0xc9f4ff, 0x3e687a, 2.2);
-        const sun = new THREE.DirectionalLight(0xfff3d8, 3.1);
-        sun.position.set(70, 120, 45);
-        this.cityLights.add(skyFill, sun);
-        this.root.add(this.cityLights);
     }
 
     _buildIslandWorld() {
@@ -315,37 +228,9 @@ export class SocialLobby {
         this.root.add(this.islandWorld);
     }
 
-    _buildFallbackVisitors() {
-        const spots = [[-5, 0, -2], [5, 0, -2], [-5, 0, -14], [5, 0, -14]];
-        spots.forEach((position, index) => {
-            const group = new THREE.Group();
-            group.name = `visitor-local-${index}`;
-            const body = box(group, [1.25, 1.7, 0.8], [0, 1.45, 0], index % 2 ? 0x509ee8 : 0xef6c72);
-            const head = box(group, [1.05, 1.05, 1.05], [0, 2.75, 0], 0xffd3ad);
-            body.castShadow = head.castShadow = true;
-            group.position.set(...position);
-            group.userData.baseY = position[1];
-            group.userData.fallback = true;
-            this.root.add(group);
-            this.visitors.set(`local-${index}`, { group, mixer: null, local: true });
-        });
-    }
-
     async _loadAssets() {
         const loader = new GLTFLoader();
         loader.setMeshoptDecoder(MeshoptDecoder);
-        const cityJob = Promise.all([
-            loader.loadAsync(CITY_ASSET),
-            fetch(CITY_COLLIDERS).then(response => {
-                if (!response.ok) throw new Error(`Social city colliders: ${response.status}`);
-                return response.json();
-            })
-        ])
-            .then(([gltf, colliderData]) => this._installCity(gltf, colliderData))
-            .catch(error => {
-                this.cityLoadError = error;
-                return null;
-            });
         const islandJob = loader.loadAsync(ISLAND_ASSET)
             .then(gltf => this._installIsland(gltf))
             .catch(error => {
@@ -375,43 +260,8 @@ export class SocialLobby {
                 }
             })
             .catch(() => null));
-        await Promise.allSettled([cityJob, islandJob, ...characterJobs, ...propJobs]);
+        await Promise.allSettled([islandJob, ...characterJobs, ...propJobs]);
         return this;
-    }
-
-    _installCity(gltf, colliderData) {
-        if (this._disposed) return;
-        const model = gltf.scene;
-        model.name = 'costowrld-low-poly-city';
-        model.scale.setScalar(CITY_SCALE);
-        model.position.set(-CITY_CENTER.x * CITY_SCALE, 0, -CITY_CENTER.z * CITY_SCALE);
-        tuneCityMaterials(model);
-        model.visible = this.mapId === 'city';
-        this.root.add(model);
-        this.cityModel = model;
-        this.fallbackWorld.visible = false;
-
-        const cityArena = this.arenas.city;
-        const fallback = new Set(this._fallbackColliders);
-        cityArena.collidables = cityArena.collidables.filter(collider => !fallback.has(collider));
-        this._roundColliders = this._roundColliders.filter(collider => !fallback.has(collider));
-        const boxes = (colliderData?.colliders || []).map(entry => ({
-            minX: entry[0] * CITY_COLLIDER_SCALE,
-            maxX: entry[1] * CITY_COLLIDER_SCALE,
-            minY: entry[2] * CITY_COLLIDER_SCALE,
-            maxY: entry[3] * CITY_COLLIDER_SCALE,
-            minZ: entry[4] * CITY_COLLIDER_SCALE,
-            maxZ: entry[5] * CITY_COLLIDER_SCALE,
-            city: true
-        }));
-        cityArena.collidables.push(...boxes);
-        this.cityMapBlocks = boxes;
-        this._cityColliderGrid = createSocialColliderGrid(boxes, colliderData?.cellSize);
-        cityArena.getNearbyCollidables = position => [
-            ...cityArena.collidables.filter(collider => collider.invisibleBoundary),
-            ...this._roundColliders,
-            ...this._cityColliderGrid.query(position)
-        ];
     }
 
     _installIsland(gltf) {
@@ -426,7 +276,7 @@ export class SocialLobby {
         this.islandWorld.visible = false;
     }
 
-    selectMap(mapId = 'city') {
+    selectMap(mapId = 'island') {
         const map = getSocialHubMap(mapId);
         this.mapId = map.id;
         this.arena = this.arenas[map.id];
@@ -434,20 +284,19 @@ export class SocialLobby {
         if (this.player && this.active) this.player.arena = this.arena;
         if (this.islandWorld) this.islandWorld.visible = map.id === 'island' && !this.islandModel;
         if (this.islandModel) this.islandModel.visible = map.id === 'island';
-        if (this.cityModel) this.cityModel.visible = map.id === 'city';
-        if (this.fallbackWorld) this.fallbackWorld.visible = map.id === 'city' && !this.cityModel;
         this._presenceDirty = true;
         return map;
     }
 
     _installCharacter(gltf, index) {
         if (this._disposed) return;
-        const visitor = this.visitors.get(`local-${index}`);
-        if (!visitor) return;
         const model = gltf.scene;
         model.scale.setScalar(1.15);
         model.rotation.y = index % 2 ? Math.PI : 0;
         setMeshShadows(model);
+        this.characterTemplates[index] = { scene: model, animations: gltf.animations || [] };
+        const visitor = this.visitors.get(`local-${index}`);
+        if (!visitor) return;
         visitor.group.traverse(child => {
             child.geometry?.dispose?.();
             const materials = Array.isArray(child.material) ? child.material : [child.material];
@@ -456,7 +305,6 @@ export class SocialLobby {
         visitor.group.clear();
         visitor.group.add(model);
         visitor.group.userData.fallback = false;
-        this.characterTemplates[index] = { scene: model, animations: gltf.animations || [] };
         if (gltf.animations?.length) {
             visitor.mixer = new THREE.AnimationMixer(model);
             visitor.mixer.clipAction(gltf.animations.find(clip => /idle/i.test(clip.name)) || gltf.animations[0]).play();
@@ -568,7 +416,7 @@ export class SocialLobby {
     }
 
     getMapBlocks() {
-        return this.mapId === 'city' ? this.cityMapBlocks : [];
+        return [];
     }
 
     _emitPresence() {
@@ -590,6 +438,5 @@ export class SocialLobby {
         this.visitors.clear();
         this.mixers.length = 0;
         this.characterTemplates.length = 0;
-        this.cityMapBlocks.length = 0;
     }
 }

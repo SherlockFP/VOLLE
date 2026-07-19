@@ -556,6 +556,7 @@ export class Game {
         this._cancelCountdown?.();
         this.ui.cancelCountdown?.();
         this._rewardsClaimed = false;
+        this.onMatchStart?.();
         this.applyMatchModifier();
         this.setState(STATES.COUNTDOWN);
         // Lobby'de gösterilen bot dummy'leri oyun başlamadan temizle

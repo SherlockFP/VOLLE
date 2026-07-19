@@ -12,7 +12,7 @@ const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
 export function steeringTurnAlpha(dt, deflections = 0) {
     if (!Number.isFinite(dt) || dt <= 0) return 0;
-    const tickTurn = clamp(0.28 + Math.max(0, deflections) * 0.022, 0, 0.95);
+    const tickTurn = clamp(0.22 + Math.max(0, deflections) * 0.016, 0, 0.9);
     return 1 - Math.pow(1 - tickTurn, dt / STEERING_TICK);
 }
 
@@ -167,7 +167,7 @@ export class Ball {
         this.gravity = -14;
         this.baseSpeed = 17;
         this.currentSpeed = this.baseSpeed;
-        this.rallySpeedStep = 0.35;             // 100 -> 135 -> 170 ...
+        this.rallySpeedStep = 0.30;             // 100 -> 130 -> 160 ...
         this.maxRallyMultiplier = 6.0;          // hard cap: 600% base speed
         this.maxSpeed = 102;
         this.deflections = 0;
@@ -836,8 +836,18 @@ export class Ball {
         const current = velocityLength > 0.001
             ? this.velocity.clone().multiplyScalar(1 / velocityLength)
             : this._steeringInitialDir.clone();
-        const turn = steeringTurnAlpha(steeringDt, this.deflections);
-        const next = current.lerp(desired, turn);
+        const targetDistance = desired.length();
+        const hasOverstayed = this._steeringAge > 1.15;
+        const isCircling = targetDistance < 7 && current.dot(desired.clone().normalize()) < 0.2;
+        if (hasOverstayed || isCircling) {
+            this._steeringPhase = 'torso';
+            this._steeringWaypoint = null;
+        }
+        const direct = hasOverstayed || isCircling
+            ? new THREE.Vector3().subVectors(targetPos, this.position).normalize()
+            : desired.normalize();
+        const turn = Math.max(steeringTurnAlpha(steeringDt, this.deflections), (hasOverstayed || isCircling) ? 0.18 : 0);
+        const next = current.lerp(direct, turn);
         if (finitePoint(next) && next.lengthSq() > 0.000001) {
             this.velocity.copy(next.normalize().multiplyScalar(this.currentSpeed));
         }
@@ -859,6 +869,11 @@ export class Ball {
             const fallback = this._steeringInitialDir || new THREE.Vector3(1, 0, 0);
             this.velocity.copy(fallback).normalize().multiplyScalar(this.currentSpeed);
         }
+    }
+
+    renderInterpolated(alpha = 1) {
+        if (!this.active || !this._prevPosition || !finitePoint(this.position) || !finitePoint(this._prevPosition)) return;
+        this.mesh.position.lerpVectors(this._prevPosition, this.position, clamp(alpha, 0, 1));
     }
 
     getRallyMultiplier() {

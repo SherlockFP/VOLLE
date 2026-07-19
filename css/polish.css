@@ -519,10 +519,19 @@ body {
     position: absolute;
     top: clamp(102px, 15vh, 148px);
     right: clamp(16px, 3vw, 38px);
-    width: min(280px, calc(100vw - 32px));
+    width: min(230px, calc(100vw - 32px));
     padding: 13px;
     border: 1px solid rgba(112, 221, 255, 0.22);
     border-radius: 18px;
+}
+
+#social-lobby-chat.hidden {
+    display: none;
+}
+
+.social-lobby-actions #social-lobby-exit {
+    width: 44px;
+    padding: 0;
 }
 
 .social-lobby-map-heading,
@@ -583,7 +592,7 @@ body {
     position: fixed;
     z-index: 160;
     left: 50%;
-    bottom: clamp(74px, 10vh, 108px);
+    bottom: clamp(90px, 12vh, 124px);
     transform: translateX(-50%);
     min-width: 150px;
     padding: 8px 12px;
@@ -2129,3 +2138,16 @@ body.high-contrast #main-menu :is(.ow-topbar, .ow-showcase, .ow-action-panel, .f
 .contract-tracker { position:fixed; top:86px; left:18px; z-index:16; width:220px; padding:10px; border:1px solid #2bbdca88; border-radius:10px; background:linear-gradient(135deg,#062536e8,#0a3e50d9); box-shadow:0 10px 28px #0006; pointer-events:none; }.contract-tracker header { margin-bottom:7px; color:#94f9ff; font-size:10px; font-weight:900; letter-spacing:.13em; }.contract-track-row { display:grid; grid-template-columns:auto 1fr auto; gap:3px 7px; align-items:center; margin-top:6px; font-size:11px; }.contract-track-row small { color:#70d9e6; font-size:8px; font-weight:800; }.contract-track-row b { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#fff; }.contract-track-row span { color:#b5edf0; font-variant-numeric:tabular-nums; }.contract-track-row i { grid-column:1/-1; height:3px; overflow:hidden; background:#071923; border-radius:999px; }.contract-track-row em { display:block; height:100%; background:linear-gradient(90deg,#24d8e5,#65f0c1); }
 .case-reel { position:fixed; inset:0; z-index:120; display:grid; place-items:center; background:#020b12b8; backdrop-filter:blur(8px); }.case-reel.hidden { display:none; }.case-reel-card { width:min(680px,90vw); padding:18px; border:1px solid #46ddea; border-radius:15px; background:linear-gradient(145deg,#092c40,#061522); box-shadow:0 24px 80px #000; }.case-reel-top { display:flex; justify-content:space-between; margin-bottom:14px; color:#a7faff; font-size:12px; font-weight:900; letter-spacing:.12em; }.case-reel-top button { color:#b6faff; background:transparent; border:1px solid #44aab7; border-radius:6px; padding:4px 9px; }.case-reel-window { position:relative; overflow:hidden; border:1px solid #1f8091; border-radius:10px; background:#04111b; }.case-reel-window::after { content:''; position:absolute; top:0; bottom:0; left:50%; width:3px; background:#fff; box-shadow:0 0 15px #66faff; transform:translateX(-50%); }.case-reel-track { display:flex; width:max-content; transform:translateX(0); }.case-reel-track.spin { transition:transform 2.25s cubic-bezier(.08,.72,.15,1); transform:translateX(-1180px); }.case-reel-track.settled { transform:translateX(-1180px); }.case-reel-item { display:grid; align-content:center; flex:0 0 112px; height:112px; padding:10px; border-right:1px solid #1b6070; background:#0a3141; text-align:center; }.case-reel-item small { color:#7ddce5; font-size:9px; }.case-reel-item b { margin-top:8px; color:#fff; font-size:13px; }.case-reel-result { min-height:22px; padding-top:12px; color:#b8fff1; text-align:center; font-weight:800; }
 @media (max-width:700px) { .contract-tracker { top:auto; bottom:110px; left:10px; width:190px; } }
+
+/* TF2-style team doors with a shared class deck below. */
+#team-overlay .team-popup-grid { gap: 18px; }
+#team-overlay .team-col { min-height: 210px; padding: 0 14px 13px; overflow: hidden; cursor: default; border-top-width: 0; background: rgba(4, 18, 30, .7); }
+#team-overlay .team-col.red { border-color: rgba(238, 80, 90, .6); box-shadow: inset 0 4px #e84d58, inset 0 0 58px rgba(207, 48, 56, .16); }
+#team-overlay .team-col.blue { border-color: rgba(83, 152, 255, .6); box-shadow: inset 0 4px #4b8efa, inset 0 0 58px rgba(43, 104, 212, .16); }
+#team-overlay .team-door { width: calc(100% + 28px); min-height: 112px; margin: 0 -14px 12px; padding: 18px; display: grid; place-content: center; gap: 7px; border: 0; border-bottom: 1px solid rgba(255,255,255,.15); color: #fff; background: linear-gradient(145deg, rgba(255,255,255,.13), transparent); cursor: pointer; text-align: center; }
+#team-overlay .team-door span { font-size: .78rem; font-weight: 900; letter-spacing: .17em; } #team-overlay .team-door b { font-size: 1.1rem; letter-spacing: .05em; }
+#team-overlay .team-col.red .team-door { color: #ffd9dc; } #team-overlay .team-col.blue .team-door { color: #dce9ff; }
+#team-overlay .team-door:hover, #team-overlay .team-door:focus-visible, #team-overlay .team-door.selected { filter: brightness(1.2); outline: 2px solid rgba(220,255,255,.8); outline-offset: -5px; }
+#team-overlay .team-list { min-height: 62px; } #team-overlay .team-list li { cursor: default; }
+#team-overlay .class-switcher { margin: 6px 0 16px; border-color: rgba(135, 238, 226, .34); }
+#team-overlay .team-popup-actions { display: flex; justify-content: center; gap: 10px; } #team-overlay #btn-team-popup-confirm { min-width: 230px; }

@@ -455,7 +455,7 @@ export class Player {
         this.armGroup.add(this.knifeGroup);
 
         this.camera.add(this.armGroup);
-        this.armGroup.visible = true;
+        this.armGroup.visible = false;
 
         // ponytail: tek el — sol el kaldırıldı
     }
@@ -510,8 +510,9 @@ export class Player {
             // Only look during live play and when not typing in a chat/text input.
             if (!this.alive) return;
             const st = this.game?.state;
-            if (st !== 'PLAYING' && st !== 'COUNTDOWN' && st !== 'CELEBRATION' && st !== 'SOCIAL_HUB') return;
+            if (st !== 'PLAYING' && st !== 'COUNTDOWN' && st !== 'ROUND_END' && st !== 'CELEBRATION' && st !== 'SOCIAL_HUB') return;
             if (st === 'PAUSED') return;
+            if (this.game?.ui?.isTeamPopupOpen?.()) return;
             if (isEditableTarget(document.activeElement)) return;
             this.euler.y -= e.movementX * this.sensitivity;
             this.euler.x -= e.movementY * this.sensitivity;
@@ -1157,7 +1158,7 @@ export class Player {
         this.ultimateCharge = 0;
         this.ultimateActive = false;
         this._qHoldTimer = 0;
-        this.setHandVisible(true);
+        this.setHandVisible(false);
     }
 
     setSensitivity(val) { this.sensitivity = val; }
