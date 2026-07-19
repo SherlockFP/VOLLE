@@ -35,6 +35,22 @@ export function splitSteeringDisplacement(before, after, dt, activeDt) {
     };
 }
 
+export function recoverCornerHoming(velocity, position, target, speed, turn = 0.58) {
+    if (!finitePoint(velocity) || !finitePoint(position) || !finitePoint(target) || !Number.isFinite(speed) || speed <= 0) {
+        return finitePoint(velocity) ? { ...velocity } : { x: 0, y: 0, z: 0 };
+    }
+    const currentLength = Math.hypot(velocity.x, velocity.y, velocity.z);
+    const desired = { x: target.x - position.x, y: target.y - position.y, z: target.z - position.z };
+    const desiredLength = Math.hypot(desired.x, desired.y, desired.z);
+    if (currentLength < 0.001 || desiredLength < 0.001) return { ...velocity };
+    const blend = clamp(turn, 0, 1);
+    const x = velocity.x / currentLength * (1 - blend) + desired.x / desiredLength * blend;
+    const y = velocity.y / currentLength * (1 - blend) + desired.y / desiredLength * blend;
+    const z = velocity.z / currentLength * (1 - blend) + desired.z / desiredLength * blend;
+    const length = Math.hypot(x, y, z);
+    return length > 0.001 ? { x: x / length * speed, y: y / length * speed, z: z / length * speed } : { ...velocity };
+}
+
 export function sampleBoundedVelocity(previous, current, dt, maxSpeed = 14) {
     if (!finitePoint(previous) || !finitePoint(current) || !Number.isFinite(dt) || dt <= 0) {
         return { x: 0, y: 0, z: 0 };
@@ -639,13 +655,23 @@ export class Ball {
         // ponytail: clamp ball to court bounds with small margin instead of reflecting.
         // Prevents erratic wall-bouncing; ball stays in play, players chase it.
         const bb = this.arena.bounds;
+        let wallHit = false;
         if (bb) {
             const m = this.radius + 0.5;
             const wallRestitution = this._pinballBounce ? 1.2 : 0.5;
-            if (this.position.x < bb.minX + m) { this.position.x = bb.minX + m; this.velocity.x = Math.abs(this.velocity.x) * wallRestitution; }
-            if (this.position.x > bb.maxX - m) { this.position.x = bb.maxX - m; this.velocity.x = -Math.abs(this.velocity.x) * wallRestitution; }
-            if (this.position.z < bb.minZ + m) { this.position.z = bb.minZ + m; this.velocity.z = Math.abs(this.velocity.z) * wallRestitution; }
-            if (this.position.z > bb.maxZ - m) { this.position.z = bb.maxZ - m; this.velocity.z = -Math.abs(this.velocity.z) * wallRestitution; }
+            if (this.position.x < bb.minX + m) { this.position.x = bb.minX + m; this.velocity.x = Math.abs(this.velocity.x) * wallRestitution; wallHit = true; }
+            if (this.position.x > bb.maxX - m) { this.position.x = bb.maxX - m; this.velocity.x = -Math.abs(this.velocity.x) * wallRestitution; wallHit = true; }
+            if (this.position.z < bb.minZ + m) { this.position.z = bb.minZ + m; this.velocity.z = Math.abs(this.velocity.z) * wallRestitution; wallHit = true; }
+            if (this.position.z > bb.maxZ - m) { this.position.z = bb.maxZ - m; this.velocity.z = -Math.abs(this.velocity.z) * wallRestitution; wallHit = true; }
+        }
+        if (wallHit) {
+            bounced = true;
+            bounceSpeed = Math.max(bounceSpeed, this.velocity.length());
+        }
+        if (bounced && this.targetPlayer && (this.state === 'rally' || this.state === 'homing')) {
+            const recovered = recoverCornerHoming(this.velocity, this.position, this._getTargetPos(), this.currentSpeed);
+            this.velocity.set(recovered.x, recovered.y, recovered.z);
+            this._homingAge = Math.max(this._homingAge || 0, 0.75);
         }
 
         // Stuck detection: bounce çok hızlı tekrarlıyorsa top sıkışmıştır,
@@ -915,7 +941,7 @@ export class Ball {
         // ponytail: reduced power bonus multiplier to slow exponential ramp
         const powerBonus = 1 + (flick.power || 0) * 0.025;
         let shot = 'flat';
-        let speed = this.getRallySpeed() * powerBonus;
+        let speed = this.getRallySpeed() * powerBonus * 1.04;
 
         if (spike) {
             shot = 'spike';

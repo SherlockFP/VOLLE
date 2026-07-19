@@ -16,6 +16,7 @@ const {
     isSteeringControlLocked,
     networkBallStep,
     predictLeadTarget,
+    recoverCornerHoming,
     sampleBoundedVelocity,
     smoothSampledVelocity,
     splitSteeringDisplacement,
@@ -113,6 +114,18 @@ test('turn rate is frame-rate independent and grows per deflection', () => {
     assert.ok(Math.abs(oneTick - 0.26) < 1e-12);
     assert.ok(Math.abs(compounded - oneTick) < 1e-12);
     assert.ok(Math.abs(steeringTurnAlpha(1 / 66, 3) - (0.26 + 3 * 0.018)) < 1e-12);
+});
+
+test('corner recovery bends a reflected ball back toward its target', () => {
+    const recovered = recoverCornerHoming(
+        { x: -20, y: 0, z: 0 },
+        { x: 0, y: 1, z: 0 },
+        { x: 12, y: 1, z: 0 },
+        20
+    );
+
+    assert.ok(recovered.x > 0);
+    assert.ok(Math.abs(Math.hypot(recovered.x, recovered.y, recovered.z) - 20) < 1e-9);
 });
 
 test('spawn, deactivate, and retarget reset steering; clamp repairs non-finite values', () => {

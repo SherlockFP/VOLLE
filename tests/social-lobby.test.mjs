@@ -98,10 +98,11 @@ test('each social hub map has a bounded spawn and collision layout', () => {
     assert.equal(arena.collidables.filter(collider => collider.invisibleBoundary).length, 4);
     assert.equal(arena.getWaterAt({ x: 80, z: 0 }), null);
     assert.equal(arena.getWaterAt({ x: 0, z: 0 }), null);
-    assert.deepEqual([city.getPlayerSpawn().x, city.getPlayerSpawn().y, city.getPlayerSpawn().z], [0, 2, 24]);
+    assert.deepEqual([city.getPlayerSpawn().x, city.getPlayerSpawn().y, city.getPlayerSpawn().z], [0, 2, 20]);
     assert.ok(city.collidables.length > 8);
     assert.match(SOCIAL_HUB_MAPS.city.credit, /CC BY/);
     assert.equal(SOCIAL_HUB_MAPS.city.assetGroundY, -18.45);
+    assert.deepEqual(SOCIAL_HUB_MAPS.city.worldOffset, { x: 0, z: -80 });
     assert.equal('construct' in SOCIAL_HUB_MAPS, false);
 });
 
@@ -133,6 +134,7 @@ test('runtime keeps the island assets local without a retired map runtime', () =
     assert.match(source, /_installHubMap\(map, model\)/);
     assert.match(source, /assets\/user-content\/social-hub\/chicken-city\.glb/);
     assert.match(source, /assetGroundY/);
+    assert.match(source, /worldOffset/);
     assert.match(source, /new THREE\.ShaderMaterial/);
     assert.match(source, /new THREE\.DirectionalLight/);
     assert.match(source, /volle-harbor-plaza/);

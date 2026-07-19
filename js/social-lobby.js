@@ -4,10 +4,10 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 
 const ISLAND_BOUNDS = Object.freeze({ minX: -220, maxX: 220, minY: -12, maxY: 110, minZ: -220, maxZ: 220 });
 const ISLAND_GROUND_Y = 0;
-const CITY_BOUNDS = Object.freeze({ minX: -120, maxX: 120, minY: -12, maxY: 78, minZ: -120, maxZ: 120 });
+const CITY_BOUNDS = Object.freeze({ minX: -120, maxX: 120, minY: -12, maxY: 78, minZ: -200, maxZ: 120 });
 export const SOCIAL_HUB_MAPS = Object.freeze({
     island: Object.freeze({ id: 'island', name: 'Island', bounds: ISLAND_BOUNDS, spawn: Object.freeze({ x: 0, y: 2, z: 28 }), credit: 'VOLLE Harbor Plaza - CC0 Kenney props' }),
-    city: Object.freeze({ id: 'city', name: 'Chicken City', bounds: CITY_BOUNDS, spawn: Object.freeze({ x: 0, y: 2, z: 24 }), asset: 'assets/user-content/social-hub/chicken-city.glb', assetScale: 1.5, assetGroundY: -18.45, credit: 'Chicken Gun Fruzzer City by amogusstrikesback2 - CC BY' })
+    city: Object.freeze({ id: 'city', name: 'Chicken City', bounds: CITY_BOUNDS, spawn: Object.freeze({ x: 0, y: 2, z: 20 }), asset: 'assets/user-content/social-hub/chicken-city.glb', assetScale: 1.5, assetGroundY: -18.45, worldOffset: Object.freeze({ x: 0, z: -80 }), credit: 'Chicken Gun Fruzzer City by amogusstrikesback2 - CC BY' })
 });
 
 const SOCIAL_MAP_BLOCKS = Object.freeze({
@@ -122,7 +122,9 @@ export function getSocialLobbyMapState(player, presence, mapId = 'island') {
 export function createSocialLobbyArena(mapId = 'island') {
     const map = getSocialHubMap(mapId);
     const boundaries = createSocialBoundaryColliders(map.bounds);
-    const blocks = (SOCIAL_MAP_BLOCKS[map.id] || []).map(([x, z, halfWidth, halfDepth]) => ({ minX: x - halfWidth, maxX: x + halfWidth, minY: -2, maxY: map.bounds.maxY, minZ: z - halfDepth, maxZ: z + halfDepth }));
+    const offsetX = Number(map.worldOffset?.x) || 0;
+    const offsetZ = Number(map.worldOffset?.z) || 0;
+    const blocks = (SOCIAL_MAP_BLOCKS[map.id] || []).map(([x, z, halfWidth, halfDepth]) => ({ minX: x + offsetX - halfWidth, maxX: x + offsetX + halfWidth, minY: -2, maxY: map.bounds.maxY, minZ: z + offsetZ - halfDepth, maxZ: z + offsetZ + halfDepth }));
     const collidables = [...boundaries, ...blocks];
     const grid = createSocialColliderGrid(collidables, 22);
     return {
@@ -340,7 +342,7 @@ export class SocialLobby {
         const bounds = new THREE.Box3().setFromObject(model);
         const center = bounds.getCenter(new THREE.Vector3());
         const groundY = Number.isFinite(map.assetGroundY) ? map.assetGroundY * (map.assetScale || 1) : bounds.min.y;
-        model.position.set(-center.x, -groundY, -center.z);
+        model.position.set(-center.x + (Number(map.worldOffset?.x) || 0), -groundY, -center.z + (Number(map.worldOffset?.z) || 0));
         model.updateMatrixWorld(true);
         tuneHubMaterials(model);
         const world = new THREE.Group();
