@@ -1,56 +1,89 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-export const SOCIAL_LOBBY_PORTALS = Object.freeze([
-    { id: 'quick-play', label: 'Quick Play', position: Object.freeze({ x: 0, y: 0, z: -28 }), color: 0x49b8ff },
-    { id: 'ranked', label: 'Ranked', position: Object.freeze({ x: 20, y: 0, z: -19 }), color: 0xffc247 },
-    { id: 'practice', label: 'Practice', position: Object.freeze({ x: -24, y: 0, z: -12 }), color: 0x62df9b },
-    { id: 'shop', label: 'Shop', position: Object.freeze({ x: 24, y: 0, z: 10 }), color: 0xff79bb },
-    { id: 'clans', label: 'Clans', position: Object.freeze({ x: -23, y: 0, z: 15 }), color: 0x9b8cff }
-]);
+const SOCIAL_LOBBY_BOUNDS = Object.freeze({
+    minX: -38,
+    maxX: 38,
+    minY: 0,
+    maxY: 18,
+    minZ: -38,
+    maxZ: 38
+});
+const SOCIAL_LOBBY_PRACTICE_BOUNDS = Object.freeze({
+    minX: -36.2,
+    maxX: -8.5,
+    minZ: -4.2,
+    maxZ: 10.1
+});
 
 const CHARACTER_ASSETS = ['a', 'f', 'k', 'r'].map(
     id => `assets/cc0/kenney/blocky-characters/character-${id}.glb`
 );
 const PROP_ASSETS = [
-    ['assets/cc0/kenney/mini-arena/wall-gate.glb', [0, 0, -34], 3.2, 0],
-    ['assets/cc0/kenney/mini-arena/trophy.glb', [0, 0.25, -17], 2.4, 0],
-    ['assets/cc0/kenney/mini-arena/statue.glb', [17, 0, 20], 2.2, -0.5],
-    ['assets/cc0/kenney/mini-arena/column.glb', [-7, 0, -24], 2.1, 0],
-    ['assets/cc0/kenney/mini-arena/column.glb', [7, 0, -24], 2.1, 0],
-    ['assets/cc0/kenney/mini-arena/tree.glb', [-28, 0, -26], 2.6, 0],
-    ['assets/cc0/kenney/mini-arena/tree.glb', [29, 0, 25], 2.4, 0.8],
-    ['assets/cc0/kenney/mini-arena/banner.glb', [-8, 0, -31], 2.2, 0],
-    ['assets/cc0/kenney/mini-arena/banner.glb', [8, 0, -31], 2.2, 0],
-    ['assets/cc0/kenney/platformer-kit/chest.glb', [25, 0, 13], 1.7, -0.6],
-    ['assets/cc0/kenney/platformer-kit/flag.glb', [-24, 0, -8], 2.2, 0],
-    ['assets/cc0/kenney/platformer-kit/platform-ramp.glb', [-34, 0, 3], 2.2, Math.PI / 2],
-    ['assets/cc0/kenney/platformer-kit/platform.glb', [-29, 2.2, -2], 2.4, 0],
-    ['assets/cc0/kenney/platformer-kit/block-moving-blue.glb', [-17, 6.5, -2], 2, 0],
-    ['assets/cc0/kenney/platformer-kit/spring.glb', [-31, 0.2, 8], 1.8, 0],
-    ['assets/cc0/kenney/platformer-kit/tree.glb', [-33, 0, 21], 1.8, 0]
+    ['assets/cc0/kenney/mini-arena/wall-gate.glb', [0, 0, -34], 3.2, 0, 0],
+    ['assets/cc0/kenney/mini-arena/trophy.glb', [0, 0.25, -17], 2.4, 0, 1.4],
+    ['assets/cc0/kenney/mini-arena/statue.glb', [17, 0, 20], 2.2, -0.5, 1.7],
+    ['assets/cc0/kenney/mini-arena/column.glb', [-7, 0, -24], 2.1, 0, 1.25],
+    ['assets/cc0/kenney/mini-arena/column.glb', [7, 0, -24], 2.1, 0, 1.25],
+    ['assets/cc0/kenney/mini-arena/tree.glb', [-28, 0, -26], 2.6, 0, 1.8],
+    ['assets/cc0/kenney/mini-arena/tree.glb', [29, 0, 25], 2.4, 0.8, 1.7],
+    ['assets/cc0/kenney/mini-arena/banner.glb', [-8, 0, -31], 2.2, 0, 0],
+    ['assets/cc0/kenney/mini-arena/banner.glb', [8, 0, -31], 2.2, 0, 0],
+    ['assets/cc0/kenney/platformer-kit/chest.glb', [25, 0, 13], 1.7, -0.6, 1.2],
+    ['assets/cc0/kenney/platformer-kit/flag.glb', [-24, 0, -8], 2.2, 0, 0],
+    ['assets/cc0/kenney/platformer-kit/platform-ramp.glb', [-34, 0, 3], 2.2, Math.PI / 2, 0],
+    ['assets/cc0/kenney/platformer-kit/platform.glb', [-29, 2.2, -2], 2.4, 0, 0],
+    ['assets/cc0/kenney/platformer-kit/block-moving-blue.glb', [-17, 6.5, -2], 2, 0, 0],
+    ['assets/cc0/kenney/platformer-kit/spring.glb', [-31, 0.2, 8], 1.8, 0, 0],
+    ['assets/cc0/kenney/platformer-kit/tree.glb', [-33, 0, 21], 1.8, 0, 1.4]
 ];
 
-export function findNearestPortal(position, portals = SOCIAL_LOBBY_PORTALS, maxDistance = 3.8) {
-    if (!position || !Number.isFinite(position.x) || !Number.isFinite(position.z)) return null;
-    let nearest = null;
-    let nearestDistance = Math.max(0, Number(maxDistance) || 0);
-    for (const portal of portals) {
-        const dx = position.x - portal.position.x;
-        const dz = position.z - portal.position.z;
-        const distance = Math.hypot(dx, dz);
-        if (distance <= nearestDistance) {
-            nearest = portal;
-            nearestDistance = distance;
-        }
-    }
-    return nearest ? { portal: nearest, distance: nearestDistance } : null;
+export const SOCIAL_LOBBY_PROP_COLLIDERS = Object.freeze(PROP_ASSETS
+    .filter(([, , , , radius]) => radius > 0)
+    .map(([url, position, , , radius]) => Object.freeze({
+        url,
+        position: Object.freeze({ x: position[0], y: position[1], z: position[2] }),
+        radius
+    })));
+
+function normalizeMapCoordinate(value, min, max) {
+    if (!Number.isFinite(value)) return null;
+    return Math.min(1, Math.max(0, (value - min) / (max - min)));
+}
+
+function normalizeMapMarker(value) {
+    const position = value?.position || value;
+    const x = normalizeMapCoordinate(position?.x, SOCIAL_LOBBY_BOUNDS.minX, SOCIAL_LOBBY_BOUNDS.maxX);
+    const z = normalizeMapCoordinate(position?.z, SOCIAL_LOBBY_BOUNDS.minZ, SOCIAL_LOBBY_BOUNDS.maxZ);
+    return x === null || z === null ? null : { x, z };
+}
+
+export function getSocialLobbyMapState(player, presence) {
+    const visitors = Array.isArray(presence) ? presence : [];
+    return {
+        bounds: SOCIAL_LOBBY_BOUNDS,
+        player: normalizeMapMarker(player),
+        visitors: visitors.flatMap(visitor => {
+            const marker = normalizeMapMarker(visitor);
+            return marker ? [{
+                id: visitor.id ?? null,
+                name: visitor.name ?? null,
+                local: Boolean(visitor.local),
+                ...marker
+            }] : [];
+        }),
+        practice: Object.freeze({
+            minX: normalizeMapCoordinate(SOCIAL_LOBBY_PRACTICE_BOUNDS.minX, SOCIAL_LOBBY_BOUNDS.minX, SOCIAL_LOBBY_BOUNDS.maxX),
+            maxX: normalizeMapCoordinate(SOCIAL_LOBBY_PRACTICE_BOUNDS.maxX, SOCIAL_LOBBY_BOUNDS.minX, SOCIAL_LOBBY_BOUNDS.maxX),
+            minZ: normalizeMapCoordinate(SOCIAL_LOBBY_PRACTICE_BOUNDS.minZ, SOCIAL_LOBBY_BOUNDS.minZ, SOCIAL_LOBBY_BOUNDS.maxZ),
+            maxZ: normalizeMapCoordinate(SOCIAL_LOBBY_PRACTICE_BOUNDS.maxZ, SOCIAL_LOBBY_BOUNDS.minZ, SOCIAL_LOBBY_BOUNDS.maxZ)
+        })
+    };
 }
 
 export function createSocialLobbyArena() {
-    const bounds = Object.freeze({ minX: -38, maxX: 38, minY: 0, maxY: 18, minZ: -38, maxZ: 38 });
     return {
-        bounds,
+        bounds: SOCIAL_LOBBY_BOUNDS,
         ceilingHeight: 18,
         config: { name: 'VOLLE Social Hub', lowGravity: false, slippery: false, gameplay: { sandTraction: 1 } },
         collidables: [],
@@ -92,16 +125,12 @@ export class SocialLobby {
         this.root.visible = false;
         this.active = false;
         this.drivePlayer = options.drivePlayer !== false;
-        this.onInteract = options.onInteract || (() => {});
-        this.onPrompt = options.onPrompt || (() => {});
         this.onPresence = options.onPresence || (() => {});
         this.arena = createSocialLobbyArena();
-        this.portals = SOCIAL_LOBBY_PORTALS;
         this.mixers = [];
         this.visitors = new Map();
         this.characterTemplates = [];
         this._savedArena = null;
-        this._nearPortal = null;
         this._elapsed = 0;
         this._presenceDirty = true;
         this._disposed = false;
@@ -139,37 +168,8 @@ export class SocialLobby {
             this.arena.collidables.push({ mesh, pos: mesh.position.clone(), radius: 1.35 });
         }
 
-        this._buildPortals();
         this._buildPracticeCourse();
         this._buildFallbackVisitors();
-    }
-
-    _buildPortals() {
-        for (const portal of this.portals) {
-            const group = new THREE.Group();
-            group.name = `portal-${portal.id}`;
-            group.position.set(portal.position.x, 0, portal.position.z);
-            const ring = new THREE.Mesh(
-                new THREE.TorusGeometry(2.5, 0.22, 10, 32),
-                new THREE.MeshStandardMaterial({
-                    color: portal.color,
-                    emissive: portal.color,
-                    emissiveIntensity: 0.35,
-                    roughness: 0.35
-                })
-            );
-            ring.position.y = 2.7;
-            ring.castShadow = true;
-            group.add(ring);
-            const pad = new THREE.Mesh(
-                new THREE.CylinderGeometry(2.8, 3.2, 0.25, 24),
-                material(portal.color)
-            );
-            pad.position.y = 0.12;
-            pad.receiveShadow = true;
-            group.add(pad);
-            this.root.add(group);
-        }
     }
 
     _buildPracticeCourse() {
@@ -218,7 +218,7 @@ export class SocialLobby {
         const characterJobs = CHARACTER_ASSETS.map((url, index) => loader.loadAsync(url)
             .then(gltf => this._installCharacter(gltf, index))
             .catch(() => null));
-        const propJobs = PROP_ASSETS.map(([url, position, scale, rotationY]) => loader.loadAsync(url)
+        const propJobs = PROP_ASSETS.map(([url, position, scale, rotationY, collisionRadius]) => loader.loadAsync(url)
             .then(gltf => {
                 if (this._disposed) return;
                 const model = gltf.scene;
@@ -227,6 +227,13 @@ export class SocialLobby {
                 model.rotation.y = rotationY;
                 setMeshShadows(model);
                 this.root.add(model);
+                if (collisionRadius > 0) {
+                    this.arena.collidables.push({
+                        mesh: model,
+                        pos: model.position.clone(),
+                        radius: collisionRadius
+                    });
+                }
             })
             .catch(() => null));
         await Promise.allSettled([...characterJobs, ...propJobs]);
@@ -274,9 +281,7 @@ export class SocialLobby {
             this.player.alive = true;
             this.player.camera?.position.copy(this.player.position);
         }
-        this._nearPortal = null;
         this._presenceDirty = true;
-        this.onPrompt(null);
         this._emitPresence();
         return true;
     }
@@ -287,8 +292,6 @@ export class SocialLobby {
         this.root.visible = false;
         if (this.player && this._savedArena) this.player.arena = this._savedArena;
         this._savedArena = null;
-        this._nearPortal = null;
-        this.onPrompt(null);
         return true;
     }
 
@@ -303,19 +306,11 @@ export class SocialLobby {
             visitor.group.position.y = (visitor.group.userData.baseY || 0) + Math.sin(this._elapsed * 1.8) * 0.025;
         }
 
-        const nearest = findNearestPortal(this.player?.position, this.portals);
-        const portal = nearest?.portal || null;
-        if (portal?.id !== this._nearPortal?.id) {
-            this._nearPortal = portal;
-            this.onPrompt(portal ? { id: portal.id, label: portal.label, distance: nearest.distance } : null);
-        }
         if (this._presenceDirty) this._emitPresence();
     }
 
     interact() {
-        if (!this.active || !this._nearPortal) return false;
-        this.onInteract(this._nearPortal.id, this._nearPortal);
-        return true;
+        return false;
     }
 
     setRemoteVisitor(id, state = {}) {

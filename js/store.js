@@ -4,6 +4,7 @@
 import { CHARACTERS } from './characters.js';
 import { SKILLS, RUNES, DEFAULT_LOADOUT } from './skills.js';
 import { AVATAR_SKINS } from './avatar.js';
+import { CASES, KNIVES, canEquipKnife, rollCase } from './cosmetics.js';
 import { createRankedState, recordRankedMatch as applyRankedMatch } from './ranked-service.js';
 import {
     activateXpBoost,
@@ -57,8 +58,21 @@ const DEFAULTS = {
     customAvatar: null,
     ownedAvatarSkins: ['default'],
     equippedAvatarSkin: 'default',
+    ownedKnives: ['training'],
+    equippedKnives: { red: 'training', blue: 'training' },
     customMaps: [],
-    crosshairSettings: { style: 'dot', color: '#00ff88', size: 12, gap: 6, thickness: 2, dot: true },
+    crosshairSettings: {
+        style: 'cross',
+        color: '#36d8ca',
+        size: 12,
+        gap: 6,
+        thickness: 2,
+        dot: true,
+        outline: true,
+        outlineThickness: 1,
+        opacity: 1,
+        dynamicGap: 6
+    },
     mouseSensitivity: 2,
     rankedState: createRankedState(),
     socialState: createSocialState(),
@@ -92,11 +106,14 @@ class StoreClass {
             return { ...structuredClone(DEFAULTS), ...parsed,
                 settings: { ...DEFAULTS.settings, ...(parsed.settings||{}) },
                 loadout: { ...DEFAULTS.loadout, ...(parsed.loadout||{}) },
+                crosshairSettings: { ...DEFAULTS.crosshairSettings, ...(parsed.crosshairSettings||{}) },
                 characterProgress: { ...DEFAULTS.characterProgress, ...(parsed.characterProgress||{}) },
                 battlepass: { ...DEFAULTS.battlepass, ...(parsed.battlepass||{}) },
                 stats: { ...DEFAULTS.stats, ...(parsed.stats||{}) },
                 rankedState: parsed.rankedState || createRankedState({ elo: Math.round(legacyElo) }),
-                ownedAvatarSkins: parsed.ownedAvatarSkins || DEFAULTS.ownedAvatarSkins
+                ownedAvatarSkins: parsed.ownedAvatarSkins || DEFAULTS.ownedAvatarSkins,
+                ownedKnives: Array.isArray(parsed.ownedKnives) ? parsed.ownedKnives.filter(id => KNIVES[id]) : DEFAULTS.ownedKnives,
+                equippedKnives: { ...DEFAULTS.equippedKnives, ...(parsed.equippedKnives || {}) }
             };
         } catch {
             return structuredClone(DEFAULTS);
@@ -318,6 +335,27 @@ class StoreClass {
     equipAvatarSkin(skinId) {
         if (!this.hasAvatarAccess(skinId)) return false;
         this.data.equippedAvatarSkin = skinId;
+        this.save();
+        return true;
+    }
+
+    openCase(caseId, random = Math.random) {
+        const box = CASES[caseId];
+        if (!box || this.data.currency < box.price) return null;
+        const reward = rollCase(caseId, random);
+        if (!reward) return null;
+        this.data.currency -= box.price;
+        this.data.stats.totalSpent = (this.data.stats.totalSpent || 0) + box.price;
+        const duplicate = this.data.ownedKnives.includes(reward.id);
+        if (duplicate) this.data.currency += Math.floor(box.price * 0.35);
+        else if (this.data.ownedKnives.length < 64) this.data.ownedKnives.push(reward.id);
+        this.save();
+        return { reward, duplicate };
+    }
+
+    equipKnife(knifeId, team) {
+        if (!['red', 'blue'].includes(team) || !this.data.ownedKnives.includes(knifeId) || !canEquipKnife(knifeId, team)) return false;
+        this.data.equippedKnives[team] = knifeId;
         this.save();
         return true;
     }

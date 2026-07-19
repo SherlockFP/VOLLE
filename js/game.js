@@ -48,6 +48,14 @@ export class Game {
         this.audio = audio;
         this.ui = ui;
         this.network = network;
+        this.arena.onPinballBreak = target => {
+            const remaining = this.arena.pinballTargets?.filter(item => !item.broken).length || 0;
+            this.broadcastSystemMessage(`PINBALL GLASS ${target.mesh.userData.pinballTarget} BROKEN - ${remaining} LEFT`);
+            if (remaining === 0 && this.lastDeflector) {
+                const next = this.getEnemyTargets(this.lastDeflector.team, this.lastDeflector)[0];
+                if (next) this.ball.setTarget(next);
+            }
+        };
 
         this.state = STATES.MENU;
         this.ball = new Ball(renderer, arena);
@@ -64,6 +72,11 @@ export class Game {
         this.preGameTimer = 0;
         this.lastDeflector = null;
         this.lastDeflectorTeam = null;
+        this._openingOwner = null;
+        this.arena.pinballTargets?.forEach(target => {
+            target.broken = false;
+            target.mesh.visible = true;
+        });
         this.syncTimer = 0;
         this.syncRate = 0.05;
 
@@ -109,8 +122,8 @@ export class Game {
         // Game feel + modlar + emote
         this.juice = new Juice(this.player.camera, this.renderer);
         this.emotes = new EmoteSystem(this.renderer.scene);
-        this.mode = GAME_MODES.instagib; // ponytail: default instakill (HP'li seçilirse kapanır)
-        this._oneHitKill = true;
+        this.mode = GAME_MODES.classic;
+        this._oneHitKill = false;
         this._activeBlackHoles = [];
         this._splitBalls = [];
         this._killcamActive = false;
@@ -561,6 +574,10 @@ export class Game {
         this._killStreakTimers.clear();
         this._overtimeExtends = 0;
         this._spectateTarget = null;
+        if (this.arena.config?.lowGravity && this.mode?.id === 'classic') {
+            this.player.gravity = -7;
+            this.player.jumpForce = 12;
+        }
         this._hideKillcam();
         this.ui.hideAll();
         this.ui.showHUD();
@@ -629,9 +646,15 @@ export class Game {
         if (this._chaosModeIds.has(this.mode?.id)) this.chaosManager.startRound();
         if (this.ball._warmup) { this.ball.deactivate(); this.ball._warmup = false; }
         this.ball.spawn();
+        this.ball._pinballBounce = !!this.arena.config?.isPinball || !!this.mode?.mutators?.pinballBounce;
         this._applyBallAffix();
         this.lastDeflector = null;
         this.lastDeflectorTeam = null;
+        this._openingOwner = null;
+        this.arena.pinballTargets?.forEach(target => {
+            target.broken = false;
+            target.mesh.visible = true;
+        });
         this._deflectHistory = []; // son 2 deflector (assist için)
         this.rallyCount = 0;
         // ponytail: killStreak sadece yeni oyunda reset — FIRST BLOOD her round'da değil
@@ -724,6 +747,17 @@ export class Game {
     getAllTargets() {
         return [this.player, ...this.bots, ...this.remotePlayers.values()]
             .filter(p => !p.queuedForNextRound);
+    }
+
+    getAliveTeammates(team = this.player.team) {
+        return this.getAllTargets().filter(p => p !== this.player && p.alive && p.team === team);
+    }
+
+    _claimOpeningOwner(entity) {
+        if (this._openingOwner || !entity) return false;
+        this._openingOwner = entity;
+        this.broadcastSystemMessage(`${entity.name || this.playerName} CLAIMED THE OPENING BALL`);
+        return true;
     }
 
     shouldQueueLateJoin() {
@@ -1053,11 +1087,11 @@ export class Game {
         const blueAlive = all.filter(p => p.alive && p.team === 'blue');
         let winner = null;
         if (redAlive.length === 0 && blueAlive.length > 0) {
-            this.scoreboard.blueScore++;
+            this.scoreboard.recordRoundWin('blue');
             this.announce('🔵 BLUE TEAM WINS THE ROUND!', 'tf2_domination', 0.5, 2000);
             winner = 'blue';
         } else if (blueAlive.length === 0 && redAlive.length > 0) {
-            this.scoreboard.redScore++;
+            this.scoreboard.recordRoundWin('red');
             this.announce('🔴 RED TEAM WINS THE ROUND!', 'tf2_domination', 0.5, 2000);
             winner = 'red';
         } else if (redAlive.length === 0 && blueAlive.length === 0) {
@@ -1309,6 +1343,11 @@ export class Game {
         }
 
         this.arena.update(performance.now() / 1000, dt);
+        if (this.ball.active && this.arena.hitChicken?.(this.ball.position, this.ball.radius || 0.7)) {
+            this.spawnDeathExplosion(this.ball.position.clone(), 'chicken');
+            this.broadcastSystemMessage('CHICKEN EXPLODED! Cluck denied.');
+            this.audio.playExplosion?.();
+        }
 
         // Map voting countdown (host-side)
         if (this._mapVoteActive && this.network?.isHost) {
@@ -1687,6 +1726,7 @@ export class Game {
 
         this.lastDeflector = this.player;
         this.lastDeflectorTeam = team;
+        this._claimOpeningOwner(this.player);
         this._pushDeflectHistory(this.playerName);
         this.ball.lastShotBy = this.playerName;
         this.rallyCount++;
@@ -1760,6 +1800,7 @@ export class Game {
 
         this.lastDeflector = bot;
         this.lastDeflectorTeam = bot.team;
+        this._claimOpeningOwner(bot);
         this._pushDeflectHistory(bot.name);
         this.ball.lastShotBy = bot.name;
         this.rallyCount++;
@@ -2704,16 +2745,23 @@ export class Game {
         // Show first-person glove viewmodel for the punch/weapon fun
         this._celebWeapon = 'fists';
         this._prevHandVisible = this.player.armGroup?.visible ?? false;
-        this.player.setHandVisible?.(true);
-        this._setCelebrationGloveColor(this.player.team === 'red' ? 0xee5555 : 0x5577dd);
-        this._buildCelebWeapons();
-        this._showCelebWeaponHUD?.('fists');
         const wh = document.getElementById('celeb-weapon-hud');
-        if (wh) {
+        if (this._won) {
+            this.player.setHandVisible?.(true);
+            this._setCelebrationGloveColor(this.player.team === 'red' ? 0xee5555 : 0x5577dd);
+            this._buildCelebWeapons();
+            this._showCelebWeaponHUD?.('fists');
+        } else {
+            this.player.setHandVisible?.(false);
+        }
+        if (wh && this._won) {
             wh.classList.remove('hidden');
             wh.style.display = 'flex';
+        } else if (wh) {
+            wh.classList.add('hidden');
+            wh.style.display = 'none';
         }
-        this.ui.showMessage?.('🥊 STRESS RELIEF! 1 Gloves · 2 Pistol · 3 Rocket', 4000);
+        if (this._won) this.ui.showMessage?.('WINNER LOADOUT: 1 Gloves / 2 Pistol / 3 Rocket', 4000);
 
         // P2P: celebration state'ini client'lara yayınla
         if (this.network?.isHost) {
@@ -2733,7 +2781,7 @@ export class Game {
     }
 
     selectCelebrationWeapon(weaponId) {
-        if (this.state !== STATES.CELEBRATION || !['fists', 'pistol', 'rocket'].includes(weaponId)) return;
+        if (this.state !== STATES.CELEBRATION || !this._won || !['fists', 'pistol', 'rocket'].includes(weaponId)) return;
         this._celebWeapon = weaponId;
         const colors = {
             fists: this.player.team === 'red' ? 0xee5555 : 0x5577dd,
@@ -3365,6 +3413,7 @@ export class Game {
             if (this.ball._affixSplit) this.spawnSplitBall(this.ball);
             this.lastDeflector = p;
             this.lastDeflectorTeam = p.team;
+            this._claimOpeningOwner(p);
             this._pushDeflectHistory(p.name);
             this.ball.lastShotBy = p.name;
             this.rallyCount++;
@@ -4050,10 +4099,18 @@ export class Game {
         this.remotePlayers.forEach(p => p.setTargetOutline?.(false));
         this._celebWeapon = 'fists';
         this._prevHandVisible = this.player.armGroup?.visible ?? false;
-        this.player.setHandVisible?.(true);
-        this._setCelebrationGloveColor(this.player.team === 'red' ? 0xee5555 : 0x5577dd);
-        this._buildCelebWeapons();
-        this._showCelebWeapon('fists');
+        this.player.setHandVisible?.(this._won);
+        if (this._won) {
+            this._setCelebrationGloveColor(this.player.team === 'red' ? 0xee5555 : 0x5577dd);
+            this._buildCelebWeapons();
+            this._showCelebWeapon('fists');
+        } else {
+            const wh = document.getElementById('celeb-weapon-hud');
+            if (wh) {
+                wh.classList.add('hidden');
+                wh.style.display = 'none';
+            }
+        }
         this.ui.showMessage?.(data.message || '', 3000);
         if (this._won) {
             this.audio?.playSfx?.('tf2_victory', 0.55);

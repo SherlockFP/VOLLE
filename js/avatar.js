@@ -36,8 +36,8 @@ export const AVATAR_SKINS = Object.freeze({
     astro: skin('astro', 'Astro Courier', 420, 'slim', null, '#d7f1ff', '#253d76', '#6ecbff', '#19264d'),
     arcade: skin('arcade', 'Arcade Ace', 380, 'classic', null, '#ffd2b0', '#21b8d6', '#ff5f9e', '#263057'),
     moss: skin('moss', 'Moss Golem', 450, 'classic', null, '#b7d695', '#456b47', '#719c58', '#304936'),
-    blue_default: skin('blue_default', 'Blue Default', 0, 'classic', 'blue', '#ffd8a8', '#3355cc', '#3355cc', '#172b70'),
-    red_guard: skin('red_guard', 'Red Guard', 0, 'classic', 'red', '#ffd8a8', '#cc3333', '#a82424', '#651c2a')
+    blue_default: skin('blue_default', 'Blue Current', 0, 'classic', 'blue', '#e2bd98', '#2469d8', '#67d8ff', '#142e68'),
+    red_guard: skin('red_guard', 'Red Current', 0, 'classic', 'red', '#e2bd98', '#d83d49', '#ff806f', '#651c2a')
 });
 
 export const TEAM_SKIN_IDS = Object.freeze({ blue: 'blue_default', red: 'red_guard' });
@@ -100,6 +100,16 @@ export function createAvatarAtlas(skinId = 'default') {
     paintBox(pixels, 16, 48, 4, 4, 12, preset.legs);
     pixels[11 * ATLAS_SIZE + 10] = '#222222';
     pixels[11 * ATLAS_SIZE + 13] = '#222222';
+    if (preset.team) {
+        const accent = preset.team === 'red' ? '#ffd8cc' : '#d5f5ff';
+        for (let x = 21; x <= 26; x++) pixels[22 * ATLAS_SIZE + x] = accent;
+        pixels[24 * ATLAS_SIZE + 23] = accent;
+        pixels[24 * ATLAS_SIZE + 24] = accent;
+        pixels[25 * ATLAS_SIZE + 22] = accent;
+        pixels[25 * ATLAS_SIZE + 25] = accent;
+        pixels[26 * ATLAS_SIZE + 23] = accent;
+        pixels[26 * ATLAS_SIZE + 24] = accent;
+    }
     return pixels;
 }
 

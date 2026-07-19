@@ -50,11 +50,14 @@ export class Scoreboard {
 
     recordPoint(name, amount = 1) {
         const p = this.players.get(name);
-        if (p) {
-            p.score += amount;
-            if (p.team === 'red') this.redScore += amount;
-            else this.blueScore += amount;
-        }
+        if (p) p.score += amount;
+    }
+
+    recordRoundWin(team) {
+        if (team === 'red') this.redScore++;
+        else if (team === 'blue') this.blueScore++;
+        else return false;
+        return true;
     }
 
     newRound() {

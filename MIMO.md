@@ -202,6 +202,38 @@ dodgb/
 - Automated Node tests are available via `npm test`; Phase 1 UI coverage lives in `tests/ui-foundation.test.mjs`.
 - PeerJS P2P requires both peers to be on same network or use a signaling server.
 
+## July 2026 Polish Pass
+
+- Unified menu, lobby, Social Hub, shop, progression, career, and patch notes around a turquoise/light-blue visual system.
+- Social Hub activity portals removed; map view, presence, chat, practice area, and solid prop collision retained.
+- Added Source-style bunnyhop feedback, Ctrl+Space+W longjump, speed HUD, landing distance notifications, and crosshair share codes.
+- Added lobby map previews, expanded progression/career presentation, generated shop roster artwork, and `By Sherlock` patch notes.
+- Reduced authoritative background simulation from 128Hz to 60Hz; ball sync is 30Hz and bot sync is 10Hz.
+- Replacement Social Hub map remains pending the user-provided source link.
+- Public launch still needs production signaling/TURN configuration and multi-peer soak testing.
+
+## Competitive Rules Pass
+
+- Team score is integer round score only; damage and kills remain personal stats.
+- Classic HP/elimination is now the default instead of Instagib.
+- A round ends only when a complete team is eliminated.
+- Celebration weapons and HUD are winner-only.
+- Dead players receive smoothed first-person POV restricted to living teammates.
+- Emote wheel is centered, translucent, keyboard-accessible, and reduced-motion safe.
+- Every arena gets spectator stands and one roaming chicken; ball contact triggers the meme announcement.
+- Space arena includes planets, starfield, and map-specific low gravity.
+
+## Cosmetics and Mega Arena Pass
+
+- Added deterministic first-touch opening-ball ownership announcements.
+- Added `Mega Pinball Complex`, roughly 10x standard arena dimensions, with 12 resettable breakable glass targets.
+- Added Pinball mode and target-chain chat feedback.
+- Added an original animated knife viewmodel that remains cosmetic.
+- Added bounded knife catalog, Kickoff Case, weighted secure drop roll, duplicate conversion, and team-restricted equipment.
+- Added Shop Cases and Inventory tabs with red/blue loadouts.
+- Upgraded free Red Current and Blue Current Minecraft-style team atlases.
+- Generated original Kickoff Case artwork at `assets/generated/volle-kickoff-case.webp`.
+
 ---
 
 ## For Other AIs

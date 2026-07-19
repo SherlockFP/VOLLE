@@ -4,6 +4,7 @@ import { CHARACTERS } from './characters.js';
 import { SKILLS, RUNES } from './skills.js';
 import { BALL_SKINS } from './ball.js';
 import { AVATAR_SKINS } from './avatar.js';
+import { CASES, KNIVES } from './cosmetics.js';
 import { ACHIEVEMENTS } from './achievements.js';
 import { MatchHistory } from './matchhistory.js';
 import { getRank, getRankProgress } from './ranked.js';
@@ -31,6 +32,7 @@ export class UI {
             leaderboard: document.getElementById('leaderboard-screen'),
             replays: document.getElementById('replays-screen'),
             social: document.getElementById('social-screen'),
+            patchnotes: document.getElementById('patchnotes-screen'),
             tournament: document.getElementById('tournament-screen'),
             profile: document.getElementById('screen-profile')
         };
@@ -79,6 +81,7 @@ export class UI {
             target.classList.remove('hidden');
             void target.offsetHeight; // force reflow for entrance animation
         }
+        document.body.dataset.screen = name;
         // Close floating menus that aren't in screens
         const extras = ['pause-menu', 'settings-screen', 'post-game-screen', 'team-popup', 'celeb-weapon-hud'];
         extras.forEach(id => {
@@ -128,6 +131,19 @@ export class UI {
                 speedEl.style.textShadow = 'none';
             }
         }
+    }
+
+    updateMovementHUD(speed = 0, state = 'MOVE', social = false) {
+        const root = document.getElementById(social ? 'social-movement-hud' : 'movement-hud');
+        const value = document.getElementById(social ? 'social-speed-value' : 'movement-speed-value');
+        const label = document.getElementById(social ? 'social-movement-state' : 'movement-state');
+        if (!root || !value || !label) return;
+        const safeSpeed = Number.isFinite(speed) ? Math.max(0, speed) : 0;
+        value.textContent = Math.round(safeSpeed);
+        label.textContent = state;
+        root.classList.toggle('hidden', safeSpeed < 4 && state === 'MOVE');
+        root.classList.toggle('boost', safeSpeed >= 11 || state === 'BHOP');
+        root.classList.toggle('longjump', state === 'LONGJUMP');
     }
 
     updateScoreboard(stats) {
@@ -946,6 +962,22 @@ export class UI {
             card.className = 'shop-card';
             card.innerHTML = '<div class="skill-emoji">XP</div><div class="char-name">Arcade XP Boost</div><div class="char-desc">1.5x match XP for 60 minutes.</div><button class="btn btn-primary btn-small shop-buy" data-type="boost" data-id="xp-15">120 coins</button>';
             grid.appendChild(card);
+        } else if (tab === 'cases') {
+            Object.values(CASES).forEach(box => {
+                const card = document.createElement('div');
+                card.className = 'shop-card case-card';
+                card.innerHTML = `<div class="case-art" aria-hidden="true"></div><div class="char-name">${box.name}</div><div class="char-desc">Team knives, Prism Breaker and the Sherlock Signature.</div><button class="btn btn-primary btn-small case-open" data-id="${box.id}">${box.price} coins / Open</button>`;
+                grid.appendChild(card);
+            });
+        } else if (tab === 'inventory') {
+            const owned = new Set(store.get('ownedKnives') || []);
+            const equipped = store.get('equippedKnives') || {};
+            Object.values(KNIVES).filter(knife => owned.has(knife.id)).forEach(knife => {
+                const card = document.createElement('div');
+                card.className = `shop-card inventory-card rarity-${knife.rarity}`;
+                card.innerHTML = `<div class="knife-preview" style="--knife-color:${knife.color}" aria-hidden="true"></div><div class="char-name">${knife.name}</div><div class="char-desc">${knife.rarity.toUpperCase()} / ${knife.teams.map(t => t.toUpperCase()).join(' + ')}</div><div class="inventory-actions">${knife.teams.map(team => equipped[team] === knife.id ? `<span class="shop-owned">${team.toUpperCase()} equipped</span>` : `<button class="btn btn-small knife-equip" data-id="${knife.id}" data-team="${team}">Equip ${team}</button>`).join('')}</div>`;
+                grid.appendChild(card);
+            });
         }
     }
 
@@ -960,6 +992,15 @@ export class UI {
         if (!track) return;
         track.innerHTML = '';
         const rewards = store.getBattlepassRewards();
+        const nextReward = rewards.find(reward => reward.tier > bp.tier);
+        const nextEl = document.getElementById('bp-next-reward');
+        const ringEl = document.getElementById('bp-progress-ring');
+        const ring = document.querySelector('.progression-ring');
+        if (nextEl) nextEl.textContent = nextReward
+            ? `Tier ${nextReward.tier}: ${nextReward.name}`
+            : 'Season track complete';
+        if (ringEl) ringEl.textContent = `${bp.xp}%`;
+        if (ring) ring.style.setProperty('--bp-progress', `${bp.xp}%`);
         rewards.forEach(r => {
             const div = document.createElement('div');
             const claimed = bp.claimed.includes(r.tier);
@@ -1037,6 +1078,43 @@ export class UI {
                 <div>Total Wins: ${stats.totalWins}</div>
             </div>
         `;
+    }
+
+    renderCareer(store) {
+        const el = document.getElementById('ranked-info');
+        if (!el) return;
+        const elo = store.getElo();
+        const prog = getRankProgress(elo);
+        const stats = store.get('stats');
+        const games = Math.max(0, stats.gamesPlayed || 0);
+        const wins = Math.max(0, stats.totalWins || 0);
+        const winRate = games ? Math.round(wins / games * 100) : 0;
+        el.innerHTML = `
+            <div class="career-dashboard">
+                <section class="career-rank-card">
+                    <span class="shell-kicker">CURRENT RANK</span>
+                    <div class="ranked-rank" style="color:${prog.rank.color}">
+                        <span class="ranked-emoji">${prog.rank.emoji}</span>
+                        <span class="ranked-name">${prog.rank.name}</span>
+                    </div>
+                    <div class="ranked-elo">${elo} ELO</div>
+                    <div class="ranked-progress-bar"><div class="ranked-progress-fill" style="width:${prog.pct}%;background:${prog.rank.color}"></div></div>
+                    <div class="ranked-next">${prog.next ? `${prog.next.min - elo} ELO to ${prog.next.name}` : 'Top rank reached'}</div>
+                </section>
+                <section class="career-stats-grid">
+                    <div class="career-stat-card"><b>${games}</b><span>Matches</span></div>
+                    <div class="career-stat-card"><b>${wins}</b><span>Wins</span></div>
+                    <div class="career-stat-card"><b>${winRate}%</b><span>Win rate</span></div>
+                    <div class="career-stat-card"><b>${stats.totalHits || 0}</b><span>Hits</span></div>
+                    <div class="career-stat-card"><b>${stats.totalDeflects || 0}</b><span>Deflects</span></div>
+                    <div class="career-stat-card"><b>${store.getWinStreak()}</b><span>Win streak</span></div>
+                </section>
+                <section class="career-milestones">
+                    <div class="career-milestone-card"><span class="shell-kicker">RALLY</span><strong>${stats.bestRally || 0}</strong><p>Best rally chain</p></div>
+                    <div class="career-milestone-card"><span class="shell-kicker">RANKED</span><strong>${stats.rankedGames || 0}</strong><p>Competitive matches</p></div>
+                    <div class="career-milestone-card"><span class="shell-kicker">MASTERY</span><strong>${store.get('level') || 1}</strong><p>Account level</p></div>
+                </section>
+            </div>`;
     }
 
     // ===== LEADERBOARD EKRANI =====
@@ -1139,7 +1217,7 @@ export class UI {
         this.showScreen('screen-profile');
     }
 
-    hideProfile() { this.showScreen('screen-menu'); }
+    hideProfile() { this.showScreen('mainMenu'); }
 
     showMatchResult(winner, stats) {
         const el = document.getElementById('match-result');

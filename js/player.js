@@ -18,6 +18,11 @@ export const AIR_WISH_CAP = 0.94;
 export const SLIPPERY_SURFACE_FACTOR = 0.28;
 export const HORIZONTAL_STEP = 1 / 120;
 export const MAX_HORIZONTAL_STEPS = 8;
+export const LONG_JUMP_SPEED = 14;
+export const LONG_JUMP_MAX_SPEED = 16;
+export const LONG_JUMP_VERTICAL_BOOST = 5.5;
+export const LONG_JUMP_COOLDOWN = 1;
+export const LONG_JUMP_STAMINA_COST = 30;
 
 export function applyGroundFriction(velocity, friction, stopSpeed, dt) {
     const speed = Math.hypot(velocity.x, velocity.z);
@@ -117,6 +122,72 @@ export function resolveJump({ spaceDown, onGround, jumpHeld, jumpsRemaining, ver
     return { onGround, jumpHeld, jumpsRemaining, verticalVel, kind: null };
 }
 
+export function resolveLongJump({
+    ctrlDown,
+    spaceDown,
+    forwardDown,
+    onGround,
+    comboHeld,
+    dashActive,
+    cooldown,
+    stamina,
+    velocity,
+    verticalVel = 0,
+    forward,
+    targetSpeed = LONG_JUMP_SPEED,
+    maxSpeed = LONG_JUMP_MAX_SPEED,
+    verticalBoost = LONG_JUMP_VERTICAL_BOOST,
+    staminaCost = LONG_JUMP_STAMINA_COST,
+    cooldownDuration = LONG_JUMP_COOLDOWN
+}) {
+    const comboDown = ctrlDown && spaceDown && forwardDown;
+    const unchanged = {
+        triggered: false,
+        comboHeld: comboDown,
+        onGround,
+        cooldown,
+        stamina,
+        velocity: { x: velocity.x, z: velocity.z },
+        verticalVel,
+        event: null
+    };
+    if (!comboDown || comboHeld || !onGround || dashActive || cooldown > 0 || stamina < staminaCost) {
+        return unchanged;
+    }
+
+    const forwardLength = Math.hypot(forward.x, forward.z);
+    if (forwardLength === 0 || maxSpeed <= 0) return unchanged;
+
+    const fx = forward.x / forwardLength;
+    const fz = forward.z / forwardLength;
+    const safeTarget = Math.min(Math.max(0, targetSpeed), maxSpeed);
+    const forwardSpeed = velocity.x * fx + velocity.z * fz;
+    const addedSpeed = Math.max(0, safeTarget - forwardSpeed);
+    let x = velocity.x + fx * addedSpeed;
+    let z = velocity.z + fz * addedSpeed;
+    const speed = Math.hypot(x, z);
+    if (speed > maxSpeed) {
+        const scale = maxSpeed / speed;
+        x *= scale;
+        z *= scale;
+    }
+
+    return {
+        triggered: true,
+        comboHeld: true,
+        onGround: false,
+        cooldown: cooldownDuration,
+        stamina: stamina - staminaCost,
+        velocity: { x, z },
+        verticalVel: verticalBoost,
+        event: {
+            type: 'longjump',
+            staminaCost,
+            cooldown: cooldownDuration
+        }
+    };
+}
+
 export function clipInwardVelocity(velocity, normal) {
     const normalLength = Math.hypot(normal.x, normal.z);
     if (normalLength === 0) return { ...velocity };
@@ -199,6 +270,16 @@ export class Player {
         this.dashDir = new THREE.Vector3();
         this._dashWasDown = false;
 
+        // Longjump - Ctrl+Space+W from the ground.
+        this.longJumpCooldown = 0;
+        this.longJumpCost = LONG_JUMP_STAMINA_COST;
+        this.longJumpSpeed = LONG_JUMP_SPEED;
+        this.longJumpMaxSpeed = LONG_JUMP_MAX_SPEED;
+        this.longJumpVerticalBoost = LONG_JUMP_VERTICAL_BOOST;
+        this._longJumpWasDown = false;
+        this.longJumpEvent = null;
+        this.horizontalSpeed = 0;
+
         // A-D-A-D spin dodge — rapid strafe to orbit ball
         this._strafeHistory = [];  // [{ key: 'A'|'D', time }]
 
@@ -279,6 +360,25 @@ export class Player {
         this.gloveMesh.position.set(0, 0, -0.36);
         this.armGroup.add(this.gloveMesh);
 
+        this.knifeGroup = new THREE.Group();
+        const blade = new THREE.Mesh(
+            new THREE.BoxGeometry(0.055, 0.018, 0.46),
+            new THREE.MeshStandardMaterial({ color: 0xd7f3ff, metalness: 0.82, roughness: 0.22, emissive: 0x071018 })
+        );
+        blade.position.z = -0.25;
+        const tip = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.14, 4), blade.material);
+        tip.rotation.x = -Math.PI / 2;
+        tip.position.z = -0.55;
+        const handle = new THREE.Mesh(
+            new THREE.BoxGeometry(0.1, 0.07, 0.2),
+            this.renderer.createToonMaterial(0x152631)
+        );
+        handle.position.z = 0.08;
+        this.knifeGroup.add(blade, tip, handle);
+        this.knifeGroup.position.set(0.03, -0.02, -0.34);
+        this.knifeGroup.rotation.z = -0.12;
+        this.armGroup.add(this.knifeGroup);
+
         this.camera.add(this.armGroup);
         this.armGroup.visible = false; // default off — toggle via sv_hand
 
@@ -287,6 +387,16 @@ export class Player {
 
     setHandVisible(on) {
         this.armGroup.visible = on;
+    }
+
+    setKnifeStyle(style = {}) {
+        const color = style.color || '#d7f3ff';
+        this.knifeGroup?.traverse(mesh => {
+            if (mesh.material?.metalness != null) {
+                mesh.material.color.set(color);
+                mesh.material.emissive?.set(color).multiplyScalar(0.08);
+            }
+        });
     }
 
     setupInput() {
@@ -355,6 +465,7 @@ export class Player {
     _clearInputState() {
         for (const code of Object.keys(this.keys)) this.keys[code] = false;
         this._dashWasDown = false;
+        this._longJumpWasDown = false;
         this._jumpHeld = false;
         this._skillQueued = false;
         this._strafeHistory = [];
@@ -425,6 +536,7 @@ export class Player {
     }
 
     update(dt) {
+        this.longJumpEvent = null;
         if (!this.alive) {
             this.deathTimer -= dt;
             // ponytail: auto-respawn after death timer expires (round-mid death)
@@ -513,6 +625,39 @@ export class Player {
         if (this.keys['KeyA']) moveDir.sub(right);
         if (this.keys['KeyD']) moveDir.add(right);
 
+        const ctrlDown = !!(this.keys['ControlLeft'] || this.keys['ControlRight']);
+        this.longJumpCooldown = Math.max(0, this.longJumpCooldown - dt);
+        const longJump = resolveLongJump({
+            ctrlDown,
+            spaceDown: !!this.keys['Space'],
+            forwardDown: !!this.keys['KeyW'],
+            onGround: this.onGround,
+            comboHeld: this._longJumpWasDown,
+            dashActive: this.dashTimer > 0,
+            cooldown: this.longJumpCooldown,
+            stamina: this.stamina,
+            velocity: this.velocity,
+            verticalVel: this.verticalVel,
+            forward,
+            targetSpeed: this.longJumpSpeed,
+            maxSpeed: this.longJumpMaxSpeed,
+            verticalBoost: this.longJumpVerticalBoost,
+            staminaCost: this.longJumpCost
+        });
+        this._longJumpWasDown = longJump.comboHeld;
+        this.longJumpCooldown = longJump.cooldown;
+        this.stamina = longJump.stamina;
+        this.velocity.x = longJump.velocity.x;
+        this.velocity.z = longJump.velocity.z;
+        if (longJump.triggered) {
+            this.onGround = longJump.onGround;
+            this.verticalVel = longJump.verticalVel;
+            this._jumpHeld = true;
+            this.jumpsRemaining = 1;
+            this.longJumpEvent = longJump.event;
+            this.audio?.playJump();
+        }
+
         // Wall jump gets first claim on an airborne jump press.
         const ab = this.arena.bounds;
         const ceil = this.arena.ceilingHeight > 0 ? this.arena.ceilingHeight : (ab.maxY || 30);
@@ -520,8 +665,8 @@ export class Player {
         const nearWall = this.position.x - this.radius - 1 < ab.minX || this.position.x + this.radius + 1 > ab.maxX
                       || this.position.z - this.radius - 1 < ab.minZ || this.position.z + this.radius + 1 > ab.maxZ;
         this._wallJumpCD = (this._wallJumpCD || 0) - dt;
-        let wallJumped = false;
-        if (this.keys['Space'] && !this.onGround && nearWall && this.position.y < wallJumpMaxY
+        let jumpClaimed = longJump.triggered;
+        if (!jumpClaimed && this.keys['Space'] && !this.onGround && nearWall && this.position.y < wallJumpMaxY
             && !this._jumpHeld && this._wallJumpCD <= 0 && this.stamina >= 15) {
             this.verticalVel = this.jumpForce * 0.85;
             this.stamina -= 15;
@@ -543,11 +688,11 @@ export class Player {
                 this._clipHorizontalVelocity(0, -1);
             }
             this._jumpHeld = true;
-            wallJumped = true;
+            jumpClaimed = true;
             if (this.audio) this.audio.playJump();
         }
 
-        if (!wallJumped) {
+        if (!jumpClaimed) {
             const jump = resolveJump({
                 spaceDown: !!this.keys['Space'],
                 onGround: this.onGround,
@@ -580,8 +725,8 @@ export class Player {
         }
 
         // Dash trigger — Ctrl tap
-        const ctrlDown = this.keys['ControlLeft'] || this.keys['ControlRight'];
-        if (ctrlDown && !this._dashWasDown && this.dashCooldown <= 0 && this.dashTimer <= 0 && this.stamina >= this.dashCost) {
+        if (ctrlDown && !this._dashWasDown && !longJump.triggered
+            && this.dashCooldown <= 0 && this.dashTimer <= 0 && this.stamina >= this.dashCost) {
             this.dashCooldown = 1.0;
             this.dashTimer = this.dashDuration;
             this.stamina -= this.dashCost;
@@ -699,6 +844,10 @@ export class Player {
             this.verticalVel,
             wasDashing ? this.dashDir.z * this.dashForce : this.velocity.z
         );
+        this.horizontalSpeed = Math.hypot(this._frameVel.x, this._frameVel.z);
+        if (this.longJumpEvent) {
+            this.longJumpEvent.horizontalSpeed = this.horizontalSpeed;
+        }
 
         if (!this.killcamLock) {
             this.camera.position.copy(this.position);

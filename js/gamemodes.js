@@ -66,6 +66,11 @@ export const GAME_MODES = {
         desc: 'First to 3 rounds, overtime if tied.',
         mutators: { maxRounds: 5, overtime: true }
     },
+    pinball: {
+        id: 'pinball', name: 'Pinball Break', emoji: 'PB',
+        desc: 'High-restitution wall play and breakable target chains.',
+        mutators: { pinballBounce: true }
+    },
     ...CHAOS_MODES
 };
 

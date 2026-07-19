@@ -43,6 +43,22 @@ test('avatar trials grant temporary access and XP boosts affect rewards', () => 
     assert.equal(Store.buyAndActivateXpBoost(), false);
 });
 
+test('case opening charges once, handles duplicates, and enforces team equip', () => {
+    Store.reset();
+    const before = Store.get('currency');
+    const first = Store.openCase('kickoff', () => 0);
+    assert.equal(first.reward.id, 'tide');
+    assert.equal(first.duplicate, false);
+    assert.equal(Store.get('currency'), before - 120);
+    assert.equal(Store.equipKnife('tide', 'red'), false);
+    assert.equal(Store.equipKnife('tide', 'blue'), true);
+    Store.grant({ currency: 120 });
+    const duplicate = Store.openCase('kickoff', () => 0);
+    assert.equal(duplicate.duplicate, true);
+    assert.equal(Store.get('currency'), 122);
+    assert.equal(Store.openCase('missing', () => 0), null);
+});
+
 test('legacy ranked ELO migrates into seasonal ranked state', () => {
     Store.reset();
     localStorage.setItem('dodgball_save_v2', JSON.stringify({

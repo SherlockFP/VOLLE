@@ -539,11 +539,17 @@ export class Ball {
         // Collision with map props (trees, pillars, mecha legs, canyon rocks)
         if (this.arena.collidables) {
             for (const c of this.arena.collidables) {
+                if (c.breakable && c.broken) continue;
                 const dx = this.position.x - c.pos.x;
                 const dz = this.position.z - c.pos.z;
                 const dy = Math.abs(this.position.y - c.pos.y);
                 const minDist = this.radius + c.radius;
                 if (dx * dx + dz * dz < minDist * minDist && dy < c.radius + this.radius + 2) {
+                    if (c.breakable && !c.broken) {
+                        c.broken = true;
+                        c.mesh.visible = false;
+                        this.arena.onPinballBreak?.(c);
+                    }
                     // Push ball out of the collision cylinder
                     const dist = Math.sqrt(dx * dx + dz * dz);
                     if (dist > 0.01) {

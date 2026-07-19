@@ -10,6 +10,7 @@ import { Network } from './network.js';
 import { Store } from './store.js';
 import { DEFAULT_LOADOUT } from './skills.js';
 import { AvatarPainter, AVATAR_SKINS } from './avatar.js';
+import { KNIVES } from './cosmetics.js';
 import { MapEditorController } from './map-editor.js';
 import { normalizeMapConfig } from './map-config.js';
 import { checkAchievements } from './achievements.js';
@@ -23,10 +24,16 @@ import { tournament } from './tournament.js';
 import { Friends } from './friends.js';
 import { CHARACTERS } from './characters.js';
 import { appendClanMessage, createClan, listClans } from './social.js';
-import { SocialLobby } from './social-lobby.js';
+import { SocialLobby, getSocialLobbyMapState } from './social-lobby.js';
 import { applyUiPreferences, loadUiPreferences, normalizeTheme, normalizeUiScale } from './ui-theme.js';
 import { initSettingsTabs } from './settings-controller.js';
 import { formatMapSize } from './map-display.js';
+import {
+    exportCrosshairCode,
+    importCrosshairCode,
+    normalizeCrosshairConfig,
+    renderCrosshair
+} from './crosshair.js';
 
 class App {
     constructor() {
@@ -70,8 +77,6 @@ class App {
         this.player.game = this.game;
         this.player.audio = this.audio;
         this.socialLobby = new SocialLobby(this.renderer, this.player, {
-            onInteract: portalId => this._useSocialPortal(portalId),
-            onPrompt: portal => this._updateSocialPrompt(portal),
             onPresence: presence => this._updateSocialPresence(presence)
         });
         this._socialRemoteSeen = new Map();
@@ -103,6 +108,8 @@ class App {
         this._bgPosSent = new Map();
         this._bgScoreTimer = 0;
         this._bgPowerUpTimer = 0;
+        this._bgBallTimer = 0;
+        this._bgBotTimer = 0;
         // ponytail: AbortController prevents listener accumulation on game restart
         this._mainAbort = new AbortController();
         document.addEventListener('visibilitychange', () => this._onVisibilityChange(), { signal: this._mainAbort.signal });
@@ -118,7 +125,7 @@ class App {
         document.addEventListener('mousedown', e => {
             if (!this.player.alive && this.game._spectateTarget) {
                 e.preventDefault();
-                const teammates = this.game.bots.filter(b => b.alive && b.team === this.player.team);
+                const teammates = this.game.getAliveTeammates();
                 if (teammates.length > 0) {
                     const idx = teammates.indexOf(this.game._spectateTarget);
                     if (e.button === 0) {
@@ -163,7 +170,7 @@ class App {
             }
             // Spectate cycling when dead
             if (!this.player.alive && this.game._spectateTarget) {
-                const teammates = this.game.bots.filter(b => b.alive && b.team === this.player.team);
+                const teammates = this.game.getAliveTeammates();
                 if (teammates.length > 0) {
                     const idx = teammates.indexOf(this.game._spectateTarget);
                     if (e.code === 'BracketRight') {
@@ -273,10 +280,7 @@ class App {
                 }
             }
             if (this.game.state === STATES.SOCIAL_HUB) {
-                if (e.code === 'KeyE') {
-                    e.preventDefault();
-                    this.socialLobby.interact();
-                } else if (e.code === 'KeyY' || e.code === 'Enter') {
+                if (e.code === 'KeyY' || e.code === 'Enter') {
                     e.preventDefault();
                     this.player.unlock();
                     document.getElementById('social-lobby-chat-input')?.focus();
@@ -328,6 +332,8 @@ class App {
         // Ball skin uygula
         const ballSkin = this.store.get('equippedBall') || 'classic';
         this.game.ball.setSkin(ballSkin);
+        const knifeId = this.store.get('equippedKnives')?.[this.player.team] || 'training';
+        this.player.setKnifeStyle?.(KNIVES[knifeId] || KNIVES.training);
         this.ui.updateBallSkin?.(ballSkin);
         // FOV
         const fov = this.store.get('settings').fov || 75;
@@ -639,7 +645,7 @@ class App {
         });
 
         bind('btn-ranked', () => {
-            this.ui.renderRanked(this.store);
+            this.ui.renderCareer(this.store);
             this.ui.showScreen('ranked');
         });
         bind('btn-ranked-play', () => {
@@ -657,7 +663,6 @@ class App {
         });
         bind('btn-social-lobby', () => this._enterSocialLobby());
         bind('social-lobby-exit', () => this._exitSocialLobby());
-        bind('social-lobby-interact', () => this.socialLobby.interact());
         bind('social-lobby-clans', () => {
             this._leaveSocialLobby();
             this._renderSocial();
@@ -690,6 +695,8 @@ class App {
             this.ui.renderReplays?.(Replay.loadAll());
             this.ui.showScreen('replays');
         });
+        bind('btn-patchnotes', () => this.ui.showScreen('patchnotes'));
+        bind('btn-patchnotes-back', () => this.ui.showScreen('mainMenu'));
 
         bind('btn-tournament', () => {
             this.ui.showScreen('tournament');
@@ -1128,7 +1135,7 @@ class App {
         bindAccessibility('setting-high-contrast', 'highContrast');
         bindAccessibility('setting-color-blind', 'colorBlind', false);
         // Crosshair settings
-        const applyCrosshair = () => {
+        const applyCrosshairLegacy = () => {
             const chEl = document.querySelector('.crosshair');
             // Only show crosshair during gameplay
             if (this.game.state !== STATES.PLAYING && this.game.state !== STATES.CELEBRATION) {
@@ -1196,6 +1203,18 @@ class App {
                 chEl.appendChild(d);
             }
         };
+        const applyCrosshair = (dynamicScale = this._crosshairDynamicScale || 0) => {
+            const hud = document.querySelector('.crosshair');
+            const preview = document.getElementById('crosshair-preview-reticle');
+            const config = normalizeCrosshairConfig(this.store.get('crosshairSettings'));
+            if (hud) {
+                const visible = this.game.state === STATES.PLAYING || this.game.state === STATES.CELEBRATION;
+                hud.style.display = visible ? '' : 'none';
+                if (visible) renderCrosshair(hud, config, dynamicScale);
+            }
+            if (preview) renderCrosshair(preview, config, dynamicScale);
+            return config;
+        };
         bindSetting('setting-crosshair', e => {
             const s = this.store.get('crosshairSettings') || {};
             s.style = e.target.value;
@@ -1235,6 +1254,27 @@ class App {
                 applyCrosshair();
             });
         }
+        const chOutline = document.getElementById('setting-crosshair-outline');
+        if (chOutline) {
+            chOutline.addEventListener('change', e => {
+                const s = this.store.get('crosshairSettings') || {};
+                s.outline = e.target.checked;
+                this.store.set('crosshairSettings', normalizeCrosshairConfig(s));
+                applyCrosshair();
+            });
+        }
+        bindSetting('setting-crosshair-opacity', e => {
+            const s = this.store.get('crosshairSettings') || {};
+            s.opacity = Number(e.target.value) / 100;
+            this.store.set('crosshairSettings', normalizeCrosshairConfig(s));
+            applyCrosshair();
+        });
+        bindSetting('setting-crosshair-dynamic', e => {
+            const s = this.store.get('crosshairSettings') || {};
+            s.dynamicGap = Number(e.target.value);
+            this.store.set('crosshairSettings', normalizeCrosshairConfig(s));
+            applyCrosshair();
+        });
         const crosshairSettings = {
             style: 'dot', color: '#00ff88', size: 12, gap: 6, thickness: 2, dot: true,
             ...(this.store.get('crosshairSettings') || {})
@@ -1249,6 +1289,40 @@ class App {
         hydrateSetting('setting-crosshair-gap', crosshairSettings.gap);
         hydrateSetting('setting-crosshair-thickness', crosshairSettings.thickness);
         hydrateSetting('setting-crosshair-dot', crosshairSettings.dot, true);
+        hydrateSetting('setting-crosshair-outline', crosshairSettings.outline, true);
+        hydrateSetting('setting-crosshair-opacity', Math.round((crosshairSettings.opacity ?? 1) * 100));
+        hydrateSetting('setting-crosshair-dynamic', crosshairSettings.dynamicGap ?? 0);
+        const crosshairCodeInput = document.getElementById('crosshair-code-input');
+        bind('crosshair-code-copy', async () => {
+            const code = exportCrosshairCode(this.store.get('crosshairSettings'));
+            if (crosshairCodeInput) crosshairCodeInput.value = code;
+            try {
+                await navigator.clipboard?.writeText(code);
+                this.ui.showMessage?.('Crosshair code copied', 1400);
+            } catch {
+                crosshairCodeInput?.select();
+                this.ui.showMessage?.('Crosshair code ready to copy', 1600);
+            }
+        });
+        bind('crosshair-code-import', () => {
+            const config = importCrosshairCode(crosshairCodeInput?.value.trim());
+            if (!config) {
+                this.ui.showMessage?.('Invalid crosshair code', 1800);
+                return;
+            }
+            this.store.set('crosshairSettings', config);
+            hydrateSetting('setting-crosshair', config.style);
+            hydrateSetting('setting-crosshair-color', config.color);
+            hydrateSetting('setting-crosshair-size', config.size);
+            hydrateSetting('setting-crosshair-gap', config.gap);
+            hydrateSetting('setting-crosshair-thickness', config.thickness);
+            hydrateSetting('setting-crosshair-dot', config.dot, true);
+            hydrateSetting('setting-crosshair-outline', config.outline, true);
+            hydrateSetting('setting-crosshair-opacity', Math.round(config.opacity * 100));
+            hydrateSetting('setting-crosshair-dynamic', config.dynamicGap);
+            applyCrosshair();
+            this.ui.showMessage?.('Crosshair imported', 1600);
+        });
         const savedSensitivity = this.store.get('mouseSensitivity') || 2;
         hydrateSetting('setting-sensitivity', savedSensitivity);
         this.player.setSensitivity(savedSensitivity / 1000);
@@ -1587,6 +1661,7 @@ class App {
 
     _enterSocialLobby() {
         if (this.socialLobby.active) return;
+        this._longJumpTrack = null;
         const name = document.getElementById('player-name-input')?.value?.trim()
             || this.store.get('playerName')
             || 'Player';
@@ -1616,12 +1691,13 @@ class App {
         if (status) status.textContent = this.network.connected
             ? 'Connected party presence active'
             : 'Offline plaza - connect a party for live players';
-        this._appendSocialLobbyChat('VOLLE', 'Welcome. Walk into a portal and press E.', true);
+        this._appendSocialLobbyChat('VOLLE', 'Welcome. Chat, practice movement, and explore the plaza.', true);
         this.player.lock();
     }
 
     _leaveSocialLobby() {
         if (!this.socialLobby.active) return;
+        this._longJumpTrack = null;
         this.socialLobby.exit();
         for (const id of this._socialRemoteSeen.keys()) this.socialLobby.removeRemoteVisitor(id);
         this._socialRemoteSeen.clear();
@@ -1648,38 +1724,125 @@ class App {
         this.refreshMetaStats();
     }
 
-    _useSocialPortal(portalId) {
-        this._leaveSocialLobby();
-        if (portalId === 'quick-play') {
-            this.game.startSolo();
-            this.ui.showScreen('lobby');
-        } else if (portalId === 'ranked') {
-            this.ui.renderRanked(this.store);
-            this.ui.showScreen('ranked');
-        } else if (portalId === 'practice') {
-            this.startPractice();
-        } else if (portalId === 'shop') {
-            this.ui.renderShop(this.store, 'chars');
-            this.ui.showScreen('shop');
-        } else if (portalId === 'clans') {
-            this._renderSocial();
-            this.ui.showScreen('social');
-        }
-    }
-
-    _updateSocialPrompt(portal) {
-        const prompt = document.getElementById('social-lobby-prompt');
-        const button = document.getElementById('social-lobby-interact');
-        if (prompt) prompt.textContent = portal
-            ? `${portal.label} - press E to enter`
-            : 'Explore the plaza to discover activities';
-        if (button) button.disabled = !portal;
-    }
-
     _updateSocialPresence(presence) {
         const remoteCount = presence.filter(visitor => !visitor.local).length;
         const online = document.getElementById('social-lobby-online');
         if (online) online.textContent = `${1 + remoteCount} online`;
+        this._drawSocialLobbyMap(presence);
+    }
+
+    _drawSocialLobbyMap(presence = this.socialLobby.getPresence()) {
+        const canvas = document.getElementById('social-lobby-map');
+        const ctx = canvas?.getContext?.('2d');
+        if (!canvas || !ctx) return;
+        const state = getSocialLobbyMapState(this.player, presence);
+        const width = canvas.width;
+        const height = canvas.height;
+        const point = marker => ({ x: marker.x * width, y: marker.z * height });
+        ctx.clearRect(0, 0, width, height);
+        ctx.fillStyle = '#041820';
+        ctx.fillRect(0, 0, width, height);
+        ctx.strokeStyle = 'rgba(112,221,255,0.09)';
+        ctx.lineWidth = 1;
+        for (let i = 1; i < 6; i++) {
+            ctx.beginPath();
+            ctx.moveTo(width * i / 6, 0);
+            ctx.lineTo(width * i / 6, height);
+            ctx.moveTo(0, height * i / 6);
+            ctx.lineTo(width, height * i / 6);
+            ctx.stroke();
+        }
+        const practice = state.practice;
+        ctx.fillStyle = 'rgba(255,211,107,0.18)';
+        ctx.strokeStyle = 'rgba(255,211,107,0.64)';
+        ctx.fillRect(
+            practice.minX * width,
+            practice.minZ * height,
+            (practice.maxX - practice.minX) * width,
+            (practice.maxZ - practice.minZ) * height
+        );
+        ctx.strokeRect(
+            practice.minX * width,
+            practice.minZ * height,
+            (practice.maxX - practice.minX) * width,
+            (practice.maxZ - practice.minZ) * height
+        );
+        for (const visitor of state.visitors) {
+            const marker = point(visitor);
+            ctx.fillStyle = visitor.local ? 'rgba(255,255,255,0.38)' : '#72bfff';
+            ctx.beginPath();
+            ctx.arc(marker.x, marker.y, visitor.local ? 3 : 4, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        if (state.player) {
+            const marker = point(state.player);
+            ctx.fillStyle = '#6af4e5';
+            ctx.shadowColor = '#6af4e5';
+            ctx.shadowBlur = 10;
+            ctx.beginPath();
+            ctx.arc(marker.x, marker.y, 5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+        }
+    }
+
+    _updateMovementPolish(social = false) {
+        const speed = Number(this.player.horizontalSpeed) || 0;
+        const now = performance.now();
+        if (this.player.longJumpEvent && !this._longJumpTrack) {
+            this._longJumpTrack = {
+                start: this.player.position.clone(),
+                startedAt: now,
+                maxSpeed: speed,
+                social
+            };
+        }
+        if (this._longJumpTrack) {
+            this._longJumpTrack.maxSpeed = Math.max(this._longJumpTrack.maxSpeed, speed);
+            if ((this.player.onGround && now - this._longJumpTrack.startedAt > 120)
+                || now - this._longJumpTrack.startedAt > 3500) {
+                const dx = this.player.position.x - this._longJumpTrack.start.x;
+                const dz = this.player.position.z - this._longJumpTrack.start.z;
+                const distance = Math.hypot(dx, dz);
+                const message = `${this.game.playerName || 'Player'} longjumped ${distance.toFixed(1)}m at ${Math.round(this._longJumpTrack.maxSpeed)} u/s`;
+                if (this._longJumpTrack.social) this._appendSocialLobbyChat('MOVEMENT', message, true);
+                else this.game.addChatMessage('MOVEMENT', message);
+                this._longJumpTrack = null;
+            }
+            const caseBtn = e.target.closest('.case-open');
+            if (caseBtn) {
+                const result = this.store.openCase(caseBtn.dataset.id);
+                this.ui.showMessage?.(result
+                    ? `${result.duplicate ? 'Duplicate converted' : 'Unlocked'}: ${result.reward.name}`
+                    : 'Not enough coins.');
+                this.ui.renderShop(this.store, 'cases');
+                this.refreshMetaStats();
+                return;
+            }
+            const knifeBtn = e.target.closest('.knife-equip');
+            if (knifeBtn) {
+                const ok = this.store.equipKnife(knifeBtn.dataset.id, knifeBtn.dataset.team);
+                this.ui.showMessage?.(ok ? `Equipped for ${knifeBtn.dataset.team.toUpperCase()}` : 'This knife cannot be equipped.');
+                this.ui.renderShop(this.store, 'inventory');
+                return;
+            }
+        }
+        const movementState = this.player.longJumpEvent || (this._longJumpTrack && !this.player.onGround)
+            ? 'LONGJUMP'
+            : !this.player.onGround && speed > this.player.speed
+                ? 'BHOP'
+                : speed > this.player.speed * 1.08
+                    ? 'SPRINT'
+                    : 'MOVE';
+        this.ui.updateMovementHUD(speed, movementState, social);
+        if (!social) {
+            const dynamic = Math.min(1, Math.max(0, (speed - this.player.speed * 0.7) / Math.max(1, this.player.speed)));
+            const bucket = Math.round(dynamic * 10) / 10;
+            if (bucket !== this._crosshairDynamicScale) {
+                this._crosshairDynamicScale = bucket;
+                this.applyCrosshair?.(bucket);
+            }
+        }
     }
 
     _receiveSocialPresence(data) {
@@ -2074,6 +2237,7 @@ class App {
 
         const sizeEl = document.getElementById('carousel-size');
         if (sizeEl) sizeEl.textContent = formatMapSize(config);
+        this._drawLobbyMapPreview(config);
 
         // Update dots
         document.querySelectorAll('.carousel-dot').forEach((dot, i) => {
@@ -2085,6 +2249,52 @@ class App {
         if (card) {
             card.classList.toggle('selected', mapId === this.arena?.mapId);
         }
+    }
+
+    _drawLobbyMapPreview(config) {
+        const canvas = document.getElementById('lobby-map-canvas');
+        const ctx = canvas?.getContext?.('2d');
+        if (!canvas || !ctx || !config) return;
+        const width = canvas.width;
+        const height = canvas.height;
+        const toHex = color => `#${Number(color || 0).toString(16).padStart(6, '0').slice(-6)}`;
+        const gradient = ctx.createLinearGradient(0, 0, width, height);
+        gradient.addColorStop(0, toHex(config.floorRed || 0x2b7d82));
+        gradient.addColorStop(1, toHex(config.floorBlue || 0x287caa));
+        ctx.clearRect(0, 0, width, height);
+        ctx.fillStyle = '#061820';
+        ctx.fillRect(0, 0, width, height);
+        ctx.save();
+        ctx.translate(width * 0.1, height * 0.12);
+        const courtWidth = width * 0.8;
+        const courtHeight = height * 0.72;
+        ctx.fillStyle = gradient;
+        ctx.strokeStyle = 'rgba(221,255,252,0.72)';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.roundRect(0, 0, courtWidth, courtHeight, 18);
+        ctx.fill();
+        ctx.stroke();
+        ctx.setLineDash([8, 8]);
+        ctx.beginPath();
+        ctx.moveTo(courtWidth / 2, 0);
+        ctx.lineTo(courtWidth / 2, courtHeight);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#effffd';
+        for (const x of [courtWidth * 0.18, courtWidth * 0.82]) {
+            ctx.beginPath();
+            ctx.arc(x, courtHeight / 2, 7, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        const props = Array.isArray(config.props) ? config.props.slice(0, 24) : [];
+        props.forEach((prop, index) => {
+            const px = ((Number(prop.position?.x ?? prop.x ?? index) % 40) + 40) % 40 / 40;
+            const pz = ((Number(prop.position?.z ?? prop.z ?? index * 3) % 40) + 40) % 40 / 40;
+            ctx.fillStyle = index % 2 ? 'rgba(255,211,107,0.82)' : 'rgba(111,243,227,0.82)';
+            ctx.fillRect(px * (courtWidth - 16), pz * (courtHeight - 16), 8, 8);
+        });
+        ctx.restore();
     }
 
     // --- SETTINGS MODAL ---
@@ -2763,9 +2973,9 @@ class App {
             const now = performance.now();
             const dt = Math.min((now - this._lastBgDt) / 1000, 0.1);
             this._lastBgDt = now;
-            // Substep: fixed 128Hz timestep for low-latency authoritative sim
+            // Fixed 60Hz authoritative simulation.
             this._bgAccumulator += dt;
-            const step = 1 / 128;
+            const step = 1 / 60;
             let steps = 0;
             while (this._bgAccumulator >= step && steps < 8) {
                 this._bgTick(step);
@@ -2777,14 +2987,14 @@ class App {
                 this.game.invokeRemoteSnapshots(dt);
                 this.game.invokeBallSmoothing?.(dt);
             }
-            // Host broadcasts (ballState at 128Hz)
+            // Host broadcasts use packet-specific rate limits.
             if (this.game.state === STATES.PLAYING) {
                 this._hostBgSlowBroadcast(dt);
             }
             if (this.game.state === STATES.MENU) {
                 this._renderMenuBg();
             }
-        }, 1000 / 128); // 128Hz tick
+        }, 1000 / 60);
     }
     _stopBgLoop() {
         if (this._bgInterval) {
@@ -2852,8 +3062,10 @@ class App {
     // Host slow-rate broadcasts: score 2Hz, powerUp 2Hz, ballState 15Hz
     _hostBgSlowBroadcast(dt) {
         if (!this.network?.isHost) return;
-        // BallState — binary position/velocity every 128Hz tick; state/target only when changed
-        if (this.game.ball.active || this.game.ball.state !== 'idle') {
+        this._bgBallTimer += dt;
+        // Ball state: 30Hz binary position/velocity; state/target only when changed.
+        if (this._bgBallTimer >= 1 / 30 && (this.game.ball.active || this.game.ball.state !== 'idle')) {
+            this._bgBallTimer %= 1 / 30;
             this._ballSeq = (this._ballSeq || 0) + 1;
             const b = this.game.ball;
             const newState = b.state;
@@ -2885,7 +3097,9 @@ class App {
             });
         }
         // Bot positions 10Hz
-        if (this.game.bots.length > 0) {
+        this._bgBotTimer += dt;
+        if (this._bgBotTimer >= 0.1 && this.game.bots.length > 0) {
+            this._bgBotTimer %= 0.1;
             const botData = this.game.bots.map(b => ({
                 name: b.name, team: b.team,
                 x: b.position.x, y: b.position.y, z: b.position.z,
@@ -2971,7 +3185,8 @@ class App {
 
         if (this.game.state === STATES.PLAYING || this.game.state === STATES.ROUND_END || this.game.state === STATES.COUNTDOWN || this.game.state === STATES.CELEBRATION) {
             if (!Spectator.active) this.player.update(dt);
-            // ponytail: host sim runs in bg loop at 128Hz; only clients run game.update here
+            if (!Spectator.active) this._updateMovementPolish(false);
+            // Host simulation runs in the 60Hz background loop; clients update here.
             if (!this.network?.isHost) this.game.update(dt);
             // Dash trail
             if (this.player._justDashed) {
@@ -2989,6 +3204,7 @@ class App {
 
         if (this.game.state === STATES.SOCIAL_HUB) {
             this.socialLobby.update(dt);
+            this._updateMovementPolish(true);
             this._suppressMatchWorldDuringHub();
             this._socialPresenceTimer = (this._socialPresenceTimer || 0) - dt;
             if (this._socialPresenceTimer <= 0) {
@@ -3257,8 +3473,16 @@ class App {
                 const t = this.game._spectateTarget;
                 const tpos = t.getPosition();
                 const tdir = t.getAimDirection?.() || new THREE.Vector3(0, 0, -1);
-                this.camera.position.copy(tpos).add(new THREE.Vector3(-tdir.x * 2, 0.5, -tdir.z * 2));
-                this.camera.lookAt(tpos.x, tpos.y, tpos.z);
+                const eye = tpos.clone().add(new THREE.Vector3(0, t.eyeHeight || 1.55, 0));
+                const alpha = 1 - Math.exp(-18 * dt);
+                this.camera.position.lerp(eye, alpha);
+                const look = eye.clone().add(tdir);
+                this.camera.lookAt(look.x, look.y, look.z);
+                const info = document.getElementById('spectator-info');
+                if (info) {
+                    info.textContent = `TEAM POV  ${t.name || 'TEAMMATE'}  [ / ] switch`;
+                    info.classList.remove('hidden');
+                }
             }
             this.renderer.render(this.camera);
         }

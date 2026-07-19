@@ -82,13 +82,15 @@ export class EmoteSystem {
         wheel.style.top = `${center.y}px`;
         EMOTES.forEach((e, i) => {
             const angle = (i / EMOTES.length) * Math.PI * 2 - Math.PI / 2;
-            const r = 80;
-            const btn = document.createElement('div');
+            const r = 108;
+            const btn = document.createElement('button');
+            btn.type = 'button';
             btn.className = 'emote-wheel-item';
-            btn.style.left = `${Math.cos(angle) * r}px`;
-            btn.style.top = `${Math.sin(angle) * r}px`;
-            btn.textContent = e.emoji;
+            btn.style.setProperty('--emote-x', `${Math.cos(angle) * r}px`);
+            btn.style.setProperty('--emote-y', `${Math.sin(angle) * r}px`);
+            btn.innerHTML = `<span aria-hidden="true">${e.emoji}</span><small>${e.text}</small>`;
             btn.title = e.text;
+            btn.setAttribute('aria-label', e.text);
             btn.dataset.emote = e.id;
             btn.addEventListener('click', () => {
                 this.hideWheel();

@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="css/style.css?v=1.74">
     <link rel="stylesheet" href="css/ui-tokens.css?v=1">
     <link rel="stylesheet" href="css/ui-shell.css?v=1">
+    <link rel="stylesheet" href="css/polish.css?v=1">
     <script type="importmap">
     {
         "imports": {
@@ -118,7 +119,7 @@
                 <div class="ow-world-grid">
                     <button id="btn-social-lobby" class="ow-social-lobby">
                         <svg class="ui-icon" aria-hidden="true"><use href="#i-globe"></use></svg>
-                        <span><em>LIVE 3D</em><b>ENTER SOCIAL HUB</b><small>Walk, chat, practice and use activity portals</small></span>
+                        <span><em>LIVE 3D</em><b>ENTER SOCIAL HUB</b><small>Walk, chat, practice movement and meet players</small></span>
                         <svg class="ui-icon ow-social-lobby-arrow" aria-hidden="true"><use href="#i-play"></use></svg>
                     </button>
                     <button id="btn-map-editor" class="ow-social-lobby ow-create-map">
@@ -138,6 +139,7 @@
                     <button id="btn-replays" class="ow-link"><svg class="ui-icon" aria-hidden="true"><use href="#i-replay"></use></svg>Replays</button>
                     <button id="btn-achievements" class="ow-link"><svg class="ui-icon" aria-hidden="true"><use href="#i-trophy"></use></svg>Achievements</button>
                     <button id="btn-leaderboard" class="ow-link"><svg class="ui-icon" aria-hidden="true"><use href="#i-chart"></use></svg>Leaderboard</button>
+                    <button id="btn-patchnotes" class="ow-link"><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg>Patch Notes</button>
                 </div>
                 <span class="ow-hint">WASD move / L-Click deflect / Q skill / Tab scores / Y chat</span>
             </aside>
@@ -193,21 +195,24 @@
             </div>
         </header>
 
-        <section class="social-lobby-portal-card" aria-live="polite">
-            <span class="social-lobby-portal-label">NEAREST PORTAL</span>
-            <strong id="social-lobby-prompt">Explore the plaza to discover activities</strong>
-            <button id="social-lobby-interact" type="button">
-                <svg class="ui-icon" aria-hidden="true"><use href="#i-play"></use></svg>
-                Interact
-                <kbd>E</kbd>
-            </button>
+        <section class="social-lobby-map-card" aria-label="Social Hub map">
+            <div class="social-lobby-map-heading">
+                <span><svg class="ui-icon" aria-hidden="true"><use href="#i-map"></use></svg> HUB MAP</span>
+                <small>Live position</small>
+            </div>
+            <canvas id="social-lobby-map" width="260" height="180"></canvas>
+            <div class="social-lobby-map-legend">
+                <span><i class="map-you"></i>You</span>
+                <span><i class="map-player"></i>Players</span>
+                <span><i class="map-practice"></i>Practice</span>
+            </div>
         </section>
 
         <div class="social-lobby-bottom">
             <section class="social-lobby-controls" aria-label="Social Hub controls">
                 <div class="social-lobby-controls-copy">
                     <span class="social-lobby-kicker">CONTROLS</span>
-                    <p><kbd>WASD</kbd> Move <kbd>Space</kbd> Jump <kbd>Mouse</kbd> Look <kbd>E</kbd> Interact</p>
+                    <p><kbd>WASD</kbd> Move <kbd>Space</kbd> Bhop <kbd>Ctrl+Space</kbd> Longjump <kbd>Y</kbd> Chat</p>
                 </div>
                 <div class="social-lobby-actions">
                     <button id="social-lobby-clans" type="button">
@@ -239,6 +244,10 @@
                     </button>
                 </div>
             </section>
+        </div>
+        <div id="social-movement-hud" class="movement-hud social-movement-hud" aria-live="polite">
+            <span class="movement-speed"><b id="social-speed-value">0</b><small>u/s</small></span>
+            <span id="social-movement-state">MOVE</span>
         </div>
     </div>
 
@@ -316,6 +325,7 @@
                         <button class="carousel-btn carousel-prev" id="carousel-prev">◀</button>
                         <div class="carousel-card" id="carousel-card">
                             <div class="carousel-gradient" id="carousel-gradient"></div>
+                            <canvas id="lobby-map-canvas" width="520" height="240" aria-label="Selected map preview"></canvas>
                             <div class="carousel-info">
                                 <div class="carousel-name" id="carousel-name">Beach Arena</div>
                                 <div class="carousel-meta">
@@ -342,6 +352,7 @@
                         <button class="cs-mode-btn mode-btn" data-mode="freeze">🧊 Freeze</button>
                         <button class="cs-mode-btn mode-btn" data-mode="hotpotato">🥔 Potato</button>
                         <button class="cs-mode-btn mode-btn" data-mode="competitive">🏆 Competitive</button>
+                        <button class="cs-mode-btn mode-btn" data-mode="pinball">PB Pinball</button>
                     </div>
                 </div>
 
@@ -451,6 +462,21 @@
                             <span class="toggle-slider"></span>
                         </label>
                     </div>
+                    <div class="settings-row settings-row-toggle">
+                        <label>Black Outline</label>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="setting-crosshair-outline">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="settings-row">
+                        <label>Opacity</label>
+                        <input type="range" id="setting-crosshair-opacity" min="20" max="100" value="100" step="5">
+                    </div>
+                    <div class="settings-row">
+                        <label>Movement Gap</label>
+                        <input type="range" id="setting-crosshair-dynamic" min="0" max="20" value="0" step="1">
+                    </div>
                     <div class="crosshair-preview-card">
                         <div>
                             <span class="settings-kicker">LIVE PREVIEW</span>
@@ -460,6 +486,11 @@
                         <div id="crosshair-preview" class="crosshair-preview" aria-label="Crosshair preview">
                             <span id="crosshair-preview-reticle" class="crosshair-preview-reticle" aria-hidden="true"><i></i><i></i><i></i><i></i><b id="crosshair-preview-dot"></b></span>
                         </div>
+                    </div>
+                    <div class="crosshair-code-row">
+                        <input id="crosshair-code-input" type="text" maxlength="2048" placeholder="VOLLE-X1 crosshair code" aria-label="Crosshair share code">
+                        <button id="crosshair-code-copy" class="btn btn-secondary btn-small" type="button">Copy</button>
+                        <button id="crosshair-code-import" class="btn btn-primary btn-small" type="button">Import</button>
                     </div>
                 </div>
                 <!-- Display -->
@@ -585,10 +616,16 @@
                     <button class="shop-tab selected" data-tab="chars">Characters</button>
                     <button class="shop-tab" data-tab="balls">Balls</button>
                     <button class="shop-tab" data-tab="avatars">Character Skins</button>
+                    <button class="shop-tab" data-tab="cases">Cases</button>
+                    <button class="shop-tab" data-tab="inventory">Inventory</button>
                     <button class="shop-tab" data-tab="skills">Skills</button>
                     <button class="shop-tab" data-tab="boosts">Boosts</button>
                 </div>
                 <span class="shop-note">Owned items can be equipped instantly.</span>
+            </div>
+            <div class="shop-banner">
+                <img src="assets/generated/volle-shop-roster.webp" alt="VOLLE arena character roster">
+                <div><span class="shell-kicker">ORIGINAL ROSTER</span><strong>Find your movement style</strong><p>Every class changes health, speed, stamina and deflect power.</p></div>
             </div>
             <div class="shop-grid" id="shop-grid"></div>
             <button id="btn-shop-back" class="btn btn-secondary shell-back"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back to menu</button>
@@ -597,14 +634,20 @@
 
     <!-- ===== BATTLEPASS ===== -->
     <div id="battlepass-screen" class="screen hidden">
-        <div class="panel wide-panel">
-            <h1>🎟️ Battle Pass</h1>
-            <div class="meta-stats">
-                <span class="meta-stat">Tier <span id="bp-tier">0</span>/50</span>
-                <span class="meta-stat">XP <span id="bp-xp">0</span>/100</span>
+        <div class="panel wide-panel shell-panel progression-shell">
+            <header class="shell-header">
+                <div class="shell-title"><span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-ticket"></use></svg></span><div><span class="shell-kicker">SEASON 01</span><h1>Battle Pass</h1><p>Play matches, finish challenges, unlock arena rewards.</p></div></div>
+                <div class="meta-stats">
+                    <span class="meta-stat"><b id="bp-tier">0</b><small>tier / 50</small></span>
+                    <span class="meta-stat"><b id="bp-xp">0</b><small>XP / 100</small></span>
+                </div>
+            </header>
+            <div class="progression-hero">
+                <div><span class="shell-kicker">CURRENT RUN</span><strong id="bp-next-reward">Next reward loading...</strong><p>Free track. No pay-to-win stats.</p></div>
+                <div class="progression-ring"><span id="bp-progress-ring">0%</span></div>
             </div>
             <div class="bp-track" id="bp-track"></div>
-            <button id="btn-bp-back" class="btn btn-secondary" style="margin-top: 20px;">← Back</button>
+            <button id="btn-bp-back" class="btn btn-secondary shell-back"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back to menu</button>
         </div>
     </div>
 
@@ -695,22 +738,27 @@
 
     <!-- ===== DAILY CHALLENGES ===== -->
     <div id="daily-screen" class="screen hidden">
-        <div class="panel wide-panel">
-            <h1>📅 Daily Challenges</h1>
-            <h2>Resets every 24h — claim your rewards!</h2>
+        <div class="panel wide-panel shell-panel progression-shell">
+            <header class="shell-header">
+                <div class="shell-title"><span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-target"></use></svg></span><div><span class="shell-kicker">DAILY CONTRACTS</span><h1>Challenges</h1><p>Three focused goals. New set every 24 hours.</p></div></div>
+                <span class="challenge-reset">LOCAL RESET</span>
+            </header>
             <div class="daily-grid" id="daily-grid"></div>
-            <button id="btn-daily-back" class="btn btn-secondary" style="margin-top: 20px;">← Back</button>
+            <button id="btn-daily-back" class="btn btn-secondary shell-back"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back to menu</button>
         </div>
     </div>
 
     <!-- ===== RANKED PROFILE ===== -->
     <div id="ranked-screen" class="screen hidden">
-        <div class="panel wide-panel">
-            <h1>🏆 Ranked Profile</h1>
-            <h2>Climb the ranks — espor mode</h2>
+        <div class="panel wide-panel shell-panel career-shell">
+            <header class="shell-header">
+                <div class="shell-title"><span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-chart"></use></svg></span><div><span class="shell-kicker">PLAYER JOURNEY</span><h1>Career</h1><p>Rank, match record, mastery and long-term milestones.</p></div></div>
+            </header>
             <div id="ranked-info"></div>
-            <button id="btn-ranked-play" class="btn btn-primary ranked-play"><svg class="ui-icon" aria-hidden="true"><use href="#i-play"></use></svg>Play Ranked</button>
-            <button id="btn-ranked-back" class="btn btn-secondary" style="margin-top: 20px;">← Back</button>
+            <div class="career-actions">
+                <button id="btn-ranked-play" class="btn btn-primary ranked-play"><svg class="ui-icon" aria-hidden="true"><use href="#i-play"></use></svg>Play Ranked</button>
+                <button id="btn-ranked-back" class="btn btn-secondary"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back to menu</button>
+            </div>
         </div>
     </div>
 
@@ -798,6 +846,47 @@
         </div>
     </div>
 
+    <!-- ===== PATCH NOTES ===== -->
+    <div id="patchnotes-screen" class="screen hidden">
+        <div class="panel wide-panel shell-panel patchnotes-shell">
+            <header class="shell-header">
+                <div class="shell-title"><span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg></span><div><span class="shell-kicker">LIVE DEVELOPMENT</span><h1>Patch Notes</h1><p>Built by Sherlock. Polished with player feedback.</p></div></div>
+                <span class="patch-version">VOLLE v0.9</span>
+            </header>
+            <div class="patch-timeline">
+                <article class="patch-card current">
+                    <span class="patch-date">CURRENT PATCH</span>
+                    <h2>Turquoise Rush</h2>
+                    <ul>
+                        <li>Unified turquoise menu, lobby and progression identity.</li>
+                        <li>Social Hub map view, better chat and movement telemetry.</li>
+                        <li>Crosshair profiles, bunnyhop speed meter and longjump.</li>
+                        <li>Career, shop, battle pass and challenge presentation refresh.</li>
+                    </ul>
+                </article>
+                <article class="patch-card">
+                    <span class="patch-date">2026-07-19</span>
+                    <h2>Foundation</h2>
+                    <ul>
+                        <li>Theme tokens, UI scaling and accessibility controls.</li>
+                        <li>Secure scoreboard names and host-only console commands.</li>
+                        <li>Responsive settings, map display fixes and Social Hub assets.</li>
+                    </ul>
+                </article>
+                <article class="patch-card">
+                    <span class="patch-date">EARLIER</span>
+                    <h2>Arena Core</h2>
+                    <ul>
+                        <li>P2P multiplayer, replay, ranked, tournament and progression.</li>
+                        <li>Character classes, skills, runes, weather and game modes.</li>
+                    </ul>
+                </article>
+            </div>
+            <footer class="patch-footer"><strong>By Sherlock</strong><span>Thanks for helping VOLLE grow.</span></footer>
+            <button id="btn-patchnotes-back" class="btn btn-secondary shell-back"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back to menu</button>
+        </div>
+    </div>
+
     <div id="tournament-screen" class="screen hidden">
         <div class="panel wide-panel">
             <h1>🥇 Tournament</h1>
@@ -838,6 +927,10 @@
 
         <!-- Ball speed — clean top-right text -->
         <div id="hud-speed" class="hud-speed-text"></div>
+        <div id="movement-hud" class="movement-hud hidden" aria-live="polite">
+            <span class="movement-speed"><b id="movement-speed-value">0</b><small>u/s</small></span>
+            <span id="movement-state">MOVE</span>
+        </div>
         <!-- Spectator target info -->
         <div id="spectator-info" class="hidden hud-spectator-info"></div>
         <div id="late-join-status" class="hidden late-join-status"></div>

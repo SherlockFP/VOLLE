@@ -249,6 +249,16 @@ export const MAPS = {
         },
         sky: { horizonColor: 0xf0d8b8, sun: true, sunColor: 0xfff0c0, cloudAmount: 0.35 }
     },
+    mega_pinball: {
+        name: 'Mega Pinball Complex',
+        courtWidth: 960, courtLength: 1180, wallHeight: 80, ceilingHeight: 120,
+        floorRed: 0x173a45, floorBlue: 0x16485a, wallColor: 0x70ddff,
+        skyTop: 0x071526, skyBottom: 0x16485a, fogColor: 0x0b2432,
+        hasOcean: false, hasGlass: true, isPinball: true, size: 'mega',
+        weather: 'clear', openSides: false,
+        gameplay: { mechanics: ['pinball-bounce', 'breakable-glass-chain', 'mega-arena'], fallDeathY: -20 },
+        sky: { horizonColor: 0x16485a, sun: false, cloudAmount: 0 }
+    },
     temple_sym: {
         name: '🏛️ Temple',
         courtWidth: 62, courtLength: 39, wallHeight: 17, ceilingHeight: 24,
@@ -270,6 +280,12 @@ function ensureMapMetadata(config) {
         },
         stands: []
     };
+    if (!config.spectator.stands?.length) {
+        config.spectator.stands = [
+            { side: 'north', tiers: 3, depth: 1.4, rise: 0.65, setback: 3, length: Math.max(10, config.courtWidth * 0.28) },
+            { side: 'south', tiers: 3, depth: 1.4, rise: 0.65, setback: 3, length: Math.max(10, config.courtWidth * 0.28) }
+        ];
+    }
     config.gameplay ||= { mechanics: [], fallDeathY: -12 };
     config.gameplay.mechanics ||= [];
     if (!Number.isFinite(config.gameplay.fallDeathY)) config.gameplay.fallDeathY = -12;
@@ -457,6 +473,8 @@ export class Arena {
             this.buildNet();
             this.buildSkybox();
             this.buildPortals();
+            this.buildSpectatorStands();
+            this.buildChicken();
             if (!this.bounds.maxY) this.bounds.maxY = this.ceilingHeight || 30;
             if (this.config.weather && this.config.weather !== 'clear' && this.config.weather !== 'indoor') {
                 this.weather = new WeatherSystem(this.scene, this.bounds);
@@ -495,7 +513,9 @@ export class Arena {
         if (this.config.isTemple) this.buildTempleProps();
         if (this.config.isVerticalDrop) this.buildVerticalDropProps();
         if (this.config.isStadium) this.buildStadiumProps();
+        if (this.config.isPinball) this.buildPinballComplex();
         this.buildSpectatorStands();
+        this.buildChicken();
         this.buildHazardVisuals();
         // Generic open-world env for open-sided maps without specific theming
         if (this.config.openSides && !this.config.isCloud && !this.config.isSpace &&
@@ -522,6 +542,53 @@ export class Arena {
             : (this.config.isSpace || this.config.isNeon) ? 'spark'
             : 'dust';
         this.addAmbientParticles(particleType);
+    }
+
+    buildChicken() {
+        const group = new THREE.Group();
+        const white = this.renderer.createToonMaterial(0xf7f1d0);
+        const red = this.renderer.createToonMaterial(0xe84b4b);
+        const yellow = this.renderer.createToonMaterial(0xf6b83f);
+        const body = new THREE.Mesh(new THREE.SphereGeometry(0.42, 8, 6), white);
+        body.scale.set(1, 1.15, 0.85);
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.28, 8, 6), white);
+        head.position.set(0, 0.55, -0.18);
+        const beak = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.28, 4), yellow);
+        beak.rotation.x = -Math.PI / 2;
+        beak.position.set(0, 0.55, -0.48);
+        const comb = new THREE.Mesh(new THREE.SphereGeometry(0.1, 6, 4), red);
+        comb.position.set(0, 0.86, -0.16);
+        group.add(body, head, beak, comb);
+        group.position.set(this.courtWidth * 0.28, 0.48, this.courtLength * 0.18);
+        group.userData.phase = Math.random() * Math.PI * 2;
+        this.chicken = group;
+        this.add(group);
+    }
+
+    buildPinballComplex() {
+        this.pinballTargets = [];
+        const material = new THREE.MeshPhysicalMaterial({
+            color: 0x70ddff, emissive: 0x123f52, emissiveIntensity: 0.55,
+            transparent: true, opacity: 0.68, roughness: 0.12, metalness: 0.15
+        });
+        for (let i = 0; i < 12; i++) {
+            const side = i % 2 ? 1 : -1;
+            const mesh = new THREE.Mesh(new THREE.BoxGeometry(22, 18, 1.2), material.clone());
+            mesh.position.set(side * (120 + (i % 3) * 90), 12 + (i % 4) * 13, -420 + i * 76);
+            mesh.rotation.y = side * (0.3 + (i % 3) * 0.12);
+            mesh.userData.pinballTarget = i + 1;
+            this.add(mesh);
+            const target = { mesh, pos: mesh.position.clone(), radius: 13, breakable: true, broken: false };
+            this.collidables.push(target);
+            this.pinballTargets.push(target);
+        }
+    }
+
+    hitChicken(ballPosition, radius = 1) {
+        if (!this.chicken?.visible || !ballPosition) return false;
+        if (this.chicken.position.distanceTo(ballPosition) > radius + 0.55) return false;
+        this.chicken.visible = false;
+        return true;
     }
 
     buildCustomProps() {
@@ -2359,6 +2426,18 @@ export class Arena {
         if (this._spaceStars) {
             this._spaceStars.rotation.y = time * 0.003;
         }
+        if (this.chicken?.visible) {
+            const phase = this.chicken.userData.phase || 0;
+            const limitX = this.courtWidth * 0.38;
+            const limitZ = this.courtLength * 0.38;
+            this.chicken.position.x = Math.sin(time * 0.62 + phase) * limitX;
+            this.chicken.position.z = Math.sin(time * 0.91 + phase * 1.7) * limitZ;
+            this.chicken.rotation.y = Math.atan2(
+                Math.cos(time * 0.62 + phase) * limitX,
+                Math.cos(time * 0.91 + phase * 1.7) * limitZ
+            );
+            this.chicken.position.y = 0.48 + Math.abs(Math.sin(time * 7 + phase)) * 0.08;
+        }
         // Lava glow pulse
         if (this._lavaGlow) {
             this._lavaGlow.material.opacity = 0.3 + Math.sin(time * 2) * 0.15;
@@ -2634,6 +2713,8 @@ export class Arena {
         this.wave1 = null;
         this.stars = null;
         this._spaceStars = null;
+        this.chicken = null;
+        this.pinballTargets = null;
         this.portals = null;
         this._lavaGlow = null;
         this._embers = null;

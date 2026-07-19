@@ -14,6 +14,7 @@ const {
     moveHorizontalState,
     isEditableTarget,
     resolveJump,
+    resolveLongJump,
     clipInwardVelocity,
     clipMovementState,
     GROUND_ACCEL,
@@ -21,7 +22,12 @@ const {
     GROUND_FRICTION,
     STOP_SPEED,
     AIR_WISH_CAP,
-    SLIPPERY_SURFACE_FACTOR
+    SLIPPERY_SURFACE_FACTOR,
+    LONG_JUMP_SPEED,
+    LONG_JUMP_MAX_SPEED,
+    LONG_JUMP_VERTICAL_BOOST,
+    LONG_JUMP_COOLDOWN,
+    LONG_JUMP_STAMINA_COST
 } = helpers;
 
 const closeTo = (actual, expected, epsilon = 1e-9) => {
@@ -182,6 +188,98 @@ test('held bhop jumps before landing friction can reduce speed', () => {
         : landingSpeed;
     assert.equal(jump.kind, 'ground');
     assert.deepEqual(afterMovement, landingSpeed);
+});
+
+test('grounded Ctrl+Space+W triggers one capped longjump', () => {
+    const result = resolveLongJump({
+        ctrlDown: true,
+        spaceDown: true,
+        forwardDown: true,
+        onGround: true,
+        comboHeld: false,
+        dashActive: false,
+        cooldown: 0,
+        stamina: 100,
+        velocity: { x: 4, z: 0 },
+        forward: { x: 1, z: 0 }
+    });
+
+    assert.equal(result.triggered, true);
+    assert.equal(result.onGround, false);
+    closeTo(Math.hypot(result.velocity.x, result.velocity.z), LONG_JUMP_SPEED);
+    assert.ok(Math.hypot(result.velocity.x, result.velocity.z) <= LONG_JUMP_MAX_SPEED);
+    assert.equal(result.verticalVel, LONG_JUMP_VERTICAL_BOOST);
+    assert.equal(result.cooldown, LONG_JUMP_COOLDOWN);
+    assert.equal(result.stamina, 100 - LONG_JUMP_STAMINA_COST);
+    assert.deepEqual(result.event, {
+        type: 'longjump',
+        staminaCost: LONG_JUMP_STAMINA_COST,
+        cooldown: LONG_JUMP_COOLDOWN
+    });
+
+    const held = resolveLongJump({
+        ctrlDown: true,
+        spaceDown: true,
+        forwardDown: true,
+        onGround: true,
+        comboHeld: result.comboHeld,
+        dashActive: false,
+        cooldown: 0,
+        stamina: 100,
+        velocity: result.velocity,
+        forward: { x: 1, z: 0 }
+    });
+    assert.equal(held.triggered, false);
+});
+
+test('longjump rejects missing gates and active dash without spending stamina', () => {
+    const base = {
+        ctrlDown: true,
+        spaceDown: true,
+        forwardDown: true,
+        onGround: true,
+        comboHeld: false,
+        dashActive: false,
+        cooldown: 0,
+        stamina: 100,
+        velocity: { x: 3, z: 2 },
+        verticalVel: -2,
+        forward: { x: 1, z: 0 }
+    };
+    const blocked = [
+        { forwardDown: false },
+        { onGround: false },
+        { dashActive: true },
+        { cooldown: 0.1 },
+        { stamina: LONG_JUMP_STAMINA_COST - 1 }
+    ];
+
+    for (const gate of blocked) {
+        const result = resolveLongJump({ ...base, ...gate });
+        assert.equal(result.triggered, false);
+        assert.equal(result.stamina, gate.stamina ?? base.stamina);
+        assert.deepEqual(result.velocity, base.velocity);
+        assert.equal(result.verticalVel, base.verticalVel);
+        assert.equal(result.event, null);
+    }
+});
+
+test('longjump clamps combined tangent momentum to its safe maximum', () => {
+    const result = resolveLongJump({
+        ctrlDown: true,
+        spaceDown: true,
+        forwardDown: true,
+        onGround: true,
+        comboHeld: false,
+        dashActive: false,
+        cooldown: 0,
+        stamina: 100,
+        velocity: { x: 12, z: 15 },
+        forward: { x: 1, z: 0 }
+    });
+
+    assert.equal(result.triggered, true);
+    closeTo(Math.hypot(result.velocity.x, result.velocity.z), LONG_JUMP_MAX_SPEED);
 });
 
 test('collision clipping removes inward speed and preserves tangent', () => {

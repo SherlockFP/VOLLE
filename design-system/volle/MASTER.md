@@ -19,18 +19,18 @@
 
 | Role | Hex | CSS Variable |
 |------|-----|--------------|
-| Primary | `#DC2626` | `--color-primary` |
-| On Primary | `#FFFFFF` | `--color-on-primary` |
-| Secondary | `#2563EB` | `--color-secondary` |
-| Accent/CTA | `#22C55E` | `--color-accent` |
-| Background | `#0F172A` | `--color-background` |
-| Foreground | `#FFFFFF` | `--color-foreground` |
-| Muted | `#1F1829` | `--color-muted` |
-| Border | `rgba(255,255,255,0.08)` | `--color-border` |
+| Primary | `#36D8CA` | `--color-primary` |
+| On Primary | `#03191D` | `--color-on-primary` |
+| Secondary | `#70DDFF` | `--color-secondary` |
+| Accent/CTA | `#61EADC` | `--color-accent` |
+| Background | `#06151B` | `--color-background` |
+| Foreground | `#EFFFFD` | `--color-foreground` |
+| Muted | `#0D2D37` | `--color-muted` |
+| Border | `rgba(112,221,255,0.20)` | `--color-border` |
 | Destructive | `#DC2626` | `--color-destructive` |
-| Ring | `#DC2626` | `--color-ring` |
+| Ring | `#9FF6EE` | `--color-ring` |
 
-**Color Notes:** Neon red+blue on dark + score green
+**Color Notes:** Turquoise and light blue on deep ocean surfaces. Team red/blue remain semantic gameplay colors.
 
 ### Typography
 

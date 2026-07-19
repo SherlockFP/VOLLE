@@ -13,38 +13,17 @@ const moduleSource = source
     `)
     .replace(/^import \{ GLTFLoader \} from 'three\/addons\/loaders\/GLTFLoader\.js';$/m, 'class GLTFLoader {}');
 const {
-    SOCIAL_LOBBY_PORTALS,
+    SOCIAL_LOBBY_PROP_COLLIDERS,
+    SocialLobby,
     createSocialLobbyArena,
-    findNearestPortal
+    getSocialLobbyMapState
 } = await import(`data:text/javascript;base64,${Buffer.from(moduleSource).toString('base64')}`);
 
-test('social hub portals expose unique destinations', () => {
-    assert.deepEqual(
-        SOCIAL_LOBBY_PORTALS.map(portal => portal.id),
-        ['quick-play', 'ranked', 'practice', 'shop', 'clans']
-    );
-    assert.equal(new Set(SOCIAL_LOBBY_PORTALS.map(portal => portal.id)).size, SOCIAL_LOBBY_PORTALS.length);
-});
-
-test('nearest portal helper is planar, bounded, and non-mutating', () => {
-    const position = { x: 1, y: 99, z: -28 };
-    const before = structuredClone(position);
-    const match = findNearestPortal(position);
-
-    assert.equal(match.portal.id, 'quick-play');
-    assert.equal(match.distance, 1);
-    assert.deepEqual(position, before);
-    assert.equal(findNearestPortal({ x: 0, z: 0 }), null);
-    assert.equal(findNearestPortal({ x: NaN, z: 0 }), null);
-});
-
-test('equal-distance portals resolve deterministically to the later entry', () => {
-    const portals = [
-        { id: 'a', position: { x: -1, z: 0 } },
-        { id: 'b', position: { x: 1, z: 0 } }
-    ];
-
-    assert.equal(findNearestPortal({ x: 0, z: 0 }, portals, 2).portal.id, 'b');
+test('social hub activity portal flow is disabled', () => {
+    assert.doesNotMatch(source, /SOCIAL_LOBBY_PORTALS|findNearestPortal|_buildPortals/);
+    assert.doesNotMatch(source, /onPrompt\s*\(|onInteract\s*\(/);
+    assert.match(source, /interact\(\)\s*\{\s*return false;/);
+    assert.equal(SocialLobby.prototype.interact.call({ active: true }), false);
 });
 
 test('lobby arena satisfies Player movement contract', () => {
@@ -65,6 +44,70 @@ test('lobby arena satisfies Player movement contract', () => {
     assert.ok(Array.isArray(arena.collidables));
     assert.ok(Array.isArray(arena.platforms));
     assert.ok(Array.isArray(arena.jumpPads));
+});
+
+test('loaded solid props have bounded planar collision records', () => {
+    const arena = createSocialLobbyArena();
+    assert.ok(SOCIAL_LOBBY_PROP_COLLIDERS.length >= 8);
+
+    for (const collider of SOCIAL_LOBBY_PROP_COLLIDERS) {
+        assert.ok(collider.radius > 0 && collider.radius <= 2.2);
+        assert.ok(collider.position.x - collider.radius >= arena.bounds.minX);
+        assert.ok(collider.position.x + collider.radius <= arena.bounds.maxX);
+        assert.ok(collider.position.z - collider.radius >= arena.bounds.minZ);
+        assert.ok(collider.position.z + collider.radius <= arena.bounds.maxZ);
+    }
+
+    const collidableUrls = SOCIAL_LOBBY_PROP_COLLIDERS.map(collider => collider.url);
+    const passable = [
+        'wall-gate.glb',
+        'banner.glb',
+        'flag.glb',
+        'platform-ramp.glb',
+        'platform.glb',
+        'block-moving-blue.glb',
+        'spring.glb'
+    ];
+    for (const asset of passable) {
+        assert.equal(collidableUrls.some(url => url.endsWith(asset)), false);
+    }
+    assert.match(source, /this\.arena\.collidables\.push\(\{\s*mesh: model,\s*pos: model\.position\.clone\(\),\s*radius: collisionRadius/s);
+});
+
+test('map state normalizes and clamps player, visitors, and practice area', () => {
+    const player = { position: { x: -38, y: 7, z: 38 } };
+    const presence = [
+        { id: 'center', name: 'Center', local: false, position: { x: 0, z: 0 } },
+        { id: 'outside', local: true, position: { x: 100, z: -100 } },
+        { id: 'invalid', position: { x: NaN, z: 0 } }
+    ];
+    const before = structuredClone({ player, presence });
+    const state = getSocialLobbyMapState(player, presence);
+
+    assert.deepEqual(state.bounds, {
+        minX: -38,
+        maxX: 38,
+        minY: 0,
+        maxY: 18,
+        minZ: -38,
+        maxZ: 38
+    });
+    assert.deepEqual(state.player, { x: 0, z: 1 });
+    assert.deepEqual(state.visitors, [
+        { id: 'center', name: 'Center', local: false, x: 0.5, z: 0.5 },
+        { id: 'outside', name: null, local: true, x: 1, z: 0 }
+    ]);
+    assert.ok(state.practice.minX >= 0 && state.practice.minX < state.practice.maxX);
+    assert.ok(state.practice.maxX <= 1);
+    assert.ok(state.practice.minZ >= 0 && state.practice.minZ < state.practice.maxZ);
+    assert.ok(state.practice.maxZ <= 1);
+    assert.deepEqual({ player, presence }, before);
+});
+
+test('map state handles exact bounds and invalid optional inputs', () => {
+    assert.deepEqual(getSocialLobbyMapState({ x: 38, z: -38 }).player, { x: 1, z: 0 });
+    assert.equal(getSocialLobbyMapState({ x: Infinity, z: 0 }).player, null);
+    assert.deepEqual(getSocialLobbyMapState(null, null).visitors, []);
 });
 
 test('runtime keeps CC0 assets local and preserves procedural fallback', () => {
