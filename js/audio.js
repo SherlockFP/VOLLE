@@ -4,6 +4,7 @@ export class Audio {
         this.ctx = null;
         this.masterGain = null;
         this.volume = 0.5;
+        this.soundVolume = 0.5;
         this._buffers = {}; // name → AudioBuffer cache
     }
 
@@ -18,7 +19,7 @@ export class Audio {
             return;
         }
         this.masterGain = this.ctx.createGain();
-        this.masterGain.gain.value = this.volume * 0.4;
+        this.masterGain.gain.value = this.soundVolume * 0.4;
 
         // Soften everything: gentle low-pass rolls off harsh highs, then a
         // compressor/limiter tames peaks so nothing ever screeches.
@@ -40,8 +41,14 @@ export class Audio {
     }
 
     setVolume(v) {
-        this.volume = v;
-        if (this.masterGain) this.masterGain.gain.value = v;
+        this.setSoundVolume(v);
+    }
+
+    setSoundVolume(v) {
+        this.soundVolume = Math.max(0, Math.min(1, Number(v) || 0));
+        this.volume = this.soundVolume;
+        if (this.masterGain) this.masterGain.gain.value = this.soundVolume * 0.4;
+        for (const sound of Object.values(this._sfxAudios || {})) sound.volume = this.soundVolume;
     }
 
     // Preload TF2 sfx via fetch+blob. Uses .sfx aliases so IDM doesn't grab .mp3 URLs.
@@ -68,7 +75,7 @@ export class Audio {
     playSfx(name, vol = 0.5) {
         const a = this._sfxAudios?.[name];
         if (!a) return;
-        a.volume = vol * 0.4; // master sfx volume
+        a.volume = vol * this.soundVolume;
         a.currentTime = 0;
         a.play().catch(() => {}); // ignore autoplay blocking
     }

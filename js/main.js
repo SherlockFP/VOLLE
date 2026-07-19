@@ -388,8 +388,9 @@ class App {
         const fovDisplay = document.getElementById('fov-value');
         if (fovDisplay) fovDisplay.textContent = `${fov}°`;
         // Music volume
-        const vol = (this.store.get('settings').volume || 50) / 100;
-        this.game.setMusicVolume(vol * 0.03);
+        const settings = this.store.get('settings');
+        this.audio.setSoundVolume((settings.soundVolume ?? settings.volume ?? 50) / 100);
+        this.game.setMusicVolume((settings.musicVolume ?? settings.volume ?? 35) / 100);
     }
 
     applyAccessibility() {
@@ -407,6 +408,8 @@ class App {
 
         const values = {
             'setting-quality': settings.quality || 'medium',
+            'setting-music-volume': settings.musicVolume ?? settings.volume ?? 35,
+            'setting-sound-volume': settings.soundVolume ?? settings.volume ?? 50,
             'setting-reduce-motion': !!settings.reduceMotion,
             'setting-screen-shake': settings.screenShake !== false,
             'setting-screen-flash': settings.screenFlash !== false,
@@ -887,10 +890,10 @@ class App {
             // Seçili karakter/skill/rune'ları topla
             const selectedChar = document.querySelector('.char-card.selected')?.dataset.char;
             const selectedSkill = document.querySelector('.skill-card.selected')?.dataset.skill;
-            const selectedRunes = Array.from(document.querySelectorAll('.rune-card.selected')).map(el => el.dataset.rune).slice(0, 4);
+            const selectedRunes = Array.from(document.querySelectorAll('.rune-card.selected')).map(el => el.dataset.rune).slice(0, 1);
             if (selectedChar) this.store.set('selectedChar', selectedChar);
             const loadout = { ...this.store.get('loadout'), skill: selectedSkill, runes: selectedRunes };
-            this.store.set('loadout', loadout);
+            this.store.setLoadout(loadout);
             this.applyLoadout();
             this.ui.showMessage?.('Loadout saved!');
             this.ui.showScreen('mainMenu');
@@ -1122,10 +1125,17 @@ class App {
             this.player.setSensitivity(value / 1000);
             this.store.set('mouseSensitivity', value);
         });
-        bindSetting('setting-volume', e => {
-            const vol = parseFloat(e.target.value) / 100;
-            this.audio.setVolume(vol);
-            this.game.setMusicVolume(vol * 0.03); // music very quiet
+        bindSetting('setting-music-volume', e => {
+            const settings = this.store.get('settings');
+            settings.musicVolume = parseFloat(e.target.value);
+            this.store.set('settings', settings);
+            this.game.setMusicVolume(settings.musicVolume / 100);
+        });
+        bindSetting('setting-sound-volume', e => {
+            const settings = this.store.get('settings');
+            settings.soundVolume = parseFloat(e.target.value);
+            this.store.set('settings', settings);
+            this.audio.setSoundVolume(settings.soundVolume / 100);
         });
         bindSetting('setting-fov', e => {
             const val = parseFloat(e.target.value);
@@ -1538,11 +1548,11 @@ class App {
                     }
                     return;
                 }
-                // Toggle equip (max 4)
-                const equipped = Array.from(document.querySelectorAll('.rune-card.selected')).map(el => el.dataset.rune);
+                // Rune slot is deliberately single-choice for readable counterplay.
                 if (runeCard.classList.contains('selected')) {
                     runeCard.classList.remove('selected');
-                } else if (equipped.length < 4) {
+                } else {
+                    document.querySelectorAll('.rune-card.selected').forEach(card => card.classList.remove('selected'));
                     runeCard.classList.add('selected');
                 }
             }

@@ -20,6 +20,15 @@ test('every class is available without a currency purchase', () => {
     assert.equal(Store.setLoadout({ char: 'soldier' }), true);
 });
 
+test('loadouts retain only one owned rune', () => {
+    Store.reset();
+    Store.grant({ currency: 160 });
+    assert.equal(Store.buyRune('hp_bonus'), true);
+    assert.equal(Store.buyRune('speed_bonus'), true);
+    assert.equal(Store.setLoadout({ runes: ['speed_bonus', 'hp_bonus'] }), true);
+    assert.deepEqual(Store.get('loadout').runes, ['speed_bonus']);
+});
+
 test('coin purchases reject insufficient funds and persist ownership', () => {
     Store.reset();
     assert.equal(Store.buyAvatarSkin('neon'), false);

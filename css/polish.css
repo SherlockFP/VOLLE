@@ -2139,6 +2139,59 @@ body.high-contrast #main-menu :is(.ow-topbar, .ow-showcase, .ow-action-panel, .f
 .case-reel { position:fixed; inset:0; z-index:120; display:grid; place-items:center; background:#020b12b8; backdrop-filter:blur(8px); }.case-reel.hidden { display:none; }.case-reel-card { width:min(680px,90vw); padding:18px; border:1px solid #46ddea; border-radius:15px; background:linear-gradient(145deg,#092c40,#061522); box-shadow:0 24px 80px #000; }.case-reel-top { display:flex; justify-content:space-between; margin-bottom:14px; color:#a7faff; font-size:12px; font-weight:900; letter-spacing:.12em; }.case-reel-top button { color:#b6faff; background:transparent; border:1px solid #44aab7; border-radius:6px; padding:4px 9px; }.case-reel-window { position:relative; overflow:hidden; border:1px solid #1f8091; border-radius:10px; background:#04111b; }.case-reel-window::after { content:''; position:absolute; top:0; bottom:0; left:50%; width:3px; background:#fff; box-shadow:0 0 15px #66faff; transform:translateX(-50%); }.case-reel-track { display:flex; width:max-content; transform:translateX(0); }.case-reel-track.spin { transition:transform 2.25s cubic-bezier(.08,.72,.15,1); transform:translateX(-1180px); }.case-reel-track.settled { transform:translateX(-1180px); }.case-reel-item { display:grid; align-content:center; flex:0 0 112px; height:112px; padding:10px; border-right:1px solid #1b6070; background:#0a3141; text-align:center; }.case-reel-item small { color:#7ddce5; font-size:9px; }.case-reel-item b { margin-top:8px; color:#fff; font-size:13px; }.case-reel-result { min-height:22px; padding-top:12px; color:#b8fff1; text-align:center; font-weight:800; }
 @media (max-width:700px) { .contract-tracker { top:auto; bottom:110px; left:10px; width:190px; } }
 
+/* Horizontal Heroes deck and generated ability/rune atlas. */
+#character-screen .wide-panel { width: min(1320px, 96vw); }
+#character-screen .char-grid,
+#character-screen .skill-grid,
+#character-screen .rune-grid {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(190px, 1fr);
+    grid-template-columns: none;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scroll-snap-type: inline proximity;
+    padding: 4px 3px 12px;
+    gap: 12px;
+}
+#character-screen .char-card,
+#character-screen .skill-card,
+#character-screen .rune-card { scroll-snap-align: start; min-height: 168px; }
+#character-screen .char-card { text-align: left; }
+.loadout-section { margin-top: 22px; padding: 18px; border: 1px solid rgba(112, 221, 255, .18); border-radius: 18px; background: linear-gradient(135deg, rgba(4, 27, 36, .78), rgba(7, 15, 30, .64)); }
+.loadout-section > header { display: flex; align-items: end; justify-content: space-between; gap: 16px; }
+.loadout-section h3 { margin: 4px 0 0; color: #ecffff; }
+.loadout-section p { max-width: 360px; margin: 0; color: rgba(214, 244, 252, .68); font-size: .78rem; text-align: right; }
+#character-screen .skill-card,
+#character-screen .rune-card { min-width: 190px; padding: 13px; border-color: rgba(121, 225, 245, .16); background: linear-gradient(145deg, rgba(13, 42, 59, .92), rgba(5, 17, 31, .88)); text-align: left; }
+#character-screen .skill-card:hover,
+#character-screen .rune-card:hover { transform: translateY(-2px); border-color: rgba(105, 241, 226, .7); }
+#character-screen .skill-card.selected,
+#character-screen .rune-card.selected { border-color: #66f2df; background: linear-gradient(145deg, rgba(27, 111, 119, .62), rgba(7, 44, 60, .9)); box-shadow: 0 0 0 1px rgba(198, 255, 247, .25), 0 16px 35px rgba(26, 223, 206, .16); }
+.loadout-icon { width: 58px; height: 58px; margin-bottom: 10px; border: 1px solid rgba(150, 245, 255, .45); border-radius: 15px; background-image: url('../assets/generated/ui/loadout-icon-atlas-v1.png'); background-size: 400% 400%; background-position: var(--icon-x) var(--icon-y); box-shadow: 0 8px 18px rgba(0, 0, 0, .35); }
+.rune-icon { border-color: rgba(109, 243, 223, .58); }
+.loadout-card-title { color: #f1ffff; font-weight: 900; letter-spacing: .03em; }
+.loadout-card-meta { margin-top: 8px; color: #72efe1; font-size: .7rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+
+/* Case opening: target-centered motion and a clear reward reveal. */
+.case-reel { z-index: 720; background: radial-gradient(circle at 50% 36%, rgba(31, 139, 155, .3), rgba(1, 8, 17, .92) 62%); }
+.case-reel-card { width: min(860px, 94vw); padding: 24px; border: 1px solid rgba(118, 244, 236, .5); border-radius: 24px; background: linear-gradient(145deg, rgba(8, 36, 56, .98), rgba(2, 11, 25, .98)); box-shadow: 0 30px 100px rgba(0, 0, 0, .72), inset 0 1px rgba(255,255,255,.08); }
+.case-reel-top { align-items: center; color: #8affeb; font-size: .78rem; }
+.case-reel-top button { min-height: 36px; padding: 0 12px; color: #d9ffff; border-color: rgba(123, 239, 240, .36); border-radius: 10px; }
+.case-reel-window { padding: 12px 0; border-color: rgba(107, 237, 233, .35); border-radius: 16px; background: linear-gradient(90deg, rgba(2, 12, 25, .95), rgba(11, 48, 69, .76), rgba(2, 12, 25, .95)); }
+.case-reel-window::before { content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none; background: linear-gradient(90deg, rgba(2, 10, 19, .9), transparent 23%, transparent 77%, rgba(2, 10, 19, .9)); }
+.case-reel-window::after { z-index: 2; width: 4px; border-radius: 99px; background: #f4fffd; box-shadow: 0 0 22px #70fff0, 0 0 48px rgba(83, 230, 255, .75); }
+.case-reel-track { gap: 10px; padding: 0 12px; will-change: transform; transform: translate3d(0, 0, 0); }
+.case-reel-track.spin { transition: transform 3.5s cubic-bezier(.08,.72,.08,1); transform: translate3d(var(--case-reel-stop), 0, 0); }
+.case-reel-track.settled { transform: translate3d(var(--case-reel-stop), 0, 0); }
+.case-reel-item { position: relative; min-height: 138px; flex-basis: 132px; overflow: hidden; align-content: center; gap: 5px; border: 1px solid rgba(133, 225, 241, .17); border-radius: 13px; background: linear-gradient(150deg, rgba(17, 60, 81, .95), rgba(5, 23, 40, .95)); }
+.case-reel-orb { width: 30px; height: 30px; margin: 0 auto 3px; border-radius: 50%; background: radial-gradient(circle at 32% 28%, #fff, #61ecdc 22%, #258ab8 55%, #0b294d 76%); box-shadow: 0 0 19px rgba(91, 235, 224, .6); }
+.case-reel-item b { margin: 0; font-size: .76rem; line-height: 1.2; }
+.case-reel-result { min-height: 48px; padding-top: 18px; display: grid; gap: 3px; place-items: center; }
+.case-reel-result span { color: #76efe2; font-size: .68rem; font-weight: 900; letter-spacing: .18em; }
+.case-reel-result strong { color: #fff; font-size: 1.25rem; }
+@media (max-width: 700px) { #character-screen .char-grid, #character-screen .skill-grid, #character-screen .rune-grid { grid-auto-columns: minmax(168px, 82vw); } .loadout-section { padding: 14px; } .loadout-section > header { align-items: start; flex-direction: column; gap: 6px; } .loadout-section p { text-align: left; } .case-reel-card { padding: 16px; } .case-reel-item { flex-basis: 116px; min-height: 124px; } }
+
 /* TF2-style team doors with a shared class deck below. */
 #team-overlay .team-popup-grid { gap: 18px; }
 #team-overlay .team-col { min-height: 210px; padding: 0 14px 13px; overflow: hidden; cursor: default; border-top-width: 0; background: rgba(4, 18, 30, .7); }

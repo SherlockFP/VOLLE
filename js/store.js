@@ -99,7 +99,7 @@ const DEFAULTS = {
     rankedState: createRankedState(),
     socialState: createSocialState(),
     settings: {
-        sensitivity: 2, volume: 50, botDifficulty: 'hard', fov: 75,
+        sensitivity: 2, volume: 50, musicVolume: 35, soundVolume: 50, botDifficulty: 'hard', fov: 75,
         quality: 'medium', reduceMotion: false, screenShake: true,
         screenFlash: true, highContrast: false, colorBlind: 'none', keybinds: {}
     },
@@ -126,8 +126,19 @@ class StoreClass {
             ));
             // Deep merge — yeni key'ler eski save'lerde de olsun
             return { ...structuredClone(DEFAULTS), ...parsed,
-                settings: { ...DEFAULTS.settings, ...(parsed.settings||{}) },
-                loadout: { ...DEFAULTS.loadout, ...(parsed.loadout||{}) },
+                settings: {
+                    ...DEFAULTS.settings,
+                    ...(parsed.settings || {}),
+                    musicVolume: Number(parsed.settings?.musicVolume ?? parsed.settings?.volume ?? DEFAULTS.settings.musicVolume),
+                    soundVolume: Number(parsed.settings?.soundVolume ?? parsed.settings?.volume ?? DEFAULTS.settings.soundVolume)
+                },
+                loadout: {
+                    ...DEFAULTS.loadout,
+                    ...(parsed.loadout || {}),
+                    runes: Array.isArray(parsed.loadout?.runes)
+                        ? parsed.loadout.runes.filter(id => RUNES[id]).slice(0, 1)
+                        : DEFAULTS.loadout.runes
+                },
                 crosshairSettings: { ...DEFAULTS.crosshairSettings, ...(parsed.crosshairSettings||{}) },
                 characterProgress: { ...DEFAULTS.characterProgress, ...(parsed.characterProgress||{}) },
                 battlepass: { ...DEFAULTS.battlepass, ...(parsed.battlepass||{}) },
@@ -566,7 +577,10 @@ class StoreClass {
     setLoadout(loadout) {
         if (loadout.char && !this.ownsCharacter(loadout.char)) return false;
         if (loadout.skill && !this.ownsSkill(loadout.skill)) return false;
-        this.data.loadout = { ...this.data.loadout, ...loadout };
+        const runes = Array.isArray(loadout.runes)
+            ? loadout.runes.filter(id => RUNES[id] && this.owns(id)).slice(0, 1)
+            : this.data.loadout.runes;
+        this.data.loadout = { ...this.data.loadout, ...loadout, runes };
         if (loadout.char) this.data.selectedChar = loadout.char;
         if (loadout.ball) this.data.equippedBall = loadout.ball;
         this.save();

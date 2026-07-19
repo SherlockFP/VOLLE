@@ -455,10 +455,8 @@
                         <label>Mouse Sensitivity</label>
                         <input type="range" id="setting-sensitivity" min="1" max="10" value="2" step="0.5">
                     </div>
-                    <div class="settings-row">
-                        <label>Volume</label>
-                        <input type="range" id="setting-volume" min="0" max="100" value="50">
-                    </div>
+                    <div class="settings-row"><label>Music</label><input type="range" id="setting-music-volume" min="0" max="100" value="35"></div>
+                    <div class="settings-row"><label>Sound</label><input type="range" id="setting-sound-volume" min="0" max="100" value="50"></div>
                     <div class="settings-row">
                         <label>Field of View (FOV)</label>
                         <input type="range" id="setting-fov" min="60" max="110" value="75" step="5">
@@ -625,11 +623,8 @@
 
             <div class="char-grid" id="char-grid"></div>
 
-            <h3>Active Skill (Q)</h3>
-            <div class="skill-grid" id="skill-grid"></div>
-
-            <h3>Runes (4 slots)</h3>
-            <div class="rune-grid" id="rune-grid"></div>
+            <section class="loadout-section"><header><span class="shell-kicker">Q ABILITY</span><h3>Active Skill</h3><p>One decisive move. Cooldowns are tuned for fair rallies.</p></header><div class="skill-grid" id="skill-grid"></div></section>
+            <section class="loadout-section"><header><span class="shell-kicker">ONE SLOT</span><h3>Rune</h3><p>Choose one passive perk for a clear playstyle.</p></header><div class="rune-grid" id="rune-grid"></div></section>
 
             <div class="btn-row">
                 <button id="btn-char-save" class="btn btn-primary">Save Loadout</button>

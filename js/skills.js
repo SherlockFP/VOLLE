@@ -46,6 +46,15 @@ export const ULTIMATES = {
     frost:   { name: 'FLASH FREEZE', duration: 3, desc: 'Freeze all balls on map' },
 };
 
+Object.assign(SKILLS.slow, { cooldown: 35, desc: 'Top hÄ±zÄ±nÄ± anlık %50 azaltır.' });
+Object.assign(SKILLS.freeze, { cooldown: 50 });
+Object.assign(SKILLS.burn, { cooldown: 42 });
+Object.assign(SKILLS.shield, { cooldown: 38 });
+Object.assign(SKILLS.smash, { cooldown: 38 });
+Object.assign(SKILLS.heal, { cooldown: 52 });
+Object.assign(SKILLS.teleport, { cooldown: 70 });
+Object.assign(SKILLS.blackhole, { cooldown: 90 });
+
 export const RUNES = {
     hp_bonus:      { id:'hp_bonus',      name:'HP Bonus',         emoji:'❤️', desc:'+25 max HP' },
     dmg_resist:    { id:'dmg_resist',    name:'Damage Resist',    emoji:'🛡️', desc:'-15% alınan hasar' },
@@ -60,13 +69,13 @@ export const RUNES = {
 // Aktif skill slotu + 4 rune slotu. Store'da saklanır.
 export const DEFAULT_LOADOUT = {
     skill: 'slow',
-    runes: ['hp_bonus', 'deflect_power', 'stam_regen', 'cooldown_red']
+    runes: ['deflect_power']
 };
 
 // Rune bonuslarını entity statlarına uygula.
 export function applyRunes(entity, runeIds = []) {
     entity.runeBonuses = { hp:0, dmgResist:0, deflect:0, speed:0, stamRegen:0, cdr:0, lifesteal:0, thorns:0 };
-    runeIds.forEach(id => {
+    runeIds.slice(0, 1).forEach(id => {
         switch (id) {
             case 'hp_bonus':      entity.runeBonuses.hp += 25; break;
             case 'dmg_resist':    entity.runeBonuses.dmgResist += 0.15; break;

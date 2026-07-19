@@ -891,6 +891,7 @@ export class UI {
     renderCharacterSelect(store) {
         const grid = document.getElementById('char-grid');
         if (!grid) return;
+        const iconStyle = index => `style="--icon-x:${index % 4 * 33.333}%;--icon-y:${Math.floor(index / 4) * 33.333}%"`;
         grid.innerHTML = '';
         const owned = store.get('unlockedChars');
         const selected = store.get('selectedChar');
@@ -921,12 +922,12 @@ export class UI {
             sg.innerHTML = '';
             const ownedSkills = store.get('ownedSkills');
             const currentSkill = store.get('loadout').skill;
-            Object.values(SKILLS).forEach(s => {
+            Object.values(SKILLS).forEach((s, index) => {
                 const card = document.createElement('div');
                 const owned = ownedSkills.includes(s.id);
                 card.className = `skill-card ${currentSkill === s.id ? 'selected' : ''} ${!owned ? 'locked' : ''}`;
                 card.dataset.skill = s.id;
-                card.innerHTML = `<div class="skill-emoji">${s.emoji}</div><div>${s.name}</div><div class="char-desc">${s.desc}</div><div>CD: ${s.cooldown}s</div>${!owned ? '<div class="char-price">🪙 100</div>' : ''}`;
+                card.innerHTML = `<div class="loadout-icon" ${iconStyle(index)} aria-hidden="true"></div><div class="loadout-card-title">${s.name}</div><div class="char-desc">${s.desc}</div><div class="loadout-card-meta">${s.cooldown}s cooldown</div>${!owned ? '<div class="char-price">🪙 100</div>' : ''}`;
                 sg.appendChild(card);
             });
         }
@@ -937,13 +938,13 @@ export class UI {
             rg.innerHTML = '';
             const ownedRunes = store.get('ownedItems');
             const currentRunes = store.get('loadout').runes || [];
-            Object.values(RUNES).forEach(r => {
+            Object.values(RUNES).forEach((r, index) => {
                 const card = document.createElement('div');
                 const owned = ownedRunes.includes(r.id);
                 const equipped = currentRunes.includes(r.id);
                 card.className = `rune-card ${equipped ? 'selected' : ''} ${!owned ? 'locked' : ''}`;
                 card.dataset.rune = r.id;
-                card.innerHTML = `<div class="skill-emoji">${r.emoji}</div><div>${r.name}</div><div class="char-desc">${r.desc}</div>${!owned ? '<div class="char-price">🪙 80</div>' : ''}`;
+                card.innerHTML = `<div class="loadout-icon rune-icon" ${iconStyle(index + 8)} aria-hidden="true"></div><div class="loadout-card-title">${r.name}</div><div class="char-desc">${r.desc}</div>${!owned ? '<div class="char-price">🪙 80</div>' : ''}`;
                 rg.appendChild(card);
             });
         }
@@ -1066,12 +1067,13 @@ export class UI {
         const resultEl = document.getElementById('case-reel-result');
         if (!overlay || !track || !resultEl || !result?.reward) return;
         const drops = box?.drops || [];
-        const ids = Array.from({ length: 18 }, (_, index) => drops[index % Math.max(1, drops.length)]?.id || result.reward.id);
-        ids.splice(14, 0, result.reward.id);
+        const targetIndex = 20;
+        const ids = Array.from({ length: 25 }, (_, index) => drops[index % Math.max(1, drops.length)]?.id || result.reward.id);
+        ids[targetIndex] = result.reward.id;
         track.className = 'case-reel-track';
         track.innerHTML = ids.map(id => {
             const item = drops.find(drop => drop.id === id) || result.reward;
-            return `<div class="case-reel-item rarity-${item.rarity || result.reward.rarity}"><small>${item.type === 'avatar' ? 'SKIN' : 'KNIFE'}</small><b>${item.name || id}</b></div>`;
+            return `<div class="case-reel-item rarity-${item.rarity || result.reward.rarity}"><span class="case-reel-orb" aria-hidden="true"></span><small>${item.type === 'avatar' ? 'SKIN' : 'KNIFE'}</small><b>${item.name || id}</b></div>`;
         }).join('');
         resultEl.textContent = '';
         overlay.classList.remove('hidden');
@@ -1080,11 +1082,17 @@ export class UI {
             if (settled) return;
             settled = true;
             track.classList.add('settled');
-            resultEl.textContent = `${result.duplicate ? `Duplicate +${result.refund}` : 'UNLOCKED'}: ${result.reward.name}`;
+            resultEl.innerHTML = `<span>${result.duplicate ? `Duplicate +${result.refund}` : 'UNLOCKED'}</span><strong>${result.reward.name}</strong>`;
             setTimeout(() => overlay.classList.add('hidden'), 1800);
         };
-        requestAnimationFrame(() => track.classList.add('spin'));
-        const timer = setTimeout(finish, 2300);
+        requestAnimationFrame(() => {
+            const selected = track.children[targetIndex];
+            const stop = overlay.querySelector('.case-reel-window').clientWidth / 2
+                - (selected.offsetLeft + selected.offsetWidth / 2);
+            track.style.setProperty('--case-reel-stop', `${Math.round(stop)}px`);
+            track.classList.add('spin');
+        });
+        const timer = setTimeout(finish, 3600);
         document.getElementById('case-reel-skip')?.addEventListener('click', () => { clearTimeout(timer); finish(); }, { once: true });
     }
 
