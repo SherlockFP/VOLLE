@@ -2764,6 +2764,7 @@ class App {
             if (!name) return;
             if (btn.dataset.kickBot === '1') {
                 this.game.removeBotByName(name);
+                this.broadcastLobbyState();
             } else {
                 this.kickPlayer(name);
             }
@@ -3764,6 +3765,7 @@ class App {
             this._p2pTimer = desiredMs / 1000;
             if (this.game.state === STATES.PLAYING
                 || this.game.state === STATES.COUNTDOWN
+                || this.game.state === STATES.CELEBRATION
                 || this.game.state === STATES.LOBBY
             ) {
                 const p = this.player;

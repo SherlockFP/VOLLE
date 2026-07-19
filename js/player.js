@@ -477,7 +477,7 @@ export class Player {
             this.knifeGroup = createRocketLauncherModel(this.team);
             this.knifeGroup.position.set(0.11, -0.1, -0.52);
             this.knifeGroup.rotation.set(-0.12, -0.16, 0.04);
-            this.knifeGroup.scale.setScalar(0.72);
+            this.knifeGroup.scale.setScalar(0.62);
         } else {
             this.knifeGroup = createKnifeModel(this.knifeStyle);
             this.knifeGroup.position.set(0.08, -0.08, -0.5);

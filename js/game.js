@@ -2923,7 +2923,7 @@ export class Game {
         const launcher = createRocketLauncherModel(this.player.team);
         launcher.position.set(0.3, -0.24, -0.58);
         launcher.rotation.set(-0.08, 0.04, 0);
-        launcher.scale.setScalar(0.88);
+        launcher.scale.setScalar(0.74);
         launcher.visible = false;
         cam.add(launcher);
         this._celebWpnMeshes.rocket = launcher;

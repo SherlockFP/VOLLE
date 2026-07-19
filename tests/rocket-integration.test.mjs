@@ -32,6 +32,7 @@ test('Soldier uses the launcher viewmodel instead of a knife point', async () =>
     const source = await readFile(new URL('../js/player.js', import.meta.url), 'utf8');
     assert.ok(source.includes("createRocketLauncherModel(this.team)"));
     assert.ok(source.includes("if (this.charId === 'soldier')"));
+    assert.match(source, /knifeGroup\.scale\.setScalar\(0\.62\)/);
 });
 
 test('endgame winners use rockets only', async () => {
@@ -41,4 +42,5 @@ test('endgame winners use rockets only', async () => {
     assert.ok(!source.includes("['fists', 'rocket']"));
     assert.match(source, /WINNER LOADOUT: ROCKET/);
     assert.match(source, /const weapons = \[\['rocket', '2', 'ROCKET'\]\];/);
+    assert.match(source, /launcher\.scale\.setScalar\(0\.74\)/);
 });

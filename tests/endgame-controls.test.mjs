@@ -28,6 +28,20 @@ test('celebration respawns players and shows one local Victory or Lose banner', 
     assert.match(source, /if \(subEl\) subEl\.textContent = '';/);
 });
 
+test('celebration movement remains in the P2P position sync state set', async () => {
+    const source = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
+    const positionSync = source.slice(source.indexOf('// P2P: adaptive rate position send'), source.indexOf('// Attack intent:'));
+
+    assert.match(positionSync, /this\.game\.state === STATES\.CELEBRATION/);
+});
+
+test('kicking a lobby bot broadcasts the reconciled lobby state', async () => {
+    const source = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
+    const kickHandler = source.slice(source.indexOf('// Delegated kick click'), source.indexOf('// Host kicks a human player'));
+
+    assert.match(kickHandler, /removeBotByName\(name\);\s*this\.broadcastLobbyState\(\);/);
+});
+
 test('new matches cancel old countdowns and rebuild a zero-score board', async () => {
     const game = await readFile(new URL('../js/game.js', import.meta.url), 'utf8');
     const ui = await readFile(new URL('../js/ui.js', import.meta.url), 'utf8');
