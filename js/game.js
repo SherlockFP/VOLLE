@@ -33,6 +33,7 @@ const BASE_HIT_DAMAGE = 25;
 
 const POWERUP_TYPES = [
     { id: 'shield', color: 0x44aaff, label: '+SHIELD', duration: 0, weight: 32 },
+    { id: 'recovery', color: 0x63f4e8, label: 'RECOVERY CORE', duration: 0, weight: 8 },
     { id: 'speed', color: 0x44ff88, label: 'HYPER SPEED · 20s', duration: 20, weight: 26 },
     { id: 'damage', color: 0xff4444, label: 'POWER SHOT · 12s', duration: 12, weight: 20 },
     { id: 'megaball', color: 0xffaa00, label: 'MEGA BALL', duration: 5, weight: 12 },
@@ -40,6 +41,12 @@ const POWERUP_TYPES = [
     { id: 'giant', color: 0xc05cff, label: 'GIANT MODE · 20s', duration: 20, weight: 3 },
     { id: 'tiny', color: 0x5ce1ff, label: 'TINY MODE · 20s', duration: 20, weight: 3 },
 ];
+
+const POWERUP_FIRST_SPAWN = 30;
+const POWERUP_FIRST_VARIANCE = 20;
+const POWERUP_RESPAWN = 45;
+const POWERUP_RESPAWN_VARIANCE = 15;
+const POWERUP_LIFETIME = 30;
 
 export const STATES = {
     MENU: 'MENU', LOBBY: 'LOBBY', COUNTDOWN: 'COUNTDOWN',
@@ -166,9 +173,9 @@ export class Game {
 
         // Power-up pickups — spawn on map, temporary buffs
         this.powerUps = [];
-        this._powerUpTimer = 10 + Math.random() * 5;  // first spawn
-        this._powerUpInterval = 12;  // seconds between spawns
-        this._maxPowerUps = 3;
+        this._powerUpTimer = POWERUP_FIRST_SPAWN + Math.random() * POWERUP_FIRST_VARIANCE;
+        this._powerUpInterval = POWERUP_RESPAWN;
+        this._maxPowerUps = 1;
         this._playerBuffs = {}; // { speed: 0, shield: 0, damage: 0 } timer
         this._respawnTimer = null;
 
@@ -281,6 +288,10 @@ export class Game {
     }
 
     startSolo() {
+        this._practiceMode = false;
+        document.querySelectorAll('#btn-add-bot-red, #btn-add-bot-blue').forEach(button => {
+            button.disabled = false;
+        });
         // ponytail fix OW2-gap2: input'tan isim oku, fallback 'You'
         const input = document.getElementById('player-name-input');
         this.playerName = input?.value?.trim() || 'You';
@@ -298,6 +309,7 @@ export class Game {
     }
 
     addBot(team) {
+        if (this._practiceMode) return null;
         this.botCounter++;
         const name = `Bot-${this.botCounter}`;
         const bot = new Bot(this.renderer, this.arena, name, team, this.botDifficulty);
@@ -1639,6 +1651,11 @@ export class Game {
         // ponytail: ball physics runs on host only; client renders position from snapshot smoothing
         if (!this.network?.connected || this.network?.isHost) {
             const bounced = this.ball.update(dt);
+            if (this._practiceMode && bounced) {
+                this.ball.setTarget(this.player);
+                this.ball.state = 'homing';
+                this.ball._homingAge = 0;
+            }
             if (bounced && !this.juice._hitStopActive) this.audio.playBounce?.();
         } else {
             // ponytail: client ball visual update — trail, glow, rotation, squash
@@ -1650,7 +1667,7 @@ export class Game {
         // Aimed shots fly straight, so check EVERY enemy of the thrower's team in the
         // ball's path — you damage whoever you actually hit, not just an assigned target.
         // Ghost affix: skip player collision entirely.
-        if (this.ball.active && !this.ball._affixGhost && !this.ball._warmup && this.ball._noHitTimer <= 0) {
+        if (this.ball.active && !this._practiceMode && !this.ball._affixGhost && !this.ball._warmup && this.ball._noHitTimer <= 0) {
             const ballPos = this.ball.position;
             const throwerTeam = this.lastDeflectorTeam;
             // Candidates: enemies of the thrower (or just the assigned target as fallback).
@@ -2563,11 +2580,11 @@ export class Game {
             }
         }
 
-        // Spawn timer (15s interval, max 3)
+        // Rare map interaction: one contested core at a time, never a pickup flood.
         if (authoritative) this._powerUpTimer -= dt;
         if (authoritative && this._powerUpTimer <= 0 && this.powerUps.length < this._maxPowerUps) {
             this.spawnPowerUp();
-            this._powerUpTimer = 15 + Math.random() * 5;
+            this._powerUpTimer = POWERUP_RESPAWN + Math.random() * POWERUP_RESPAWN_VARIANCE;
         }
 
         // Pickup check
@@ -2605,6 +2622,11 @@ export class Game {
         switch (type.id) {
             case 'shield':
                 player.shield += 50;
+                break;
+            case 'recovery':
+                player.hp = Math.min(player.maxHp, player.hp + 35);
+                player.stamina = player.staminaMax;
+                player.drawHpBar?.();
                 break;
             case 'speed':
                 if (!player._baseSpeed) player._baseSpeed = player.speed;
@@ -2668,6 +2690,11 @@ export class Game {
 
     _applyAuthoritativeRemotePowerUp(player, type) {
         if (type.id === 'shield') player.shield = (player.shield || 0) + 50;
+        if (type.id === 'recovery') {
+            player.hp = Math.min(player.maxHp, player.hp + 35);
+            player.stamina = player.staminaMax;
+            player.drawHpBar?.();
+        }
         if (type.id === 'damage') player._powerUpDamageMul = 1.5;
         if (type.id === 'speed') player._powerUpSpeedMultiplier = 1.3;
         if (type.id === 'rapid') player._rapidDeflect = true;
@@ -2712,7 +2739,14 @@ export class Game {
         const mesh = new THREE.Mesh(geo, mat);
         mesh.position.copy(pos);
         this.renderer.scene.add(mesh);
-        this.powerUps.push({ mesh, type, pos: pos.clone(), timer: 20 });
+        const ring = new THREE.Mesh(
+            new THREE.TorusGeometry(0.72, 0.045, 6, 18),
+            new THREE.MeshBasicMaterial({ color: type.color, transparent: true, opacity: 0.72 })
+        );
+        ring.rotation.x = Math.PI / 2;
+        ring.position.y = -1.25;
+        mesh.add(ring);
+        this.powerUps.push({ mesh, type, pos: pos.clone(), timer: POWERUP_LIFETIME });
     }
 
     _applyBuff(type) {
@@ -4178,8 +4212,15 @@ export class Game {
             const mat = new THREE.MeshBasicMaterial({ color: type.color, transparent: true, opacity: 0.8 });
             const mesh = new THREE.Mesh(geo, mat);
             mesh.position.set(pu.x, 1.5, pu.z);
+            const ring = new THREE.Mesh(
+                new THREE.TorusGeometry(0.72, 0.045, 6, 18),
+                new THREE.MeshBasicMaterial({ color: type.color, transparent: true, opacity: 0.72 })
+            );
+            ring.rotation.x = Math.PI / 2;
+            ring.position.y = -1.25;
+            mesh.add(ring);
             this.renderer.scene.add(mesh);
-            this.powerUps.push({ mesh, type, pos: new THREE.Vector3(pu.x, 1.5, pu.z), timer: 20 });
+            this.powerUps.push({ mesh, type, pos: new THREE.Vector3(pu.x, 1.5, pu.z), timer: POWERUP_LIFETIME });
         }
     }
 

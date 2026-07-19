@@ -2638,6 +2638,9 @@ class App {
         this.game.bots.forEach(b => b.remove());
         this.game.bots = [];
         this.game._practiceMode = true;
+        document.querySelectorAll('#btn-add-bot-red, #btn-add-bot-blue').forEach(button => {
+            button.disabled = true;
+        });
         this.ui.showScreen('lobby');
         // Practice lobby'sinde farklı butonlar göster
         this.ui.showMessage?.('Practice mode: R spawn ball, F move ball', 3000);

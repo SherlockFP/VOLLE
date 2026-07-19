@@ -4,8 +4,30 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 
 const ISLAND_BOUNDS = Object.freeze({ minX: -220, maxX: 220, minY: -12, maxY: 110, minZ: -220, maxZ: 220 });
 const ISLAND_GROUND_Y = 0;
+const CONSTRUCT_BOUNDS = Object.freeze({ minX: -118, maxX: 118, minY: -12, maxY: 90, minZ: -150, maxZ: 150 });
+const CITY_BOUNDS = Object.freeze({ minX: -120, maxX: 120, minY: -12, maxY: 78, minZ: -120, maxZ: 120 });
 export const SOCIAL_HUB_MAPS = Object.freeze({
-    island: Object.freeze({ id: 'island', name: 'Island', bounds: ISLAND_BOUNDS, spawn: Object.freeze({ x: 0, y: 2, z: 28 }), credit: 'VOLLE Harbor Plaza - CC0 Kenney props' })
+    island: Object.freeze({ id: 'island', name: 'Island', bounds: ISLAND_BOUNDS, spawn: Object.freeze({ x: 0, y: 2, z: 28 }), credit: 'VOLLE Harbor Plaza - CC0 Kenney props' }),
+    construct: Object.freeze({ id: 'construct', name: 'Construct', bounds: CONSTRUCT_BOUNDS, spawn: Object.freeze({ x: 0, y: 2, z: 92 }), asset: 'assets/user-content/social-hub/construct.glb', assetScale: 2.25, credit: 'Garrys Map Construct by Providence Secretary (NIEZDE) - CC BY' }),
+    city: Object.freeze({ id: 'city', name: 'Chicken City', bounds: CITY_BOUNDS, spawn: Object.freeze({ x: 0, y: 2, z: 86 }), asset: 'assets/user-content/social-hub/chicken-city.glb', assetScale: 1.5, credit: 'Chicken Gun Fruzzer City by amogusstrikesback2 - CC BY' })
+});
+
+const SOCIAL_MAP_BLOCKS = Object.freeze({
+    island: Object.freeze([
+        [-145, -145, 46, 16], [145, -145, 46, 16], [-145, 145, 46, 16], [145, 145, 46, 16],
+        [-174, 0, 12, 62], [174, 0, 12, 62], [0, -174, 62, 12], [0, 174, 62, 12],
+        [-82, -86, 30, 10], [82, -86, 30, 10], [-82, 86, 30, 10], [82, 86, 30, 10]
+    ]),
+    construct: Object.freeze([
+        [-82, -104, 30, 18], [0, -104, 28, 18], [82, -104, 30, 18],
+        [-92, -28, 18, 34], [92, -28, 18, 34], [-70, 48, 30, 22], [70, 48, 30, 22],
+        [-95, 110, 18, 24], [0, 110, 40, 22], [95, 110, 18, 24], [0, 6, 12, 12]
+    ]),
+    city: Object.freeze([
+        [-82, -76, 24, 18], [0, -76, 22, 18], [80, -76, 24, 18],
+        [-88, -4, 18, 31], [-38, 2, 18, 24], [38, 2, 18, 24], [88, -4, 18, 31],
+        [-78, 75, 28, 19], [0, 78, 23, 18], [78, 75, 28, 19]
+    ])
 });
 
 const CHARACTER_ASSETS = ['a', 'f', 'k', 'r'].map(
@@ -107,11 +129,7 @@ export function getSocialLobbyMapState(player, presence, mapId = 'island') {
 export function createSocialLobbyArena(mapId = 'island') {
     const map = getSocialHubMap(mapId);
     const boundaries = createSocialBoundaryColliders(map.bounds);
-    const blocks = [
-        [-145, -145, 46, 16], [145, -145, 46, 16], [-145, 145, 46, 16], [145, 145, 46, 16],
-        [-174, 0, 12, 62], [174, 0, 12, 62], [0, -174, 62, 12], [0, 174, 62, 12],
-        [-82, -86, 30, 10], [82, -86, 30, 10], [-82, 86, 30, 10], [82, 86, 30, 10]
-    ].map(([x, z, halfWidth, halfDepth]) => ({ minX: x - halfWidth, maxX: x + halfWidth, minY: -2, maxY: 18, minZ: z - halfDepth, maxZ: z + halfDepth }));
+    const blocks = (SOCIAL_MAP_BLOCKS[map.id] || []).map(([x, z, halfWidth, halfDepth]) => ({ minX: x - halfWidth, maxX: x + halfWidth, minY: -2, maxY: map.bounds.maxY, minZ: z - halfDepth, maxZ: z + halfDepth }));
     const collidables = [...boundaries, ...blocks];
     const grid = createSocialColliderGrid(collidables, 22);
     return {
@@ -120,7 +138,7 @@ export function createSocialLobbyArena(mapId = 'island') {
         config: { name: `VOLLE Social Hub - ${map.name}`, lowGravity: false, slippery: false, gameplay: { sandTraction: 1 } },
         collidables,
         getNearbyCollidables: position => grid.query(position),
-        platforms: [{ x: 0, z: 0, y: ISLAND_GROUND_Y, halfWidth: 214, halfDepth: 214 }],
+        platforms: [{ x: 0, z: 0, y: ISLAND_GROUND_Y, halfWidth: (map.bounds.maxX - map.bounds.minX) / 2 - 6, halfDepth: (map.bounds.maxZ - map.bounds.minZ) / 2 - 6 }],
         jumpPads: [],
         getWaterAt: () => null,
         getHazardAt: () => null,
@@ -136,7 +154,7 @@ function setMeshShadows(root) {
     });
 }
 
-function tuneIslandMaterials(root) {
+function tuneHubMaterials(root) {
     root.traverse(child => {
         if (!child.isMesh) return;
         child.castShadow = false;
@@ -208,7 +226,7 @@ export class SocialLobby {
         this.drivePlayer = options.drivePlayer !== false;
         this.onPresence = options.onPresence || (() => {});
         this.mapId = 'island';
-        this.arenas = { island: createSocialLobbyArena('island') };
+        this.arenas = Object.fromEntries(Object.keys(SOCIAL_HUB_MAPS).map(id => [id, createSocialLobbyArena(id)]));
         this.arena = this.arenas.island;
         this.mixers = [];
         this.visitors = new Map();
@@ -268,6 +286,7 @@ export class SocialLobby {
         const sky = new THREE.Mesh(new THREE.SphereGeometry(520, 36, 24), new THREE.MeshBasicMaterial({ color: 0x4ba7c3, side: THREE.BackSide, fog: false }));
         this.islandWorld.add(sky);
         this.root.add(this.islandWorld);
+        this.mapWorlds = { island: this.islandWorld };
     }
 
     async _loadAssets() {
@@ -287,7 +306,12 @@ export class SocialLobby {
                 this.islandWorld.add(model);
             })
             .catch(() => null));
-        await Promise.allSettled([...characterJobs, ...propJobs]);
+        const mapJobs = Object.values(SOCIAL_HUB_MAPS)
+            .filter(map => map.asset)
+            .map(map => loader.loadAsync(map.asset)
+                .then(gltf => this._installHubMap(map, gltf.scene))
+                .catch(() => null));
+        await Promise.allSettled([...characterJobs, ...propJobs, ...mapJobs]);
         return this;
     }
 
@@ -297,9 +321,26 @@ export class SocialLobby {
         this.arena = this.arenas[map.id];
         this._boundaryColliders = this.arena.collidables.filter(collider => collider.invisibleBoundary);
         if (this.player && this.active) this.player.arena = this.arena;
-        if (this.islandWorld) this.islandWorld.visible = map.id === 'island';
+        Object.entries(this.mapWorlds || {}).forEach(([id, world]) => { world.visible = id === map.id; });
         this._presenceDirty = true;
         return map;
+    }
+
+    _installHubMap(map, model) {
+        if (this._disposed || !map?.asset || !model) return;
+        model.scale.setScalar(map.assetScale || 1);
+        model.updateMatrixWorld(true);
+        const bounds = new THREE.Box3().setFromObject(model);
+        const center = bounds.getCenter(new THREE.Vector3());
+        model.position.set(-center.x, -bounds.min.y, -center.z);
+        model.updateMatrixWorld(true);
+        tuneHubMaterials(model);
+        const world = new THREE.Group();
+        world.name = `social-map-${map.id}`;
+        world.visible = this.mapId === map.id;
+        world.add(model);
+        this.mapWorlds[map.id] = world;
+        this.root.add(world);
     }
 
     _installCharacter(gltf, index) {

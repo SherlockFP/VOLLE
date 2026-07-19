@@ -42,6 +42,27 @@ test('kicking a lobby bot broadcasts the reconciled lobby state', async () => {
     assert.match(kickHandler, /removeBotByName\(name\);\s*this\.broadcastLobbyState\(\);/);
 });
 
+test('practice disables bot additions and returns a bounced ball to the player', async () => {
+    const game = await readFile(new URL('../js/game.js', import.meta.url), 'utf8');
+    const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
+
+    assert.match(game, /if \(this\._practiceMode\) return null;/);
+    assert.match(main, /this\.game\._practiceMode = true;\s*document\.querySelectorAll\('#btn-add-bot-red, #btn-add-bot-blue'\)/);
+    assert.match(game, /if \(this\._practiceMode && bounced\) \{\s*this\.ball\.setTarget\(this\.player\);\s*this\.ball\.state = 'homing';/);
+    assert.match(game, /this\.ball\.active && !this\._practiceMode && !this\.ball\._affixGhost/);
+});
+
+test('map pickups are rare, contested interactions with a recovery core', async () => {
+    const source = await readFile(new URL('../js/game.js', import.meta.url), 'utf8');
+
+    assert.match(source, /id: 'recovery'.*RECOVERY CORE/);
+    assert.match(source, /this\._maxPowerUps = 1;/);
+    assert.match(source, /POWERUP_FIRST_SPAWN = 30/);
+    assert.match(source, /POWERUP_RESPAWN = 45/);
+    assert.match(source, /timer: POWERUP_LIFETIME/);
+    assert.match(source, /new THREE\.TorusGeometry\(0\.72/);
+});
+
 test('new matches cancel old countdowns and rebuild a zero-score board', async () => {
     const game = await readFile(new URL('../js/game.js', import.meta.url), 'utf8');
     const ui = await readFile(new URL('../js/ui.js', import.meta.url), 'utf8');
