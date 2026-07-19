@@ -7,6 +7,12 @@ import { AVATAR_SKINS } from './avatar.js';
 import { CASES, KNIVES, canEquipKnife, rollCase } from './cosmetics.js';
 import { createRankedState, recordRankedMatch as applyRankedMatch } from './ranked-service.js';
 import {
+    SEASON_CONTRACTS,
+    claimSeasonContract,
+    createSeasonContractState,
+    progressSeasonContracts
+} from './season-contracts.js';
+import {
     activateXpBoost,
     applyXpBoost,
     createSocialState,
@@ -20,6 +26,18 @@ const PROFILE_TOKEN_KEY = 'dodgball_profile_token';
 
 function buildCharacterProgress() {
     return Object.fromEntries(Object.keys(CHARACTERS).map(id => [id, { level: 1, xp: 0 }]));
+}
+
+function localDateKey(value = new Date()) {
+    const date = value instanceof Date ? value : new Date(value);
+    if (!Number.isFinite(date.getTime())) return '';
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function previousLocalDateKey(value = new Date()) {
+    const date = new Date(value);
+    date.setDate(date.getDate() - 1);
+    return localDateKey(date);
 }
 
 // Battlepass tier reward'ları (50 tier). Her tier'da bir reward.
@@ -60,6 +78,10 @@ const DEFAULTS = {
     equippedAvatarSkin: 'default',
     ownedKnives: ['training'],
     equippedKnives: { red: 'training', blue: 'training' },
+    dailyRewards: { lastLoginClaim: '', loginStreak: 0, lastFreeCase: '' },
+    casePity: {},
+    seasonContracts: createSeasonContractState(),
+    movementTrials: { best: {}, rewarded: [] },
     customMaps: [],
     crosshairSettings: {
         style: 'cross',
@@ -113,7 +135,16 @@ class StoreClass {
                 rankedState: parsed.rankedState || createRankedState({ elo: Math.round(legacyElo) }),
                 ownedAvatarSkins: parsed.ownedAvatarSkins || DEFAULTS.ownedAvatarSkins,
                 ownedKnives: Array.isArray(parsed.ownedKnives) ? parsed.ownedKnives.filter(id => KNIVES[id]) : DEFAULTS.ownedKnives,
-                equippedKnives: { ...DEFAULTS.equippedKnives, ...(parsed.equippedKnives || {}) }
+                equippedKnives: { ...DEFAULTS.equippedKnives, ...(parsed.equippedKnives || {}) },
+                dailyRewards: { ...DEFAULTS.dailyRewards, ...(parsed.dailyRewards || {}) },
+                casePity: parsed.casePity && typeof parsed.casePity === 'object' ? parsed.casePity : {},
+                seasonContracts: createSeasonContractState(parsed.seasonContracts),
+                movementTrials: {
+                    best: parsed.movementTrials?.best && typeof parsed.movementTrials.best === 'object'
+                        ? parsed.movementTrials.best
+                        : {},
+                    rewarded: Array.isArray(parsed.movementTrials?.rewarded) ? parsed.movementTrials.rewarded : []
+                }
             };
         } catch {
             return structuredClone(DEFAULTS);
@@ -339,18 +370,140 @@ class StoreClass {
         return true;
     }
 
-    openCase(caseId, random = Math.random) {
+    _openCase(caseId, random = Math.random, free = false) {
         const box = CASES[caseId];
-        if (!box || this.data.currency < box.price) return null;
-        const reward = rollCase(caseId, random);
+        if (!box || (!free && this.data.currency < box.price)) return null;
+        const pityBefore = Math.min(9, Math.max(0, Number(this.data.casePity?.[caseId]) || 0));
+        const guaranteed = pityBefore >= 9;
+        const reward = rollCase(caseId, random, guaranteed ? { minimumRarity: 'epic' } : {});
         if (!reward) return null;
-        this.data.currency -= box.price;
-        this.data.stats.totalSpent = (this.data.stats.totalSpent || 0) + box.price;
+        if (!free) {
+            this.data.currency -= box.price;
+            this.data.stats.totalSpent = (this.data.stats.totalSpent || 0) + box.price;
+        }
         const duplicate = this.data.ownedKnives.includes(reward.id);
-        if (duplicate) this.data.currency += Math.floor(box.price * 0.35);
+        const refund = duplicate ? (free ? 35 : Math.floor(box.price * 0.35)) : 0;
+        if (refund) this.data.currency += refund;
         else if (this.data.ownedKnives.length < 64) this.data.ownedKnives.push(reward.id);
+        const premium = reward.rarity === 'epic' || reward.rarity === 'legendary';
+        this.data.casePity = { ...(this.data.casePity || {}), [caseId]: premium ? 0 : pityBefore + 1 };
         this.save();
-        return { reward, duplicate };
+        return {
+            reward,
+            duplicate,
+            refund,
+            free,
+            pity: { before: pityBefore, after: this.data.casePity[caseId], guaranteed }
+        };
+    }
+
+    openCase(caseId, random = Math.random) {
+        return this._openCase(caseId, random, false);
+    }
+
+    getCasePityState(caseId) {
+        const count = Math.min(9, Math.max(0, Number(this.data.casePity?.[caseId]) || 0));
+        return { count, threshold: 10, remaining: 10 - count, nextGuaranteed: count >= 9 };
+    }
+
+    getSeasonContracts() {
+        this.data.seasonContracts = createSeasonContractState(this.data.seasonContracts);
+        return SEASON_CONTRACTS.map(contract => ({
+            ...contract,
+            progress: this.data.seasonContracts.progress[contract.id],
+            claimed: this.data.seasonContracts.claimed.includes(contract.id)
+        }));
+    }
+
+    progressSeasonContracts(context) {
+        this.data.seasonContracts = progressSeasonContracts(this.data.seasonContracts, context);
+        this.save();
+        return this.getSeasonContracts();
+    }
+
+    claimSeasonContract(contractId) {
+        const result = claimSeasonContract(this.data.seasonContracts, contractId);
+        if (!result.reward) return 0;
+        this.data.seasonContracts = result.state;
+        this.data.currency += result.reward;
+        this.save();
+        return result.reward;
+    }
+
+    getMovementTrialBest(trialId) {
+        return this.data.movementTrials?.best?.[trialId] || null;
+    }
+
+    saveMovementTrialResult(trial, record) {
+        if (!trial || !record || record.trialId !== trial.id || !Number.isFinite(record.time)) {
+            return { personalBest: false, reward: 0 };
+        }
+        const trials = this.data.movementTrials || { best: {}, rewarded: [] };
+        const previous = trials.best?.[trial.id];
+        const personalBest = !previous || record.time < previous.time;
+        if (personalBest) {
+            trials.best = {
+                ...(trials.best || {}),
+                [trial.id]: {
+                    trialId: trial.id,
+                    time: Math.max(0, Math.round(record.time)),
+                    distance: Math.max(0, Number(record.distance) || 0),
+                    peakSpeed: Math.max(0, Number(record.peakSpeed) || 0),
+                    rocketJumps: Math.max(0, Math.round(Number(record.rocketJumps) || 0)),
+                    samples: Array.isArray(record.samples) ? record.samples.slice(0, 750) : []
+                }
+            };
+        }
+        const firstClear = !trials.rewarded.includes(trial.id);
+        if (firstClear) trials.rewarded.push(trial.id);
+        const reward = firstClear ? trial.reward : 0;
+        this.data.currency += reward;
+        this.data.movementTrials = trials;
+        this.save();
+        return { personalBest, reward };
+    }
+
+    getDailyRewardState(now = new Date()) {
+        const today = localDateKey(now);
+        const rewards = this.data.dailyRewards || structuredClone(DEFAULTS.dailyRewards);
+        const nextStreak = rewards.lastLoginClaim === previousLocalDateKey(now)
+            ? Math.min(7, (rewards.loginStreak || 0) + 1)
+            : rewards.lastLoginClaim === today
+                ? Math.max(1, rewards.loginStreak || 1)
+                : 1;
+        return {
+            today,
+            loginClaimed: rewards.lastLoginClaim === today,
+            freeCaseClaimed: rewards.lastFreeCase === today,
+            streak: nextStreak,
+            loginCoins: 40 + nextStreak * 10
+        };
+    }
+
+    claimDailyLogin(now = new Date()) {
+        const state = this.getDailyRewardState(now);
+        if (!state.today || state.loginClaimed) return null;
+        this.data.dailyRewards = {
+            ...(this.data.dailyRewards || DEFAULTS.dailyRewards),
+            lastLoginClaim: state.today,
+            loginStreak: state.streak
+        };
+        this.data.currency += state.loginCoins;
+        this.save();
+        return { coins: state.loginCoins, streak: state.streak };
+    }
+
+    openDailyCase(caseId = 'kickoff', random = Math.random, now = new Date()) {
+        const state = this.getDailyRewardState(now);
+        if (!state.today || state.freeCaseClaimed) return null;
+        const result = this._openCase(caseId, random, true);
+        if (!result) return null;
+        this.data.dailyRewards = {
+            ...(this.data.dailyRewards || DEFAULTS.dailyRewards),
+            lastFreeCase: state.today
+        };
+        this.save();
+        return result;
     }
 
     equipKnife(knifeId, team) {

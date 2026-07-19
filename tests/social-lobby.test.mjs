@@ -11,10 +11,12 @@ const moduleSource = source
         }
         const THREE = { Vector3 };
     `)
-    .replace(/^import \{ GLTFLoader \} from 'three\/addons\/loaders\/GLTFLoader\.js';$/m, 'class GLTFLoader {}');
+    .replace(/^import \{ GLTFLoader \} from 'three\/addons\/loaders\/GLTFLoader\.js';$/m, 'class GLTFLoader {}')
+    .replace(/^import \{ MeshoptDecoder \} from 'three\/addons\/libs\/meshopt_decoder\.module\.js';$/m, 'const MeshoptDecoder = {};');
 const {
     SOCIAL_LOBBY_PROP_COLLIDERS,
     SocialLobby,
+    createSocialColliderGrid,
     createSocialLobbyArena,
     getSocialLobbyMapState
 } = await import(`data:text/javascript;base64,${Buffer.from(moduleSource).toString('base64')}`);
@@ -31,15 +33,15 @@ test('lobby arena satisfies Player movement contract', () => {
     const spawn = arena.getPlayerSpawn();
 
     assert.deepEqual(arena.bounds, {
-        minX: -38,
-        maxX: 38,
+        minX: -153,
+        maxX: 153,
         minY: 0,
-        maxY: 18,
-        minZ: -38,
-        maxZ: 38
+        maxY: 92,
+        minZ: -153,
+        maxZ: 153
     });
-    assert.equal(arena.ceilingHeight, 18);
-    assert.deepEqual([spawn.x, spawn.y, spawn.z], [0, 1.7, 24]);
+    assert.equal(arena.ceilingHeight, 92);
+    assert.deepEqual([spawn.x, spawn.y, spawn.z], [0, 1.7, -8]);
     assert.deepEqual(arena.getHazardAt(spawn), null);
     assert.ok(Array.isArray(arena.collidables));
     assert.ok(Array.isArray(arena.platforms));
@@ -71,26 +73,27 @@ test('loaded solid props have bounded planar collision records', () => {
     for (const asset of passable) {
         assert.equal(collidableUrls.some(url => url.endsWith(asset)), false);
     }
-    assert.match(source, /this\.arena\.collidables\.push\(\{\s*mesh: model,\s*pos: model\.position\.clone\(\),\s*radius: collisionRadius/s);
+    assert.match(source, /const collider = \{\s*mesh: model,\s*pos: model\.position\.clone\(\),\s*radius: collisionRadius/s);
+    assert.match(source, /this\._roundColliders\.push\(collider\)/);
 });
 
 test('map state normalizes and clamps player, visitors, and practice area', () => {
-    const player = { position: { x: -38, y: 7, z: 38 } };
+    const player = { position: { x: -153, y: 7, z: 153 } };
     const presence = [
         { id: 'center', name: 'Center', local: false, position: { x: 0, z: 0 } },
-        { id: 'outside', local: true, position: { x: 100, z: -100 } },
+        { id: 'outside', local: true, position: { x: 1000, z: -1000 } },
         { id: 'invalid', position: { x: NaN, z: 0 } }
     ];
     const before = structuredClone({ player, presence });
     const state = getSocialLobbyMapState(player, presence);
 
     assert.deepEqual(state.bounds, {
-        minX: -38,
-        maxX: 38,
+        minX: -153,
+        maxX: 153,
         minY: 0,
-        maxY: 18,
-        minZ: -38,
-        maxZ: 38
+        maxY: 92,
+        minZ: -153,
+        maxZ: 153
     });
     assert.deepEqual(state.player, { x: 0, z: 1 });
     assert.deepEqual(state.visitors, [
@@ -105,17 +108,47 @@ test('map state normalizes and clamps player, visitors, and practice area', () =
 });
 
 test('map state handles exact bounds and invalid optional inputs', () => {
-    assert.deepEqual(getSocialLobbyMapState({ x: 38, z: -38 }).player, { x: 1, z: 0 });
+    assert.deepEqual(getSocialLobbyMapState({ x: 153, z: -153 }).player, { x: 1, z: 0 });
     assert.equal(getSocialLobbyMapState({ x: Infinity, z: 0 }).player, null);
     assert.deepEqual(getSocialLobbyMapState(null, null).visitors, []);
 });
 
-test('runtime keeps CC0 assets local and preserves procedural fallback', () => {
+test('runtime keeps assets local and preserves procedural fallback', () => {
     assert.equal(source.includes('https://'), false);
     assert.match(source, /_buildFallbackPlaza\(\)/);
     assert.match(source, /Promise\.allSettled/);
+    assert.match(source, /low-poly-city-social-hub\.glb/);
+    assert.match(source, /setMeshoptDecoder\(MeshoptDecoder\)/);
+    assert.match(source, /getMapBlocks\(\)/);
     assert.match(source, /\['a', 'f', 'k', 'r'\]/);
     assert.match(source, /character-\$\{id\}\.glb/);
+});
+
+test('city collider grid returns only the current spatial cell', () => {
+    const near = { minX: -3, maxX: 3, minZ: -3, maxZ: 3 };
+    const far = { minX: 40, maxX: 44, minZ: 40, maxZ: 44 };
+    const edge = { minX: 12.1, maxX: 14, minZ: -2, maxZ: 2 };
+    const grid = createSocialColliderGrid([near, far, edge], 12);
+
+    assert.deepEqual(grid.query({ x: 0, z: 0 }), [near, edge]);
+    assert.ok(grid.query({ x: 11.5, z: 0 }).includes(edge));
+    assert.deepEqual(grid.query({ x: 42, z: 42 }), [far]);
+    assert.deepEqual(grid.query({ x: 20, z: 20 }), []);
+});
+
+test('optimized city, collision data, and attribution ship locally', async () => {
+    const root = new URL('../assets/cc-by/costowrld-low-poly-city/', import.meta.url);
+    const model = await readFile(new URL('low-poly-city-social-hub.glb', root));
+    const jsonLength = model.readUInt32LE(12);
+    const gltf = JSON.parse(model.subarray(20, 20 + jsonLength).toString('utf8').trim());
+    const colliderData = JSON.parse(await readFile(new URL('colliders.json', root), 'utf8'));
+    const license = await readFile(new URL('LICENSE.md', root), 'utf8');
+
+    assert.ok(model.byteLength < 9_000_000);
+    assert.ok(gltf.extensionsRequired.includes('EXT_meshopt_compression'));
+    assert.ok(colliderData.colliders.length >= 450);
+    assert.match(license, /costoWRLD/);
+    assert.match(license, /creativecommons\.org\/licenses\/by\/4\.0/);
 });
 
 test('every social hub GLB ships each external texture it references', async () => {

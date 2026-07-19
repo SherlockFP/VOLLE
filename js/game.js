@@ -1105,6 +1105,7 @@ export class Game {
                     const away = target.position.clone().sub(origin).setY(0);
                     if (away.lengthSq() > 0.001) target.position.addScaledVector(away.normalize(), 1.7 * strength);
                 }
+                if (target === rocket.owner) this.onRocketJump?.({ strength, origin });
                 if (target === rocket.owner || target.team === rocket.team) continue;
                 const damage = Math.round(62 * strength);
                 if (!target.takeDamage?.(damage)) continue;
@@ -1477,12 +1478,6 @@ export class Game {
         }
 
         this.arena.update(performance.now() / 1000, dt);
-        if (this.ball.active && this.arena.hitChicken?.(this.ball.position, this.ball.radius || 0.7)) {
-            this.spawnDeathExplosion(this.ball.position.clone(), 'chicken');
-            this.broadcastSystemMessage('CHICKEN EXPLODED! Cluck denied.');
-            this.audio.playExplosion?.();
-        }
-
         // Map voting countdown (host-side)
         if (this._mapVoteActive && this.network?.isHost) {
             this._mapVoteElapsed += dt;
@@ -2141,6 +2136,12 @@ export class Game {
 
         const hitPos = hitTarget.getPosition();
         const isLethal = lethal || hitTarget.hp <= 0;
+        if (attacker === this.player) {
+            this.onReplayEvent?.({
+                type: 'hit',
+                data: { damage: dmg, eliminated: isLethal, victim: name, zone: hitZone.zone }
+            });
+        }
 
         // EFFECTS — play on BOTH host and client for immediate feedback
         // Floating damage number
@@ -3788,6 +3789,7 @@ export class Game {
 
     startGameFromNetwork(data = {}) {
         if (this.network?.isHost) return;
+        this.onMatchLoading?.(data);
         if (data.mode) this.selectMode(data.mode);
         if (data.map && this.arena.mapId !== data.map) {
             this.arena.rebuild(data.map);

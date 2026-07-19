@@ -1,7 +1,7 @@
 // replay.js - record/playback game events, localStorage persistence
 const MAX_EVENTS = 5000
 const STORAGE_KEY = 'dodgball_replays_v1'
-const SNAPSHOT_INTERVAL = 250
+const SNAPSHOT_INTERVAL = 125
 
 const finite = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value))
@@ -81,6 +81,108 @@ export function renderReplaySnapshot(snapshot, adapters = {}, timestamp = 0) {
     return normalized
 }
 
+const lerp = (a, b, alpha) => finite(a) + (finite(b) - finite(a)) * alpha
+const lerpAngle = (a, b, alpha) => {
+    const start = finite(a)
+    const delta = ((finite(b) - start + Math.PI) % (Math.PI * 2)) - Math.PI
+    return start + delta * alpha
+}
+const lerpPoint = (a, b, alpha) => {
+    if (!a) return b
+    if (!b) return a
+    return {
+        x: lerp(a.x, b.x, alpha),
+        y: lerp(a.y, b.y, alpha),
+        z: lerp(a.z, b.z, alpha)
+    }
+}
+
+export function interpolateReplaySnapshots(previous, next, amount = 0) {
+    const from = normalizeReplaySnapshot(previous)
+    const to = normalizeReplaySnapshot(next)
+    const alpha = clamp(finite(amount), 0, 1)
+    const fromPlayers = new Map(from.players.map(player => [player.id, player]))
+    const players = to.players.map(player => {
+        const prior = fromPlayers.get(player.id)
+        if (!prior) return player
+        return {
+            ...player,
+            ...lerpPoint(prior, player, alpha),
+            yaw: lerpAngle(prior.yaw, player.yaw, alpha),
+            pitch: lerp(prior.pitch, player.pitch, alpha)
+        }
+    })
+    const cameraPosition = lerpPoint(from.camera?.position, to.camera?.position, alpha)
+    return normalizeReplaySnapshot({
+        ball: lerpPoint(from.ball, to.ball, alpha),
+        player: lerpPoint(from.player, to.player, alpha),
+        players,
+        camera: cameraPosition ? {
+            position: cameraPosition,
+            yaw: lerpAngle(from.camera?.yaw, to.camera?.yaw, alpha),
+            pitch: lerp(from.camera?.pitch, to.camera?.pitch, alpha)
+        } : null
+    })
+}
+
+export function createReplayHighlights(replay, limit = 3) {
+    const duration = Math.max(0, finite(replay?.duration), finite(replay?.events?.at(-1)?.t));
+    const candidates = (replay?.events || []).flatMap(event => {
+        if (event.type === 'deflect' && finite(event.data?.rally) >= 3) {
+            return [{
+                at: event.t,
+                score: finite(event.data.rally) * 10,
+                label: `${event.data.rally} Rally`
+            }];
+        }
+        if (event.type === 'hit' && finite(event.data?.damage) > 0) {
+            return [{
+                at: event.t,
+                score: finite(event.data.damage) + (event.data?.eliminated ? 100 : 0),
+                label: event.data?.eliminated ? 'Elimination' : `${event.data.damage} Damage`
+            }];
+        }
+        if (event.type === 'rocketJump') {
+            return [{ at: event.t, score: 45 + finite(event.data?.strength) * 20, label: 'Rocket Jump' }];
+        }
+        return [];
+    }).sort((a, b) => b.score - a.score || a.at - b.at);
+    const selected = [];
+    for (const candidate of candidates) {
+        if (selected.some(item => Math.abs(item.at - candidate.at) < 3500)) continue;
+        selected.push({
+            label: candidate.label,
+            at: candidate.at,
+            start: Math.max(0, candidate.at - 2500),
+            end: Math.min(duration, candidate.at + 3000),
+            score: Math.round(candidate.score)
+        });
+        if (selected.length >= Math.max(1, Math.min(5, limit))) break;
+    }
+    return selected.sort((a, b) => a.start - b.start);
+}
+
+export function extractReplayHighlight(replay, highlight) {
+    const start = Math.max(0, finite(highlight?.start));
+    const end = Math.max(start, finite(highlight?.end, replay?.duration));
+    const source = Array.isArray(replay?.events) ? replay.events : [];
+    const previousSnapshot = source
+        .filter(event => event.type === 'snapshot' && event.t < start)
+        .at(-1);
+    const events = [];
+    if (previousSnapshot) events.push({ ...previousSnapshot, t: 0 });
+    for (const event of source) {
+        if (event.t < start || event.t > end) continue;
+        events.push({ ...event, t: Math.max(0, event.t - start) });
+    }
+    events.sort((a, b) => a.t - b.t);
+    return {
+        meta: { ...(replay?.meta || {}), highlight: highlight?.label || 'Highlight' },
+        events,
+        duration: end - start
+    };
+}
+
 function lowerBound(events, time) {
     let low = 0
     let high = events.length
@@ -109,6 +211,7 @@ export class ReplayClass {
         this._playStart = 0
         this._playIdx = 0
         this._playEvents = []
+        this._snapshotEvents = []
         this._callbacks = {}
         this._duration = 0
     }
@@ -148,6 +251,7 @@ export class ReplayClass {
     play(replay, callbacks = {}, options = {}) {
         this.stopPlayback()
         this._playEvents = Array.isArray(replay?.events) ? replay.events : []
+        this._snapshotEvents = this._playEvents.filter(event => event.type === 'snapshot')
         this._callbacks = callbacks || {}
         this._duration = Math.max(finite(replay?.duration), this._playEvents.at(-1)?.t || 0)
         this.playbackSpeed = clamp(finite(options.speed, 1), 0.05, 16)
@@ -157,7 +261,7 @@ export class ReplayClass {
         this._playStart = this._now()
         this.playing = true
         this.paused = Boolean(options.paused)
-        if (startsMidReplay) this._renderCurrentSnapshot()
+        if (startsMidReplay) this._renderInterpolatedSnapshot()
         if (!this.paused) this._schedule()
         return this.getPlaybackState()
     }
@@ -182,6 +286,7 @@ export class ReplayClass {
         while (this._playIdx < this._playEvents.length && this._playEvents[this._playIdx].t <= this.playbackTime) {
             this._dispatch(this._playEvents[this._playIdx++])
         }
+        this._renderInterpolatedSnapshot()
         this._callbacks.time?.(this.playbackTime, this.getPlaybackState())
         if (this._playIdx >= this._playEvents.length && this.playbackTime >= this._duration) {
             const complete = this._callbacks.complete
@@ -194,22 +299,20 @@ export class ReplayClass {
 
     _dispatch(event) {
         this._callbacks[event.type]?.(event.data, event.t)
-        if (event.type === 'snapshot') {
-            this._callbacks.players?.(event.data?.players || event.data?.actors || [], event.t, event.data)
-            this._callbacks.renderSnapshot?.(normalizeReplaySnapshot(event.data), event.t)
-        }
     }
 
-    _renderCurrentSnapshot() {
-        for (let i = this._playIdx - 1; i >= 0; i--) {
-            const event = this._playEvents[i]
-            if (event.type !== 'snapshot') continue
-            this._callbacks.snapshot?.(event.data, event.t)
-            this._callbacks.players?.(event.data?.players || event.data?.actors || [], event.t, event.data)
-            this._callbacks.renderSnapshot?.(normalizeReplaySnapshot(event.data), event.t)
-            return event.data
-        }
-        return null
+    _renderInterpolatedSnapshot() {
+        if (!this._snapshotEvents.length) return null
+        const index = lowerBound(this._snapshotEvents, this.playbackTime)
+        if (index === 0 && this.playbackTime < this._snapshotEvents[0].t) return null
+        const previous = this._snapshotEvents[Math.max(0, index - 1)]
+        const next = this._snapshotEvents[Math.min(this._snapshotEvents.length - 1, index)]
+        const span = next.t - previous.t
+        const alpha = span > 0 ? (this.playbackTime - previous.t) / span : 0
+        const snapshot = interpolateReplaySnapshots(previous.data, next.data, alpha)
+        this._callbacks.players?.(snapshot.players, this.playbackTime, snapshot)
+        this._callbacks.renderSnapshot?.(snapshot, this.playbackTime)
+        return snapshot
     }
 
     pausePlayback() {
@@ -241,7 +344,7 @@ export class ReplayClass {
         this.playbackTime = clamp(finite(time), 0, this._duration)
         this._playIdx = lowerBound(this._playEvents, this.playbackTime)
         this._playStart = this._now()
-        const snapshot = this._renderCurrentSnapshot()
+        const snapshot = this._renderInterpolatedSnapshot()
         this._callbacks.seek?.(this.playbackTime, snapshot, this.getPlaybackState())
         return this.playbackTime
     }
@@ -298,12 +401,20 @@ export class ReplayClass {
 
     save(replay) {
         const all = this.loadAll()
-        all.push(replay)
+        all.push({ ...replay, highlights: createReplayHighlights(replay) })
         try { localStorage.setItem(STORAGE_KEY, JSON.stringify(all.slice(-10))) } catch { /* quota */ }
     }
 
     loadAll() {
-        try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]') } catch { return [] }
+        try {
+            const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')
+            return Array.isArray(saved) ? saved.map(replay => ({
+                ...replay,
+                highlights: Array.isArray(replay.highlights) ? replay.highlights : createReplayHighlights(replay)
+            })) : []
+        } catch {
+            return []
+        }
     }
 
     delete(index) {

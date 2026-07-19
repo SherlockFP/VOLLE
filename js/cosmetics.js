@@ -25,16 +25,35 @@ export function secureCosmeticRandom() {
     return Math.random();
 }
 
-export function rollCase(caseId, random = secureCosmeticRandom) {
+export function rollCase(caseId, random = secureCosmeticRandom, options = {}) {
     const box = CASES[caseId];
     if (!box) return null;
-    const total = box.drops.reduce((sum, drop) => sum + drop.weight, 0);
+    const rarityRank = { common: 0, rare: 1, epic: 2, legendary: 3 };
+    const minimumRank = rarityRank[options.minimumRarity] ?? -1;
+    const drops = box.drops.filter(drop => (rarityRank[KNIVES[drop.id]?.rarity] ?? 0) >= minimumRank);
+    if (!drops.length) return null;
+    const total = drops.reduce((sum, drop) => sum + drop.weight, 0);
     let roll = Math.min(0.999999, Math.max(0, Number(random()) || 0)) * total;
-    for (const drop of box.drops) {
+    for (const drop of drops) {
         roll -= drop.weight;
         if (roll < 0) return KNIVES[drop.id] || null;
     }
     return null;
+}
+
+export function getCaseDropRates(caseId, options = {}) {
+    const box = CASES[caseId];
+    if (!box) return [];
+    const rarityRank = { common: 0, rare: 1, epic: 2, legendary: 3 };
+    const minimumRank = rarityRank[options.minimumRarity] ?? -1;
+    const drops = box.drops.filter(drop => (rarityRank[KNIVES[drop.id]?.rarity] ?? 0) >= minimumRank);
+    const total = drops.reduce((sum, drop) => sum + drop.weight, 0);
+    return drops.map(drop => ({
+        id: drop.id,
+        name: KNIVES[drop.id]?.name || drop.id,
+        rarity: KNIVES[drop.id]?.rarity || 'common',
+        chance: total > 0 ? drop.weight / total : 0
+    }));
 }
 
 export function canEquipKnife(knifeId, team) {

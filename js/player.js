@@ -209,6 +209,81 @@ export function clipMovementState(velocity, dashDir, normal, clipDash) {
     };
 }
 
+export function resolvePlanarBoxCollision(position, previous, radius, height, collider) {
+    const values = [
+        collider?.minX, collider?.maxX, collider?.minY,
+        collider?.maxY, collider?.minZ, collider?.maxZ
+    ];
+    if (!values.every(Number.isFinite)) return { hit: false, x: position.x, z: position.z };
+    const feet = position.y - height;
+    const head = position.y + 0.2;
+    if (head <= collider.minY || feet >= collider.maxY) {
+        return { hit: false, x: position.x, z: position.z };
+    }
+
+    const minX = collider.minX - radius;
+    const maxX = collider.maxX + radius;
+    const minZ = collider.minZ - radius;
+    const maxZ = collider.maxZ + radius;
+    if (position.x < minX || position.x > maxX || position.z < minZ || position.z > maxZ) {
+        return { hit: false, x: position.x, z: position.z };
+    }
+
+    const dx = position.x - previous.x;
+    const dz = position.z - previous.z;
+    const previousOutside = previous.x < minX || previous.x > maxX
+        || previous.z < minZ || previous.z > maxZ;
+    if (previousOutside && (dx !== 0 || dz !== 0)) {
+        let entry = 0;
+        let exit = 1;
+        let nx = 0;
+        let nz = 0;
+        for (const axis of [
+            { start: previous.x, delta: dx, min: minX, max: maxX, nearNormal: [-1, 0], farNormal: [1, 0] },
+            { start: previous.z, delta: dz, min: minZ, max: maxZ, nearNormal: [0, -1], farNormal: [0, 1] }
+        ]) {
+            if (axis.delta === 0) {
+                if (axis.start < axis.min || axis.start > axis.max) {
+                    return { hit: false, x: position.x, z: position.z };
+                }
+                continue;
+            }
+            let near = (axis.min - axis.start) / axis.delta;
+            let far = (axis.max - axis.start) / axis.delta;
+            let nearNormal = axis.nearNormal;
+            if (near > far) {
+                [near, far] = [far, near];
+                nearNormal = axis.farNormal;
+            }
+            if (near > entry) {
+                entry = near;
+                [nx, nz] = nearNormal;
+            }
+            exit = Math.min(exit, far);
+            if (entry > exit) return { hit: false, x: position.x, z: position.z };
+        }
+        if (entry >= 0 && entry <= 1) {
+            const safeEntry = Math.max(0, entry - 0.0001);
+            return {
+                hit: true,
+                x: previous.x + dx * safeEntry,
+                z: previous.z + dz * safeEntry,
+                nx,
+                nz
+            };
+        }
+    }
+
+    const sides = [
+        { distance: position.x - minX, x: minX, z: position.z, nx: -1, nz: 0 },
+        { distance: maxX - position.x, x: maxX, z: position.z, nx: 1, nz: 0 },
+        { distance: position.z - minZ, x: position.x, z: minZ, nx: 0, nz: -1 },
+        { distance: maxZ - position.z, x: position.x, z: maxZ, nx: 0, nz: 1 }
+    ];
+    const nearest = sides.reduce((best, side) => side.distance < best.distance ? side : best);
+    return { hit: true, x: nearest.x, z: nearest.z, nx: nearest.nx, nz: nearest.nz };
+}
+
 export class Player {
     constructor(renderer, camera, arena) {
         this.renderer = renderer;
@@ -814,7 +889,24 @@ export class Player {
 
         // Collision with map props (trees, pillars, walls, etc.)
         if (this.arena.collidables) {
-            for (const c of this.arena.collidables) {
+            const collidables = this.arena.getNearbyCollidables?.(this.position)
+                || this.arena.collidables;
+            for (const c of collidables) {
+                if (Number.isFinite(c.minX)) {
+                    const result = resolvePlanarBoxCollision(
+                        this.position,
+                        prevPos,
+                        this.radius,
+                        this.height,
+                        c
+                    );
+                    if (result.hit) {
+                        this.position.x = result.x;
+                        this.position.z = result.z;
+                        this._clipHorizontalVelocity(result.nx, result.nz, wasDashing);
+                    }
+                    continue;
+                }
                 const dx = this.position.x - c.pos.x;
                 const dz = this.position.z - c.pos.z;
                 const dy = Math.abs(this.position.y - c.pos.y);

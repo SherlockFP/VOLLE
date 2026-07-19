@@ -220,7 +220,7 @@ dodgb/
 - Celebration weapons and HUD are winner-only.
 - Dead players receive smoothed first-person POV restricted to living teammates.
 - Emote wheel is centered, translucent, keyboard-accessible, and reduced-motion safe.
-- Every arena gets spectator stands and one roaming chicken; ball contact triggers the meme announcement.
+- Every arena gets dedicated spectator stands.
 - Space arena includes planets, starfield, and map-specific low gravity.
 
 ## Cosmetics and Mega Arena Pass
@@ -233,6 +233,14 @@ dodgb/
 - Added Shop Cases and Inventory tabs with red/blue loadouts.
 - Upgraded free Red Current and Blue Current Minecraft-style team atlases.
 - Generated original Kickoff Case artwork at `assets/generated/volle-kickoff-case.webp`.
+
+## Momentum Season
+
+- Added persistent Launch Season contracts for matches, wins, deflects, longjump distance, and rocket jumps.
+- Added Surf Line, Bhop Sprint, and Rocket Circuit time trials with first-clear rewards.
+- Added 10 Hz personal-best ghost paths and an in-game trial HUD.
+- Added automatic replay highlight clips for rallies, eliminations, and rocket jumps.
+- Added a transparent case pity counter with an Epic+ guarantee on the tenth opening.
 
 ---
 

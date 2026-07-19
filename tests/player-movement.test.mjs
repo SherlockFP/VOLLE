@@ -17,6 +17,7 @@ const {
     resolveLongJump,
     clipInwardVelocity,
     clipMovementState,
+    resolvePlanarBoxCollision,
     GROUND_ACCEL,
     AIR_ACCEL,
     GROUND_FRICTION,
@@ -29,6 +30,33 @@ const {
     LONG_JUMP_COOLDOWN,
     LONG_JUMP_STAMINA_COST
 } = helpers;
+
+test('box collision stops entry and preserves an outward normal', () => {
+    const collider = { minX: 2, maxX: 6, minY: 0, maxY: 8, minZ: -2, maxZ: 2 };
+    const result = resolvePlanarBoxCollision(
+        { x: 3, y: 1.7, z: 0 },
+        { x: 0, y: 1.7, z: 0 },
+        0.7,
+        1.7,
+        collider
+    );
+
+    assert.equal(result.hit, true);
+    assert.ok(result.x < 1.3);
+    assert.deepEqual([result.nx, result.nz], [-1, 0]);
+});
+
+test('box collision ignores geometry above the player', () => {
+    const result = resolvePlanarBoxCollision(
+        { x: 3, y: 1.7, z: 0 },
+        { x: 0, y: 1.7, z: 0 },
+        0.7,
+        1.7,
+        { minX: 2, maxX: 6, minY: 5, maxY: 8, minZ: -2, maxZ: 2 }
+    );
+
+    assert.equal(result.hit, false);
+});
 
 const closeTo = (actual, expected, epsilon = 1e-9) => {
     assert.ok(Math.abs(actual - expected) <= epsilon, `${actual} != ${expected}`);

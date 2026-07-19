@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Volle - 3D First-Person Dodgeball</title>
     <meta name="description" content="A 3D first-person dodgeball game with TF2-style cartoonish graphics, P2P multiplayer, and skill-based gameplay">
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%2349b8ff'/%3E%3Cpath d='M8 12c5 1 8 5 9 12M20 5c-2 6-7 9-13 10M26 12c-5 0-9 3-11 8' fill='none' stroke='white' stroke-width='2'/%3E%3C/svg%3E">
+    <link rel="icon" type="image/png" href="assets/generated/volle-logo-512.png">
     <link rel="stylesheet" href="css/style.css?v=1.74">
     <link rel="stylesheet" href="css/ui-tokens.css?v=1">
     <link rel="stylesheet" href="css/ui-shell.css?v=1">
@@ -48,9 +48,26 @@
     <!-- Loading Screen -->
     <div id="loading-screen">
         <div class="loading-content">
+            <img class="brand-mark brand-mark-loading" src="assets/generated/volle-logo-512.png" alt="">
             <div class="loading-logo">VOLLE</div>
             <div class="loading-bar-track"><div class="loading-bar-fill"></div></div>
             <div class="loading-status">Loading assets...</div>
+        </div>
+    </div>
+    <div id="match-loading" class="match-loading hidden" aria-live="polite">
+        <div class="match-loading-card">
+            <div class="match-loading-kicker">MATCH FOUND</div>
+            <div class="match-loading-court" aria-hidden="true">
+                <span></span><i></i><b></b>
+            </div>
+            <div class="match-loading-copy">
+                <img class="brand-mark brand-mark-match" src="assets/generated/volle-logo-512.png" alt="">
+                <span id="match-loading-mode">CLASSIC</span>
+                <h2 id="match-loading-map">BEACH OPEN</h2>
+                <p id="match-loading-tip">Tip: move after every throw.</p>
+            </div>
+            <div class="match-loading-track"><span></span></div>
+            <small>VOLLE COMPETITIVE NETWORK</small>
         </div>
     </div>
 
@@ -104,6 +121,7 @@
                 </div>
                 <div class="ow-splash">
                     <span class="ow-kicker">WELCOME TO THE ARENA</span>
+                    <img class="brand-mark brand-mark-menu" src="assets/generated/volle-logo-512.png" alt="Volle emblem">
                     <div class="ow-logo">VOLLE</div>
                     <div class="ow-tagline">FIRST PERSON DODGEBALL</div>
                     <div class="ow-mode-chip" id="menu-mode-status"><span>QUICK PLAY</span><b>Create or join a lobby</b></div>
@@ -197,8 +215,8 @@
 
         <section class="social-lobby-map-card" aria-label="Social Hub map">
             <div class="social-lobby-map-heading">
-                <span><svg class="ui-icon" aria-hidden="true"><use href="#i-map"></use></svg> HUB MAP</span>
-                <small>Live position</small>
+                <span><svg class="ui-icon" aria-hidden="true"><use href="#i-map"></use></svg> CITY MAP</span>
+                <small>City by costoWRLD · CC BY</small>
             </div>
             <canvas id="social-lobby-map" width="260" height="180"></canvas>
             <div class="social-lobby-map-legend">
@@ -297,7 +315,7 @@
     <div id="lobby-screen" class="screen hidden">
         <!-- Top bar -->
         <div class="cs-topbar">
-            <div class="cs-roomcode">🏐 Room: <span id="room-code">LOCAL</span></div>
+            <div class="cs-roomcode"><img class="brand-mark brand-mark-room" src="assets/generated/volle-logo-512.png" alt=""> Room: <span id="room-code">LOCAL</span></div>
             <div class="cs-lobby-name">
                 <input id="lobby-name-input" class="cs-lobby-name-input" type="text" maxlength="32" placeholder="Lobby Name" value="Lobby" spellcheck="false">
             </div>
@@ -336,7 +354,6 @@
                         </div>
                         <button class="carousel-btn carousel-next" id="carousel-next">▶</button>
                     </div>
-                    <div class="carousel-dots" id="carousel-dots"></div>
                 </div>
 
                 <!-- Mode select -->
@@ -481,7 +498,7 @@
                         <div>
                             <span class="settings-kicker">LIVE PREVIEW</span>
                             <strong>Crosshair</strong>
-                            <small>Markup hook for settings integration.</small>
+                            <small>Changes save instantly and update this preview.</small>
                         </div>
                         <div id="crosshair-preview" class="crosshair-preview" aria-label="Crosshair preview">
                             <span id="crosshair-preview-reticle" class="crosshair-preview-reticle" aria-hidden="true"><i></i><i></i><i></i><i></i><b id="crosshair-preview-dot"></b></span>
@@ -490,7 +507,8 @@
                     <div class="crosshair-code-row">
                         <input id="crosshair-code-input" type="text" maxlength="2048" placeholder="VOLLE-X1 crosshair code" aria-label="Crosshair share code">
                         <button id="crosshair-code-copy" class="btn btn-secondary btn-small" type="button">Copy</button>
-                        <button id="crosshair-code-import" class="btn btn-primary btn-small" type="button">Import</button>
+                        <button id="crosshair-code-paste" class="btn btn-secondary btn-small" type="button">Paste</button>
+                        <button id="crosshair-code-import" class="btn btn-primary btn-small" type="button">Apply</button>
                     </div>
                 </div>
                 <!-- Display -->
@@ -851,17 +869,17 @@
         <div class="panel wide-panel shell-panel patchnotes-shell">
             <header class="shell-header">
                 <div class="shell-title"><span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg></span><div><span class="shell-kicker">LIVE DEVELOPMENT</span><h1>Patch Notes</h1><p>Built by Sherlock. Polished with player feedback.</p></div></div>
-                <span class="patch-version">VOLLE v0.9</span>
+                <span class="patch-version">VOLLE v0.10</span>
             </header>
             <div class="patch-timeline">
                 <article class="patch-card current">
                     <span class="patch-date">CURRENT PATCH</span>
-                    <h2>Turquoise Rush</h2>
+                    <h2>Momentum Season</h2>
                     <ul>
-                        <li>Unified turquoise menu, lobby and progression identity.</li>
-                        <li>Social Hub map view, better chat and movement telemetry.</li>
-                        <li>Crosshair profiles, bunnyhop speed meter and longjump.</li>
-                        <li>Career, shop, battle pass and challenge presentation refresh.</li>
+                        <li>Surf, bhop and rocket-jump time trials with personal-best ghosts.</li>
+                        <li>Launch Season contracts with persistent progress and coin rewards.</li>
+                        <li>Automatic replay highlights for rallies, eliminations and rocket jumps.</li>
+                        <li>Transparent case pity: Epic+ guaranteed on the tenth opening.</li>
                     </ul>
                 </article>
                 <article class="patch-card">
@@ -930,6 +948,11 @@
         <div id="movement-hud" class="movement-hud hidden" aria-live="polite">
             <span class="movement-speed"><b id="movement-speed-value">0</b><small>u/s</small></span>
             <span id="movement-state">MOVE</span>
+        </div>
+        <div id="movement-trial-hud" class="movement-trial-hud hidden" aria-live="polite">
+            <div><span id="movement-trial-name">TIME TRIAL</span><b id="movement-trial-time">0.00s</b></div>
+            <div class="movement-trial-track"><i id="movement-trial-progress"></i></div>
+            <small id="movement-trial-detail">0/0m</small>
         </div>
         <!-- Spectator target info -->
         <div id="spectator-info" class="hidden hud-spectator-info"></div>

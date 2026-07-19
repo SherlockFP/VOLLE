@@ -9,6 +9,9 @@ globalThis.localStorage = {
 
 const {
     ReplayClass,
+    createReplayHighlights,
+    extractReplayHighlight,
+    interpolateReplaySnapshots,
     normalizeReplaySnapshot,
     renderReplaySnapshot
 } = await import('../js/replay.js')
@@ -72,6 +75,48 @@ test('snapshot normalization includes local and remote players while retaining l
     assert.deepEqual(rendered, [['ball', 1.23], ['players', 2]])
 })
 
+test('snapshot interpolation smooths ball, players, and camera', () => {
+    const snapshot = interpolateReplaySnapshots(
+        {
+            ball: { x: 0, y: 2, z: 0 },
+            players: [{ id: 'p', team: 'red', x: 0, y: 0, z: 0, yaw: 0 }],
+            camera: { position: { x: 0, y: 1, z: 0 }, yaw: 0, pitch: 0 }
+        },
+        {
+            ball: { x: 10, y: 4, z: 6 },
+            players: [{ id: 'p', team: 'red', x: 8, y: 2, z: 4, yaw: 1 }],
+            camera: { position: { x: 4, y: 3, z: 8 }, yaw: 1, pitch: 0.5 }
+        },
+        0.5
+    )
+    assert.deepEqual(snapshot.ball, { x: 5, y: 3, z: 3 })
+    assert.deepEqual(
+        [snapshot.players[0].x, snapshot.players[0].y, snapshot.players[0].z],
+        [4, 1, 2]
+    )
+    assert.deepEqual(snapshot.camera.position, { x: 2, y: 2, z: 4 })
+})
+
+test('replay highlights rank moments and extract a bounded playable segment', () => {
+    const replay = {
+        duration: 12_000,
+        meta: { map: 'neon' },
+        events: [
+            { t: 1000, type: 'snapshot', data: { ball: { x: 0, y: 1, z: 0 } } },
+            { t: 5000, type: 'deflect', data: { rally: 8 } },
+            { t: 7000, type: 'rocketJump', data: { strength: 0.8 } },
+            { t: 9000, type: 'hit', data: { damage: 80, eliminated: true } }
+        ]
+    }
+    const highlights = createReplayHighlights(replay)
+    assert.equal(highlights.length, 2)
+    assert.equal(highlights.at(-1).label, 'Elimination')
+    const clip = extractReplayHighlight(replay, highlights.at(-1))
+    assert.ok(clip.duration <= 5500)
+    assert.equal(clip.events[0].type, 'snapshot')
+    assert.equal(clip.events[0].t, 0)
+})
+
 test('playback pause, speed, seek, completion, and escape stop are deterministic', () => {
     const clock = fakeClock()
     const replay = new ReplayClass(clock)
@@ -128,6 +173,9 @@ test('recordSnapshot throttles and records canonical players', () => {
     clock.advance(100)
     replay.recordSnapshot({ players: [] })
     assert.equal(replay.events.length, 1)
+    clock.advance(25)
+    replay.recordSnapshot({ players: [] })
+    assert.equal(replay.events.length, 2)
     assert.deepEqual(replay.events[0].data.players.map(player => player.id), ['local', 'remote'])
 })
 

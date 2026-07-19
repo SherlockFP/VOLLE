@@ -59,6 +59,62 @@ test('case opening charges once, handles duplicates, and enforces team equip', (
     assert.equal(Store.openCase('missing', () => 0), null);
 });
 
+test('case pity guarantees epic or better on the tenth non-premium run', () => {
+    Store.reset();
+    Store.grant({ currency: 1000 });
+    for (let i = 0; i < 9; i++) {
+        assert.equal(Store.openCase('kickoff', () => 0).reward.rarity, 'rare');
+    }
+    assert.equal(Store.getCasePityState('kickoff').nextGuaranteed, true);
+    const guaranteed = Store.openCase('kickoff', () => 0);
+    assert.equal(guaranteed.reward.id, 'prism');
+    assert.equal(guaranteed.pity.guaranteed, true);
+    assert.equal(Store.getCasePityState('kickoff').count, 0);
+});
+
+test('season contract rewards are claimable once', () => {
+    Store.reset();
+    Store.progressSeasonContracts({ games: 30, wins: 2 });
+    const contract = Store.getSeasonContracts().find(item => item.id === 'matchmaker');
+    assert.equal(contract.progress, contract.target);
+    assert.equal(Store.claimSeasonContract('matchmaker'), 700);
+    assert.equal(Store.claimSeasonContract('matchmaker'), 0);
+});
+
+test('movement trials reward first clear and keep only faster personal bests', () => {
+    Store.reset();
+    const trial = { id: 'test-run', reward: 200 };
+    const first = Store.saveMovementTrialResult(trial, {
+        trialId: 'test-run',
+        time: 5000,
+        distance: 100,
+        samples: []
+    });
+    const slower = Store.saveMovementTrialResult(trial, {
+        trialId: 'test-run',
+        time: 6000,
+        distance: 120,
+        samples: []
+    });
+    assert.deepEqual(first, { personalBest: true, reward: 200 });
+    assert.deepEqual(slower, { personalBest: false, reward: 0 });
+    assert.equal(Store.getMovementTrialBest('test-run').time, 5000);
+});
+
+test('daily login and free case can be claimed once per local day', () => {
+    Store.reset();
+    const dayOne = new Date(2026, 6, 19, 12);
+    const dayTwo = new Date(2026, 6, 20, 12);
+    const login = Store.claimDailyLogin(dayOne);
+    assert.deepEqual(login, { coins: 50, streak: 1 });
+    assert.equal(Store.claimDailyLogin(dayOne), null);
+    const free = Store.openDailyCase('kickoff', () => 0.5, dayOne);
+    assert.equal(free.free, true);
+    assert.equal(Store.openDailyCase('kickoff', () => 0.5, dayOne), null);
+    assert.deepEqual(Store.claimDailyLogin(dayTwo), { coins: 60, streak: 2 });
+    assert.equal(Store.getDailyRewardState(dayTwo).freeCaseClaimed, false);
+});
+
 test('legacy ranked ELO migrates into seasonal ranked state', () => {
     Store.reset();
     localStorage.setItem('dodgball_save_v2', JSON.stringify({

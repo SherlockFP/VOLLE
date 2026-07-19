@@ -4,12 +4,13 @@ import { CHARACTERS } from './characters.js';
 import { SKILLS, RUNES } from './skills.js';
 import { BALL_SKINS } from './ball.js';
 import { AVATAR_SKINS } from './avatar.js';
-import { CASES, KNIVES } from './cosmetics.js';
+import { CASES, KNIVES, getCaseDropRates } from './cosmetics.js';
 import { ACHIEVEMENTS } from './achievements.js';
 import { MatchHistory } from './matchhistory.js';
 import { getRank, getRankProgress } from './ranked.js';
 import { Leaderboard } from './leaderboard.js';
 import { Arena } from './arena.js';
+import { MOVEMENT_TRIALS } from './movement-trials.js';
 
 const CHARACTER_ATLAS = 'assets/generated/characters/character-atlas.png';
 
@@ -152,6 +153,26 @@ export class UI {
         root.classList.toggle('hidden', safeSpeed < 4 && state === 'MOVE');
         root.classList.toggle('boost', safeSpeed >= 11 || state === 'BHOP');
         root.classList.toggle('longjump', state === 'LONGJUMP');
+    }
+
+    updateMovementTrialHUD(state) {
+        const root = document.getElementById('movement-trial-hud');
+        if (!root) return;
+        root.classList.toggle('hidden', !state?.active);
+        if (!state?.active) return;
+        const name = document.getElementById('movement-trial-name');
+        const time = document.getElementById('movement-trial-time');
+        const progress = document.getElementById('movement-trial-progress');
+        const detail = document.getElementById('movement-trial-detail');
+        if (name) name.textContent = state.trial.name;
+        if (time) time.textContent = `${(state.elapsed / 1000).toFixed(2)}s`;
+        if (progress) progress.style.width = `${Math.min(100, state.distance / state.trial.targetDistance * 100)}%`;
+        if (detail) {
+            const best = state.trial.requiredRocketJumps
+                ? `${state.rocketJumps}/${state.trial.requiredRocketJumps} rocket jumps`
+                : `${Math.round(state.distance)}/${state.trial.targetDistance}m`;
+            detail.textContent = best;
+        }
     }
 
     updateScoreboard(stats) {
@@ -974,7 +995,19 @@ export class UI {
             Object.values(CASES).forEach(box => {
                 const card = document.createElement('div');
                 card.className = 'shop-card case-card';
-                card.innerHTML = `<div class="case-art" aria-hidden="true"></div><div class="char-name">${box.name}</div><div class="char-desc">Team knives, Prism Breaker and the Sherlock Signature.</div><button class="btn btn-primary btn-small case-open" data-id="${box.id}">${box.price} coins / Open</button>`;
+                const pity = store.getCasePityState(box.id);
+                const rates = getCaseDropRates(box.id, pity.nextGuaranteed ? { minimumRarity: 'epic' } : {});
+                card.innerHTML = `
+                    <div class="case-art" aria-hidden="true"></div>
+                    <div class="char-name">${box.name}</div>
+                    <div class="case-balance">Balance: ${store.get('currency')} coins</div>
+                    <div class="case-pity ${pity.nextGuaranteed ? 'ready' : ''}">
+                        Epic+ guarantee: ${pity.nextGuaranteed ? 'NEXT OPEN' : `${pity.count}/${pity.threshold}`}
+                    </div>
+                    <div class="case-drop-rates">${rates.map(drop =>
+                        `<span class="rarity-${drop.rarity}"><b>${drop.name}</b><em>${(drop.chance * 100).toFixed(0)}%</em></span>`
+                    ).join('')}</div>
+                    <button class="btn btn-primary btn-small case-open" data-id="${box.id}">${box.price} coins / Open</button>`;
                 grid.appendChild(card);
             });
         } else if (tab === 'inventory') {
@@ -1042,10 +1075,42 @@ export class UI {
     }
 
     // ===== DAILY CHALLENGES EKRANI =====
-    renderDaily(daily) {
+    renderDaily(daily, store) {
         const grid = document.getElementById('daily-grid');
         if (!grid) return;
         grid.innerHTML = '';
+        if (store) {
+            const state = store.getDailyRewardState();
+            const login = document.createElement('div');
+            login.className = `daily-card daily-login-card ${state.loginClaimed ? 'claimed' : 'ready'}`;
+            login.innerHTML = `
+                <div class="daily-emoji">7D</div>
+                <div class="daily-name">Daily Login</div>
+                <div class="daily-count">Day ${state.streak}/7 - ${state.loginCoins} coins</div>
+                <button class="btn btn-primary btn-small daily-login-claim" ${state.loginClaimed ? 'disabled' : ''}>
+                    ${state.loginClaimed ? 'Claimed' : 'Claim Coins'}
+                </button>`;
+            grid.appendChild(login);
+
+            const freeCase = document.createElement('div');
+            const dailyPity = store.getCasePityState('kickoff');
+            const dailyRates = getCaseDropRates('kickoff', dailyPity.nextGuaranteed ? { minimumRarity: 'epic' } : {});
+            freeCase.className = `daily-card daily-case-card ${state.freeCaseClaimed ? 'claimed' : 'ready'}`;
+            freeCase.innerHTML = `
+                <div class="daily-emoji">CASE</div>
+                <div class="daily-name">Daily Kickoff Case</div>
+                <div class="daily-count">One free opening every day</div>
+                <div class="case-pity ${dailyPity.nextGuaranteed ? 'ready' : ''}">
+                    Epic+ guarantee: ${dailyPity.nextGuaranteed ? 'THIS OPEN' : `${dailyPity.count}/10`}
+                </div>
+                <div class="case-drop-rates">${dailyRates.map(drop =>
+                    `<span class="rarity-${drop.rarity}"><b>${drop.name}</b><em>${(drop.chance * 100).toFixed(0)}%</em></span>`
+                ).join('')}</div>
+                <button class="btn btn-primary btn-small daily-case-open" data-id="kickoff" ${state.freeCaseClaimed ? 'disabled' : ''}>
+                    ${state.freeCaseClaimed ? 'Opened Today' : 'Open Free'}
+                </button>`;
+            grid.appendChild(freeCase);
+        }
         const challenges = daily.getChallenges();
         challenges.forEach(c => {
             const pct = Math.min(100, (c.progress / c.target) * 100);
@@ -1097,6 +1162,8 @@ export class UI {
         const games = Math.max(0, stats.gamesPlayed || 0);
         const wins = Math.max(0, stats.totalWins || 0);
         const winRate = games ? Math.round(wins / games * 100) : 0;
+        const contracts = store.getSeasonContracts();
+        const formatTime = value => value ? `${(value / 1000).toFixed(2)}s` : 'No record';
         el.innerHTML = `
             <div class="career-dashboard">
                 <section class="career-rank-card">
@@ -1121,6 +1188,33 @@ export class UI {
                     <div class="career-milestone-card"><span class="shell-kicker">RALLY</span><strong>${stats.bestRally || 0}</strong><p>Best rally chain</p></div>
                     <div class="career-milestone-card"><span class="shell-kicker">RANKED</span><strong>${stats.rankedGames || 0}</strong><p>Competitive matches</p></div>
                     <div class="career-milestone-card"><span class="shell-kicker">MASTERY</span><strong>${store.get('level') || 1}</strong><p>Account level</p></div>
+                </section>
+                <section class="career-contracts">
+                    <header><span class="shell-kicker">LAUNCH SEASON</span><h2>Season Contracts</h2></header>
+                    <div class="career-contract-grid">${contracts.map(contract => {
+                        const pct = Math.min(100, contract.progress / contract.target * 100);
+                        const ready = contract.progress >= contract.target && !contract.claimed;
+                        return `<article class="career-contract ${ready ? 'ready' : ''} ${contract.claimed ? 'claimed' : ''}">
+                            <div><strong>${contract.name}</strong><span>${contract.description}</span></div>
+                            <div class="career-contract-track"><i style="width:${pct}%"></i></div>
+                            <small>${Math.floor(contract.progress)}/${contract.target} - ${contract.reward} coins</small>
+                            ${ready ? `<button class="btn btn-primary btn-small contract-claim" data-id="${contract.id}">Claim</button>` : ''}
+                            ${contract.claimed ? '<b class="contract-complete">COMPLETED</b>' : ''}
+                        </article>`;
+                    }).join('')}</div>
+                </section>
+                <section class="career-trials">
+                    <header><span class="shell-kicker">MOVEMENT LAB</span><h2>Time Trials + Ghost</h2></header>
+                    <div class="career-trial-grid">${Object.values(MOVEMENT_TRIALS).map(trial => {
+                        const best = store.getMovementTrialBest(trial.id);
+                        return `<article class="career-trial">
+                            <span>${trial.map.replaceAll('_', ' ').toUpperCase()}</span>
+                            <strong>${trial.name}</strong>
+                            <p>${trial.description}</p>
+                            <small>PB: ${formatTime(best?.time)} - Reward ${trial.reward}</small>
+                            <button class="btn btn-primary btn-small movement-trial-start" data-id="${trial.id}">Start Trial</button>
+                        </article>`;
+                    }).join('')}</div>
                 </section>
             </div>`;
     }
@@ -1156,10 +1250,16 @@ export class UI {
             const card = document.createElement('div');
             card.className = 'replay-card';
             const duration = Math.max(0, Math.round((replay.duration || 0) / 1000));
+            const highlights = replay.highlights || [];
             card.innerHTML = `
                 <div>
                     <strong>${replay.meta?.map || 'Unknown map'}</strong>
-                    <span>${replay.meta?.mode || 'classic'} · ${duration}s · ${(replay.events || []).length} events</span>
+                    <span>${replay.meta?.mode || 'classic'} - ${duration}s - ${(replay.events || []).length} events</span>
+                    ${highlights.length ? `<div class="replay-highlights">${highlights.map((highlight, highlightIndex) =>
+                        `<button class="replay-highlight" data-index="${index}" data-highlight="${highlightIndex}">
+                            <span>HIGHLIGHT ${highlightIndex + 1}</span><b>${highlight.label}</b>
+                        </button>`
+                    ).join('')}</div>` : '<small class="replay-no-highlight">No highlight event detected</small>'}
                 </div>
                 <div class="btn-row">
                     <button class="btn btn-small replay-play" data-index="${index}">Play</button>

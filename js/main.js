@@ -1,21 +1,22 @@
 // main.js — App bootstrap, scene setup, game loop, screen handlers, loadout.
 import * as THREE from 'three';
 import { Renderer } from './renderer.js';
-import { Player } from './player.js';
+import { Player, isEditableTarget } from './player.js';
 import { Arena, registerCustomMap } from './arena.js';
 import { Game, STATES } from './game.js';
+import { GAME_MODES } from './gamemodes.js';
 import { Audio } from './audio.js';
 import { UI } from './ui.js';
 import { Network } from './network.js';
 import { Store } from './store.js';
 import { DEFAULT_LOADOUT } from './skills.js';
 import { AvatarPainter, AVATAR_SKINS } from './avatar.js';
-import { KNIVES } from './cosmetics.js';
+import { CASES, KNIVES } from './cosmetics.js';
 import { MapEditorController } from './map-editor.js';
 import { normalizeMapConfig } from './map-config.js';
 import { checkAchievements } from './achievements.js';
 import { Daily } from './daily.js';
-import { Replay } from './replay.js';
+import { Replay, extractReplayHighlight } from './replay.js';
 import { ReplayView } from './replay-view.js';
 import { Spectator } from './spectator.js';
 import { BALL_SKINS } from './ball.js';
@@ -28,6 +29,7 @@ import { SocialLobby, getSocialLobbyMapState } from './social-lobby.js';
 import { applyUiPreferences, loadUiPreferences, normalizeTheme, normalizeUiScale } from './ui-theme.js';
 import { initSettingsTabs } from './settings-controller.js';
 import { formatMapSize } from './map-display.js';
+import { MOVEMENT_TRIALS, MovementTrialClass } from './movement-trials.js';
 import {
     exportCrosshairCode,
     importCrosshairCode,
@@ -73,6 +75,14 @@ class App {
         this.network = new Network(null);
         this.game = new Game(this.renderer, this.player, this.arena, this.audio, this.ui, this.network);
         this.network.game = this.game;
+        this.movementTrials = new MovementTrialClass();
+        this.game.onReplayEvent = event => Replay.record(event);
+        this.game.onRocketJump = event => {
+            this.movementTrials.addRocketJump();
+            this.store.progressSeasonContracts({ rocketJumps: 1 });
+            Replay.record({ type: 'rocketJump', data: { strength: event?.strength || 0 } });
+        };
+        this.game.onMatchLoading = data => this._showMatchLoading(900, data);
         this.game.onLateJoinActivated = team => this._exitLateJoinSpectator(team);
         this.player.game = this.game;
         this.player.audio = this.audio;
@@ -146,6 +156,7 @@ class App {
 
             // Console visible → skip all other handlers
             if (this.gameConsole?.visible) return;
+            if (isEditableTarget(e.target) && e.code !== 'Escape') return;
 
             // While typing in chat, only Enter/Escape matter (handled below).
             if (this.chatOpen) {
@@ -484,6 +495,11 @@ class App {
 
         // Daily challenge ilerlemesi
         Daily.progress({ won, deflects: myStat.deflections, bestRally: rally, spikes, damage: damageDealt, winStreak: this.store.getWinStreak(), cleanWin });
+        this.store.progressSeasonContracts({
+            games: 1,
+            wins: won ? 1 : 0,
+            deflects: myStat.deflections
+        });
 
         // Achievement kontrol
         const newAch = checkAchievements(this.store, {
@@ -649,7 +665,7 @@ class App {
         });
 
         bind('btn-daily', () => {
-            this.ui.renderDaily(Daily);
+            this.ui.renderDaily(Daily, this.store);
             this.ui.showScreen('daily');
         });
 
@@ -873,15 +889,19 @@ class App {
         // calls this; also keeps ui.spectating in sync for the button label.
         this.ui.onToggleSpectate = () => this.toggleSpectate();
 
-        bind('btn-start-game', () => {
+        bind('btn-start-game', async () => {
             if (this.network.connected && !this.isLobbyHost()) {
                 this.ui.showMessage?.('Only host can start', 1500);
                 return;
             }
+            const startButton = document.getElementById('btn-start-game');
+            if (startButton?.disabled) return;
+            if (startButton) startButton.disabled = true;
             clearInterval(this._lobbyKeepAlive);
             if (this._lobbyCode) this._unregisterLobby(this._lobbyCode);
             this._lobbyCode = null;
             this.audio.init();
+            await this._showMatchLoading(950);
             this.player.lock();
             this.game.startGame();
             if (this.network.connected && this.network.isHost) {
@@ -894,6 +914,7 @@ class App {
                 players: this.game.getPlayerList().map(p => p.name)
             });
             this._lastRally = this.game.rallyCount;
+            if (startButton) startButton.disabled = false;
         });
 
         bind('btn-add-bot-red', () => {
@@ -1313,6 +1334,18 @@ class App {
                 this.ui.showMessage?.('Crosshair code ready to copy', 1600);
             }
         });
+        bind('crosshair-code-paste', async () => {
+            try {
+                const code = await navigator.clipboard?.readText();
+                if (!code || !crosshairCodeInput) throw new Error('Clipboard empty');
+                crosshairCodeInput.value = code.trim();
+                crosshairCodeInput.focus();
+                this.ui.showMessage?.('Crosshair code pasted - press Apply', 1500);
+            } catch {
+                crosshairCodeInput?.focus();
+                this.ui.showMessage?.('Paste the code here, then press Apply', 1700);
+            }
+        });
         bind('crosshair-code-import', () => {
             const config = importCrosshairCode(crosshairCodeInput?.value.trim());
             if (!config) {
@@ -1330,7 +1363,7 @@ class App {
             hydrateSetting('setting-crosshair-opacity', Math.round(config.opacity * 100));
             hydrateSetting('setting-crosshair-dynamic', config.dynamicGap);
             applyCrosshair();
-            this.ui.showMessage?.('Crosshair imported', 1600);
+            this.ui.showMessage?.('Crosshair applied and saved', 1600);
         });
         const savedSensitivity = this.store.get('mouseSensitivity') || 2;
         hydrateSetting('setting-sensitivity', savedSensitivity);
@@ -1536,9 +1569,43 @@ class App {
                 if (reward) {
                     this.store.grant({ currency: reward });
                     this.ui.showMessage?.(`Claimed: +${reward} coins!`);
-                    this.ui.renderDaily(Daily);
+                    this.ui.renderDaily(Daily, this.store);
                     this.refreshMetaStats();
                 }
+                return;
+            }
+            const loginClaim = e.target.closest('.daily-login-claim');
+            if (loginClaim) {
+                const reward = this.store.claimDailyLogin();
+                this.ui.showMessage?.(reward
+                    ? `Daily login: +${reward.coins} coins - ${reward.streak} day streak`
+                    : 'Daily login already claimed.');
+                this.ui.renderDaily(Daily, this.store);
+                this.refreshMetaStats();
+                return;
+            }
+            const contractClaim = e.target.closest('.contract-claim');
+            if (contractClaim) {
+                const reward = this.store.claimSeasonContract(contractClaim.dataset.id);
+                this.ui.showMessage?.(reward ? `Contract complete: +${reward} coins` : 'Contract is not ready.');
+                this.ui.renderCareer(this.store);
+                this.refreshMetaStats();
+                return;
+            }
+            const trialStart = e.target.closest('.movement-trial-start');
+            if (trialStart) {
+                this._startMovementTrial(trialStart.dataset.id);
+                return;
+            }
+            const dailyCase = e.target.closest('.daily-case-open');
+            if (dailyCase) {
+                const result = this.store.openDailyCase(dailyCase.dataset.id);
+                this.ui.showMessage?.(result
+                    ? `${result.duplicate ? `Duplicate +${result.refund} coins` : 'Unlocked'}: ${result.reward.name}`
+                    : 'Free case already opened today.');
+                this.ui.renderDaily(Daily, this.store);
+                this.refreshMetaStats();
+                return;
             }
             // Tournament bracket play
             const bracketPlay = e.target.closest('.bracket-play');
@@ -1571,13 +1638,35 @@ class App {
                 tabBtn.classList.add('selected');
                 this.ui.renderShop(this.store, tabBtn.dataset.tab);
             }
-            const replayButton = e.target.closest('.replay-play, .replay-export, .replay-delete');
+            const caseBtn = e.target.closest('.case-open');
+            if (caseBtn) {
+                const box = CASES[caseBtn.dataset.id];
+                const balance = Number(this.store.get('currency')) || 0;
+                const result = this.store.openCase(caseBtn.dataset.id);
+                this.ui.showMessage?.(result
+                    ? `${result.duplicate ? `Duplicate +${result.refund} coins` : 'Unlocked'}: ${result.reward.name}`
+                    : !box ? 'Case unavailable.' : `Need ${box.price} coins - Balance ${balance}`);
+                this.ui.renderShop(this.store, 'cases');
+                this.refreshMetaStats();
+                return;
+            }
+            const knifeBtn = e.target.closest('.knife-equip');
+            if (knifeBtn) {
+                const ok = this.store.equipKnife(knifeBtn.dataset.id, knifeBtn.dataset.team);
+                this.ui.showMessage?.(ok ? `Equipped for ${knifeBtn.dataset.team.toUpperCase()}` : 'This knife cannot be equipped.');
+                this.ui.renderShop(this.store, 'inventory');
+                return;
+            }
+            const replayButton = e.target.closest('.replay-play, .replay-export, .replay-delete, .replay-highlight');
             if (replayButton) {
                 const all = Replay.loadAll();
                 const index = Number(replayButton.dataset.index);
                 const replay = all[index];
                 if (!replay) return;
-                if (replayButton.classList.contains('replay-delete')) {
+                if (replayButton.classList.contains('replay-highlight')) {
+                    const highlight = replay.highlights?.[Number(replayButton.dataset.highlight)];
+                    if (highlight) this._startReplay(extractReplayHighlight(replay, highlight));
+                } else if (replayButton.classList.contains('replay-delete')) {
                     if (Replay.delete(index)) this.ui.renderReplays?.(Replay.loadAll());
                 } else if (replayButton.classList.contains('replay-export')) {
                     const copy = navigator.clipboard?.writeText(Replay.exportJSON(replay));
@@ -1686,9 +1775,9 @@ class App {
         };
         this.renderer.renderer.setClearColor(0x8ed8f3);
         if (this.renderer.scene.fog) {
-            this.renderer.scene.fog.color.set(0xbfe9ff);
-            this.renderer.scene.fog.near = 55;
-            this.renderer.scene.fog.far = 130;
+            this.renderer.scene.fog.color.set(0xa9e8f4);
+            this.renderer.scene.fog.near = 110;
+            this.renderer.scene.fog.far = 390;
         }
         this.ui.hideAll();
         document.getElementById('social-lobby-hud')?.classList.remove('hidden');
@@ -1697,10 +1786,16 @@ class App {
         this.player.setHandVisible(false);
         this.socialLobby.enter();
         const status = document.getElementById('social-lobby-status');
-        if (status) status.textContent = this.network.connected
-            ? 'Connected party presence active'
-            : 'Offline plaza - connect a party for live players';
-        this._appendSocialLobbyChat('VOLLE', 'Welcome. Chat, practice movement, and explore the plaza.', true);
+        if (status) status.textContent = 'Loading Low Poly City...';
+        this.socialLobby.ready.then(() => {
+            if (!this.socialLobby.active || !status) return;
+            status.textContent = this.socialLobby.cityModel
+                ? (this.network.connected
+                    ? 'Low Poly City - party presence active'
+                    : 'Low Poly City - offline exploration')
+                : 'City unavailable - fallback plaza active';
+        });
+        this._appendSocialLobbyChat('VOLLE', 'Welcome to Low Poly City. Explore, chat, bhop, and try the movement course.', true);
         this.player.lock();
     }
 
@@ -1761,6 +1856,16 @@ class App {
             ctx.lineTo(width, height * i / 6);
             ctx.stroke();
         }
+        const rangeX = state.bounds.maxX - state.bounds.minX;
+        const rangeZ = state.bounds.maxZ - state.bounds.minZ;
+        ctx.fillStyle = 'rgba(112,221,255,0.16)';
+        for (const block of this.socialLobby.getMapBlocks?.() || []) {
+            const x = (block.minX - state.bounds.minX) / rangeX * width;
+            const y = (block.minZ - state.bounds.minZ) / rangeZ * height;
+            const blockWidth = Math.max(1, (block.maxX - block.minX) / rangeX * width);
+            const blockHeight = Math.max(1, (block.maxZ - block.minZ) / rangeZ * height);
+            ctx.fillRect(x, y, blockWidth, blockHeight);
+        }
         const practice = state.practice;
         ctx.fillStyle = 'rgba(255,211,107,0.18)';
         ctx.strokeStyle = 'rgba(255,211,107,0.64)';
@@ -1814,26 +1919,10 @@ class App {
                 const dz = this.player.position.z - this._longJumpTrack.start.z;
                 const distance = Math.hypot(dx, dz);
                 const message = `${this.game.playerName || 'Player'} longjumped ${distance.toFixed(1)}m at ${Math.round(this._longJumpTrack.maxSpeed)} u/s`;
+                this.store.progressSeasonContracts({ longjumpDistance: distance });
                 if (this._longJumpTrack.social) this._appendSocialLobbyChat('MOVEMENT', message, true);
                 else this.game.addChatMessage('MOVEMENT', message);
                 this._longJumpTrack = null;
-            }
-            const caseBtn = e.target.closest('.case-open');
-            if (caseBtn) {
-                const result = this.store.openCase(caseBtn.dataset.id);
-                this.ui.showMessage?.(result
-                    ? `${result.duplicate ? 'Duplicate converted' : 'Unlocked'}: ${result.reward.name}`
-                    : 'Not enough coins.');
-                this.ui.renderShop(this.store, 'cases');
-                this.refreshMetaStats();
-                return;
-            }
-            const knifeBtn = e.target.closest('.knife-equip');
-            if (knifeBtn) {
-                const ok = this.store.equipKnife(knifeBtn.dataset.id, knifeBtn.dataset.team);
-                this.ui.showMessage?.(ok ? `Equipped for ${knifeBtn.dataset.team.toUpperCase()}` : 'This knife cannot be equipped.');
-                this.ui.renderShop(this.store, 'inventory');
-                return;
             }
         }
         const movementState = this.player.longJumpEvent || (this._longJumpTrack && !this.player.onGround)
@@ -2189,33 +2278,39 @@ class App {
 
     // --- CAROUSEL METHODS ---
 
-    initCarousel() {
-        const dotsContainer = document.getElementById('carousel-dots');
-        if (!dotsContainer) return;
-        const keys = Object.keys(Arena.MAPS);
-        // Build dots
-        dotsContainer.innerHTML = '';
-        keys.forEach((id, i) => {
-            const dot = document.createElement('button');
-            dot.className = 'carousel-dot' + (i === this.carouselIndex ? ' active' : '');
-            dot.dataset.index = i;
-            dot.addEventListener('click', () => {
-                if (i === this.carouselIndex) return;
-                this.carouselIndex = i;
-                this.game.selectMap(keys[i]);
-                this.updateCarousel();
-                const mapEl = document.getElementById('cs-lobby-map');
-                if (mapEl) mapEl.textContent = this.arena?.config?.name || 'Map';
-            });
-            // Tooltip: show weather + size on hover
-            const mapCfg = Arena.MAPS[id];
-            if (mapCfg) {
-                const weatherEmoji = { clear: '☀️', rain: '🌧️', storm: '⛈️', snow: '❄️', indoor: '🏟️' }[mapCfg.weather] || '☀️';
-                dot.title = `${weatherEmoji} ${mapCfg.weather} · ${formatMapSize(mapCfg)}`;
-            }
-            dotsContainer.appendChild(dot);
+    _showMatchLoading(duration = 900, match = {}) {
+        const overlay = document.getElementById('match-loading');
+        if (!overlay) return Promise.resolve();
+        const mapId = match.map || this.arena?.mapId;
+        const config = Arena.MAPS[mapId] || this.arena?.config || {};
+        const mode = match.mode || this.game?.mode?.id || 'classic';
+        const modeName = GAME_MODES[mode]?.name || this.game?.mode?.name || mode;
+        const tips = [
+            'Tip: move after every throw.',
+            'Tip: pass angles beat raw power.',
+            'Tip: a late deflect can reverse a rally.',
+            'Tip: keep space between teammates.'
+        ];
+        const mapEl = document.getElementById('match-loading-map');
+        const modeEl = document.getElementById('match-loading-mode');
+        const tipEl = document.getElementById('match-loading-tip');
+        if (mapEl) mapEl.textContent = config.name || String(mapId || 'Arena');
+        if (modeEl) modeEl.textContent = String(modeName).toUpperCase();
+        if (tipEl) tipEl.textContent = tips[Math.floor(Math.random() * tips.length)];
+        overlay.classList.remove('hidden', 'active');
+        void overlay.offsetWidth;
+        overlay.classList.add('active');
+        return new Promise(resolve => {
+            window.setTimeout(() => {
+                overlay.classList.add('hidden');
+                overlay.classList.remove('active');
+                resolve();
+            }, duration);
         });
-        // Set initial index from current arena map
+    }
+
+    initCarousel() {
+        const keys = Object.keys(Arena.MAPS);
         const idx = keys.indexOf(this.arena?.mapId);
         if (idx >= 0) this.carouselIndex = idx;
         this.updateCarousel();
@@ -2312,6 +2407,7 @@ class App {
         this.ui.hideScoreboard();
         const modal = document.getElementById('unified-settings');
         if (modal) modal.classList.remove('hidden');
+        this.applyCrosshair?.(0);
         // ponytail: round/match ayarları sadece lobi sahibinde değişebilir
         const host = this.isLobbyHost();
         const lock = (id) => {
@@ -2342,6 +2438,77 @@ class App {
         this.ui.showScreen('lobby');
         // Practice lobby'sinde farklı butonlar göster
         this.ui.showMessage?.('Practice mode: R spawn ball, F move ball', 3000);
+    }
+
+    _startMovementTrial(trialId) {
+        const trial = MOVEMENT_TRIALS[trialId];
+        if (!trial) return;
+        this.game.selectMap(trial.map);
+        this.startPractice();
+        if (trial.character) {
+            const loadout = this.store.get('loadout') || DEFAULT_LOADOUT;
+            this.player.applyLoadout(trial.character, loadout.runes);
+        }
+        this._pendingMovementTrial = trialId;
+        this.game.startGame();
+        this.player.lock();
+        this.ui.showMessage?.(`${trial.name}: reach ${trial.targetDistance}m before time expires`, 2600);
+    }
+
+    _ensureMovementGhost() {
+        if (this._movementGhost) return this._movementGhost;
+        const material = new THREE.MeshBasicMaterial({
+            color: 0x61f4e8,
+            transparent: true,
+            opacity: 0.32,
+            depthWrite: false
+        });
+        const ghost = new THREE.Mesh(new THREE.CapsuleGeometry(0.42, 1.1, 4, 8), material);
+        ghost.visible = false;
+        ghost.renderOrder = 10;
+        this.renderer.scene.add(ghost);
+        this._movementGhost = ghost;
+        return ghost;
+    }
+
+    _updateMovementTrial(dt) {
+        if (this._pendingMovementTrial && this.game.state === STATES.PLAYING) {
+            const best = this.store.getMovementTrialBest(this._pendingMovementTrial);
+            this.movementTrials.start(this._pendingMovementTrial, this.player.getPosition(), best);
+            this._pendingMovementTrial = null;
+        }
+        const active = this.movementTrials.active;
+        if (!active) {
+            this.ui.updateMovementTrialHUD(null);
+            if (this._movementGhost) this._movementGhost.visible = false;
+            return;
+        }
+        const state = this.movementTrials.update(this.player.getPosition(), {
+            dt,
+            onGround: this.player.onGround,
+            speed: this.player.horizontalSpeed
+        });
+        if (!state) return;
+        this.ui.updateMovementTrialHUD(state);
+        const ghost = this._ensureMovementGhost();
+        if (state.active && state.ghost) {
+            ghost.position.set(
+                state.origin.x + state.ghost.x,
+                state.origin.y + state.ghost.y + 0.9,
+                state.origin.z + state.ghost.z
+            );
+            ghost.visible = true;
+        } else {
+            ghost.visible = false;
+        }
+        if (state.status === 'completed') {
+            const result = this.store.saveMovementTrialResult(state.trial, state.record);
+            const suffix = `${result.personalBest ? ' - NEW PB' : ''}${result.reward ? ` - +${result.reward} coins` : ''}`;
+            this.ui.showMessage?.(`${state.trial.name}: ${(state.elapsed / 1000).toFixed(2)}s${suffix}`, 4200);
+            this.refreshMetaStats();
+        } else if (state.status === 'failed') {
+            this.ui.showMessage?.(`${state.trial.name}: time expired`, 2600);
+        }
     }
 
     // Lobby leader = host, or solo (not connected to any peer) → you lead.
@@ -3196,6 +3363,7 @@ class App {
         if (this.game.state === STATES.PLAYING || this.game.state === STATES.ROUND_END || this.game.state === STATES.COUNTDOWN || this.game.state === STATES.CELEBRATION) {
             if (!Spectator.active) this.player.update(dt);
             if (!Spectator.active) this._updateMovementPolish(false);
+            if (!Spectator.active) this._updateMovementTrial(dt);
             // Host simulation runs in the 60Hz background loop; clients update here.
             if (!this.network?.isHost) this.game.update(dt);
             // Dash trail
