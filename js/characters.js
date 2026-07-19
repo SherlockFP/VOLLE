@@ -1,7 +1,7 @@
 // characters.js — Character roster with stats + passives. LoL-style.
 // ponytail: tek dosya, basit objeler, bot/player ortak kullanım.
 
-export const CHARACTERS = {
+const ROSTER = {
     rally: {
         id: 'rally', name: 'Rally', emoji: '🏐',
         maxHp: 100, speed: 10, deflectPower: 1.0, staminaMax: 100,
@@ -80,6 +80,12 @@ export const CHARACTERS = {
         color: 0xd94c48, price: 650
     }
 };
+
+// Keep the competitive roster compact. Legacy entries remain in source for save
+// compatibility, but are not selectable or assigned to new players.
+export const CHARACTERS = Object.freeze(Object.fromEntries(
+    ['rally', 'tank', 'scout', 'sniper', 'guardian', 'soldier'].map(id => [id, ROSTER[id]])
+));
 
 // Pasif yetenek uygulama — player/bot objesine stat bonusları ekle.
 export function applyCharacter(entity, charId) {

@@ -67,7 +67,7 @@ export class Bot {
         // Random karakter ata (kolaydifficulty'de sadece rally)
         // ponytail fix #6: blazer/frost dahil tüm karakterler, medium+ rune uygula
         const pool = difficulty === 'easy' ? ['rally']
-                   : ['rally','tank','scout','sniper','guardian','blazer','frost'];
+                   : ['rally','tank','scout','sniper','guardian','soldier'];
         const charId = pool[Math.floor(Math.random() * pool.length)];
         applyCharacter(this, charId);
         this._baseMaxHp = this.maxHp;

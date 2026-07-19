@@ -1,18 +1,8 @@
 const SAMPLE_INTERVAL = 100;
 const MAX_SAMPLES = 750;
 
-export const MOVEMENT_TRIALS = Object.freeze({
-    bhop_sprint: Object.freeze({
-        id: 'bhop_sprint',
-        name: 'Bhop Course',
-        description: 'Chain momentum across Neon District.',
-        map: 'neon',
-        targetDistance: 140,
-        timeLimit: 50_000,
-        requiredPeakSpeed: 18,
-        reward: 160
-    })
-});
+// Courses stay disabled until dedicated maps are ready.
+export const MOVEMENT_TRIALS = Object.freeze({});
 
 const finite = value => Number.isFinite(Number(value)) ? Number(value) : 0;
 const point = value => ({ x: finite(value?.x), y: finite(value?.y), z: finite(value?.z) });

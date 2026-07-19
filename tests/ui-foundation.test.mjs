@@ -57,7 +57,7 @@ test('shared console commands require host while view commands remain local', ()
   for (const name of sharedCommands) {
     assert.equal(commandNeedsHost(COMMANDS[name]), true, name);
   }
-  for (const name of ['help', 'clear', 'sv_hand', 'cl_showfps', 'cl_showdamage', 'r_fullbright']) {
+  for (const name of ['help', 'clear', 'sv_hand', 'cl_showfps', 'cl_hud', 'cl_showdamage', 'r_fullbright']) {
     assert.equal(commandNeedsHost(COMMANDS[name]), false, name);
   }
 });

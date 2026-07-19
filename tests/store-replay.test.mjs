@@ -20,6 +20,16 @@ test('every class is available without a currency purchase', () => {
     assert.equal(Store.setLoadout({ char: 'soldier' }), true);
 });
 
+test('retired class saves fall back to the compact roster', () => {
+    Store.reset();
+    Store.data.selectedChar = 'blazer';
+    Store.data.loadout.char = 'blazer';
+    Store.save();
+    Store.load();
+    assert.equal(Store.get('selectedChar'), 'rally');
+    assert.equal(Store.get('loadout').char, 'rally');
+});
+
 test('loadouts retain only one owned rune', () => {
     Store.reset();
     Store.grant({ currency: 160 });

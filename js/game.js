@@ -2208,6 +2208,7 @@ export class Game {
                     if (aliveTeammates.length > 0) this._spectateTarget = aliveTeammates[0];
                 } else {
                     hitTarget.alive = false;
+                    if (hitTarget.group) hitTarget.group.visible = false;
                 }
                 this.ball.deactivate();
                 const comboNames = ['', 'FIRST BLOOD', 'DOUBLE KILL', 'TRIPLE KILL', 'QUADRA KILL', 'PENTA KILL', 'ACE'];

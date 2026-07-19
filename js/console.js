@@ -309,17 +309,30 @@ export const COMMANDS = {
         desc: 'Show FPS counter (0/1)',
         args: '<0|1>',
         run: (game, args, log) => {
-            const v = parseInt(args[0]) || 0;
+            const v = Number(args[0]);
+            if (v !== 0 && v !== 1) { log('Usage: cl_showfps <0|1>'); return false; }
             const el = document.getElementById('fps-counter') || (() => {
                 const d = document.createElement('div');
                 d.id = 'fps-counter';
-                d.style.cssText = 'position:fixed;top:4px;right:80px;color:#0f0;font:12px monospace;z-index:999;pointer-events:none;';
+                d.className = 'fps-counter';
                 document.body.appendChild(d);
                 return d;
             })();
             el.style.display = v ? '' : 'none';
             game._showFps = !!v;
             log(`FPS counter → ${v ? 'ON' : 'OFF'}`);
+            return true;
+        }
+    },
+    cl_hud: {
+        desc: 'Show game HUD (0/1)',
+        args: '<0|1>',
+        run: (game, args, log) => {
+            const v = Number(args[0]);
+            if (v !== 0 && v !== 1) { log('Usage: cl_hud <0|1>'); return false; }
+            game._showHud = v === 1;
+            document.body.classList.toggle('cl-hud-hidden', !game._showHud);
+            log(`HUD -> ${game._showHud ? 'ON' : 'OFF'}`);
             return true;
         }
     },

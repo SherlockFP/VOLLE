@@ -43,7 +43,7 @@ function previousLocalDateKey(value = new Date()) {
 // Battlepass tier reward'ları (50 tier). Her tier'da bir reward.
 function buildBattlepassRewards() {
     const rewards = [];
-    const charIds = ['tank','scout','sniper','guardian','blazer','frost'];
+    const charIds = Object.keys(CHARACTERS).filter(id => id !== 'rally');
     const ballIds = ['fire','ice','lightning','bomb','star','rainbow'];
     const skillIds = Object.keys(SKILLS);
     const runeIds = Object.keys(RUNES);
@@ -135,11 +135,13 @@ class StoreClass {
                 loadout: {
                     ...DEFAULTS.loadout,
                     ...(parsed.loadout || {}),
+                    char: CHARACTERS[parsed.loadout?.char] ? parsed.loadout.char : DEFAULTS.selectedChar,
                     runes: Array.isArray(parsed.loadout?.runes)
                         ? parsed.loadout.runes.filter(id => RUNES[id]).slice(0, 1)
                         : DEFAULTS.loadout.runes
                 },
                 crosshairSettings: { ...DEFAULTS.crosshairSettings, ...(parsed.crosshairSettings||{}) },
+                selectedChar: CHARACTERS[parsed.selectedChar] ? parsed.selectedChar : DEFAULTS.selectedChar,
                 characterProgress: { ...DEFAULTS.characterProgress, ...(parsed.characterProgress||{}) },
                 battlepass: { ...DEFAULTS.battlepass, ...(parsed.battlepass||{}) },
                 stats: { ...DEFAULTS.stats, ...(parsed.stats||{}) },

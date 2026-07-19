@@ -804,13 +804,12 @@
 
     <!-- ===== LEADERBOARD ===== -->
     <div id="leaderboard-screen" class="screen hidden">
-        <div class="panel wide-panel">
-            <h1>📊 Leaderboard</h1>
-            <h2>Top players by ELO</h2>
-            <table class="scoreboard-table" id="leaderboard-table">
-                <thead><tr><th>#</th><th>Player</th><th>ELO</th><th>Rank</th></tr></thead>
-                <tbody id="leaderboard-body"></tbody>
-            </table>
+        <div class="panel wide-panel leaderboard-shell">
+            <header class="leaderboard-header"><div><span class="shell-kicker">GLOBAL LADDER</span><h1>Leaderboard</h1><p>Live ELO standings across every completed match.</p></div><span class="leaderboard-mark" aria-hidden="true">ELO</span></header>
+            <div class="leaderboard-table-wrap"><table class="scoreboard-table" id="leaderboard-table">
+            <thead><tr><th>#</th><th>Player</th><th>ELO</th><th>Rank</th></tr></thead>
+                <tbody id="leaderboard-body"></tbody></table></div>
+            <aside id="leaderboard-your-rank" class="leaderboard-your-rank" aria-live="polite"></aside>
             <button id="btn-leaderboard-back" class="btn btn-secondary" style="margin-top: 20px;">← Back</button>
         </div>
     </div>

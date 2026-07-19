@@ -41,7 +41,7 @@ export class Juice {
 
         // Particles (pool)
         this.particles = [];
-        this.maxParticles = 200;
+        this.maxParticles = 240;
 
         // Flash
         this.flashAmt = 0;
@@ -133,9 +133,10 @@ export class Juice {
     }
 
     hitBurst(pos) {
-        this.burst(pos, 0xffaa44, 20, 12);
+        this.burst(pos, 0xffaa44, 24, 13);
         this.shake(0.35);
-        this.sparks(pos, 0xffee44, 6);
+        this.flash(0.12);
+        this.sparks(pos, 0xffee44, 9);
     }
 
     killBurst(pos) {
@@ -144,6 +145,7 @@ export class Juice {
         this.burst(pos.clone().add(new THREE.Vector3(0, 0.5, 0)), 0xffaa00, 20, 10);
         this.burst(pos.clone().add(new THREE.Vector3(0, 0.3, 0)), 0xffdd44, 12, 8);
         this.sparks(pos, 0xff6644, 12);
+        this.shockwave(pos, 0xff5544);
         this.shake(0.7);
         this.slowMo(0.25, 0.5);
     }

@@ -193,7 +193,10 @@ test('spectator supports first-person, chase, target cycling, and safe stop', ()
     spectator.setCameraMode(CAMERA_MODES.CHASE)
     spectator.update(0.016)
     assert.equal(camera.position.x, 17)
-    assert.equal(spectator.prevTarget(), local)
+    assert.equal(spectator.handleWheel({ deltaY: -100, preventDefault() {} }), true)
+    assert.equal(spectator.handlePointerButton({ button: 0, preventDefault() {} }), true)
+    assert.equal(spectator.getTarget(), local)
+    assert.equal(spectator.prevTarget(), bot)
 
     let prevented = false
     assert.equal(spectator.handleEscape({ code: 'Escape', preventDefault: () => { prevented = true } }), true)

@@ -69,7 +69,7 @@ test('normalization clamps finite numbers, validates hex, and does not mutate in
 
     assert.deepEqual(input, before);
     assert.deepEqual(config, {
-        style: 'cross',
+        style: 'dot',
         color: '#aabbcc',
         size: 64,
         gap: 0,

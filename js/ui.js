@@ -10,7 +10,6 @@ import { MatchHistory } from './matchhistory.js';
 import { getRank, getRankProgress } from './ranked.js';
 import { Leaderboard } from './leaderboard.js';
 import { Arena } from './arena.js';
-import { MOVEMENT_TRIALS } from './movement-trials.js';
 
 const CHARACTER_ATLAS = 'assets/generated/characters/character-atlas.png';
 
@@ -1023,11 +1022,11 @@ export class UI {
         } else if (tab === 'cases') {
             Object.values(CASES).forEach(box => {
                 const card = document.createElement('div');
-                card.className = 'shop-card case-card';
+                card.className = `shop-card case-card case-${box.id}`;
                 const pity = store.getCasePityState(box.id);
                 const rates = getCaseDropRates(box.id, pity.nextGuaranteed ? { minimumRarity: 'epic' } : {});
                 card.innerHTML = `
-                    <div class="case-art" aria-hidden="true"></div>
+                    <div class="case-art" aria-hidden="true"><i></i><span>${box.name.replace(' Case', '')}</span></div>
                     <div class="char-name">${box.name}</div>
                     <div class="case-balance">Balance: ${store.get('currency')} coins</div>
                     <div class="case-pity ${pity.nextGuaranteed ? 'ready' : ''}">
@@ -1077,14 +1076,14 @@ export class UI {
         const track = document.getElementById('case-reel-track');
         const resultEl = document.getElementById('case-reel-result');
         if (!overlay || !track || !resultEl || !result?.reward) return;
-        const drops = box?.drops || [];
-        const targetIndex = 20;
-        const ids = Array.from({ length: 25 }, (_, index) => drops[index % Math.max(1, drops.length)]?.id || result.reward.id);
-        ids[targetIndex] = result.reward.id;
+        const drops = getCaseDropRates(box?.id);
+        const targetIndex = 24;
+        const items = Array.from({ length: 31 }, (_, index) => drops[index % Math.max(1, drops.length)] || result.reward);
+        items[targetIndex] = result.reward;
         track.className = 'case-reel-track';
-        track.innerHTML = ids.map(id => {
-            const item = drops.find(drop => drop.id === id) || result.reward;
-            return `<div class="case-reel-item rarity-${item.rarity || result.reward.rarity}"><span class="case-reel-orb" aria-hidden="true"></span><small>${item.type === 'avatar' ? 'SKIN' : 'KNIFE'}</small><b>${item.name || id}</b></div>`;
+        track.innerHTML = items.map(item => {
+            const type = item.type === 'avatar' ? 'CHARACTER SKIN' : item.model === 'butterfly' ? 'BUTTERFLY KNIFE' : item.model === 'karambit' ? 'KARAMBIT' : 'KNIFE';
+            return `<div class="case-reel-item rarity-${item.rarity || result.reward.rarity}"><span class="case-reel-orb ${item.type === 'avatar' ? 'avatar' : ''}" aria-hidden="true"></span><small>${type}</small><b>${item.name || item.id}</b></div>`;
         }).join('');
         resultEl.textContent = '';
         overlay.classList.remove('hidden');
@@ -1103,7 +1102,7 @@ export class UI {
             track.style.setProperty('--case-reel-stop', `${Math.round(stop)}px`);
             track.classList.add('spin');
         });
-        const timer = setTimeout(finish, 3600);
+        const timer = setTimeout(finish, 3700);
         document.getElementById('case-reel-skip')?.addEventListener('click', () => { clearTimeout(timer); finish(); }, { once: true });
     }
 
@@ -1252,7 +1251,6 @@ export class UI {
         const season = rankedState.season || {};
         const history = Array.isArray(rankedState.history) ? rankedState.history.slice(-5).reverse() : [];
         const placementGames = Math.min(5, Number(season.placementGames) || 0);
-        const formatTime = value => value ? `${(value / 1000).toFixed(2)}s` : 'No record';
         el.innerHTML = `
             <div class="career-dashboard">
                 <section class="career-rank-card">
@@ -1295,20 +1293,7 @@ export class UI {
                             ${ready ? `<button class="btn btn-primary btn-small contract-claim" data-id="${contract.id}">Claim</button>` : ''}
                             ${contract.claimed ? '<b class="contract-complete">COMPLETED</b>' : ''}
                         </article>`;
-                    }).join('')}</div>
-                </section>
-                <section class="career-trials">
-                    <header><span class="shell-kicker">MOVEMENT LAB</span><h2>Time Trials + Ghost</h2></header>
-                    <div class="career-trial-grid">${Object.values(MOVEMENT_TRIALS).map(trial => {
-                        const best = store.getMovementTrialBest(trial.id);
-                        return `<article class="career-trial">
-                            <span>${trial.map.replaceAll('_', ' ').toUpperCase()}</span>
-                            <strong>${trial.name}</strong>
-                            <p>${trial.description}</p>
-                            <small>PB: ${formatTime(best?.time)} - Reward ${trial.reward}</small>
-                            <button class="btn btn-primary btn-small movement-trial-start" data-id="${trial.id}">Start Trial</button>
-                        </article>`;
-                    }).join('')}</div>
+                    }).join('') || '<p class="career-empty">No active season contracts.</p>'}</div>
                 </section>
             </div>`;
     }
@@ -1366,15 +1351,26 @@ export class UI {
         tbody.innerHTML = '';
         const top = Leaderboard.getTop(20);
         const myElo = store.getElo();
-        const myName = this._playerName || 'You';
+        const myName = 'You';
         top.forEach((p, i) => {
             const rank = getRank(p.elo);
             const isMe = p.name === myName;
             const row = document.createElement('tr');
-            if (isMe) row.style.background = 'rgba(255,136,0,0.2)';
-            row.innerHTML = `<td>${i+1}</td><td>${p.name}${isMe ? ' (You)' : ''}</td><td>${p.elo}</td><td style="color:${rank.color}">${rank.emoji} ${rank.name}</td>`;
+            row.className = isMe ? 'is-you' : '';
+            const cells = [i + 1, `${p.name}${isMe ? ' (You)' : ''}`, p.elo, `${rank.emoji} ${rank.name}`];
+            cells.forEach((value, index) => {
+                const cell = document.createElement('td');
+                cell.textContent = String(value);
+                if (index === 3) cell.style.color = rank.color;
+                row.appendChild(cell);
+            });
             tbody.appendChild(row);
         });
+        const playerRank = document.getElementById('leaderboard-your-rank');
+        if (playerRank) {
+            const rank = getRank(myElo);
+            playerRank.innerHTML = `<span>YOUR POSITION</span><strong>#${Leaderboard.getPlayerRank(myElo)}</strong><b style="color:${rank.color}">${rank.emoji} ${rank.name}</b><em>${myElo} ELO</em>`;
+        }
     }
 
     renderReplays(replays) {

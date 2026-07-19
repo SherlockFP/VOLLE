@@ -148,6 +148,10 @@ class App {
 
         // Spectate click — left=next, right=prev (no context menu)
         document.addEventListener('mousedown', e => {
+            if (Spectator.active) {
+                Spectator.handlePointerButton(e);
+                return;
+            }
             if (!this.player.alive && this.game._spectateTarget) {
                 e.preventDefault();
                 const teammates = this.game.getAliveTeammates();
@@ -160,6 +164,13 @@ class App {
                     }
                 }
             }
+        }, { signal: this._mainAbort.signal });
+        document.addEventListener('mousemove', e => {
+            if (this.player.alive || !this.game._spectateTarget || e.movementX == null) return;
+            const view = this._deadSpectateView ||= { distance: 0.5, yaw: null, pitch: 0 };
+            const targetYaw = this.game._spectateTarget.euler?.y ?? this.game._spectateTarget.rotation?.y ?? 0;
+            view.yaw = Number.isFinite(view.yaw) ? view.yaw - e.movementX * 0.0025 : targetYaw;
+            view.pitch = Math.max(-1.15, Math.min(1.15, view.pitch - e.movementY * 0.0025));
         }, { signal: this._mainAbort.signal });
         // Block the browser right-click menu everywhere (menu, lobby, settings, in-game).
         // Right-click is still usable as a game input via mousedown button===2.
@@ -220,11 +231,11 @@ class App {
                     this._exitReplay();
                     return;
                 }
-                if (e.code === 'BracketRight') Spectator.cycleTarget();
-                if (e.code === 'BracketLeft') Spectator.prevTarget();
-                if (e.code === 'KeyF') Spectator.setFreeCam(!Spectator.freeCam);
-                if (e.code === 'KeyM' && !Replay.playing) { e.preventDefault(); this.toggleTeamPopup(); }
-                return;
+                if (e.code === 'BracketRight') { Spectator.cycleTarget(); return; }
+                if (e.code === 'BracketLeft') { Spectator.prevTarget(); return; }
+                if (e.code === 'KeyF') { Spectator.setFreeCam(!Spectator.freeCam); return; }
+                if (e.code === 'KeyM' && !Replay.playing) { e.preventDefault(); this.toggleTeamPopup(); return; }
+                // ESC falls through to the normal pause/settings flow.
             }
 
             // Chat açıkken M tuşu takım menüsü açmasın.
@@ -490,17 +501,15 @@ class App {
         const winner = this.game.scoreboard.getWinner();
         const myTeam = this.player.team;
         const won = winner === myTeam.toUpperCase();
-        if (this._rankedMatch) {
-            const draw = winner === 'DRAW';
-            const ranked = this.store.recordRankedMatch({
-                matchId: `match-${Date.now()}`,
-                opponentElo: this._rankedMatch.opponentElo,
-                result: draw ? 'draw' : won ? 'win' : 'loss',
-                playedAt: Date.now()
-            });
-            this.ui.showMessage?.(`Ranked ${won ? 'win' : draw ? 'draw' : 'loss'}: ${ranked.elo} ELO`, 3500);
-            this._rankedMatch = null;
-        }
+        const draw = winner === 'DRAW';
+        const ranked = this.store.recordRankedMatch({
+            matchId: `match-${Date.now()}`,
+            opponentElo: this._rankedMatch?.opponentElo ?? this.store.getElo(),
+            result: draw ? 'draw' : won ? 'win' : 'loss',
+            playedAt: Date.now()
+        });
+        this.ui.showMessage?.(`ELO ${won ? 'win' : draw ? 'draw' : 'loss'}: ${ranked.elo}`, 3500);
+        this._rankedMatch = null;
         const coins = won ? 5 : 1;
         const xp = this.store.boostedXp(50 + myStat.deflections * 3 + (won ? 100 : 30));
         const result = this.store.grant({ currency: coins, xp });
@@ -1733,6 +1742,10 @@ class App {
             const knifeBtn = e.target.closest('.knife-equip');
             if (knifeBtn) {
                 const ok = this.store.equipKnife(knifeBtn.dataset.id, knifeBtn.dataset.team);
+                if (ok && knifeBtn.dataset.team === this.player.team) {
+                    this.player.knifeId = knifeBtn.dataset.id;
+                    this.player.setKnifeStyle?.(KNIVES[knifeBtn.dataset.id] || KNIVES.training);
+                }
                 this.ui.showMessage?.(ok ? `Equipped for ${knifeBtn.dataset.team.toUpperCase()}` : 'This knife cannot be equipped.');
                 this.ui.renderShop(this.store, 'inventory');
                 return;
@@ -1765,12 +1778,14 @@ class App {
             }
         });
 
-        // Mouse wheel — spectator target cycle
+        // Mouse wheel — spectator zoom / dead-team camera zoom
         document.addEventListener('wheel', e => {
             if (Spectator.active) {
+                Spectator.handleWheel(e);
+            } else if (!this.player.alive && this.game._spectateTarget) {
+                const view = this._deadSpectateView ||= { distance: 0.5, yaw: null, pitch: 0 };
+                view.distance = Math.max(0.5, Math.min(14, view.distance + Math.sign(e.deltaY) * 1.15));
                 e.preventDefault();
-                if (e.deltaY > 0) Spectator.cycleTarget();
-                else Spectator.prevTarget();
             }
         }, { passive: false });
 
@@ -3581,6 +3596,8 @@ class App {
                 const diag = this.network?.getDiagnostics?.();
                 const fps = Math.round(1 / Math.max(dt, 0.001));
                 value.textContent = diag?.peers ? `${fps} FPS | ${Math.round(diag.ping || 0)}ms | ${diag.peers}P` : `${fps} FPS | LOCAL`;
+                const fpsCounter = document.getElementById('fps-counter');
+                if (fpsCounter && this.game._showFps) fpsCounter.textContent = `${fps} FPS`;
             }
         }
 
@@ -3603,7 +3620,6 @@ class App {
             || this.game.state === STATES.ROUND_END
             || this.game.state === STATES.CELEBRATION
             || this.game.state === STATES.SOCIAL_HUB)
-            && !Spectator.active
             && !pauseOpen && !settingsOpen && !this.chatOpen && !socialChatFocused && !teamPopup;
         if (canLock && !document.pointerLockElement) {
             if (!this._plRetry || performance.now() - this._plRetry > 500) {
@@ -3922,21 +3938,36 @@ class App {
             this.camera.lookAt(0, 4, 0);
             this.renderer.render(this.camera);
         } else {
-            // Spectate dead — follow alive teammate
+            // Spectate dead — teammate first-person or mouse-orbit TPS
             if (!Spectator.active && !this.player.alive && this.game._spectateTarget && this.game._spectateTarget.alive) {
                 const t = this.game._spectateTarget;
                 const tpos = t.getPosition();
                 const tdir = t.getAimDirection?.() || new THREE.Vector3(0, 0, -1);
                 const eye = tpos.clone().add(new THREE.Vector3(0, t.eyeHeight || 1.55, 0));
                 const alpha = 1 - Math.exp(-18 * dt);
-                this.camera.position.lerp(eye, alpha);
-                const look = eye.clone().add(tdir);
-                this.camera.lookAt(look.x, look.y, look.z);
+                const view = this._deadSpectateView ||= { distance: 0.5, yaw: null, pitch: 0 };
+                if (!Number.isFinite(view.yaw)) view.yaw = t.euler?.y ?? t.rotation?.y ?? 0;
+                if (view.distance <= 1) {
+                    this.camera.position.lerp(eye, alpha);
+                    const look = eye.clone().add(tdir);
+                    this.camera.lookAt(look.x, look.y, look.z);
+                } else {
+                    const horizontal = Math.cos(view.pitch) * view.distance;
+                    const chase = new THREE.Vector3(
+                        tpos.x + Math.sin(view.yaw) * horizontal,
+                        tpos.y + 2.35 + Math.sin(view.pitch) * view.distance,
+                        tpos.z + Math.cos(view.yaw) * horizontal
+                    );
+                    this.camera.position.lerp(chase, alpha);
+                    this.camera.lookAt(tpos.x, tpos.y + 1.25, tpos.z);
+                }
                 const info = document.getElementById('spectator-info');
                 if (info) {
-                    info.textContent = `TEAM POV  ${t.name || 'TEAMMATE'}  [ / ] switch`;
+                    info.textContent = `TEAM ${view.distance <= 1 ? 'POV' : 'TPS'}  ${t.name || 'TEAMMATE'}  CLICK switch  WHEEL zoom`;
                     info.classList.remove('hidden');
                 }
+            } else if (this.player.alive) {
+                this._deadSpectateView = null;
             }
             this.renderer.render(this.camera);
         }

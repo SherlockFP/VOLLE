@@ -45,6 +45,7 @@ export class SpectatorClass {
         this.targets = []
         this.targetIdx = 0
         this.cameraMode = CAMERA_MODES.CHASE
+        this.chaseDistance = 7
         this.freeCam = false
         this.noclip = true
         this.freeCamSpeed = 20
@@ -65,6 +66,8 @@ export class SpectatorClass {
         this.camera = game?.player?.camera || game?.camera || null
         this.targets = this._gatherTargets()
         this.targetIdx = clamp(finite(options.targetIndex), 0, Math.max(0, this.targets.length - 1))
+        const targetYaw = this.getTarget()?.yaw ?? this.getTarget()?.euler?.y
+        this.yaw = finite(targetYaw, this.yaw)
         this.active = true
         this.setCameraMode(options.mode || CAMERA_MODES.FREE_ROAM)
         if (typeof document !== 'undefined' && document.pointerLockElement && document.exitPointerLock) {
@@ -128,6 +131,7 @@ export class SpectatorClass {
         this.refreshTargets()
         if (!this.targets.length) return null
         this.targetIdx = (this.targetIdx + 1) % this.targets.length
+        this.yaw = finite(this.getTarget()?.yaw ?? this.getTarget()?.euler?.y, this.yaw)
         this._notify()
         return this.getTarget()
     }
@@ -140,6 +144,7 @@ export class SpectatorClass {
         this.refreshTargets()
         if (!this.targets.length) return null
         this.targetIdx = (this.targetIdx - 1 + this.targets.length) % this.targets.length
+        this.yaw = finite(this.getTarget()?.yaw ?? this.getTarget()?.euler?.y, this.yaw)
         this._notify()
         return this.getTarget()
     }
@@ -160,7 +165,7 @@ export class SpectatorClass {
         const changed = this.cameraMode !== mode
         this.cameraMode = mode
         this.freeCam = mode === CAMERA_MODES.FREE_ROAM
-        if (this.active && this.freeCam) this._attachInput()
+        if (this.active) this._attachInput()
         else this._detachInput()
         if (changed) {
             this.onModeChange?.(mode, this.getState())
@@ -171,6 +176,25 @@ export class SpectatorClass {
 
     setFreeCam(enabled) {
         return this.setCameraMode(enabled ? CAMERA_MODES.FREE_ROAM : CAMERA_MODES.CHASE)
+    }
+
+    handlePointerButton(event) {
+        if (!this.active) return false
+        if (event?.button === 0) this.nextTarget()
+        else if (event?.button === 2) this.prevTarget()
+        else return false
+        event.preventDefault?.()
+        return true
+    }
+
+    handleWheel(event) {
+        if (!this.active) return false
+        const delta = Number(event?.deltaY) || 0
+        this.chaseDistance = clamp(this.chaseDistance + Math.sign(delta) * 1.15, 0.5, 14)
+        this.setCameraMode(this.chaseDistance <= 1 ? CAMERA_MODES.FIRST_PERSON : CAMERA_MODES.CHASE)
+        event?.preventDefault?.()
+        this._notify()
+        return true
     }
 
     setNoclip(enabled) {
@@ -250,14 +274,15 @@ export class SpectatorClass {
 
     _updateChase(target) {
         const position = target.position
-        const yaw = finite(target.yaw ?? target.euler?.y ?? target.rotation?.y)
-        const distance = 7
+        const yaw = this.yaw
+        const distance = this.chaseDistance
+        const horizontal = Math.cos(this.pitch) * distance
         this.camera.position.set(
-            position.x + Math.sin(yaw) * distance,
-            position.y + 4,
-            position.z + Math.cos(yaw) * distance
+            position.x + Math.sin(yaw) * horizontal,
+            position.y + 2.35 + Math.sin(this.pitch) * distance,
+            position.z + Math.cos(yaw) * horizontal
         )
-        this.camera.lookAt(position.x, position.y + 1, position.z)
+        this.camera.lookAt(position.x, position.y + 1.25, position.z)
     }
 
     _updateFreeCam(dt) {

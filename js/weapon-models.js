@@ -7,28 +7,66 @@ function mat(color, metalness = 0.2, roughness = 0.55, emissive = 0x000000) {
 export function createKnifeModel(style = {}) {
     const group = new THREE.Group();
     const color = new THREE.Color(style.color || '#d7f3ff');
+    const accentColor = new THREE.Color(style.accent || style.color || '#4e7d99');
     const bladeMat = mat(color, 0.88, 0.2, color.clone().multiplyScalar(0.06));
     const dark = mat(0x101820, 0.6, 0.32);
-    const accent = mat(color.clone().offsetHSL(0, 0.08, -0.18), 0.72, 0.24);
+    const accent = mat(accentColor, 0.72, 0.24, accentColor.clone().multiplyScalar(0.04));
+    const model = style.model || 'classic';
 
-    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.115, 0.035, 0.44), bladeMat);
-    blade.position.z = -0.24;
-    const edge = new THREE.Mesh(new THREE.BoxGeometry(0.125, 0.012, 0.36), accent);
-    edge.position.set(0, -0.022, -0.27);
-    const tip = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.012, 0.14, 4), bladeMat);
-    tip.rotation.x = Math.PI / 2;
-    tip.rotation.z = Math.PI / 4;
-    tip.position.z = -0.52;
-    const guard = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.055, 0.07), accent);
-    guard.position.z = 0.025;
-    const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.25, 8), dark);
-    handle.rotation.x = Math.PI / 2;
-    handle.position.z = 0.17;
-    const pommel = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.06, 8), accent);
-    pommel.rotation.x = Math.PI / 2;
-    pommel.position.z = 0.3;
-    group.add(blade, edge, tip, guard, handle, pommel);
+    const addClassicBlade = (parent, scale = 1) => {
+        const blade = new THREE.Mesh(new THREE.BoxGeometry(0.11 * scale, 0.028 * scale, 0.38 * scale), bladeMat);
+        blade.position.z = -0.2 * scale;
+        const edge = new THREE.Mesh(new THREE.BoxGeometry(0.118 * scale, 0.01 * scale, 0.32 * scale), accent);
+        edge.position.set(0, -0.018 * scale, -0.24 * scale);
+        const tip = new THREE.Mesh(new THREE.ConeGeometry(0.062 * scale, 0.16 * scale, 4), bladeMat);
+        tip.rotation.x = -Math.PI / 2;
+        tip.rotation.z = Math.PI / 4;
+        tip.position.z = -0.47 * scale;
+        parent.add(blade, edge, tip);
+    };
+
+    if (model === 'karambit') {
+        const arc = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.033, 6, 20, Math.PI * 1.35), bladeMat);
+        arc.rotation.set(Math.PI / 2, 0.18, -0.54);
+        arc.position.set(0.015, 0.01, -0.2);
+        const edge = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.009, 5, 20, Math.PI * 1.16), accent);
+        edge.rotation.copy(arc.rotation);
+        edge.position.set(0.015, -0.025, -0.2);
+        const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.27, 8), dark);
+        grip.rotation.x = Math.PI / 2;
+        grip.position.z = 0.13;
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(0.065, 0.017, 6, 12), accent);
+        ring.rotation.x = Math.PI / 2;
+        ring.position.z = 0.29;
+        group.add(arc, edge, grip, ring);
+    } else if (model === 'butterfly') {
+        const bladeRoot = new THREE.Group();
+        addClassicBlade(bladeRoot, 0.9);
+        bladeRoot.position.z = -0.04;
+        const left = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.055, 0.34), dark);
+        const right = left.clone();
+        left.position.set(-0.075, -0.01, 0.13);
+        right.position.set(0.075, -0.01, 0.13);
+        left.rotation.z = -0.16;
+        right.rotation.z = 0.16;
+        const latch = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.035, 0.08), accent);
+        latch.position.z = 0.31;
+        group.add(bladeRoot, left, right, latch);
+        group.userData.inspectParts = [left, right, bladeRoot];
+    } else {
+        addClassicBlade(group);
+        const guard = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.05, 0.065), accent);
+        guard.position.z = 0.01;
+        const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.07, 0.24, 8), dark);
+        handle.rotation.x = Math.PI / 2;
+        handle.position.z = 0.15;
+        const pommel = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.05, 8), accent);
+        pommel.rotation.x = Math.PI / 2;
+        pommel.position.z = 0.28;
+        group.add(guard, handle, pommel);
+    }
     group.userData.weaponType = 'knife';
+    group.userData.model = model;
     return group;
 }
 

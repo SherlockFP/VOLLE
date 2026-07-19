@@ -12,7 +12,7 @@ export const CROSSHAIR_LIMITS = Object.freeze({
 });
 
 export const CROSSHAIR_DEFAULTS = Object.freeze({
-    style: 'cross',
+    style: 'dot',
     color: '#00ff88',
     size: 12,
     gap: 6,

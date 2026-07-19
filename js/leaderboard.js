@@ -53,7 +53,7 @@ class LeaderboardClass {
 
     // Merge the real player (from store) by ELO so they show at the right rank.
     _merged() {
-        const elo = Store?.data?.stats?.rankedElo ?? 1000;
+        const elo = Store?.getElo?.() ?? 1000;
         return [...this.players, { name: 'You', elo, fake: false }];
     }
 

@@ -338,6 +338,8 @@ export class Player {
         this.attackDuration = ATTACK_COOLDOWN;
         this.canAttack = true;
         this.swingAnim = 0;
+        this.knifeInspectTimer = 0;
+        this._lastKnifeTap = -Infinity;
         this.rocketCooldown = 0;
         this._rocketQueued = false;
         this.stamina = 100;          // ponytail: stamina gate blocks mouse-1 spam
@@ -513,6 +515,7 @@ export class Player {
             if (st !== 'PLAYING' && st !== 'COUNTDOWN' && st !== 'ROUND_END' && st !== 'CELEBRATION' && st !== 'SOCIAL_HUB') return;
             if (st === 'PAUSED') return;
             if (this.game?.ui?.isTeamPopupOpen?.()) return;
+            if (this.game?.ui?.spectating) return;
             if (isEditableTarget(document.activeElement)) return;
             this.euler.y -= e.movementX * this.sensitivity;
             this.euler.x -= e.movementY * this.sensitivity;
@@ -526,7 +529,7 @@ export class Player {
         document.addEventListener('mousedown', e => {
             // ponytail: pointer lock re-activation removed — causes mouse bug during pause
             const state = this.game?.state;
-            if (e.button === 0 && this.alive && (state === 'PLAYING' || state === 'CELEBRATION')) {
+            if (e.button === 0 && this.alive && !this.game?.ui?.spectating && (state === 'PLAYING' || state === 'CELEBRATION')) {
                 this.tryAttack();
             }
             if (e.button === 2 && this.alive && state === 'PLAYING' && this.charId === 'soldier'
@@ -542,6 +545,9 @@ export class Player {
         document.addEventListener('keydown', e => {
             if (isEditableTarget(e.target)) return;
             if (e.code === 'KeyQ' && this.alive && this.game?.state === 'PLAYING') {
+                const now = performance.now();
+                if (now - this._lastKnifeTap < 300) this.inspectKnife();
+                this._lastKnifeTap = now;
                 this._skillQueued = true;
             }
         }, { signal });
@@ -552,6 +558,12 @@ export class Player {
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) this._clearInputState();
         }, { signal });
+    }
+
+    inspectKnife() {
+        if (this.charId === 'soldier' || !this.knifeGroup || this.knifeGroup.userData.weaponType !== 'knife') return false;
+        this.knifeInspectTimer = 1;
+        return true;
     }
 
     cleanupInput() {
@@ -687,6 +699,7 @@ export class Player {
 
         // Attack cooldown
         this.rocketCooldown = Math.max(0, this.rocketCooldown - dt);
+        this.knifeInspectTimer = Math.max(0, this.knifeInspectTimer - dt);
         if (this.attackCooldown > 0) {
             this.attackCooldown -= dt;
             if (this.attackCooldown <= 0) {
@@ -695,8 +708,17 @@ export class Player {
             }
         }
 
+        // Q Q inspect takes priority over the normal swing pose.
+        if (this.knifeInspectTimer > 0 && this.knifeGroup?.userData.weaponType === 'knife') {
+            const progress = 1 - this.knifeInspectTimer;
+            const spin = Math.sin(progress * Math.PI) * Math.PI * 2;
+            this.armGroup.rotation.x = -0.16;
+            this.armGroup.position.set(0.015, -0.28, -0.15);
+            this.knifeGroup.rotation.set(0.28 + spin * 0.18, 0.28 + spin, -0.2 + spin * 0.42);
+            const parts = this.knifeGroup.userData.inspectParts || [];
+            parts.forEach((part, index) => { part.rotation.z = (index ? -1 : 1) * Math.sin(progress * Math.PI * 3) * 0.78; });
         // Swing anim
-        if (this.swingAnim > 0) {
+        } else if (this.swingAnim > 0) {
             this.swingAnim -= dt * 6;
             if (this.swingAnim < 0) this.swingAnim = 0;
             const swing = Math.sin(this.swingAnim * Math.PI) * 0.7;
@@ -711,7 +733,10 @@ export class Player {
             this.armGroup.position.y = -0.3 + bob;
             this.armGroup.rotation.x = 0;
             this.armGroup.position.z = -0.3;
-            if (this.knifeGroup?.userData.weaponType === 'knife') this.knifeGroup.rotation.set(-0.08, 0.18, -0.34);
+            if (this.knifeGroup?.userData.weaponType === 'knife') {
+                this.knifeGroup.rotation.set(-0.08, 0.18, -0.34);
+                (this.knifeGroup.userData.inspectParts || []).forEach(part => { part.rotation.z = 0; });
+            }
         }
 
         // Movement (chill yavaşlatması uygulanır)

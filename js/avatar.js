@@ -36,6 +36,9 @@ export const AVATAR_SKINS = Object.freeze({
     astro: skin('astro', 'Astro Courier', 420, 'slim', null, '#d7f1ff', '#253d76', '#6ecbff', '#19264d'),
     arcade: skin('arcade', 'Arcade Ace', 380, 'classic', null, '#ffd2b0', '#21b8d6', '#ff5f9e', '#263057'),
     moss: skin('moss', 'Moss Golem', 450, 'classic', null, '#b7d695', '#456b47', '#719c58', '#304936'),
+    striker: skin('striker', 'Neon Striker', 500, 'slim', null, '#e8d4b8', '#2be0d2', '#125f99', '#17274d'),
+    void: skin('void', 'Void Runner', 600, 'slim', null, '#b9a3ff', '#211447', '#7e4bd5', '#0d1028'),
+    royal: skin('royal', 'Royal Guard', 750, 'classic', null, '#f4d5ad', '#7045c9', '#f1c55e', '#23214c'),
     blue_default: skin('blue_default', 'Blue Current', 0, 'classic', 'blue', '#e2bd98', '#2469d8', '#67d8ff', '#142e68'),
     red_guard: skin('red_guard', 'Red Current', 0, 'classic', 'red', '#e2bd98', '#d83d49', '#ff806f', '#651c2a')
 });

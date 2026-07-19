@@ -30,3 +30,11 @@ test('minimum rarity rolls only within the eligible case pool', () => {
     const rates = getCaseDropRates('kickoff', { minimumRarity: 'epic' });
     assert.deepEqual(rates.map(drop => Math.round(drop.chance * 100)), [64, 12, 16, 8]);
 });
+
+test('premium cases expose local butterfly and karambit finishes', () => {
+    assert.deepEqual(Object.keys(CASES).sort(), ['arsenal', 'chroma', 'kickoff']);
+    assert.equal(KNIVES.doppler.model, 'butterfly');
+    assert.equal(KNIVES.fade.model, 'karambit');
+    assert.equal(KNIVES.crimson_web.rarity, 'epic');
+    assert.equal(rollCase('arsenal', () => 0.99).id, 'royal');
+});

@@ -1,11 +1,14 @@
 import { AVATAR_SKINS } from './avatar.js';
 
 export const KNIVES = Object.freeze({
-    training: Object.freeze({ id: 'training', name: 'Training Edge', rarity: 'common', color: '#d7f3ff', teams: ['red', 'blue'] }),
-    tide: Object.freeze({ id: 'tide', name: 'Tidal Fang', rarity: 'rare', color: '#36d8ca', teams: ['blue'] }),
-    flare: Object.freeze({ id: 'flare', name: 'Solar Talon', rarity: 'rare', color: '#ff6b5f', teams: ['red'] }),
-    prism: Object.freeze({ id: 'prism', name: 'Prism Breaker', rarity: 'epic', color: '#b77dff', teams: ['red', 'blue'] }),
-    sherlock: Object.freeze({ id: 'sherlock', name: 'Sherlock Signature', rarity: 'legendary', color: '#ffd36b', teams: ['red', 'blue'] })
+    training: Object.freeze({ id: 'training', name: 'Training Edge', rarity: 'common', model: 'classic', color: '#d7f3ff', accent: '#4e7d99', teams: ['red', 'blue'] }),
+    tide: Object.freeze({ id: 'tide', name: 'Tidal Fang', rarity: 'rare', model: 'classic', color: '#36d8ca', accent: '#1673a3', teams: ['blue'] }),
+    flare: Object.freeze({ id: 'flare', name: 'Solar Talon', rarity: 'rare', model: 'classic', color: '#ff6b5f', accent: '#ffad52', teams: ['red'] }),
+    prism: Object.freeze({ id: 'prism', name: 'Prism Breaker', rarity: 'epic', model: 'butterfly', color: '#b77dff', accent: '#5a2f9d', teams: ['red', 'blue'] }),
+    sherlock: Object.freeze({ id: 'sherlock', name: 'Sherlock Signature', rarity: 'legendary', model: 'karambit', color: '#ffd36b', accent: '#7b4c11', teams: ['red', 'blue'] }),
+    doppler: Object.freeze({ id: 'doppler', name: 'Butterfly | Emerald Doppler', rarity: 'legendary', model: 'butterfly', color: '#28e092', accent: '#075f4d', teams: ['red', 'blue'] }),
+    fade: Object.freeze({ id: 'fade', name: 'Karambit | Fade', rarity: 'legendary', model: 'karambit', color: '#ffbd56', accent: '#f05ca8', teams: ['red', 'blue'] }),
+    crimson_web: Object.freeze({ id: 'crimson_web', name: 'Karambit | Crimson Web', rarity: 'epic', model: 'karambit', color: '#d92f4d', accent: '#4a0918', teams: ['red', 'blue'] })
 });
 
 export const CASES = Object.freeze({
@@ -18,6 +21,27 @@ export const CASES = Object.freeze({
             { id: 'frost', type: 'avatar', rarity: 'rare', weight: 7 },
             { id: 'astro', type: 'avatar', rarity: 'epic', weight: 4 },
             { id: 'arcade', type: 'avatar', rarity: 'legendary', weight: 2 }
+        ])
+    }),
+    chroma: Object.freeze({
+        id: 'chroma', name: 'Chroma Case', price: 180,
+        drops: Object.freeze([
+            { id: 'tide', weight: 24 }, { id: 'flare', weight: 24 }, { id: 'prism', weight: 18 },
+            { id: 'crimson_web', weight: 6 }, { id: 'doppler', weight: 2 },
+            { id: 'samurai', type: 'avatar', rarity: 'rare', weight: 11 },
+            { id: 'moss', type: 'avatar', rarity: 'rare', weight: 9 },
+            { id: 'striker', type: 'avatar', rarity: 'epic', weight: 4 },
+            { id: 'void', type: 'avatar', rarity: 'epic', weight: 2 }
+        ])
+    }),
+    arsenal: Object.freeze({
+        id: 'arsenal', name: 'Arsenal Case', price: 240,
+        drops: Object.freeze([
+            { id: 'prism', weight: 32 }, { id: 'crimson_web', weight: 25 }, { id: 'fade', weight: 10 },
+            { id: 'doppler', weight: 5 }, { id: 'sherlock', weight: 3 },
+            { id: 'astro', type: 'avatar', rarity: 'rare', weight: 10 },
+            { id: 'void', type: 'avatar', rarity: 'epic', weight: 9 },
+            { id: 'royal', type: 'avatar', rarity: 'legendary', weight: 6 }
         ])
     })
 });
