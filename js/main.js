@@ -48,6 +48,12 @@ import {
 } from './social-service.js';
 import { normalizeNetcode } from './experimental-netcode.js';
 import { RuntimeLog } from './runtime-safety.js';
+import { AfkMonitor, RollingNetworkMonitor, ModerationReportQueue } from './release-safety.js';
+import {
+    COSMETIC_ALLOWLISTS,
+    migrateCosmeticLoadout,
+    normalizeCosmeticLoadout
+} from './cosmetic-customization.js';
 import { MOVEMENT_TRIALS, MovementTrialClass } from './movement-trials.js';
 import {
     exportCrosshairCode,
@@ -70,6 +76,9 @@ class App {
         this.store = Store;
         this.store.load();
         RuntimeLog.install(window);
+        this.afkMonitor = new AfkMonitor();
+        this.networkHealth = new RollingNetworkMonitor();
+        this.reportQueue = new ModerationReportQueue();
         this.socialProfile = createSocialProfile(this.store.get('socialProfile'));
         this.party = this.socialProfile.party || createParty(this.store.get('playerName') || 'Player');
         this._mutedPlayers = new Set(this.store.get('mutedPlayers') || []);
@@ -127,6 +136,8 @@ class App {
             this.ui.spectating = false;
             this.ui.hideTeamPopup();
         };
+        this.game.onPerfectDeflect = result => this._showPerfectDeflect(result);
+        this.game.onPracticeMetrics = summary => this._updatePracticeLab(summary);
         this.player.game = this.game;
         this.player.audio = this.audio;
         this.socialLobby = new SocialLobby(this.renderer, this.player, {
@@ -180,6 +191,12 @@ class App {
         // ponytail: AbortController prevents listener accumulation on game restart
         this._mainAbort = new AbortController();
         document.addEventListener('visibilitychange', () => this._onVisibilityChange(), { signal: this._mainAbort.signal });
+        ['pointerdown', 'keydown', 'mousemove'].forEach(type => {
+            document.addEventListener(type, () => this.afkMonitor.recordActivity(), {
+                passive: true,
+                signal: this._mainAbort.signal
+            });
+        });
 
         // Canvas remains viewport-sized; resolution changes only the internal render buffer.
         window.addEventListener('resize', () => {
@@ -422,6 +439,27 @@ class App {
         this.loop();
     }
 
+    _renderCosmeticCustomizer(tab) {
+        const panel = document.getElementById('cosmetic-customizer');
+        if (!panel) return;
+        panel.classList.toggle('hidden', tab !== 'inventory');
+        if (tab !== 'inventory') return;
+        const loadout = migrateCosmeticLoadout(this.store.get('cosmeticLoadout'));
+        const options = (values, selected) => values.map(value =>
+            `<option value="${value}" ${value === selected ? 'selected' : ''}>${value}</option>`
+        ).join('');
+        panel.innerHTML = `<h3>Cosmetic Workbench</h3><div class="cosmetic-customizer-grid">
+            <label>Name tag<input id="cosmetic-name-tag" maxlength="24" value="${this._esc(loadout.knife.nameTag)}"></label>
+            <label>Pattern seed<input id="cosmetic-pattern-seed" type="number" min="0" max="999999" value="${loadout.knife.patternSeed}"></label>
+            <label>Wear<input id="cosmetic-wear" type="range" min="0" max="1" step="0.01" value="${loadout.knife.wear}"></label>
+            <label>Charm<select id="cosmetic-charm"><option value="">none</option>${options(COSMETIC_ALLOWLISTS.charms, loadout.knife.charm)}</select></label>
+            ${loadout.knife.stickers.map((sticker, index) => `<label>Sticker ${index + 1}<select id="cosmetic-sticker-${index}"><option value="">none</option>${options(COSMETIC_ALLOWLISTS.stickers, sticker)}</select></label>`).join('')}
+            <label>Ball trail<select id="cosmetic-ball-trail">${options(COSMETIC_ALLOWLISTS.ballTrails, loadout.ballTrail)}</select></label>
+            <label>Goal effect<select id="cosmetic-goal-effect">${options(COSMETIC_ALLOWLISTS.goalEffects, loadout.goalEffect)}</select></label>
+            <label>MVP effect<select id="cosmetic-mvp-effect">${options(COSMETIC_ALLOWLISTS.mvpEffects, loadout.mvpEffect)}</select></label>
+        </div><button class="btn btn-primary cosmetic-customizer-save">Save loadout</button>`;
+    }
+
     // Store'dan loadout uygula (karakter + rune + ball skin).
     applyLoadout() {
         const loadout = this.store.get('loadout') || DEFAULT_LOADOUT;
@@ -462,6 +500,8 @@ class App {
 
         const values = {
             'setting-quality': settings.quality || 'medium',
+            'setting-auto-quality': settings.autoQuality !== false,
+            'setting-public-diagnostics': settings.publicDiagnostics !== false,
             'setting-music-volume': settings.musicVolume ?? settings.volume ?? 2,
             'setting-sound-volume': settings.soundVolume ?? settings.volume ?? 50,
             'setting-reduce-motion': !!settings.reduceMotion,
@@ -1384,6 +1424,8 @@ class App {
         bindAccessibility('setting-screen-flash', 'screenFlash');
         bindAccessibility('setting-high-contrast', 'highContrast');
         bindAccessibility('setting-color-blind', 'colorBlind', false);
+        bindAccessibility('setting-auto-quality', 'autoQuality');
+        bindAccessibility('setting-public-diagnostics', 'publicDiagnostics');
         // Crosshair settings
         const applyCrosshairLegacy = () => {
             const chEl = document.querySelector('.crosshair');
@@ -1876,6 +1918,24 @@ class App {
                 document.querySelectorAll('.shop-tab').forEach(t => t.classList.remove('selected'));
                 tabBtn.classList.add('selected');
                 this.ui.renderShop(this.store, tabBtn.dataset.tab);
+                this._renderCosmeticCustomizer(tabBtn.dataset.tab);
+            }
+            const cosmeticSave = e.target.closest('.cosmetic-customizer-save');
+            if (cosmeticSave) {
+                const current = migrateCosmeticLoadout(this.store.get('cosmeticLoadout'));
+                current.knife.nameTag = document.getElementById('cosmetic-name-tag')?.value || '';
+                current.knife.patternSeed = Number(document.getElementById('cosmetic-pattern-seed')?.value) || 0;
+                current.knife.wear = Number(document.getElementById('cosmetic-wear')?.value) || 0;
+                current.knife.charm = document.getElementById('cosmetic-charm')?.value || null;
+                current.knife.stickers = [0, 1, 2, 3].map(index =>
+                    document.getElementById(`cosmetic-sticker-${index}`)?.value || null
+                );
+                current.ballTrail = document.getElementById('cosmetic-ball-trail')?.value || 'none';
+                current.goalEffect = document.getElementById('cosmetic-goal-effect')?.value || 'none';
+                current.mvpEffect = document.getElementById('cosmetic-mvp-effect')?.value || 'none';
+                this.store.set('cosmeticLoadout', normalizeCosmeticLoadout(current));
+                this.ui.showMessage?.('Cosmetic loadout saved.', 1400);
+                return;
             }
             const caseBtn = e.target.closest('.case-open');
             if (caseBtn) {
@@ -3059,9 +3119,12 @@ class App {
         document.querySelectorAll('#btn-add-bot-red, #btn-add-bot-blue').forEach(button => {
             button.disabled = true;
         });
+        this.game.practiceMetrics.reset();
+        this._updatePracticeLab(this.game.practiceMetrics.summary());
+        document.getElementById('practice-lab-hud')?.classList.remove('hidden');
         this.ui.showScreen('lobby');
         // Practice lobby'sinde farklı butonlar göster
-        this.ui.showMessage?.('Practice mode: R spawn ball, F move ball', 3000);
+        this.ui.showMessage?.('Practice Lab: R spawn, F reposition, T reset', 3000);
     }
 
     _startMovementTrial(trialId) {
@@ -3201,6 +3264,64 @@ class App {
     }
 
 
+    _showPerfectDeflect(result = {}) {
+        if (result.tier !== 'perfect' && result.tier !== 'great') return;
+        const hud = document.getElementById('perfect-deflect-hud');
+        if (!hud) return;
+        document.getElementById('perfect-deflect-tier').textContent = result.tier.toUpperCase();
+        document.getElementById('perfect-deflect-chain').textContent = `x${result.chain || 1}`;
+        document.getElementById('perfect-deflect-timing').textContent = `${Math.round(result.timingErrorMs || 0)} ms`;
+        hud.classList.remove('hidden');
+        clearTimeout(this._perfectDeflectTimer);
+        this._perfectDeflectTimer = setTimeout(() => hud.classList.add('hidden'), 850);
+    }
+
+    _updatePracticeLab(summary = {}) {
+        const accuracy = Math.round((summary.accuracy || 0) * 100);
+        const values = {
+            'practice-accuracy': `${accuracy}%`,
+            'practice-perfects': summary.perfects || 0,
+            'practice-best': Number.isFinite(summary.bestReactionMs)
+                ? `${Math.round(summary.bestReactionMs)}ms`
+                : '--'
+        };
+        Object.entries(values).forEach(([id, value]) => {
+            const element = document.getElementById(id);
+            if (element) element.textContent = value;
+        });
+        const progress = document.getElementById('practice-lab-progress');
+        if (progress) progress.style.width = `${accuracy}%`;
+    }
+
+    _installMigratedHostHandlers(code) {
+        this.network.onPlayerJoin = (name, playerId, avatar, peerId) => {
+            const existing = this.game.remotePlayers.has(playerId);
+            this.game.addRemotePlayer(playerId, name, null, avatar, peerId);
+            if (!existing && this.game.shouldQueueLateJoin()) this.game.queueRemoteForNextRound(playerId);
+            this.broadcastLobbyState();
+        };
+        this.network.onPlayerLeave = (playerId, peerId) => {
+            this.game.removeRemotePlayer(playerId);
+            this.network.broadcast({ type: 'peerLeft', playerId, peerId });
+            this.broadcastLobbyState();
+        };
+        this.network.onTeamChange = (name, team) => {
+            this.game.switchPlayerTeam?.(name, team);
+            this.broadcastLobbyState();
+        };
+        this.network.onLateJoinTeam = (playerId, team) => {
+            if (this.game.selectQueuedRemoteTeam(playerId, team)) this.broadcastLobbyState();
+        };
+        this._lobbyCode = code;
+        this._registerLobby(
+            code,
+            this._lobbyName || 'Migrated Lobby',
+            this.network.connections.size + 1,
+            this.arena.config?.name || 'Unknown',
+            this.game.mode?.name || 'Classic'
+        );
+    }
+
     broadcastLobbyState() {
         if (!(this.network?.isHost)) return;
         const players = this.game.getPlayerList();
@@ -3255,6 +3376,31 @@ class App {
         this.network.onHostLeft = () => {
             this._exitToMenu('🚪 Host left — lobby closed');
         };
+        this.network.onHostMigration = ({ candidate }) => {
+            const banner = document.getElementById('host-migration-banner');
+            const title = document.getElementById('host-migration-title');
+            if (title) title.textContent = `${candidate?.name || 'Player'} is becoming host...`;
+            banner?.classList.remove('hidden');
+            requestAnimationFrame(() => {
+                const progress = document.getElementById('host-migration-progress');
+                if (progress) progress.style.width = '100%';
+            });
+        };
+        this.network.onHostMigrated = ({ isHost, roomCode }) => {
+            document.getElementById('host-migration-banner')?.classList.add('hidden');
+            const progress = document.getElementById('host-migration-progress');
+            if (progress) progress.style.width = '0%';
+            this._lobbyCode = roomCode;
+            if (isHost) {
+                this._installMigratedHostHandlers(roomCode);
+                this.game.ball._clientOnly = false;
+                this._startBgLoop();
+                this.ui.setRoomCode(roomCode);
+                this.ui.showMessage?.('You are the new host. Match resumed.', 2600);
+            } else {
+                this.ui.showMessage?.('Host migrated. Match resumed.', 2200);
+            }
+        };
     }
 
     _setupReconnectUI() {
@@ -3264,6 +3410,11 @@ class App {
                 this.ui.showMessage?.(`Reconnecting... ${attempt}/3`, 1800);
                 if (status) {
                     status.textContent = `RECONNECTING ${attempt}/3`;
+                    status.className = 'is-reconnecting';
+                }
+            } else if (state === 'migrating') {
+                if (status) {
+                    status.textContent = 'MIGRATING HOST';
                     status.className = 'is-reconnecting';
                 }
             } else if (state === 'connected') {
@@ -3286,6 +3437,7 @@ class App {
         this._cleanupListeners();
         if (this.network?.isHost && this._lobbyCode) this._unregisterLobby(this._lobbyCode);
         this._lobbyCode = null;
+        document.getElementById('practice-lab-hud')?.classList.add('hidden');
         // Tell peers + tear down the P2P connection.
         this.network?.closeLobby?.();
         this.game.cancelPreGame?.();
@@ -3301,6 +3453,7 @@ class App {
         this._stopBgLoop();
         this._cleanupListeners();
         this._lobbyCode = null;
+        document.getElementById('practice-lab-hud')?.classList.add('hidden');
         this.network?.disconnect();
         this.game.cancelPreGame?.();
         this._cleanupLobbyEntities();
@@ -3478,7 +3631,7 @@ class App {
             // Auto-re-register every 12s to keep lobby alive
             this._lobbyKeepAlive = setInterval(() => {
                 if (this.network.connected && this.network.isHost) {
-                    this._registerLobby(code, this._lobbyName, this.network.connections.size + 1, this.arena?.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
+                    this._registerLobby(this._lobbyCode || code, this._lobbyName, this.network.connections.size + 1, this.arena?.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
                 }
             }, 12000);
             this._lobbyCode = code;
@@ -3956,6 +4109,7 @@ class App {
         this._bgScoreTimer += dt;
         if (this._bgScoreTimer >= 0.5) {
             this._bgScoreTimer = 0;
+            this.network.publishHostCheckpoint?.(this.game.snapshotState());
             this.network.broadcast({
                 type: 'scoreUpdate',
                 red: this.game.scoreboard.redScore, blue: this.game.scoreboard.blueScore,
@@ -4012,9 +4166,24 @@ class App {
             if (value) {
                 const diag = this.network?.getDiagnostics?.();
                 const fps = Math.round(1 / Math.max(dt, 0.001));
-                value.textContent = diag?.peers ? `${fps} FPS | ${Math.round(diag.ping || 0)}ms | ${diag.peers}P` : `${fps} FPS | LOCAL`;
+                const health = this.networkHealth.addSample({
+                    expectedPackets: Math.max(1, diag?.received || 1),
+                    receivedPackets: Math.max(1, diag?.received || 1),
+                    desyncMs: Math.abs(this.network?.getClockOffset?.() || 0)
+                });
+                value.textContent = diag?.peers
+                    ? `${fps} FPS | ${Math.round(diag.ping || 0)}ms | ${(health.packetLoss * 100).toFixed(0)}% LOSS | ${diag.peers}P`
+                    : `${fps} FPS | LOCAL`;
+                value.parentElement?.classList.toggle('hidden', this.store.get('settings').publicDiagnostics === false);
                 const fpsCounter = document.getElementById('fps-counter');
                 if (fpsCounter && this.game._showFps) fpsCounter.textContent = `${fps} FPS`;
+            }
+            const afk = this.afkMonitor.status();
+            if (afk.warning && !this._afkWarned) {
+                this._afkWarned = true;
+                this.ui.showMessage?.('AFK warning: move or press a key.', 3000);
+            } else if (afk.state === 'active') {
+                this._afkWarned = false;
             }
         }
 
@@ -4146,6 +4315,12 @@ class App {
                 this.game.ball.active = true;
                 this.game.ball.mesh.visible = true;
                 this.ui.showMessage?.('Ball moved', 800);
+            }
+            if (this.player.keys['KeyT']) {
+                this.player.keys['KeyT'] = false;
+                this.game.practiceMetrics.reset();
+                this._updatePracticeLab(this.game.practiceMetrics.summary());
+                this.ui.showMessage?.('Practice metrics reset', 800);
             }
         }
 

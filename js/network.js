@@ -1,5 +1,13 @@
 // network.js — P2P via PeerJS for multiplayer
 // ponytail: binary message types for hot-path packets (ballState/position) — ~4x smaller than JSON
+import {
+    HOST_MIGRATION_TIMEOUT_MS,
+    migrationBackoffMs,
+    nextMigrationEpoch,
+    normalizeHostCheckpoint,
+    selectHostCandidate
+} from './host-migration.js';
+
 const BIN = { BALL: 1, POS: 2 };
 const PLAYER_ID_KEY = 'dodgb.playerId';
 const RESUME_TOKEN_KEY = 'dodgb.resumeToken';
@@ -55,6 +63,8 @@ export class Network {
         this.onKicked = null;      // callback() when host kicks us
         this.onTeamChange = null;  // callback(name, team) applied on clients
         this.onHostLeft = null;    // callback() when the host connection drops / lobby closes
+        this.onHostMigration = null;
+        this.onHostMigrated = null;
         this._lastPing = 0;            // ms, son ölçülen RTT
         this._pingAwait = null;        // güncel bekleyen nonce
         this._clockOffset = 0;
@@ -70,6 +80,14 @@ export class Network {
         this._socialRate = new Map();
         this._sentPackets = 0;
         this._receivedPackets = 0;
+        this.migrationEpoch = 0;
+        this.migrationRoster = new Map();
+        this.latestHostCheckpoint = null;
+        this._checkpointSequence = 0;
+        this._migrationTimer = null;
+        this._migrationTimeout = null;
+        this._migrationActive = false;
+        this._sessionStartedAt = Date.now();
     }
 
     async initPeer() {
@@ -95,6 +113,13 @@ export class Network {
         this.playerName = playerName;
         this.isHost = true;
         await this.initPeer();
+        this.hostRoomCode = this.roomCode;
+        this._updateMigrationRoster([{
+            playerId: this.playerId,
+            peerId: this.peer?.id,
+            name: this.playerName,
+            team: this.game?.player?.team
+        }]);
         if (this.game?.player) this.game.player.peerId = this.roomCode;
         return this.roomCode;
     }
@@ -116,6 +141,7 @@ export class Network {
         this.joinPassword = password;
         this._manualDisconnect = false;
         this._reconnectAttempts = 0;
+        this._migrationActive = false;
         await this.initPeer();
         if (this.game?.player && this.peer) this.game.player.peerId = this.peer.id;
 
@@ -150,11 +176,11 @@ export class Network {
 
     // Route incoming connections: new player join (host) vs P2P mesh (non-host peers)
     _scheduleReconnect() {
-        if (this._manualDisconnect || this.isHost || !this.peer || this._reconnectTimer) return;
+        if (this._manualDisconnect || this.isHost || !this.peer
+            || this._reconnectTimer || this._migrationActive) return;
         const attempt = ++this._reconnectAttempts;
         if (attempt > 3) {
-            this.onReconnectState?.('failed', attempt - 1);
-            this.onHostLeft?.();
+            this._beginHostMigration();
             return;
         }
         this.onReconnectState?.('reconnecting', attempt);
@@ -246,7 +272,9 @@ export class Network {
             red: this.game.scoreboard?.redScore,
             blue: this.game.scoreboard?.blueScore,
             time: this.game.scoreboard?.timeRemaining,
-            snapshot: this.game.snapshotState?.() || {}
+            snapshot: this.game.snapshotState?.() || {},
+            migrationEpoch: this.migrationEpoch,
+            checkpoint: this.latestHostCheckpoint
         });
 
         conn.on('close', () => {
@@ -259,6 +287,166 @@ export class Network {
             this._lastPositionSeq.delete(playerId);
             if (this.onPlayerLeave) this.onPlayerLeave(playerId, conn.peer);
         });
+    }
+
+    _updateMigrationRoster(players = []) {
+        if (!Array.isArray(players)) return;
+        for (const player of players) {
+            if (!player || player.isBot || typeof player.playerId !== 'string'
+                || typeof player.peerId !== 'string') continue;
+            this.migrationRoster.set(player.playerId, {
+                playerId: player.playerId,
+                peerId: player.peerId,
+                name: String(player.name || 'Player').slice(0, 32),
+                team: player.team === 'blue' ? 'blue' : 'red'
+            });
+        }
+        if (this.peer?.id) {
+            this.migrationRoster.set(this.playerId, {
+                playerId: this.playerId,
+                peerId: this.peer.id,
+                name: this.playerName,
+                team: this.game?.player?.team === 'blue' ? 'blue' : 'red'
+            });
+        }
+    }
+
+    _migrationCandidates() {
+        return [...this.migrationRoster.values()].map(player => {
+            const local = player.playerId === this.playerId;
+            const connection = local ? null : this.connections.get(player.peerId);
+            return {
+                ...player,
+                eligible: local || Boolean(connection?.open),
+                connected: local || Boolean(connection?.open),
+                spectator: false,
+                ping: 50,
+                stability: 1,
+                uptime: Date.now() - this._sessionStartedAt,
+                packetLoss: 0
+            };
+        });
+    }
+
+    publishHostCheckpoint(state) {
+        if (!this.isHost || !state) return null;
+        this._updateMigrationRoster(state.players);
+        const checkpoint = normalizeHostCheckpoint({
+            epoch: this.migrationEpoch,
+            sequence: ++this._checkpointSequence,
+            createdAt: Date.now(),
+            state
+        });
+        if (!checkpoint) return null;
+        this.latestHostCheckpoint = checkpoint;
+        this.broadcast({
+            type: 'hostCheckpoint',
+            checkpoint,
+            roster: [...this.migrationRoster.values()]
+        });
+        return checkpoint;
+    }
+
+    _clearMigrationTimers() {
+        if (this._migrationTimer) clearTimeout(this._migrationTimer);
+        if (this._migrationTimeout) clearTimeout(this._migrationTimeout);
+        this._migrationTimer = null;
+        this._migrationTimeout = null;
+    }
+
+    _beginHostMigration() {
+        if (this._manualDisconnect || this.isHost || this._migrationActive || !this.peer) return;
+        this._migrationActive = true;
+        this._clearMigrationTimers();
+        const candidates = this._migrationCandidates();
+        const selected = selectHostCandidate(candidates);
+        const epoch = nextMigrationEpoch(this.migrationEpoch);
+        if (!selected || epoch === null) {
+            this._migrationActive = false;
+            this.onReconnectState?.('failed', this._reconnectAttempts);
+            this.onHostLeft?.();
+            return;
+        }
+        this.onReconnectState?.('migrating', 0);
+        this.onHostMigration?.({ epoch, candidate: selected, candidates });
+        this._migrationTimeout = setTimeout(() => {
+            this._migrationActive = false;
+            this.onReconnectState?.('failed', this._reconnectAttempts);
+            this.onHostLeft?.();
+        }, HOST_MIGRATION_TIMEOUT_MS);
+        if (selected.playerId === this.playerId) {
+            this._migrationTimer = setTimeout(
+                () => this._promoteToHost(selected, epoch),
+                migrationBackoffMs(0)
+            );
+        }
+    }
+
+    _promoteToHost(candidate, epoch) {
+        if (!this._migrationActive || candidate.playerId !== this.playerId || !this.peer?.id) return;
+        this._clearMigrationTimers();
+        this.migrationEpoch = epoch;
+        this.isHost = true;
+        this.connected = true;
+        this.hostConn = null;
+        this.hostRoomCode = this.peer.id;
+        this.roomCode = this.peer.id;
+        for (const [peerId, conn] of this.connections) {
+            if (!conn?.open) continue;
+            const playerId = this.peerToPlayerId.get(peerId)
+                || this.allowedMeshPeers.get(peerId)
+                || peerId;
+            conn._admitted = true;
+            this.peerToPlayerId.set(peerId, playerId);
+            this.playerConnections.set(playerId, conn);
+            conn.on('close', () => {
+                if (this.playerConnections.get(playerId) !== conn) return;
+                this.playerConnections.delete(playerId);
+                this.connections.delete(peerId);
+                this.peerToPlayerId.delete(peerId);
+                this.onPlayerLeave?.(playerId, peerId);
+            });
+        }
+        const state = this.latestHostCheckpoint?.state;
+        if (state) this.game?.applyHostMigrationCheckpoint?.(state, true);
+        this.broadcast({
+            type: 'hostMigrated',
+            epoch,
+            candidateId: this.playerId,
+            hostPeerId: this.peer.id,
+            checkpoint: this.latestHostCheckpoint
+        });
+        this._migrationActive = false;
+        this.onReconnectState?.('connected', 0);
+        this.onHostMigrated?.({ isHost: true, epoch, roomCode: this.peer.id });
+    }
+
+    _acceptHostMigration(data, peerId) {
+        if (!this._migrationActive || !Number.isSafeInteger(data.epoch)
+            || data.epoch <= this.migrationEpoch || data.hostPeerId !== peerId) return;
+        const candidate = this.migrationRoster.get(data.candidateId);
+        if (!candidate || candidate.peerId !== peerId) return;
+        const conn = this.connections.get(peerId);
+        if (!conn?.open) return;
+        this._clearMigrationTimers();
+        this.migrationEpoch = data.epoch;
+        this.hostConn = conn;
+        this.hostRoomCode = peerId;
+        this.isHost = false;
+        const checkpoint = normalizeHostCheckpoint(data.checkpoint || {});
+        if (checkpoint && checkpoint.epoch <= data.epoch) {
+            this.latestHostCheckpoint = checkpoint;
+            this.game?.applyHostMigrationCheckpoint?.(checkpoint.state, false);
+        }
+        this._migrationActive = false;
+        conn.send({
+            type: 'migrationJoin',
+            epoch: data.epoch,
+            playerId: this.playerId,
+            name: this.playerName
+        });
+        this.onReconnectState?.('connected', 0);
+        this.onHostMigrated?.({ isHost: false, epoch: data.epoch, roomCode: peerId });
     }
 
     _handleMeshConn(conn) {
@@ -452,6 +640,27 @@ export class Network {
                 return typeof data.name === 'string'
                     && data.name.length <= 32
                     && typeof data.ready === 'boolean';
+            case 'hostCheckpoint':
+                return Array.isArray(data.roster)
+                    && data.roster.length <= 64
+                    && Boolean(normalizeHostCheckpoint(data.checkpoint || {}));
+            case 'hostDeparture':
+                return Array.isArray(data.roster)
+                    && data.roster.length <= 64
+                    && Boolean(normalizeHostCheckpoint(data.checkpoint || {}));
+            case 'hostMigrated':
+                return Number.isSafeInteger(data.epoch)
+                    && data.epoch > 0
+                    && typeof data.candidateId === 'string'
+                    && data.candidateId.length <= 128
+                    && typeof data.hostPeerId === 'string'
+                    && data.hostPeerId.length <= 128;
+            case 'migrationJoin':
+                return Number.isSafeInteger(data.epoch)
+                    && typeof data.playerId === 'string'
+                    && data.playerId.length <= 128
+                    && typeof data.name === 'string'
+                    && data.name.length <= 32;
             default:
                 return true;
         }
@@ -467,7 +676,8 @@ export class Network {
         // ponytail: reject malformed messages
         if (!this._validateMsg(data)) return;
         const sourceConn = this.connections.get(peerId);
-        if (this.isHost && data.type !== 'join' && (!sourceConn || !sourceConn._admitted)) return;
+        if (this.isHost && data.type !== 'join' && data.type !== 'migrationJoin'
+            && (!sourceConn || !sourceConn._admitted)) return;
         switch (data.type) {
             case 'join':
                 if (!this.isHost) break;
@@ -567,7 +777,58 @@ export class Network {
                 break;
             case 'lobbyState':
                 if (!this.isHost && peerId === this.hostConn?.peer) {
+                    this._updateMigrationRoster(data.players);
                     this.game.applyLobbyState(data);
+                }
+                break;
+            case 'hostCheckpoint':
+                if (!this.isHost && peerId === this.hostConn?.peer) {
+                    const checkpoint = normalizeHostCheckpoint(data.checkpoint);
+                    if (checkpoint && checkpoint.epoch >= this.migrationEpoch
+                        && (!this.latestHostCheckpoint
+                            || checkpoint.sequence > this.latestHostCheckpoint.sequence
+                            || checkpoint.epoch > this.latestHostCheckpoint.epoch)) {
+                        this.latestHostCheckpoint = checkpoint;
+                        this.migrationEpoch = checkpoint.epoch;
+                    }
+                    this._updateMigrationRoster(data.roster);
+                }
+                break;
+            case 'hostDeparture':
+                if (!this.isHost && peerId === this.hostConn?.peer) {
+                    const checkpoint = normalizeHostCheckpoint(data.checkpoint);
+                    if (checkpoint) {
+                        this.latestHostCheckpoint = checkpoint;
+                        this.migrationEpoch = Math.max(this.migrationEpoch, checkpoint.epoch);
+                    }
+                    this._updateMigrationRoster(data.roster);
+                    this.connections.delete(peerId);
+                    this.hostConn = null;
+                    this._beginHostMigration();
+                }
+                break;
+            case 'hostMigrated':
+                this._acceptHostMigration(data, peerId);
+                break;
+            case 'migrationJoin':
+                if (this.isHost && data.epoch === this.migrationEpoch) {
+                    const conn = this.connections.get(peerId);
+                    if (!conn) break;
+                    const expected = this.allowedMeshPeers.get(peerId)
+                        || this.peerToPlayerId.get(peerId);
+                    if (expected && expected !== data.playerId) {
+                        conn.close();
+                        break;
+                    }
+                    conn._admitted = true;
+                    this.peerToPlayerId.set(peerId, data.playerId);
+                    this.playerConnections.set(data.playerId, conn);
+                    this.migrationRoster.set(data.playerId, {
+                        playerId: data.playerId,
+                        peerId,
+                        name: data.name,
+                        team: this.game?.remotePlayers?.get(data.playerId)?.team || 'red'
+                    });
                 }
                 break;
             case 'gameStart':
@@ -610,11 +871,19 @@ export class Network {
             case 'welcome':
                 if (this.isHost || peerId !== this.hostConn?.peer) break;
                 if (Array.isArray(data.players)) {
+                    this._updateMigrationRoster(data.players);
                     data.players.forEach(player => {
                         const meshPeerId = player?.peerId;
                         const meshPlayerId = player?.playerId || meshPeerId;
                         if (meshPeerId && meshPlayerId) this.allowedMeshPeers.set(meshPeerId, meshPlayerId);
                     });
+                }
+                if (Number.isSafeInteger(data.migrationEpoch)) {
+                    this.migrationEpoch = Math.max(this.migrationEpoch, data.migrationEpoch);
+                }
+                {
+                    const checkpoint = normalizeHostCheckpoint(data.checkpoint || {});
+                    if (checkpoint) this.latestHostCheckpoint = checkpoint;
                 }
                 if (this.onGameState) this.onGameState(data);
                 break;
@@ -847,7 +1116,15 @@ export class Network {
 
     getPing() { return this._lastPing || 0; }
     getDiagnostics() {
-        return { ping: this.getPing(), peers: this.connections.size, sent: this._sentPackets, received: this._receivedPackets, reconnecting: Boolean(this._reconnectTimer) };
+        return {
+            ping: this.getPing(),
+            peers: this.connections.size,
+            sent: this._sentPackets,
+            received: this._receivedPackets,
+            reconnecting: Boolean(this._reconnectTimer),
+            migrating: this._migrationActive,
+            migrationEpoch: this.migrationEpoch
+        };
     }
     getClockOffset() { return this._clockOffset || 0; }
 
@@ -915,6 +1192,7 @@ export class Network {
 
     disconnect() {
         this._manualDisconnect = true;
+        this._clearMigrationTimers();
         if (this._reconnectTimer) {
             clearTimeout(this._reconnectTimer);
             this._reconnectTimer = null;
@@ -927,6 +1205,9 @@ export class Network {
         this.playerResumeTokens.clear();
         this.allowedMeshPeers.clear();
         this.pendingConnections.clear();
+        this.migrationRoster.clear();
+        this.latestHostCheckpoint = null;
+        this._migrationActive = false;
         this._socialRate.clear();
         if (this.peer) this.peer.destroy();
         this.peer = null;
@@ -939,9 +1220,21 @@ export class Network {
     }
 
     // Host: lobby kapanıyor — client'lara bildir, sonra bağlantıları kes.
-    closeLobby() {
+    closeLobby(force = false) {
         if (!this.isHost) { this.disconnect(); return; }
-        this.broadcast({ type: 'lobbyClosed' });
+        const survivors = [...this.connections.values()].filter(conn => conn?.open && conn._admitted);
+        if (!force && survivors.length) {
+            const checkpoint = this.publishHostCheckpoint(this.game?.snapshotState?.());
+            if (checkpoint) {
+                this.broadcast({
+                    type: 'hostDeparture',
+                    checkpoint,
+                    roster: [...this.migrationRoster.values()]
+                });
+            }
+        } else {
+            this.broadcast({ type: 'lobbyClosed' });
+        }
         this.disconnect();
     }
 

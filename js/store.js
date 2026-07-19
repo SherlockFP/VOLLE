@@ -81,6 +81,21 @@ const DEFAULTS = {
     ownedKnives: ['training'],
     equippedKnives: { red: 'training', blue: 'training' },
     knifeStats: {},
+    cosmeticLoadout: {
+        version: 2,
+        knife: { id: 'training', stickers: [null, null, null, null], charm: null, nameTag: '', patternSeed: 0, wear: 0 },
+        mvpEffect: 'none',
+        ballTrail: 'none',
+        goalEffect: 'none'
+    },
+    cosmeticInventory: {
+        stickers: ['ace', 'bolt', 'gg', 'star'],
+        charms: ['ball', 'glove'],
+        mvpEffects: ['none', 'confetti'],
+        ballTrails: ['none', 'comet'],
+        goalEffects: ['none', 'burst'],
+        duplicates: {}
+    },
     dailyRewards: { lastLoginClaim: '', loginStreak: 0, lastFreeCase: '' },
     casePity: {},
     seasonContracts: createSeasonContractState(),
@@ -105,7 +120,7 @@ const DEFAULTS = {
     experimentalNetcode: { ...DEFAULT_NETCODE },
     settings: {
         sensitivity: 2, volume: 50, musicVolume: 2, soundVolume: 50, botDifficulty: 'hard', fov: 75,
-        quality: 'medium', reduceMotion: false, screenShake: true,
+        quality: 'medium', autoQuality: true, publicDiagnostics: true, reduceMotion: false, screenShake: true,
         screenFlash: true, highContrast: false, colorBlind: 'none', keybinds: {}
     },
     stats: { gamesPlayed: 0, totalWins: 0, totalDeflects: 0, totalHits: 0, bestRally: 0, totalSpent: 0, winStreak: 0, rankedElo: 1000, rankedGames: 0 },

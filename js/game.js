@@ -31,6 +31,8 @@ import {
 import { shouldEndOvertime, shouldStartOvertime } from './competitive-service.js';
 import { normalizeNetcode, predictPosition, rewindSnapshot, sampleSnapshots } from './experimental-netcode.js';
 import { RuntimeLog } from './runtime-safety.js';
+import { PracticeLabMetrics, resolvePerfectDeflect } from './perfect-deflect.js';
+import { MatchAnalytics } from './match-analytics.js';
 
 const BASE_HIT_DAMAGE = 25;
 
@@ -76,6 +78,10 @@ export class Game {
 
         this.state = STATES.MENU;
         this.experimentalNetcode = normalizeNetcode();
+        this.perfectDeflectChain = { count: 0, lastPerfectAt: null };
+        this._remotePerfectChains = new Map();
+        this.practiceMetrics = new PracticeLabMetrics();
+        this.matchAnalytics = new MatchAnalytics();
         this.ball = new Ball(renderer, arena);
         this.scoreboard = new Scoreboard();
         this.bots = [];
@@ -572,6 +578,10 @@ export class Game {
     startGame(skipPreGame = false) {
         this.cancelPreGame();
         this._rewardsClaimed = false;
+        this.perfectDeflectChain = { count: 0, lastPerfectAt: null };
+        this._remotePerfectChains.clear();
+        this.practiceMetrics.reset();
+        this.matchAnalytics.reset();
         this.onMatchStart?.();
         this.applyMatchModifier();
         this.setState(STATES.COUNTDOWN);
@@ -686,6 +696,11 @@ export class Game {
         this._suddenDeathAnnounced = false;
         this.setState(STATES.PLAYING);
         this.scoreboard.newRound();
+        this.matchAnalytics.recordEvent('round_start', {
+            round: this.scoreboard.roundNum,
+            red: this.scoreboard.redScore,
+            blue: this.scoreboard.blueScore
+        });
         this.activateQueuedPlayers();
         if (this.affixes) this.affixes.startRound();
         if (this._chaosModeIds.has(this.mode?.id)) this.chaosManager.startRound();
@@ -1644,7 +1659,19 @@ export class Game {
         // Player deflection — aim-based
         // CS2-style: never block deflect on ball.active check alone.
         // Host's late-deflect grace window in remoteAttack handles reactivation.
-        if (this.player.alive && this.player.isAttacking()) {
+        const practiceAttacking = this.player.alive && this.player.isAttacking();
+        if (this._practiceMode && practiceAttacking && !this._practiceAttemptActive) {
+            this._practiceAttemptActive = true;
+            this._practiceAttemptHit = false;
+        } else if (this._practiceMode && !practiceAttacking && this._practiceAttemptActive) {
+            if (!this._practiceAttemptHit) {
+                this.practiceMetrics.recordAttempt({ hit: false });
+                this.onPracticeMetrics?.(this.practiceMetrics.summary());
+            }
+            this._practiceAttemptActive = false;
+            this._practiceAttemptHit = false;
+        }
+        if (practiceAttacking) {
             // Client: use larger range for forgiving prediction (host validates authoritatively)
             const isClient2 = this.network?.connected && !this.network?.isHost;
             const ballPos = this.ball.position;
@@ -1680,6 +1707,13 @@ export class Game {
                 this.ball._homingAge = 0;
             }
             if (bounced && !this.juice._hitStopActive) this.audio.playBounce?.();
+            if (this.ball.active) {
+                this._analyticsSampleTimer = (this._analyticsSampleTimer || 0) - dt;
+                if (this._analyticsSampleTimer <= 0) {
+                    this._analyticsSampleTimer = 0.1;
+                    this.matchAnalytics.recordTrajectory(this.ball.position);
+                }
+            }
         } else {
             // ponytail: client ball visual update — trail, glow, rotation, squash
             this.ball._clientVisualUpdate(dt);
@@ -1884,7 +1918,39 @@ export class Game {
         this.juice.slashEffect(this.player.getPosition().clone().add(new THREE.Vector3(0, 1, 0)), slashDir, 0x00ffee);
 
         // PERFECT-CATCH: perfect window aktifse bonus (Knockout City tarzı)
-        const isPerfect = this.ball.isPerfectCatch();
+        const timingErrorMs = this.ball.getPerfectTimingErrorMs();
+        const resolvedDeflect = resolvePerfectDeflect({
+            timingErrorMs,
+            at: performance.now(),
+            chain: this.perfectDeflectChain,
+            homingStrength: this.ball.homingStrength || 0
+        });
+        this.perfectDeflectChain = resolvedDeflect.chain;
+        const timingTier = resolvedDeflect.tier;
+        const isPerfect = timingTier === 'perfect';
+        this.matchAnalytics.recordDeflect({
+            player: {
+                id: this.network?.playerId || 'local',
+                name: this.playerName,
+                team
+            },
+            tier: timingTier || 'normal'
+        });
+        if (this._practiceMode) {
+            this._practiceAttemptHit = true;
+            this.practiceMetrics.recordAttempt({
+                hit: true,
+                tier: timingTier || 'normal',
+                reactionMs: Number.isFinite(timingErrorMs) ? timingErrorMs : null
+            });
+            this.onPracticeMetrics?.(this.practiceMetrics.summary());
+        }
+        this.onPerfectDeflect?.({
+            tier: timingTier || 'normal',
+            chain: this.perfectDeflectChain.count,
+            timingErrorMs: Number.isFinite(timingErrorMs) ? timingErrorMs : null,
+            reward: resolvedDeflect.reward
+        });
         if (isPerfect) {
             this.ball.lastPerfectBy = this.player;
             // Perfect deflect improves timing/reward, not rally speed.
@@ -2080,6 +2146,27 @@ export class Game {
 
         // Client-side prediction: apply state locally, server may correct later
         const lethal = hitTarget.takeDamage(dmg);
+        const analyticsAttacker = {
+            id: attacker?.playerId || attacker?.peerId || scorerName || 'unknown',
+            name: scorerName || 'Unknown',
+            team: attacker?.team
+        };
+        const analyticsVictim = {
+            id: hitTarget.playerId || hitTarget.peerId || name,
+            name,
+            team: hitTarget.team
+        };
+        this.matchAnalytics.recordHit({
+            attacker: analyticsAttacker,
+            victim: analyticsVictim,
+            damage: dmg
+        });
+        if (lethal) {
+            this.matchAnalytics.recordKO({
+                attacker: analyticsAttacker,
+                victim: analyticsVictim
+            });
+        }
         if (lethal) this.killStreak++;
         // Ball affix on-hit effect (e.g. burn)
         if (this.ball?._affixOnHit) {
@@ -2927,6 +3014,11 @@ export class Game {
             this._setCelebrationGloveColor(0xff8800);
             this._buildCelebWeapons();
             this._showCelebWeapon('rocket');
+        } else if (timingTier === 'great') {
+            this.juice.sparks(this.ball.position.clone(), 0x70ddff, 12);
+            this.juice.shockwave(this.ball.position.clone(), 0x70ddff);
+            this.juice.shake(0.18);
+            this.audio.playSfx('tf2_hit', 0.5);
         } else {
             this.player.setHandVisible?.(false);
         }
@@ -3073,7 +3165,18 @@ export class Game {
             : `${this._finalWinner} TEAM WINS: Red ${this.scoreboard.redScore} - ${this.scoreboard.blueScore} Blue`;
         const playerStats = this.scoreboard.getPlayerStats();
         this.onMatchComplete?.();
-        this.ui.showPostGame(this._won, xp, 1, kills, this.rallyCount, this.audio, { winnerText, playerStats });
+        const analytics = this.matchAnalytics.getReport({
+            heatmap: {
+                columns: 12,
+                rows: 8,
+                bounds: { minX: -24, maxX: 24, minZ: -18, maxZ: 18 }
+            }
+        });
+        this.ui.showPostGame(this._won, xp, 1, kills, this.rallyCount, this.audio, {
+            winnerText,
+            playerStats,
+            analytics
+        });
         // P2P: gameOver state'ini client'lara yayınla
         if (this.network?.isHost) {
             this.network.broadcast({
@@ -3544,7 +3647,15 @@ export class Game {
             p.attackTimer = 0.3;
             this.ball.position.copy(clientBallPos);
             const target = this.getAimedEnemy(attackPos, p.aimDir, p.team);
-            const isPerfect = this.ball.isPerfectCatch();
+            const remoteTimingMs = this.ball.getPerfectTimingErrorMs();
+            const remoteResolved = resolvePerfectDeflect({
+                timingErrorMs: remoteTimingMs,
+                at: now,
+                chain: this._remotePerfectChains.get(playerId) || { count: 0, lastPerfectAt: null },
+                homingStrength: this.ball.homingStrength || 0
+            });
+            this._remotePerfectChains.set(playerId, remoteResolved.chain);
+            const isPerfect = remoteResolved.tier === 'perfect';
             let finalDeflectPower = p.deflectPower || 1.0;
             if (isPerfect) {
                 this.ball.lastPerfectBy = p;
@@ -3561,6 +3672,10 @@ export class Game {
             this.rallyCount++;
             p.onSuccessfulDeflect();
             this.scoreboard.recordDeflection(p.name);
+            this.matchAnalytics.recordDeflect({
+                player: { id: playerId, name: p.name, team: p.team },
+                tier: remoteResolved.tier || 'normal'
+            });
             this.audio.playDeflect(result.shot);
             this.network.broadcast({
                 type: 'remoteAttackAnim',
@@ -3929,6 +4044,10 @@ export class Game {
             map: this.arena?.mapId,
             maxRounds: this.scoreboard.maxRounds,
             timeLimit: this.scoreboard.timeLimit,
+            round: this.scoreboard.roundNum,
+            red: this.scoreboard.redScore,
+            blue: this.scoreboard.blueScore,
+            time: this.scoreboard.timeRemaining,
             ball: b ? {
                 x: b.position.x, y: b.position.y, z: b.position.z,
                 vx: b.velocity.x, vy: b.velocity.y, vz: b.velocity.z,
@@ -3936,6 +4055,39 @@ export class Game {
             } : null
         };
     }
+
+    applyHostMigrationCheckpoint(state, becomingHost = false) {
+        if (!state || typeof state !== 'object') return false;
+        if (Array.isArray(state.players)) this.applyLobbyState({ players: state.players });
+        if (state.map && this.arena?.mapId !== state.map) this.selectMap(state.map);
+        if (state.mode && this.mode?.id !== state.mode) this.selectMode(state.mode);
+        const score = this.scoreboard;
+        if (score) {
+            if (Number.isFinite(state.maxRounds)) score.setMaxRounds(state.maxRounds);
+            if (Number.isFinite(state.timeLimit)) score.setTimeLimit(state.timeLimit);
+            if (Number.isFinite(state.round)) score.roundNum = Math.max(0, state.round | 0);
+            if (Number.isFinite(state.red)) score.redScore = Math.max(0, state.red | 0);
+            if (Number.isFinite(state.blue)) score.blueScore = Math.max(0, state.blue | 0);
+            if (Number.isFinite(state.time)) score.timeRemaining = Math.max(0, state.time);
+        }
+        if (state.ball && this.ball) {
+            const b = state.ball;
+            if ([b.x, b.y, b.z, b.vx, b.vy, b.vz].every(Number.isFinite)) {
+                this.ball.position.set(b.x, b.y, b.z);
+                this.ball.velocity.set(b.vx, b.vy, b.vz);
+                this.ball.mesh?.position.copy(this.ball.position);
+            }
+            if (Number.isFinite(b.speed)) this.ball.currentSpeed = b.speed;
+            this.ball.active = Boolean(b.active);
+        }
+        if (Object.values(STATES).includes(state.state)) this.state = state.state;
+        this.ball._clientOnly = !becomingHost;
+        this._ballTarget = null;
+        this._ballTargetTime = 0;
+        this.ui?.updateScores?.(score);
+        return true;
+    }
+
     updateBallFromNetwork(data) {
         if (this.network?.isHost) return;
         // ponytail: stale ballState guard — ignore packets older than last seen

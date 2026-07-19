@@ -560,6 +560,10 @@
                     <div class="settings-row"><label>VSync</label><select id="setting-vsync"><option value="off">Off</option><option value="on" selected>On</option></select></div>
                     <div class="settings-row"><label>FPS Limit</label><select id="setting-fps-limit"><option value="0">Unlimited</option><option value="30">30</option><option value="60" selected>60</option><option value="120">120</option><option value="144">144</option><option value="240">240</option></select></div>
                     <div class="settings-row"><label>Quality</label><select id="setting-quality"><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option></select></div>
+                    <div class="settings-row settings-row-toggle">
+                        <label>Auto Quality <span class="settings-hint">Reduce effects before frame rate drops</span></label>
+                        <label class="toggle-switch"><input type="checkbox" id="setting-auto-quality" checked><span class="toggle-slider"></span></label>
+                    </div>
                     <div class="settings-row"><label>Resolution</label><select id="setting-resolution"><option value="1280x720">1280×720</option><option value="1366x768">1366×768</option><option value="1600x900">1600×900</option><option value="1920x1080" selected>1920×1080</option><option value="2560x1440">2560×1440</option><option value="3840x2160">3840×2160</option></select></div>
                     <div class="settings-row settings-row-scale">
                         <label for="setting-render-scale">Resolution Scale <span class="settings-hint">Lower for more FPS</span></label>
@@ -625,6 +629,10 @@
                             <input type="checkbox" id="setting-experimental-netcode">
                             <span class="toggle-slider"></span>
                         </label>
+                    </div>
+                    <div class="settings-row settings-row-toggle">
+                        <label>Public Diagnostics <span class="settings-hint">Show ping, loss and desync without private identifiers</span></label>
+                        <label class="toggle-switch"><input type="checkbox" id="setting-public-diagnostics" checked><span class="toggle-slider"></span></label>
                     </div>
                     <div class="settings-row">
                         <label>Diagnostics <span class="settings-hint">Copy recent errors and state transitions</span></label>
@@ -697,6 +705,7 @@
                 <div><span class="shell-kicker">ORIGINAL ROSTER</span><strong>Find your movement style</strong><p>Every class changes health, speed, stamina and deflect power.</p></div>
             </div>
             <div class="shop-grid" id="shop-grid"></div>
+            <section id="cosmetic-customizer" class="cosmetic-customizer hidden" aria-live="polite"></section>
             <button id="btn-shop-back" class="btn btn-secondary shell-back"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back to menu</button>
         </div>
     </div>
@@ -1227,6 +1236,20 @@
     <aside id="network-diagnostics" class="network-diagnostics" aria-live="polite">
         <span>NETWORK</span><b id="network-diagnostics-value">OFFLINE</b>
     </aside>
+    <div id="host-migration-banner" class="host-migration-banner hidden" role="status" aria-live="assertive">
+        <span>MATCH PAUSED</span><strong id="host-migration-title">Selecting a new host...</strong>
+        <div class="host-migration-track"><i id="host-migration-progress"></i></div>
+    </div>
+    <aside id="perfect-deflect-hud" class="perfect-deflect-hud hidden" aria-live="polite">
+        <span id="perfect-deflect-tier">PERFECT</span><b id="perfect-deflect-chain">x1</b>
+        <small id="perfect-deflect-timing">0 ms</small>
+    </aside>
+    <aside id="practice-lab-hud" class="practice-lab-hud hidden" aria-live="polite">
+        <header><span>PRACTICE LAB</span><b id="practice-lab-mode">DEFLECT</b></header>
+        <div><span>Accuracy <b id="practice-accuracy">0%</b></span><span>Perfect <b id="practice-perfects">0</b></span><span>Best <b id="practice-best">--</b></span></div>
+        <div class="practice-lab-track"><i id="practice-lab-progress"></i></div>
+        <small>R spawn / F reposition / T reset metrics</small>
+    </aside>
 
     <!-- ===== GAME OVER ===== -->
     <div id="game-over-screen" class="screen hidden">
@@ -1304,6 +1327,14 @@
                     <span class="pg-xp-text" id="pg-xp-text"></span>
                 </div>
                 <div class="pg-stats" id="postgame-stats"></div>
+                <section id="pg-analysis" class="pg-analysis">
+                    <nav class="pg-analysis-tabs" aria-label="Match analysis">
+                        <button type="button" class="selected" data-analysis-tab="overview">Overview</button>
+                        <button type="button" data-analysis-tab="timeline">Timeline</button>
+                        <button type="button" data-analysis-tab="heatmap">Heatmap</button>
+                    </nav>
+                    <div id="pg-analysis-content" class="pg-analysis-content"></div>
+                </section>
                 <div id="pg-map-vote" class="hidden"></div>
                 <div class="pg-chat">
                     <div class="pg-chat-log" id="pg-chat-log"></div>

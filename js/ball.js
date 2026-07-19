@@ -228,6 +228,7 @@ export class Ball {
         this.perfectWindowDuration = 0.25;
         this.perfectRange = 2.8;      // hedefe bu mesafede perfect açılır
         this.lastPerfectBy = null;    // son perfect yapan entity
+        this._perfectWindowTarget = null;
 
         // Charge-up throw — hold to charge, release for power throw.
         this.chargeLevel = 0;         // 0..1
@@ -305,6 +306,7 @@ export class Ball {
         this.spin = 0;
         this._frozenTimer = 0;
         this.perfectWindow = 0;
+        this._perfectWindowTarget = null;
         this.chargeLevel = 0;
         this.isCharging = false;
         this.bodyZone = ['head','chest','abdomen','legs'][Math.floor(Math.random() * 4)];
@@ -728,11 +730,13 @@ export class Ball {
         if (this.targetPlayer && this.state === 'rally') {
             const tPos = this._getTargetPos();
             const dist = this.position.distanceTo(tPos);
-            if (dist < this.perfectRange && dist > this.hitRange) {
+            if (dist < this.perfectRange && dist > this.hitRange
+                && this._perfectWindowTarget !== this.targetPlayer) {
                 this.perfectWindow = this.perfectWindowDuration;
+                this._perfectWindowTarget = this.targetPlayer;
             }
         }
-        if (this.perfectWindow > 0) this.perfectWindow -= dt;
+        if (this.perfectWindow > 0) this.perfectWindow = Math.max(0, this.perfectWindow - dt);
 
         // Mesh updates — Source Engine feel: ball visibly spins in curve direction
         this.mesh.position.copy(this.position);
@@ -1021,7 +1025,11 @@ export class Ball {
     }
 
     setTarget(target) {
-        if (this.targetPlayer !== target) this._resetSteering();
+        if (this.targetPlayer !== target) {
+            this._resetSteering();
+            this.perfectWindow = 0;
+            this._perfectWindowTarget = null;
+        }
         this.targetPlayer = target;
     }
     distanceTo(pos) { return this.position.distanceTo(pos); }
@@ -1035,6 +1043,9 @@ export class Ball {
     // Perfect window aktifse ve mesafe uygunsa perfect = true.
     isPerfectCatch() {
         return this.perfectWindow > 0;
+    }
+    getPerfectTimingErrorMs() {
+        return this.perfectWindow > 0 ? this.perfectWindow * 1000 : Infinity;
     }
 
     // Charge-up throw — hold L-Click to charge, release for power.

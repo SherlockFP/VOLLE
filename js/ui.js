@@ -421,6 +421,7 @@ export class UI {
         const xpText = document.getElementById('pg-xp-text');
         if (xpFill) { xpFill.style.width = '0%'; requestAnimationFrame(() => { xpFill.style.width = perc + '%'; }); }
         if (xpText) xpText.textContent = `+${xpGained} XP`;
+        this.renderMatchAnalysis(result.analytics);
         const dings = Math.min(10, Math.ceil(perc / 10));
         let delay = 0;
         for (let i = 0; i < dings; i++) {
@@ -432,6 +433,53 @@ export class UI {
         document.getElementById('pg-play-again')?.addEventListener('click', () => { el.classList.add('hidden'); window._postGameAction?.('play_again'); });
         document.getElementById('pg-lobby')?.addEventListener('click', () => { el.classList.add('hidden'); window._postGameAction?.('lobby'); });
         document.getElementById('pg-main-menu')?.addEventListener('click', () => { el.classList.add('hidden'); window._postGameAction?.('main_menu'); });
+    }
+
+    renderMatchAnalysis(report, initialTab = 'overview') {
+        const content = document.getElementById('pg-analysis-content');
+        const tabs = document.querySelectorAll('[data-analysis-tab]');
+        if (!content) return;
+        const safe = report && typeof report === 'object' ? report : {};
+        const render = tab => {
+            tabs.forEach(button => button.classList.toggle('selected', button.dataset.analysisTab === tab));
+            if (tab === 'timeline') {
+                const events = Array.isArray(safe.timeline) ? safe.timeline.slice(-80).reverse() : [];
+                content.innerHTML = events.length ? `<div class="pg-timeline">${events.map(event => {
+                    const seconds = Math.max(0, Number(event.t) || 0) / 1000;
+                    const who = event.data?.name || event.data?.playerId || event.data?.attackerId || '';
+                    return `<div><time>${seconds.toFixed(1)}s</time><b>${this._esc(event.type || 'event')}</b><span>${this._esc(who)}</span></div>`;
+                }).join('')}</div>` : '<p>No timeline events recorded.</p>';
+                return;
+            }
+            if (tab === 'heatmap') {
+                const heatmap = safe.heatmap;
+                const cells = Array.isArray(heatmap?.cells) ? heatmap.cells.flat() : [];
+                const max = Math.max(1, Number(heatmap?.max) || 1);
+                content.innerHTML = cells.length
+                    ? `<div class="pg-heatmap" style="--heat-cols:${heatmap.columns || 12}">${cells.map(value =>
+                        `<i style="--heat:${Math.max(0, Number(value) || 0) / max}" title="${Number(value) || 0} samples"></i>`
+                    ).join('')}</div><small>${heatmap.total || 0} ball trajectory samples</small>`
+                    : '<p>No trajectory data recorded.</p>';
+                return;
+            }
+            const players = Array.isArray(safe.players) ? safe.players : [];
+            const totals = players.reduce((sum, player) => {
+                sum.deflects += player.deflects || 0;
+                sum.perfects += player.deflectTiers?.perfect || 0;
+                sum.kos += player.kos || 0;
+                return sum;
+            }, { deflects: 0, perfects: 0, kos: 0 });
+            content.innerHTML = `<div class="pg-analysis-grid">
+                <article><span>MVP</span><b>${this._esc(safe.mvp?.name || '--')}</b></article>
+                <article><span>Deflects</span><b>${totals.deflects}</b></article>
+                <article><span>Perfects</span><b>${totals.perfects}</b></article>
+                <article><span>KOs</span><b>${totals.kos}</b></article>
+            </div>`;
+        };
+        tabs.forEach(button => {
+            button.onclick = () => render(button.dataset.analysisTab || 'overview');
+        });
+        render(initialTab);
     }
 
     _buildAARTable(playerStats, totalKills, totalDeflects) {
