@@ -50,6 +50,7 @@ class App {
         this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.2, 2000);
         this.store = Store;
         this.store.load();
+        this._mutedPlayers = new Set(this.store.get('mutedPlayers') || []);
         for (const entry of this.store.get('customMaps') || []) {
             registerCustomMap(entry.id, normalizeMapConfig(entry.config));
         }
@@ -262,7 +263,7 @@ class App {
                 }
             }
             // Z or G → emote wheel toggle
-            if ((e.code === 'KeyZ' || e.code === 'KeyG') && this.game.state === STATES.PLAYING) {
+            if ((e.code === 'KeyZ' || e.code === 'KeyG') && (this.game.state === STATES.PLAYING || this.game.state === STATES.SOCIAL_HUB)) {
                 e.preventDefault();
                 if (this.game.emotes.wheelOpen) {
                     this.closeEmoteWheel();
@@ -922,6 +923,7 @@ class App {
         this.ui.onToggleSpectate = () => this.toggleSpectate();
         this.ui.onClassSelect = charId => this._changeRoundClass(charId);
         this.ui.onTeamConfirm = team => this._confirmTeamSelection(team);
+        this.ui.onPlayerSafety = player => this._handlePlayerSafety(player);
 
         bind('btn-start-game', async () => {
             if (this.network.connected && !this.isLobbyHost()) {
@@ -1097,6 +1099,14 @@ class App {
             const el = document.getElementById(id);
             if (el) el.addEventListener('input', onChange);
         };
+        const lobbyRegion = document.getElementById('lobby-region');
+        if (lobbyRegion) {
+            lobbyRegion.value = this.store.get('preferredRegion') || 'auto';
+            lobbyRegion.addEventListener('change', event => {
+                this.store.set('preferredRegion', event.target.value);
+                this.ui.showMessage?.(`Preferred region: ${event.target.options[event.target.selectedIndex].text}`, 1400);
+            });
+        }
 
         this.settingsTabs = initSettingsTabs(document);
         const uiPreferences = loadUiPreferences(this.store);
@@ -1716,13 +1726,19 @@ class App {
                 this.ui.renderShop(this.store, 'inventory');
                 return;
             }
-            const replayButton = e.target.closest('.replay-play, .replay-export, .replay-delete, .replay-highlight');
+            const replayButton = e.target.closest('.replay-play, .replay-export, .replay-delete, .replay-highlight, .replay-highlight-copy');
             if (replayButton) {
                 const all = Replay.loadAll();
                 const index = Number(replayButton.dataset.index);
                 const replay = all[index];
                 if (!replay) return;
-                if (replayButton.classList.contains('replay-highlight')) {
+                if (replayButton.classList.contains('replay-highlight-copy')) {
+                    const highlight = replay.highlights?.[Number(replayButton.dataset.highlight)];
+                    const copy = highlight && navigator.clipboard?.writeText(Replay.exportJSON(extractReplayHighlight(replay, highlight)));
+                    if (copy) copy.then(() => this.ui.showMessage?.('Highlight copied', 1200))
+                        .catch(() => this.ui.showMessage?.('Clipboard unavailable', 1200));
+                    else this.ui.showMessage?.('Clipboard unavailable', 1200);
+                } else if (replayButton.classList.contains('replay-highlight')) {
                     const highlight = replay.highlights?.[Number(replayButton.dataset.highlight)];
                     if (highlight) this._startReplay(extractReplayHighlight(replay, highlight));
                 } else if (replayButton.classList.contains('replay-delete')) {
@@ -2810,8 +2826,23 @@ class App {
 
     _setupReconnectUI() {
         this.network.onReconnectState = (state, attempt) => {
-            if (state === 'reconnecting') this.ui.showMessage?.(`Reconnecting... ${attempt}/3`, 1800);
-            else if (state === 'connected') this.ui.showMessage?.('Reconnected', 1800);
+            const status = document.getElementById('lobby-network-status');
+            if (state === 'reconnecting') {
+                this.ui.showMessage?.(`Reconnecting... ${attempt}/3`, 1800);
+                if (status) {
+                    status.textContent = `RECONNECTING ${attempt}/3`;
+                    status.className = 'is-reconnecting';
+                }
+            } else if (state === 'connected') {
+                this.ui.showMessage?.('Reconnected', 1800);
+                if (status) {
+                    status.textContent = 'CONNECTED';
+                    status.className = '';
+                }
+            } else if (status) {
+                status.textContent = 'DISCONNECTED';
+                status.className = 'is-offline';
+            }
         };
     }
 
@@ -3031,6 +3062,19 @@ class App {
         this.game.switchTeam(team);
         this.ui.showMessage?.(`Selected ${team.toUpperCase()} team.`, 1200);
         this.ui._renderTeamLists(this.game);
+    }
+
+    _handlePlayerSafety(player) {
+        const name = String(player?.name || '').slice(0, 24);
+        if (!name) return;
+        if (this._mutedPlayers.has(name)) {
+            this._mutedPlayers.delete(name);
+            this.ui.showMessage?.(`${name} unmuted.`, 1200);
+        } else {
+            this._mutedPlayers.add(name);
+            this.ui.showMessage?.(`${name} muted. Local report saved.`, 1600);
+        }
+        this.store.set('mutedPlayers', [...this._mutedPlayers].slice(-100));
     }
 
     _changeRoundClass(charId) {
@@ -3513,6 +3557,17 @@ class App {
     loop() {
         requestAnimationFrame(() => this.loop());
         const dt = Math.min(this.clock.getDelta(), 0.05);
+
+        this._diagnosticsTimer = (this._diagnosticsTimer || 0) - dt;
+        if (this._diagnosticsTimer <= 0) {
+            this._diagnosticsTimer = 0.5;
+            const value = document.getElementById('network-diagnostics-value');
+            if (value) {
+                const diag = this.network?.getDiagnostics?.();
+                const fps = Math.round(1 / Math.max(dt, 0.001));
+                value.textContent = diag?.peers ? `${fps} FPS | ${Math.round(diag.ping || 0)}ms | ${diag.peers}P` : `${fps} FPS | LOCAL`;
+            }
+        }
 
         // Tab hidden → RAF'ı boşver, bgInterval işi görür
         if (this._tabHidden) return;

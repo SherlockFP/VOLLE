@@ -67,6 +67,8 @@ export class Network {
         this._reconnectTimer = null;
         this._joinPromise = null;
         this._socialRate = new Map();
+        this._sentPackets = 0;
+        this._receivedPackets = 0;
     }
 
     async initPeer() {
@@ -448,6 +450,7 @@ export class Network {
     }
 
     handleMessage(data, peerId) {
+        this._receivedPackets++;
         // ponytail: decode binary hot-path packets to plain objects
         if (data instanceof ArrayBuffer || data instanceof Uint8Array) {
             data = this._decodeBinary(data);
@@ -761,18 +764,18 @@ export class Network {
 
     broadcast(data) {
         this.connections.forEach(conn => {
-            if (conn.open) conn.send(data);
+            if (conn.open) { conn.send(data); this._sentPackets++; }
         });
     }
 
     broadcastAll(data) {
         this.connections.forEach(conn => {
-            if (conn.open) conn.send(data);
+            if (conn.open) { conn.send(data); this._sentPackets++; }
         });
     }
 
     sendToHost(data) {
-        if (this.hostConn && this.hostConn.open) this.hostConn.send(data);
+        if (this.hostConn && this.hostConn.open) { this.hostConn.send(data); this._sentPackets++; }
     }
 
     send(data) {
@@ -799,7 +802,7 @@ export class Network {
 
     _sendToConn(peerId, data) {
         const conn = this.connections.get(peerId);
-        if (conn && conn.open) conn.send(data);
+        if (conn && conn.open) { conn.send(data); this._sentPackets++; }
     }
 
     sendAttack(extra = {}) {
@@ -823,6 +826,9 @@ export class Network {
     }
 
     getPing() { return this._lastPing || 0; }
+    getDiagnostics() {
+        return { ping: this.getPing(), peers: this.connections.size, sent: this._sentPackets, received: this._receivedPackets, reconnecting: Boolean(this._reconnectTimer) };
+    }
     getClockOffset() { return this._clockOffset || 0; }
 
     broadcastBlackHoleSpawn(x, y, z) {

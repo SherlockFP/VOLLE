@@ -2204,3 +2204,19 @@ body.high-contrast #main-menu :is(.ow-topbar, .ow-showcase, .ow-action-panel, .f
 #team-overlay .team-list { min-height: 62px; } #team-overlay .team-list li { cursor: default; }
 #team-overlay .class-switcher { margin: 6px 0 16px; border-color: rgba(135, 238, 226, .34); }
 #team-overlay .team-popup-actions { display: flex; justify-content: center; gap: 10px; } #team-overlay #btn-team-popup-confirm { min-width: 230px; }
+
+/* Matchmaking and player-safety feedback remains visible without obscuring play. */
+.lobby-region { display:inline-flex; align-items:center; gap:7px; margin:0 8px; color:#9beef3; font-size:.66rem; font-weight:900; letter-spacing:.11em; }
+.lobby-region select { min-height:29px; padding:0 7px; border:1px solid rgba(102,232,224,.44); border-radius:7px; color:#d9ffff; background:#092b3b; font:inherit; letter-spacing:normal; }
+#lobby-network-status { display:inline-block; padding:5px 8px; border:1px solid rgba(101,244,202,.36); border-radius:999px; color:#8dffd6; background:rgba(26,171,125,.15); font-size:.61rem; letter-spacing:.1em; }
+#lobby-network-status.is-reconnecting { color:#ffe2a1; border-color:rgba(255,190,84,.55); background:rgba(190,124,27,.18); }
+#lobby-network-status.is-offline { color:#ff9da5; border-color:rgba(255,106,118,.5); background:rgba(175,49,61,.18); }
+.network-diagnostics { position:fixed; right:15px; bottom:15px; z-index:17; display:flex; align-items:center; gap:8px; padding:7px 10px; border:1px solid rgba(101,221,237,.25); border-radius:9px; color:#9cecf3; background:rgba(3,19,31,.72); box-shadow:0 8px 24px rgba(0,0,0,.24); backdrop-filter:blur(8px); font-size:.62rem; font-weight:900; letter-spacing:.08em; pointer-events:none; }
+.network-diagnostics b { color:#efffff; font-variant-numeric:tabular-nums; letter-spacing:.03em; }
+.scoreboard-safety { min-height:27px; padding:3px 8px; border:1px solid rgba(252,190,104,.48); border-radius:6px; color:#ffe1af; background:rgba(118,66,22,.24); font-size:.62rem; font-weight:900; cursor:pointer; }
+.scoreboard-safety:hover,.scoreboard-safety:focus-visible { color:#fff; border-color:#ffe3a2; background:rgba(178,100,31,.54); outline:2px solid rgba(168,247,245,.7); outline-offset:2px; }
+.career-season-history { margin-top:18px; padding:17px; border:1px solid rgba(116,232,226,.22); border-radius:14px; background:linear-gradient(130deg,rgba(12,59,70,.46),rgba(5,20,38,.72)); }
+.career-season-history header { display:flex; align-items:end; gap:10px; }.career-season-history h2 { margin:3px 0 0; color:#ecffff; }.career-season-history header small { margin-left:auto; color:#87f5dd; font-weight:900; }
+.career-placement-track { height:7px; margin:13px 0; overflow:hidden; border-radius:99px; background:#061827; }.career-placement-track i { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,#49d4ef,#70f4c1); }
+.career-history-list { display:grid; gap:6px; }.career-history-list > div { display:grid; grid-template-columns:45px 1fr auto; gap:8px; align-items:center; padding:8px 9px; border-radius:8px; background:rgba(3,16,29,.46); color:#c4edf3; font-size:.72rem; }.career-history-list b { font-size:.63rem; }.career-history-list .win { color:#7df5c4; }.career-history-list .loss { color:#ff9ba5; }.career-history-list strong { color:#e9ffff; }.career-history-list p { margin:0; color:rgba(211,244,250,.64); font-size:.76rem; }
+@media (max-width:700px) { .network-diagnostics { right:8px; bottom:8px; }.lobby-region { margin:6px 2px; }.career-season-history header { align-items:start; flex-wrap:wrap; }.career-season-history header small { margin-left:0; } }

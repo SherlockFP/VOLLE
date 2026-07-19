@@ -205,6 +205,17 @@ export class UI {
                 if (cellIndex === 0) cell.className = `team-${p.team}`;
                 row.appendChild(cell);
             });
+            const action = document.createElement('td');
+            if (!p.isYou && !p.isBot) {
+                const safety = document.createElement('button');
+                safety.type = 'button';
+                safety.className = 'scoreboard-safety';
+                safety.textContent = 'Report';
+                safety.setAttribute?.('aria-label', `Mute or report ${p.name}`);
+                safety.addEventListener?.('click', () => this.onPlayerSafety?.(p));
+                action.appendChild(safety);
+            } else action.textContent = '-';
+            row.appendChild(action);
             tbody.appendChild(row);
         });
     }
@@ -1237,6 +1248,10 @@ export class UI {
         const wins = Math.max(0, stats.totalWins || 0);
         const winRate = games ? Math.round(wins / games * 100) : 0;
         const contracts = store.getSeasonContracts();
+        const rankedState = store.get('rankedState') || {};
+        const season = rankedState.season || {};
+        const history = Array.isArray(rankedState.history) ? rankedState.history.slice(-5).reverse() : [];
+        const placementGames = Math.min(5, Number(season.placementGames) || 0);
         const formatTime = value => value ? `${(value / 1000).toFixed(2)}s` : 'No record';
         el.innerHTML = `
             <div class="career-dashboard">
@@ -1262,6 +1277,11 @@ export class UI {
                     <div class="career-milestone-card"><span class="shell-kicker">RALLY</span><strong>${stats.bestRally || 0}</strong><p>Best rally chain</p></div>
                     <div class="career-milestone-card"><span class="shell-kicker">RANKED</span><strong>${stats.rankedGames || 0}</strong><p>Competitive matches</p></div>
                     <div class="career-milestone-card"><span class="shell-kicker">MASTERY</span><strong>${store.get('level') || 1}</strong><p>Account level</p></div>
+                </section>
+                <section class="career-season-history">
+                    <header><span class="shell-kicker">COMPETITIVE</span><h2>${season.name || 'Launch Season'}</h2><small>Placements ${placementGames}/5</small></header>
+                    <div class="career-placement-track"><i style="width:${placementGames * 20}%"></i></div>
+                    <div class="career-history-list">${history.length ? history.map(match => `<div><b class="${match.won ? 'win' : 'loss'}">${match.won ? 'WIN' : 'LOSS'}</b><span>${match.mode || 'competitive'} - ${match.map || 'arena'}</span><strong>${match.delta >= 0 ? '+' : ''}${match.delta || 0} ELO</strong></div>`).join('') : '<p>Complete competitive matches to build your history.</p>'}</div>
                 </section>
                 <section class="career-contracts">
                     <header><span class="shell-kicker">LAUNCH SEASON</span><h2>Season Contracts</h2></header>
@@ -1378,7 +1398,7 @@ export class UI {
                     ${highlights.length ? `<div class="replay-highlights">${highlights.map((highlight, highlightIndex) =>
                         `<button class="replay-highlight" data-index="${index}" data-highlight="${highlightIndex}">
                             <span>HIGHLIGHT ${highlightIndex + 1}</span><b>${highlight.label}</b>
-                        </button>`
+                        </button><button class="replay-highlight-copy" data-index="${index}" data-highlight="${highlightIndex}" aria-label="Copy highlight ${highlightIndex + 1}">Copy</button>`
                     ).join('')}</div>` : '<small class="replay-no-highlight">No highlight event detected</small>'}
                 </div>
                 <div class="btn-row">

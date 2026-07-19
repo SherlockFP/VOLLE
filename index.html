@@ -334,6 +334,7 @@
                 <input id="lobby-name-input" class="cs-lobby-name-input" type="text" maxlength="32" placeholder="Lobby Name" value="Lobby" spellcheck="false">
             </div>
             <div class="cs-top-info"><span id="cs-lobby-mode">Classic</span> — <span id="cs-lobby-map">Beach</span></div>
+            <label class="lobby-region">REGION <select id="lobby-region"><option value="auto">Auto</option><option value="eu">Europe</option><option value="na">North America</option><option value="asia">Asia</option></select></label><b id="lobby-network-status" aria-live="polite">CONNECTED</b>
             <button id="btn-lobby-back" class="cs-btn-back">← Leave</button>
         </div>
 
@@ -1161,6 +1162,7 @@
                             <th>Score</th>
                             <th>Deflects</th>
                             <th>Hits</th>
+                            <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody id="scoreboard-body"></tbody>
@@ -1169,6 +1171,10 @@
             <span class="scoreboard-hint">Hold Tab to view</span>
         </div>
     </div>
+
+    <aside id="network-diagnostics" class="network-diagnostics" aria-live="polite">
+        <span>NETWORK</span><b id="network-diagnostics-value">OFFLINE</b>
+    </aside>
 
     <!-- ===== GAME OVER ===== -->
     <div id="game-over-screen" class="screen hidden">
@@ -1187,6 +1193,7 @@
                         <th>Score</th>
                         <th>Deflects</th>
                         <th>Hits</th>
+                        <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody id="scoreboard-body-final"></tbody>

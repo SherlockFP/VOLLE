@@ -2356,6 +2356,7 @@ export class Game {
     addChatMessage(name, text) {
         // ponytail: strip HTML at input boundary, not just at render
         const safe = text.replace(/<[^>]*>/g, '');
+        if (window.__store?.get?.('mutedPlayers')?.includes(name)) return;
         this.chatMessages.push({ name, text: safe, time: Date.now() });
         if (this.chatMessages.length > 50) this.chatMessages.shift();
         this.ui.addChatMessage(name, safe);

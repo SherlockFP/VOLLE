@@ -159,6 +159,27 @@ function box(group, size, position, color, options = {}) {
     return mesh;
 }
 
+function createNameplate(name) {
+    if (typeof document === 'undefined' || !THREE.Sprite || !THREE.CanvasTexture) return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 64;
+    const context = canvas.getContext('2d');
+    if (!context) return null;
+    context.font = '700 26px sans-serif';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillStyle = 'rgba(3, 18, 30, .76)';
+    context.roundRect?.(14, 10, 228, 44, 16);
+    context.fill();
+    context.fillStyle = '#eaffff';
+    context.fillText(String(name).slice(0, 24), 128, 33);
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthTest: false }));
+    sprite.scale.set(2.8, .7, 1);
+    sprite.position.set(0, 3.7, 0);
+    return sprite;
+}
+
 export class SocialLobby {
     constructor(renderer, player, options = {}) {
         this.renderer = renderer;
@@ -379,6 +400,8 @@ export class SocialLobby {
                 box(group, [1, 1, 1], [0, 2.75, 0], 0xffd3ad);
             }
             group.userData.displayName = String(state.name || id).slice(0, 24);
+            const nameplate = createNameplate(group.userData.displayName);
+            if (nameplate) group.add(nameplate);
             this.root.add(group);
             visitor = { group, mixer: null, local: false };
             this.visitors.set(key, visitor);
