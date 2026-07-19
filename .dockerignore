@@ -1,0 +1,13 @@
+.git
+.github
+.opencode
+.serena
+graphify-out
+docs
+design-system
+tests
+CLAUDE.md
+MIMO.md
+PLAN.md
+node_modules
+npm-debug.log
