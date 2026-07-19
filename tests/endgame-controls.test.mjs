@@ -82,7 +82,7 @@ test('match completion awards exactly five coins for wins and one for losses', a
 
 test('every non-practice match records an ELO result', async () => {
     const source = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
-    const rewards = source.slice(source.indexOf('awardMatchRewards()'), source.indexOf('// ponytail: mouse-follow'));
+    const rewards = source.slice(source.indexOf('    awardMatchRewards() {'), source.indexOf('// ponytail: mouse-follow'));
 
     assert.match(rewards, /const ranked = this\.store\.recordRankedMatch\(/);
     assert.doesNotMatch(rewards, /if \(this\._rankedMatch\) \{/);
