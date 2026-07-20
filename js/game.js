@@ -1561,9 +1561,6 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         if (effectiveDt === 0 && this.state !== STATES.CELEBRATION) return; // hit-stop: dünya donar (ama celebration'da değil)
         dt = effectiveDt || dt;
 
-        // Vignette — red overlay at low HP
-        this.juice.updateVignette(this.player.hp, this.player.maxHp);
-
         // Time scale (console: sv_timescale)
         if (this._timeScale && this._timeScale !== 1) dt *= this._timeScale;
 
@@ -1832,21 +1829,6 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             const isTarget = p === target && this.ball.active;
             p.setTargetOutline?.(isTarget);
         });
-        // Player target indicator — incoming!
-        const playerTargeted = target === this.player && this.ball.active;
-        const playerTargetDistance = this.ball.active
-            ? this.ball.distanceTo(this.player.getPosition())
-            : Infinity;
-        this.ui.setPlayerTarget(playerTargeted, this.ball.currentSpeed, playerTargetDistance);
-        this.audio?.updateThreatAudio?.({
-            active: this.state === STATES.PLAYING
-                && playerTargeted
-                && this.player.alive !== false
-                && !this._spectateTarget,
-            distance: playerTargetDistance,
-            speed: this.ball.currentSpeed
-        });
-
         // Player skill tuşu (Q) — tap = skill, hold 2s = ultimate
         if (!this._skillsDisabled && this.player.keys['KeyQ'] && this.player.ultimateCharge >= 100 && !this.player.ultimateActive) {
             this.player._qHoldTimer = (this.player._qHoldTimer || 0) + dt;
@@ -3952,7 +3934,15 @@ spawnPowerUp() {
         // ponytail: trust client range check; also accept if near authoritative ball pos
         // (client ball render lags via smoothing, so clientBallPos can desync from host ball)
         const hostBallDist = attackPos.distanceTo(this.ball.position);
-        if (hostBallDist < this.ball.attackRange * 3.5 || attackPos.distanceTo(clientBallPos) < this.ball.attackRange * 2) {
+        const clientBallDist = attackPos.distanceTo(clientBallPos);
+        const reportedPing = Math.min(250, Math.max(0, Number(data.ping) || 0));
+        const latencyAllowance = Math.min(
+            10,
+            (reportedPing / 1000) * Math.max(15, this.ball.currentSpeed || 0)
+        );
+        const hostRange = this.ball.attackRange * 3.5 + latencyAllowance;
+        const predictionRange = this.ball.attackRange * 2.5 + latencyAllowance * 0.35;
+        if (hostBallDist <= hostRange || clientBallDist <= predictionRange) {
             this._lastRemoteAttack[playerId] = now;
             if (this._pendingLethalHit) {
                 clearTimeout(this._pendingLethalHit);

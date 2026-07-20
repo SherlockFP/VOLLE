@@ -26,6 +26,7 @@ const RATE_LIMITS = {
     reward: [30, 60000],
     mapRead: [90, 60000],
     mapWrite: [10, 60000],
+    mapVote: [30, 60000],
     lobbyWrite: [30, 60000],
     paymentWebhook: [40, 60000],
     telemetry: [120, 60000]
@@ -223,15 +224,29 @@ const server = http.createServer(async (req, res) => {
         if (!allowRequest(req, res, 'mapRead')) return;
         const params = new URLSearchParams(req.url.split('?')[1] || '');
         const mine = params.get('mine') === '1';
-        const profile = mine ? profiles.authenticate(bearer(req)) : null;
+        const profile = profiles.authenticate(bearer(req));
         if (mine && !profile) { sendJson(res, { error: 'unauthorized' }, 401); return; }
         sendJson(res, creatorMaps.list({
             creatorId: profile?.id || '',
+            viewerId: profile?.id || '',
             cursor: params.get('cursor'),
             limit: params.get('limit'),
             query: params.get('q'),
             sort: params.get('sort')
         }));
+        return;
+    }
+    if (urlPath.startsWith('/api/maps/') && urlPath.endsWith('/vote') && req.method === 'POST') {
+        if (!allowRequest(req, res, 'mapVote')) return;
+        const profile = profiles.authenticate(bearer(req));
+        if (!profile) { sendJson(res, { error: 'unauthorized' }, 401); return; }
+        const encodedId = urlPath.slice('/api/maps/'.length, -'/vote'.length);
+        if (!encodedId) { sendJson(res, { error: 'map not found' }, 404); return; }
+        const body = await readBody(req, 1024);
+        if (body.__bodyTooLarge) { sendJson(res, { error: 'payload too large' }, 413); return; }
+        if (body.__invalidJson) { sendJson(res, { error: 'invalid json' }, 400); return; }
+        const result = creatorMaps.vote(profile, decodeURIComponent(encodedId), Number(body.value));
+        sendJson(res, result.error ? { error: result.error } : { map: result.map }, result.status);
         return;
     }
     if (urlPath.startsWith('/api/maps/') && urlPath.endsWith('/moderate') && req.method === 'POST') {

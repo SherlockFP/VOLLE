@@ -26,12 +26,13 @@ export const CASES = Object.freeze({
     chroma: Object.freeze({
         id: 'chroma', name: 'Chroma Case', price: 180,
         drops: Object.freeze([
-            { id: 'tide', weight: 24 }, { id: 'flare', weight: 24 }, { id: 'prism', weight: 18 },
+            { id: 'tide', weight: 22 }, { id: 'flare', weight: 22 }, { id: 'prism', weight: 17 },
             { id: 'crimson_web', weight: 6 }, { id: 'doppler', weight: 2 },
-            { id: 'samurai', type: 'avatar', rarity: 'rare', weight: 11 },
-            { id: 'moss', type: 'avatar', rarity: 'rare', weight: 9 },
+            { id: 'samurai', type: 'avatar', rarity: 'rare', weight: 10 },
+            { id: 'moss', type: 'avatar', rarity: 'rare', weight: 8 },
             { id: 'striker', type: 'avatar', rarity: 'epic', weight: 4 },
-            { id: 'void', type: 'avatar', rarity: 'epic', weight: 2 }
+            { id: 'void', type: 'avatar', rarity: 'epic', weight: 2 },
+            { id: 'circuit', type: 'avatar', rarity: 'rare', weight: 7 }
         ])
     }),
     arsenal: Object.freeze({

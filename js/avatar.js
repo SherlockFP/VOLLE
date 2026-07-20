@@ -39,6 +39,7 @@ export const AVATAR_SKINS = Object.freeze({
     striker: skin('striker', 'Neon Striker', 500, 'slim', null, '#e8d4b8', '#2be0d2', '#125f99', '#17274d'),
     void: skin('void', 'Void Runner', 600, 'slim', null, '#b9a3ff', '#211447', '#7e4bd5', '#0d1028'),
     royal: skin('royal', 'Royal Guard', 750, 'classic', null, '#f4d5ad', '#7045c9', '#f1c55e', '#23214c'),
+    circuit: skin('circuit', 'Circuit Vanguard', 650, 'slim', null, '#c7fff1', '#103a4d', '#36d8ca', '#131b37'),
     blue_default: skin('blue_default', 'Blue Current', 0, 'classic', 'blue', '#e2bd98', '#2469d8', '#67d8ff', '#142e68'),
     red_guard: skin('red_guard', 'Red Current', 0, 'classic', 'red', '#e2bd98', '#d83d49', '#ff806f', '#651c2a')
 });

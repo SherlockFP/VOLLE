@@ -18,7 +18,7 @@ const CATALOG = {
         stam_regen: 80, cooldown_red: 80, lifesteal: 80, thorns: 80
     },
     avatar: {
-        neon: 250, samurai: 350, frost: 300
+        neon: 250, samurai: 350, frost: 300, circuit: 650
     }
 };
 

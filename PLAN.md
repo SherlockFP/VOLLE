@@ -248,6 +248,31 @@ Deliverables:
 - Creator analytics.
 - Fraud-resistant creator reward model after sufficient player scale.
 
+### Active creator content stream
+
+This is pre-beta work. It does not unlock creator payouts, paid map placement or
+unreviewed public publishing.
+
+- Workshop discovery: approved-map browsing, search, newest/name/trending sort
+  and per-account upvote/downvote state.
+- Voting integrity: map creators cannot vote for their own map; only aggregate
+  totals are exposed; a new revision resets votes and returns to review.
+- Official content: `Circuit Dome` is a symmetric indoor competitive map using
+  existing procedural neon/cyber render paths, so it adds no model download or
+  texture streaming cost.
+- Cosmetic content: `Circuit Vanguard` is a direct 650-coin purchase and a
+  disclosed 7% Chroma Case drop. Coins and cases remain earnable through play.
+- Next beta work: report/takedown flow, approved-map thumbnails and tags,
+  featured rotation rules, creator analytics and moderation tooling.
+
+Acceptance checks for the active stream:
+
+- Public workshop cards never reveal another player's individual vote.
+- A player cannot vote for their own map.
+- Workshop ranking remains deterministic for equal scores.
+- Official maps preserve map metadata, spectator bounds and low-quality paths.
+- Cosmetic unlocks affect appearance only, never hitboxes or gameplay stats.
+
 ## 6. Queue strategy
 
 Launch queues:
@@ -366,4 +391,3 @@ Every implementation item records:
 11. Creator beta.
 
 Detailed task state lives in `docs/V3_BACKLOG.md`.
-

@@ -2318,6 +2318,20 @@ body.cl-hud-hidden :is(#hud,#scoreboard-overlay,#network-diagnostics,#speaker-in
 .cs-bottom { gap:14px; }.cs-btn-start { min-width:0; max-width:100%; white-space:nowrap; }
 @media (max-width:700px) { .leaderboard-header { align-items:flex-start; }.leaderboard-mark { min-width:54px; border-radius:14px; }.leaderboard-shell #leaderboard-table th,.leaderboard-shell #leaderboard-table td { padding:11px 12px; }.leaderboard-your-rank { grid-template-columns:1fr auto; }.leaderboard-your-rank b,.leaderboard-your-rank em { text-align:right; }.cs-bottom { display:grid; grid-template-columns:1fr; padding:10px; }.cs-bottom-left,.cs-bottom-right { justify-content:center; }.cs-btn-start { width:100%; padding:14px 12px; font-size:1rem; letter-spacing:.12em; } }
 
+/* Guest clients need only teams, readiness and chat; host-only match controls stay out of view. */
+#lobby-screen.lobby-client .cs-lobby-host-controls { display: none; }
+#lobby-screen.lobby-client .cs-center { min-height: 0; }
+.lobby-chat-input-row { min-width: 0; gap: 8px; padding: 7px; border: 1px solid rgba(96, 222, 222, .24); border-radius: 12px; background: rgba(2, 15, 29, .72); }
+#lobby-chat-input { min-width: 0; min-height: 40px; padding: 9px 11px; border-color: rgba(105, 218, 221, .32); border-radius: 8px; background: rgba(5, 31, 47, .94); color: #e8ffff; }
+#lobby-chat-input::placeholder { color: #77aeb8; }
+#lobby-chat-input:focus { border-color: #62e8dc; box-shadow: 0 0 0 3px rgba(69, 214, 205, .15); }
+.cs-btn-chat-send { flex: 0 0 44px; min-height: 40px; padding: 0; border: 1px solid #55d9d0; border-radius: 8px; color: #03171f; background: #76eee1; }
+.leaderboard-shell #leaderboard-table th { color: #b3eef0; background: #0a3043; }
+.leaderboard-shell #leaderboard-table td { color: #d7f5f4; background: rgba(3, 18, 34, .36); }
+.leaderboard-shell #leaderboard-table tbody tr:nth-child(even) td { background: rgba(8, 39, 54, .56); }
+.leaderboard-shell #leaderboard-table tbody tr:hover td { color: #ffffff; background: rgba(23, 100, 112, .62); }
+@media (max-width: 700px) { .lobby-chat-input-row { padding: 6px; } }
+
 /* vNext competitive, community and cosmetic command surfaces. */
 .command-overlay { position:fixed; inset:0; z-index:760; display:grid; place-items:center; padding:20px; background:rgba(1,9,19,.84); backdrop-filter:blur(13px); }
 .command-overlay.hidden { display:none; }
@@ -2593,6 +2607,9 @@ body.photo-mode #hud,body.photo-mode #scoreboard-overlay,body.photo-mode .networ
     outline: none;
     background: rgba(1,17,29,.76);
 }
+.workshop-sort { display: grid; gap: 4px; color: #82b8bd; font-size: .62rem; font-weight: 900; letter-spacing: .11em; text-transform: uppercase; }
+.workshop-sort select { min-height: 44px; padding: 0 28px 0 12px; color: #effffd; border: 1px solid rgba(105,227,218,.28); border-radius: 9px; outline: none; background: rgba(1,17,29,.76); }
+.workshop-sort select:focus { border-color: #5de8dc; box-shadow: 0 0 0 3px rgba(93,232,220,.12); }
 .workshop-search input:focus { border-color: #5de8dc; box-shadow: 0 0 0 3px rgba(93,232,220,.12); }
 .map-workshop-controls .btn { min-height: 44px; }
 .map-workshop-controls .btn[aria-pressed="true"] {
@@ -2663,6 +2680,8 @@ body.photo-mode #hud,body.photo-mode #scoreboard-overlay,body.photo-mode .networ
     font-size: .66rem;
 }
 .workshop-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: auto; }
+.workshop-votes { display: grid; grid-column: 1 / -1; grid-template-columns: 1fr 1fr; gap: 7px; }
+.workshop-vote[aria-pressed="true"] { color: #071d27; border-color: #74fff0; background: #74fff0; }
 .workshop-actions .btn { min-height: 44px; padding: 8px; font-size: .68rem; }
 @media (max-width: 760px) {
     .map-workshop { padding: 13px; }

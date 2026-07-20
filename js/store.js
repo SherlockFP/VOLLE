@@ -335,7 +335,7 @@ class StoreClass {
                 q: String(query || '').slice(0, 48),
                 sort: ['newest', 'oldest', 'name'].includes(sort) ? sort : 'newest'
             });
-            const headers = mine && this.profileToken
+            const headers = this.profileToken
                 ? { 'Authorization': `Bearer ${this.profileToken}` }
                 : {};
             const response = await fetch(`/api/maps?${params}`, { headers });
@@ -361,6 +361,28 @@ class StoreClass {
             return result.map || null;
         } catch {
             return null;
+        }
+    }
+
+    async votePublishedMap(mapId, value) {
+        if (!this.remoteReady || typeof mapId !== 'string' || !mapId || ![-1, 0, 1].includes(value)) {
+            return { ok: false, error: 'Workshop vote unavailable' };
+        }
+        try {
+            const response = await fetch(`/api/maps/${encodeURIComponent(mapId)}/vote`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${this.profileToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ value })
+            });
+            const result = await response.json();
+            return response.ok
+                ? { ok: true, map: result.map }
+                : { ok: false, error: result.error || 'Vote failed' };
+        } catch {
+            return { ok: false, error: 'Workshop vote unavailable' };
         }
     }
 

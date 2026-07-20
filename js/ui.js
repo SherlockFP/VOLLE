@@ -1260,7 +1260,8 @@ export class UI {
             const stop = overlay.querySelector('.case-reel-window').clientWidth / 2
                 - (selected.offsetLeft + selected.offsetWidth / 2);
             track.style.setProperty('--case-reel-stop', `${Math.round(stop)}px`);
-            track.classList.add('spin');
+            track.getBoundingClientRect();
+            requestAnimationFrame(() => track.classList.add('spin'));
         });
         const timer = setTimeout(finish, 3700);
         document.getElementById('case-reel-skip')?.addEventListener('click', () => { clearTimeout(timer); finish(); }, { once: true });

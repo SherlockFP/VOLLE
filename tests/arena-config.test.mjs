@@ -22,9 +22,11 @@ const {
 test('new procedural arenas expose stable IDs and mechanic metadata', () => {
     assert.equal(MAPS.dropworks.isVerticalDrop, true);
     assert.equal(MAPS.grand_stadium.isStadium, true);
+    assert.equal(MAPS.circuit_dome.isCyber, true);
     assert.ok(MAPS.dropworks.gameplay.mechanics.includes('vertical-drop'));
     assert.ok(MAPS.dropworks.gameplay.mechanics.includes('fall-death'));
     assert.ok(MAPS.grand_stadium.gameplay.mechanics.includes('stadium-bounds'));
+    assert.deepEqual(MAPS.circuit_dome.gameplay.mechanics, ['symmetric-lanes', 'clear-sightlines', 'pulse-rail']);
 });
 
 test('every map exposes spectator, gameplay, and procedural sky metadata', () => {

@@ -987,12 +987,12 @@ class App {
             this.ui.showScreen('practiceMenu');
         });
         bind('btn-guided-deflect', () => this.startGuidedDeflectDrill());
-        bind('btn-free-practice', () => this.startPractice());
+        bind('btn-free-practice', () => this.startPractice({ launch: true }));
         bind('btn-practice-back', () => this.ui.showScreen('mainMenu'));
         bind('btn-drill-retry', () => this.startGuidedDeflectDrill());
         bind('btn-drill-free-lab', () => {
             document.getElementById('guided-drill-result')?.classList.add('hidden');
-            this.startPractice();
+            this.startPractice({ launch: true });
         });
         bind('btn-drill-menu', () => {
             this._exitPracticeSession();
@@ -1160,10 +1160,24 @@ class App {
         document.getElementById('workshop-search')?.addEventListener('keydown', event => {
             if (event.key === 'Enter') this.refreshWorkshop(this.workshopMine === true);
         });
+        document.getElementById('workshop-sort')?.addEventListener('change', () => {
+            this.refreshWorkshop(this.workshopMine === true);
+        });
         document.getElementById('map-workshop-grid')?.addEventListener('click', async event => {
             const button = event.target.closest('button[data-workshop-action]');
             if (!button) return;
             button.disabled = true;
+            if (button.dataset.workshopAction === 'vote') {
+                if (!this.store.remoteReady) await this.store.connectRemote(this.store.get('playerName'));
+                const result = await this.store.votePublishedMap(
+                    button.dataset.mapId,
+                    Number(button.dataset.voteValue)
+                );
+                if (result.ok) await this.refreshWorkshop(this.workshopMine === true);
+                else document.getElementById('map-workshop-status').textContent = result.error;
+                button.disabled = false;
+                return;
+            }
             await this.openWorkshopMap(
                 button.dataset.mapId,
                 button.dataset.mine === '1',
@@ -1944,13 +1958,15 @@ bind('carousel-next', () => {
 const updateCSLobbyInfo = () => {
             const mapEl = document.getElementById('cs-lobby-map');
             const modeEl = document.getElementById('cs-lobby-mode');
+    const host = this.isLobbyHost();
+    document.getElementById('lobby-screen')?.classList.toggle('lobby-client', !host);
     if (mapEl) mapEl.textContent = this.arena?.config?.name || 'Beach';
     if (modeEl) modeEl.textContent = this.game?.mode?.name || 'Classic';
     document.querySelectorAll('.mode-btn').forEach(button => {
         const selected = button.dataset.mode === this.game?.mode?.id;
         button.classList.toggle('selected', selected);
         button.setAttribute('aria-pressed', String(selected));
-        button.disabled = !this.isLobbyHost();
+        button.disabled = !host;
     });
     const keys = this.game.getSelectableMaps();
     const selectedMapIndex = keys.indexOf(this.arena?.mapId);
@@ -2990,7 +3006,8 @@ updateCSLobbyInfo();
             await this.store.connectRemote(this.store.get('playerName'));
         }
         const query = document.getElementById('workshop-search')?.value || '';
-        const result = await this.store.listPublishedMaps({ mine, query, limit: 24 });
+        const sort = document.getElementById('workshop-sort')?.value || 'trending';
+        const result = await this.store.listPublishedMaps({ mine, query, sort, limit: 24 });
         if (result.error) {
             if (status) status.textContent = result.error;
             return;
@@ -3022,7 +3039,7 @@ updateCSLobbyInfo();
 
             const creator = document.createElement('p');
             creator.className = 'workshop-creator';
-            creator.textContent = `by ${map.creatorName} | v${map.revision} | ${map.propCount} props`;
+            creator.textContent = `by ${map.creatorName} | v${map.revision} | ${map.propCount} props | score ${map.score || 0}`;
             const description = document.createElement('p');
             description.className = 'workshop-description';
             description.textContent = map.description || 'Competitive arena prototype.';
@@ -3037,6 +3054,23 @@ updateCSLobbyInfo();
 
             const actions = document.createElement('div');
             actions.className = 'workshop-actions';
+            if (!mine) {
+                const votes = document.createElement('div');
+                votes.className = 'workshop-votes';
+                for (const [value, label] of [[1, 'Upvote'], [-1, 'Downvote']]) {
+                    const vote = document.createElement('button');
+                    vote.type = 'button';
+                    vote.className = 'btn btn-secondary workshop-vote';
+                    vote.dataset.workshopAction = 'vote';
+                    vote.dataset.mapId = map.id;
+                    vote.dataset.voteValue = String(value);
+                    vote.setAttribute('aria-pressed', String(map.viewerVote === value));
+                    vote.textContent = value > 0 ? `+ ${map.upvotes || 0}` : `- ${map.downvotes || 0}`;
+                    vote.setAttribute('aria-label', `${label} ${map.name}`);
+                    votes.append(vote);
+                }
+                actions.append(votes);
+            }
             for (const [action, label] of [['open', 'Open in Editor'], ['play', 'Play Solo']]) {
                 const button = document.createElement('button');
                 button.type = 'button';
@@ -3560,7 +3594,7 @@ updateCarousel() {
         this.player.lock();
     }
 
-    startPractice() {
+    startPractice({ launch = false } = {}) {
         this._capturePracticeSession();
         this.game.cancelGuidedDrill();
         this.game.clearPowerUps?.();
@@ -3582,6 +3616,10 @@ updateCarousel() {
         this._updatePracticeLab(this.game.practiceMetrics.summary());
         document.getElementById('practice-lab-hud')?.classList.remove('hidden');
         this.ui.showScreen('lobby');
+        if (launch) {
+            this.game.startGame();
+            this.player.lock();
+        }
         // Practice lobby'sinde farklı butonlar göster
         this.ui.showMessage?.('Practice Lab: R spawn, F reposition, T reset', 3000);
     }

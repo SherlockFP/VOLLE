@@ -58,6 +58,16 @@ export const MAPS = {
         hasOcean: false, hasGlass: true, isNeon: true, size: 'medium',
         hasPortals: true, weather: 'rain', openSides: true
     },
+    circuit_dome: {
+        name: 'Circuit Dome',
+        courtWidth: 82, courtLength: 96, wallHeight: 20, ceilingHeight: 30,
+        floorRed: 0x153f57, floorBlue: 0x174f71, wallColor: 0x35d9cc,
+        skyTop: 0x061a2d, skyBottom: 0x123a50, fogColor: 0x0c2c42,
+        hasOcean: false, hasGlass: true, isNeon: true, isCyber: true, size: 'medium',
+        weather: 'indoor', openSides: false,
+        gameplay: { mechanics: ['symmetric-lanes', 'clear-sightlines', 'pulse-rail'], fallDeathY: -12 },
+        sky: { horizonColor: 0x123a50, sun: false, sunColor: 0xffffff, cloudAmount: 0 }
+    },
     dojo: {
         courtWidth: 90, courtLength: 62, wallHeight: 17, ceilingHeight: 24,
         floorRed: 0x8B4513, floorBlue: 0x6e3b10, wallColor: 0x654321, fogColor: 0x87CEEB,
@@ -372,6 +382,7 @@ export const MAP_THEMES = {
     industrial:   { '--ui-primary': '#d85c5c', '--ui-secondary': '#5c7fe0', '--ui-bg': '#1a1f2e', '--ui-accent': '#ff8844' },
     space:        { '--ui-primary': '#d04080', '--ui-secondary': '#4080d0', '--ui-bg': '#0a0a1e', '--ui-accent': '#ff66aa' },
     neon:         { '--ui-primary': '#ff3d81', '--ui-secondary': '#2de2e6', '--ui-bg': '#1a0e2e', '--ui-accent': '#ff44cc' },
+    circuit_dome: { '--ui-primary': '#b7ff43', '--ui-secondary': '#35d9cc', '--ui-bg': '#061a2d', '--ui-accent': '#e9ff9a' },
     dojo:         { '--ui-primary': '#cc9933', '--ui-secondary': '#996633', '--ui-bg': '#1a1410', '--ui-accent': '#ffaa44' },
     garden:       { '--ui-primary': '#44aa66', '--ui-secondary': '#88cc44', '--ui-bg': '#0e1a14', '--ui-accent': '#66ff99' },
     sunset:       { '--ui-primary': '#ff7744', '--ui-secondary': '#ffaa44', '--ui-bg': '#2e1810', '--ui-accent': '#ffaa66' },

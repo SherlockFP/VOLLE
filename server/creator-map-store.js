@@ -193,14 +193,28 @@ class CreatorMapStore {
         return crypto.createHash('sha256').update(JSON.stringify(config)).digest('hex');
     }
 
-    _summary(record) {
-        const { config, moderationNote, moderatedAt, ...summary } = record;
-        return { ...summary, propCount: config.props.length };
+    _voteSummary(record, viewerId = '') {
+        const votes = record.votes && typeof record.votes === 'object' ? record.votes : {};
+        const values = Object.values(votes);
+        const upvotes = values.filter(value => value === 1).length;
+        const downvotes = values.filter(value => value === -1).length;
+        return {
+            upvotes,
+            downvotes,
+            score: upvotes - downvotes,
+            viewerVote: viewerId ? votes[viewerId] || 0 : 0
+        };
     }
 
-    _ownerSummary(record) {
+    _summary(record, viewerId = '') {
+        const { config, moderationNote, moderatedAt, ...summary } = record;
+        delete summary.votes;
+        return { ...summary, propCount: config.props.length, ...this._voteSummary(record, viewerId) };
+    }
+
+    _ownerSummary(record, viewerId = '') {
         return {
-            ...this._summary(record),
+            ...this._summary(record, viewerId),
             moderationNote: record.moderationNote || '',
             moderatedAt: record.moderatedAt || null
         };
@@ -236,6 +250,7 @@ class CreatorMapStore {
                 status: 'pending',
                 revision: 1,
                 checksum,
+                votes: {},
                 config: validation.config,
                 createdAt: now,
                 updatedAt: now
@@ -252,6 +267,7 @@ class CreatorMapStore {
             delete record.moderatedAt;
             record.revision = Math.max(1, Number(record.revision) || 1) + 1;
             record.checksum = checksum;
+            record.votes = {};
             record.config = validation.config;
             record.updatedAt = Date.now();
         }
@@ -259,7 +275,7 @@ class CreatorMapStore {
         return { status: 201, map: this._summary(record), replayed: false };
     }
 
-    list({ creatorId = '', cursor = 0, limit = 20, query = '', sort = 'newest' } = {}) {
+    list({ creatorId = '', viewerId = '', cursor = 0, limit = 20, query = '', sort = 'newest' } = {}) {
         const safeCursor = Math.max(0, Math.floor(Number(cursor) || 0));
         const safeLimit = Math.max(1, Math.min(50, Math.floor(Number(limit) || 20)));
         const safeQuery = typeof query === 'string' ? query.trim().slice(0, 48).toLowerCase() : '';
@@ -271,13 +287,18 @@ class CreatorMapStore {
                 record.description
             ].some(value => String(value || '').toLowerCase().includes(safeQuery)))
             .sort((a, b) => {
+                if (sort === 'trending') {
+                    const scoreDelta = this._voteSummary(b).score - this._voteSummary(a).score;
+                    if (scoreDelta) return scoreDelta;
+                    return b.updatedAt - a.updatedAt;
+                }
                 if (sort === 'oldest') return a.createdAt - b.createdAt;
                 if (sort === 'name') return a.name.localeCompare(b.name);
                 return b.updatedAt - a.updatedAt;
             });
         const summarize = creatorId
-            ? record => this._ownerSummary(record)
-            : record => this._summary(record);
+            ? record => this._ownerSummary(record, viewerId)
+            : record => this._summary(record, viewerId);
         const page = maps.slice(safeCursor, safeCursor + safeLimit).map(summarize);
         const next = safeCursor + page.length;
         return {
@@ -294,10 +315,25 @@ class CreatorMapStore {
         return {
             status: 200,
             map: {
-                ...(record.creatorId === requesterId ? this._ownerSummary(record) : this._summary(record)),
+                ...(record.creatorId === requesterId
+                    ? this._ownerSummary(record, requesterId)
+                    : this._summary(record, requesterId)),
                 config: record.config
             }
         };
+    }
+
+    vote(profile, id, value) {
+        const record = this.records[id];
+        if (!record || record.status !== 'approved') return { status: 404, error: 'map not found' };
+        if (!profile?.id || profile.id === record.creatorId) return { status: 403, error: 'creator cannot vote' };
+        if (![1, -1, 0].includes(value)) return { status: 400, error: 'invalid vote' };
+        record.votes = record.votes && typeof record.votes === 'object' ? record.votes : {};
+        if (value === 0) delete record.votes[profile.id];
+        else record.votes[profile.id] = value;
+        record.updatedAt = Date.now();
+        this._save();
+        return { status: 200, map: this._summary(record, profile.id) };
     }
 
     moderate(id, status, note = '') {

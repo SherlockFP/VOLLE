@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Warrball - Competitive Ball Combat</title>
     <meta name="description" content="Warrball is a fast, competitive first-person ball combat game. Master movement, classes, and the arena.">
-    <link rel="icon" type="image/png" href="assets/generated/warrball-logo.png">
+    <link rel="icon" type="image/png" href="assets/generated/warrball-logo-v2.png">
     <link rel="stylesheet" href="css/style.css?v=1.74">
     <link rel="stylesheet" href="css/ui-tokens.css?v=1">
     <link rel="stylesheet" href="css/ui-shell.css?v=1">
@@ -48,7 +48,7 @@
     <!-- Loading Screen -->
     <div id="loading-screen">
         <div class="loading-content">
-            <img class="brand-mark brand-mark-loading" src="assets/generated/warrball-logo.png" alt="">
+            <img class="brand-mark brand-mark-loading" src="assets/generated/warrball-logo-v2.png" alt="">
             <div class="loading-logo">WARRBALL</div>
             <div class="loading-bar-track"><div class="loading-bar-fill"></div></div>
             <div class="loading-status">Loading assets...</div>
@@ -61,7 +61,7 @@
                 <span></span><i></i><b></b>
             </div>
             <div class="match-loading-copy">
-                <img class="brand-mark brand-mark-match" src="assets/generated/warrball-logo.png" alt="">
+                <img class="brand-mark brand-mark-match" src="assets/generated/warrball-logo-v2.png" alt="">
                 <span id="match-loading-mode">CLASSIC</span>
                 <h2 id="match-loading-map">BEACH OPEN</h2>
                 <p id="match-loading-tip">Tip: move after every throw.</p>
@@ -142,7 +142,7 @@
                 </div>
                 <div class="ow-splash">
                     <span class="ow-kicker">WELCOME TO THE ARENA</span>
-                    <img class="brand-mark brand-mark-menu" src="assets/generated/warrball-logo.png" alt="Warrball emblem">
+                    <img class="brand-mark brand-mark-menu" src="assets/generated/warrball-logo-v2.png" alt="Warrball emblem">
                     <div class="ow-logo">WARRBALL</div>
                     <div class="ow-tagline">FIRST PERSON DODGEBALL</div>
                     <div class="ow-mode-chip" id="menu-mode-status"><span>QUICK PLAY</span><b>Create or join a lobby</b></div>
@@ -357,7 +357,7 @@
     <div id="lobby-screen" class="screen hidden">
         <!-- Top bar -->
         <div class="cs-topbar">
-            <div class="cs-roomcode"><img class="brand-mark brand-mark-room" src="assets/generated/warrball-logo.png" alt=""> Room: <span id="room-code">LOCAL</span></div>
+            <div class="cs-roomcode"><img class="brand-mark brand-mark-room" src="assets/generated/warrball-logo-v2.png" alt=""> Room: <span id="room-code">LOCAL</span></div>
             <div class="cs-lobby-name">
                 <input id="lobby-name-input" class="cs-lobby-name-input" type="text" maxlength="32" placeholder="Lobby Name" value="Lobby" spellcheck="false">
             </div>
@@ -380,7 +380,7 @@
             <!-- CENTER: Map/Mode/Settings -->
             <div class="cs-center">
                 <!-- Map Selection Carousel -->
-                <div class="cs-section">
+                <div class="cs-section cs-lobby-host-controls">
                     <div class="cs-section-title">MAP</div>
                     <div class="map-carousel">
                         <button class="carousel-btn carousel-prev" id="carousel-prev">◀</button>
@@ -400,7 +400,7 @@
                 </div>
 
                 <!-- Mode select -->
-                <div class="cs-section">
+                <div class="cs-section cs-lobby-host-controls">
                     <div class="cs-section-title">MODE</div>
     <div class="cs-mode-row" id="mode-select" role="group" aria-label="Game mode">
         <button type="button" class="cs-mode-btn mode-btn selected" data-mode="classic" aria-pressed="true">🏐 Classic</button>
@@ -419,7 +419,7 @@
                 </div>
 
                 <!-- Settings button (opens unified modal) -->
-                <div class="cs-section cs-section-settings">
+                <div class="cs-section cs-section-settings cs-lobby-host-controls">
                     <button id="btn-lobby-settings" class="cs-lobby-settings-btn">⚙ Settings</button>
                 </div>
 
@@ -813,6 +813,13 @@
                     <div class="map-workshop-controls">
                         <label class="workshop-search">Find arena
                             <input id="workshop-search" maxlength="48" placeholder="Name or creator">
+                        </label>
+                        <label class="workshop-sort">Sort
+                            <select id="workshop-sort" aria-label="Workshop map sorting">
+                                <option value="trending">Trending</option>
+                                <option value="newest">Newest</option>
+                                <option value="name">Name</option>
+                            </select>
                         </label>
                         <button id="btn-workshop-public" class="btn btn-secondary" aria-pressed="true">Approved</button>
                         <button id="btn-workshop-mine" class="btn btn-secondary" aria-pressed="false">My Maps</button>
