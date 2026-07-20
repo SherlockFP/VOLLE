@@ -12,6 +12,39 @@ import { Leaderboard } from './leaderboard.js';
 import { Arena } from './arena.js';
 
 const CHARACTER_ATLAS = 'assets/generated/characters/character-atlas.png';
+const BALL_BASE_SPEED = 17;
+
+export function getBallHeat(ballSpeed, baseSpeed = BALL_BASE_SPEED) {
+    const speed = Number.isFinite(ballSpeed) ? Math.max(0, ballSpeed) : 0;
+    const base = Number.isFinite(baseSpeed) && baseSpeed > 0 ? baseSpeed : BALL_BASE_SPEED;
+    const ratio = speed / base;
+    const level = ratio >= 3.5 ? 'critical' : ratio >= 2.25 ? 'danger' : ratio >= 1.35 ? 'warm' : 'track';
+    return {
+        speed,
+        ratio,
+        percent: Math.round(ratio * 100),
+        level,
+        label: level === 'critical' ? 'CRITICAL' : level === 'danger' ? 'DANGER' : level === 'warm' ? 'WARM' : 'BALL'
+    };
+}
+
+export function getBallThreat(isTarget, ballSpeed, distance) {
+    if (!isTarget) return { active: false, level: 'track', eta: Infinity, label: '' };
+    const heat = getBallHeat(ballSpeed);
+    const safeDistance = Number.isFinite(distance) ? Math.max(0, distance) : Infinity;
+    const eta = heat.speed > 0 ? safeDistance / heat.speed : Infinity;
+    const level = eta <= 0.45 || heat.level === 'critical'
+        ? 'critical'
+        : eta <= 0.85 || heat.level === 'danger'
+            ? 'danger'
+            : 'alert';
+    return {
+        active: true,
+        level,
+        eta,
+        label: Number.isFinite(eta) ? `INCOMING ${eta.toFixed(1)}S` : 'INCOMING'
+    };
+}
 
 function characterPortrait(index) {
     const x = (index % 4) * (100 / 3);
@@ -45,6 +78,14 @@ export class UI {
             tournament: document.getElementById('tournament-screen'),
             profile: document.getElementById('screen-profile')
         };
+        this.competitiveHUD = {
+            root: document.getElementById('hud-competitive-status'),
+            mode: document.getElementById('hud-competitive-mode'),
+            round: document.getElementById('hud-competitive-round'),
+            phase: document.getElementById('hud-competitive-phase'),
+            rules: document.getElementById('hud-competitive-rules')
+        };
+        this._competitiveHUDKey = '';
         this.initSettings();
     }
 
@@ -103,43 +144,53 @@ export class UI {
         Object.values(this.screens).forEach(s => { if (s) s.classList.add('hidden'); });
     }
 
-    showHUD() { if (this.screens.hud) this.screens.hud.classList.remove('hidden'); }
+    showHUD() {
+        this.updateCompetitiveHUD();
+        if (this.screens.hud) this.screens.hud.classList.remove('hidden');
+    }
     hideHUD() { if (this.screens.hud) this.screens.hud.classList.add('hidden'); }
 
     updateHUD(data) {
-        const { time, redScore, blueScore, ballSpeed } = data;
+        const { time, redScore, blueScore, ballSpeed, hotPotato, competitive } = data;
         const el = id => document.getElementById(id);
 
         if (el('hud-round-timer')) el('hud-round-timer').textContent = time;
         if (el('hud-score-red')) el('hud-score-red').textContent = redScore;
         if (el('hud-score-blue')) el('hud-score-blue').textContent = blueScore;
         if (el('hud-speed')) {
-            const pct = Math.round((ballSpeed / 17) * 100);
-            el('hud-speed').textContent = `🏐 ${pct}%`;
-            if (pct > 250) el('hud-speed').style.color = '#ff00ff';
-            else if (pct > 160) el('hud-speed').style.color = '#ff5555';
-            else if (pct > 120) el('hud-speed').style.color = '#ffaa33';
-            else el('hud-speed').style.color = '#55ff88';
-            // ponytail: danger pulse when ball is very fast
-            if (pct > 200) {
-                el('hud-speed').style.textShadow = `0 0 ${Math.min(20, (pct - 200) * 0.2)}px #ff4444`;
-            } else {
-                el('hud-speed').style.textShadow = 'none';
-            }
+            const heat = getBallHeat(ballSpeed);
+            el('hud-speed').textContent = `${heat.label} ${heat.percent}%`;
+            el('hud-speed').dataset.heat = heat.level;
         }
         // Ball speed indicator (bottom-right)
         const speedEl = document.getElementById('speed-val');
         if (speedEl && ballSpeed !== undefined) {
-            speedEl.textContent = Math.round(ballSpeed);
-            const ratio = ballSpeed / 17;
-            speedEl.style.color = ratio > 3 ? '#ff4444' : ratio > 2 ? '#ffaa22' : 'var(--accent)';
-            // ponytail: glow effect at high speed
-            if (ratio > 2) {
-                speedEl.style.textShadow = `0 0 ${Math.min(15, (ratio - 2) * 5)}px ${ratio > 3 ? '#ff0000' : '#ffaa00'}`;
-            } else {
-                speedEl.style.textShadow = 'none';
-            }
+            const heat = getBallHeat(ballSpeed);
+            speedEl.textContent = Math.round(heat.speed);
+            speedEl.parentElement.dataset.heat = heat.level;
         }
+        this.updateHotPotato(hotPotato);
+        this.updateCompetitiveHUD(competitive);
+    }
+
+    updateCompetitiveHUD(state) {
+        const hud = this.competitiveHUD;
+        if (!hud?.root) return;
+        const view = getCompetitiveHUDView(state);
+        hud.root.classList.toggle('hidden', !view.active);
+        hud.root.setAttribute('aria-hidden', String(!view.active));
+        if (!view.active) {
+            this._competitiveHUDKey = '';
+            return;
+        }
+        if (view.key === this._competitiveHUDKey) return;
+        this._competitiveHUDKey = view.key;
+        if (hud.mode) hud.mode.textContent = view.mode;
+        if (hud.round) hud.round.textContent = view.roundLabel;
+        if (hud.phase) hud.phase.textContent = view.phase;
+        if (hud.rules) hud.rules.textContent = view.rulesLabel;
+        hud.root.dataset.phase = view.phase.toLowerCase().replaceAll(' ', '-');
+        hud.root.setAttribute('aria-label', view.ariaLabel);
     }
 
     updateMovementHUD(speed = 0, state = 'MOVE', social = false) {
@@ -243,10 +294,42 @@ export class UI {
         if (dm) dm.style.display = 'none';
     }
 
-    // Incoming indicator — red edge glow when ball is coming at you
-    setPlayerTarget(isTarget) {
+    // Incoming indicator with speed and time-to-impact readability.
+    setPlayerTarget(isTarget, ballSpeed = 0, distance = Infinity) {
         const el = document.getElementById('incoming-indicator');
-        if (el) el.classList.toggle('active', isTarget);
+        if (!el) return;
+        const threat = getBallThreat(isTarget, ballSpeed, distance);
+        const previousLevel = el.dataset.threat;
+        el.classList.toggle('active', threat.active);
+        el.classList.toggle('hidden', !threat.active);
+        el.dataset.threat = threat.level;
+        el.dataset.label = threat.label;
+        el.setAttribute('aria-hidden', String(!threat.active));
+        if (threat.active && previousLevel !== threat.level) {
+            el.setAttribute('role', 'status');
+            el.setAttribute('aria-label', threat.label);
+        }
+    }
+
+    updateHotPotato(state) {
+        const root = document.getElementById('hot-potato-hud');
+        if (!root) return;
+        const enabled = state?.enabled === true;
+        root.classList.toggle('hidden', !enabled);
+        if (!enabled) return;
+        const time = document.getElementById('hot-potato-time');
+        const holder = document.getElementById('hot-potato-holder');
+        const remaining = Math.max(0, Number(state.remaining) || 0);
+        const ratio = remaining / Math.max(1, Number(state.duration) || 5);
+        root.dataset.urgency = ratio <= 0.25 ? 'critical' : ratio <= 0.55 ? 'danger' : 'armed';
+        if (time) time.textContent = state.active ? remaining.toFixed(1) : '--';
+        if (holder) {
+            holder.textContent = state.active
+                ? `${state.holderName || 'PLAYER'} - ${String(state.holderTeam || '').toUpperCase()}`
+                : state.holderName
+                    ? `${state.holderName} EXPLODED`
+                    : 'WAITING FOR TARGET';
+        }
     }
 
     // Team switch popup (M)
@@ -430,9 +513,18 @@ export class UI {
             }, delay);
             delay += 150;
         }
-        document.getElementById('pg-play-again')?.addEventListener('click', () => { el.classList.add('hidden'); window._postGameAction?.('play_again'); });
-        document.getElementById('pg-lobby')?.addEventListener('click', () => { el.classList.add('hidden'); window._postGameAction?.('lobby'); });
-        document.getElementById('pg-main-menu')?.addEventListener('click', () => { el.classList.add('hidden'); window._postGameAction?.('main_menu'); });
+        const playAgain = document.getElementById('pg-play-again');
+        const lobby = document.getElementById('pg-lobby');
+        const mainMenu = document.getElementById('pg-main-menu');
+        if (playAgain) playAgain.onclick = () => window._postGameAction?.('play_again');
+        if (lobby) lobby.onclick = () => {
+            el.classList.add('hidden');
+            window._postGameAction?.('lobby');
+        };
+        if (mainMenu) mainMenu.onclick = () => {
+            el.classList.add('hidden');
+            window._postGameAction?.('main_menu');
+        };
     }
 
     renderMatchAnalysis(report, initialTab = 'overview') {
@@ -1554,3 +1646,4 @@ export class UI {
         requestAnimationFrame(() => el.classList.add('show'));
     }
 }
+import { getCompetitiveHUDView } from './competitive-hud.js';

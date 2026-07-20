@@ -1,227 +1,144 @@
-# Design System Master File
+# Warrball V3 Design System
 
-> **LOGIC:** When building a specific page, first check `design-system/pages/[page-name].md`.
-> If that file exists, its rules **override** this Master file.
-> If not, strictly follow the rules below.
+> Style: Kinetic Arena Sport
+> Scope: menu shell, lobby, shop, match HUD and spectator surfaces
 
----
+## Principles
 
-**Project:** WARRBALL
-**Generated:** 2026-07-19 03:14:56
-**Category:** Arcade & Retro Game
-**Design Dials:** Variance 7/10 (Balanced / Modern) | Motion 7/10 (Standard) | Density 6/10 (Standard)
+- Gameplay readability outranks decoration.
+- Team ownership is never communicated by color alone.
+- One component language is used across every screen.
+- Motion explains state and respects reduced-motion settings.
+- UI remains usable at 375px fallback width and common desktop resolutions.
 
----
+## Color tokens
 
-## Global Rules
+| Role | Value |
+|---|---|
+| Background | `#0B1120` |
+| Surface | `#111B30` |
+| Elevated | `#192134` |
+| Foreground | `#F8FAFC` |
+| Muted foreground | `#A7B4C8` |
+| Border | `rgba(255,255,255,0.12)` |
+| Brand cyan | `#36D8CA` |
+| Action yellow | `#DFE104` |
+| Team red | `#DC2626` |
+| Team blue | `#2563EB` |
+| Success | `#22C55E` |
+| Destructive | `#EF4444` |
+| Focus ring | `#F8FAFC` |
 
-### Color Palette
+Rules:
 
-| Role | Hex | CSS Variable |
-|------|-----|--------------|
-| Primary | `#36D8CA` | `--color-primary` |
-| On Primary | `#03191D` | `--color-on-primary` |
-| Secondary | `#70DDFF` | `--color-secondary` |
-| Accent/CTA | `#61EADC` | `--color-accent` |
-| Background | `#06151B` | `--color-background` |
-| Foreground | `#EFFFFD` | `--color-foreground` |
-| Muted | `#0D2D37` | `--color-muted` |
-| Border | `rgba(112,221,255,0.20)` | `--color-border` |
-| Destructive | `#DC2626` | `--color-destructive` |
-| Ring | `#9FF6EE` | `--color-ring` |
+- Red and blue are reserved for team semantics during matches.
+- Yellow is used for primary action and perfect timing.
+- Cyan is used for technical information and neutral progress.
+- Body text must meet WCAG AA contrast.
+- Alerts include an icon, label or pattern in addition to color.
 
-**Color Notes:** Turquoise and light blue on deep ocean surfaces. Team red/blue remain semantic gameplay colors.
+## Typography
 
-### Typography
+- Display/headings: `Russo One`.
+- Interface/body: `Chakra Petch`.
+- Minimum body size: 16px outside dense HUD labels.
+- HUD labels: 12px minimum with strong contrast.
+- Score and timer use tabular numerals.
+- Uppercase is limited to short labels and headings.
 
-- **Heading Font:** Nunito
-- **Body Font:** DM Sans
-- **Mood:** claymorphism, clay, rounded, playful, candy, bubbly, soft, 3d, children, education, tactile, spring, nunito, dm sans
-- **Google Fonts:** [Nunito + DM Sans](https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,700;1,400|Nunito:ital,wght@0,700;0,800;0,900;1,700)
+## Shape and depth
 
-**CSS Import:**
-```css
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,700;1,400&family=Nunito:ital,wght@0,700;0,800;0,900;1,700&display=swap');
-```
-
-### Spacing Variables
-
-*Density: 6/10 — Standard*
-
-| Token | Value | Usage |
-|-------|-------|-------|
-| `--space-xs` | `4px` / `0.25rem` | Tight gaps |
-| `--space-sm` | `8px` / `0.5rem` | Icon gaps, inline spacing |
-| `--space-md` | `16px` / `1rem` | Standard padding |
-| `--space-lg` | `24px` / `1.5rem` | Section padding |
-| `--space-xl` | `32px` / `2rem` | Large gaps |
-| `--space-2xl` | `48px` / `3rem` | Section margins |
-| `--space-3xl` | `64px` / `4rem` | Hero padding |
-
-### Shadow Depths
-
-| Level | Value | Usage |
-|-------|-------|-------|
-| `--shadow-sm` | `0 1px 2px rgba(0,0,0,0.05)` | Subtle lift |
-| `--shadow-md` | `0 4px 6px rgba(0,0,0,0.1)` | Cards, buttons |
-| `--shadow-lg` | `0 10px 15px rgba(0,0,0,0.1)` | Modals, dropdowns |
-| `--shadow-xl` | `0 20px 25px rgba(0,0,0,0.15)` | Hero images, featured cards |
-
----
-
-## Component Specs
-
-### Buttons
-
-```css
-/* Primary Button */
-.btn-primary {
-  background: #22C55E;
-  color: white;
-  padding: 12px 24px;
-  border-radius: 8px;
-  font-weight: 600;
-  transition: all 200ms ease;
-  cursor: pointer;
-}
-
-.btn-primary:hover {
-  opacity: 0.9;
-  transform: translateY(-1px);
-}
-
-/* Secondary Button */
-.btn-secondary {
-  background: transparent;
-  color: #DC2626;
-  border: 2px solid #DC2626;
-  padding: 12px 24px;
-  border-radius: 8px;
-  font-weight: 600;
-  transition: all 200ms ease;
-  cursor: pointer;
-}
-```
-
-### Cards
-
-```css
-.card {
-  background: #0F172A;
-  border-radius: 12px;
-  padding: 24px;
-  box-shadow: var(--shadow-md);
-  transition: all 200ms ease;
-  cursor: pointer;
-}
-
-.card:hover {
-  box-shadow: var(--shadow-lg);
-  transform: translateY(-2px);
-}
-```
-
-### Inputs
-
-```css
-.input {
-  padding: 12px 16px;
-  border: 1px solid #E2E8F0;
-  border-radius: 8px;
-  font-size: 16px;
-  transition: border-color 200ms ease;
-}
-
-.input:focus {
-  border-color: #DC2626;
-  outline: none;
-  box-shadow: 0 0 0 3px #DC262620;
-}
-```
-
-### Modals
-
-```css
-.modal-overlay {
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(4px);
-}
-
-.modal {
-  background: white;
-  border-radius: 16px;
-  padding: 32px;
-  box-shadow: var(--shadow-xl);
-  max-width: 500px;
-  width: 90%;
-}
-```
-
----
-
-## Style Guidelines
-
-**Style:** Vibrant & Block-based
-
-**Keywords:** Bold, energetic, playful, block layout, geometric shapes, high color contrast, duotone, modern, energetic
-
-**Best For:** Startups, creative agencies, gaming, social media, youth-focused, entertainment, consumer
-
-**Key Effects:** Large sections (48px+ gaps), animated patterns, bold hover (color shift), scroll-snap, large type (32px+), 200-300ms
-
-### Page Pattern
-
-**Pattern Name:** Immersive/Interactive Experience
-
-- **Conversion Strategy:** 40% higher engagement. Performance trade-off. Provide skip option. Mobile fallback essential.
-- **CTA Placement:** After interaction complete + Skip option for impatient users
-- **Section Order:** 1. Full-screen interactive element, 2. Guided product tour, 3. Key benefits revealed, 4. CTA after completion
-
----
+- Radius: 4px for HUD, 8px for cards and dialogs.
+- Border: 1px normal, 2px focused/selected.
+- Avoid soft claymorphism.
+- Avoid white modals over the dark game shell.
+- Avoid permanent blur layers over the render canvas.
+- Use chamfered or angular accents sparingly.
 
 ## Motion
 
-**Stagger List** (Standard) — Trigger: load or scroll | Duration: 300-450ms | Easing: `back.out(1.4)`
+- Button state: 120-200ms.
+- Screen transition: 180-300ms.
+- Reward reveal: skippable.
+- Gameplay feedback: under 500ms unless it represents a real timer.
+- Animate transform and opacity; avoid layout-shifting width/height animation.
+- `prefers-reduced-motion` changes must be observed at runtime.
+- Reduced motion disables shake, glitch, marquee and decorative camera motion.
 
-```js
-gsap.from('.grid-item', { opacity: 0, scale: 0.92, y: 16, duration: 0.4, stagger: { each: 0.06, from: 'start', grid: 'auto' }, ease: 'back.out(1.4)' });
-```
+## Navigation
 
-**Framework notes:** grid: 'auto' lets GSAP infer rows/columns from a CSS grid layout for a natural wave stagger
+Primary:
 
-- ✅ Combine with from: 'center' for a bento-grid layout to draw the eye inward first
-- ❌ Don't use back.out on dense data tables; the overshoot reads as sloppy on informational UI
-- ⚡ Group DOM writes; avoid interleaving layout reads (getBoundingClientRect) between staggered tweens
+- Play.
+- Ranked.
+- Arcade.
+- Custom.
+- Locker.
+- Battle Pass.
+- Shop.
+- Profile.
 
----
+Use progressive disclosure. The home screen emphasizes Quick Play and the current
+recommended activity. Secondary systems do not compete with the main CTA.
 
-## Anti-Patterns (Do NOT Use)
+## HUD
 
-- ❌ Inconsistent styling
-- ❌ Poor contrast ratios
+- Score and round timer remain top-center.
+- Team states include color plus name/icon.
+- Crosshair remains visually isolated.
+- Ball threat uses direction, distance and sound.
+- Ability panels are hidden when competitive rules disable abilities.
+- HP, shield and stamina use stable positions.
+- Kill feed never overlaps the ball danger area.
+- Spectator mode clearly labels camera mode and target.
 
-### Additional Forbidden Patterns
+## Components
 
-- ❌ **Emojis as icons** — Use SVG icons (Heroicons, Lucide, Simple Icons)
-- ❌ **Missing cursor:pointer** — All clickable elements must have cursor:pointer
-- ❌ **Layout-shifting hovers** — Avoid scale transforms that shift layout
-- ❌ **Low contrast text** — Maintain 4.5:1 minimum contrast ratio
-- ❌ **Instant state changes** — Always use transitions (150-300ms)
-- ❌ **Invisible focus states** — Focus states must be visible for a11y
+Buttons:
 
----
+- Primary: action yellow, dark text, 2px dark border.
+- Secondary: dark surface, light text, visible border.
+- Destructive: red, white text.
+- Disabled: no glow, reduced contrast, `aria-disabled`.
 
-## Pre-Delivery Checklist
+Cards:
 
-Before delivering any UI code, verify:
+- Dark elevated surface.
+- 1px border.
+- No layout movement on hover.
+- Selection uses border, icon and label.
 
-- [ ] No emojis used as icons (use SVG instead)
-- [ ] All icons from consistent icon set (Heroicons/Lucide)
-- [ ] `cursor-pointer` on all clickable elements
-- [ ] Hover states with smooth transitions (150-300ms)
-- [ ] Light mode: text contrast 4.5:1 minimum
-- [ ] Focus states visible for keyboard navigation
-- [ ] `prefers-reduced-motion` respected
-- [ ] Responsive: 375px, 768px, 1024px, 1440px
-- [ ] No content hidden behind fixed navbars
-- [ ] No horizontal scroll on mobile
+Dialogs:
+
+- Dark elevated surface.
+- Visible title and close button.
+- Focus trap and Escape behavior.
+- No placeholder-only labels.
+
+Icons:
+
+- Use one SVG icon set.
+- Do not use emoji as the primary navigation icon.
+- Every icon-only control has an accessible label.
+
+## Responsive checks
+
+- 375x667 fallback.
+- 768x1024.
+- 1280x720.
+- 1366x768.
+- 1920x1080.
+- 2560x1080.
+
+## Forbidden patterns
+
+- Purple-on-white generic game dashboards.
+- Glow on every card.
+- Thin low-contrast HUD lines.
+- Multiple unrelated font families.
+- Team color used for unrelated actions.
+- Hover-only information.
+- Unskippable reward animation.
+- Hidden keyboard focus.
+- Gameplay text smaller than readable minimums.
+

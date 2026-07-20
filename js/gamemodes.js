@@ -4,6 +4,8 @@
 import { applyCharacter } from './characters.js';
 import { applyRunes } from './skills.js';
 import { CHAOS_MODES } from './chaos.js';
+import { applyCompetitiveRules, clearCompetitiveRules } from './competitive-rules.js';
+import { RALLY_DUEL_MODE_ID } from './rally-duel.js';
 
 export const GAME_MODES = {
     classic: {
@@ -66,6 +68,11 @@ export const GAME_MODES = {
         desc: 'First to 3 rounds, overtime if tied.',
         mutators: { maxRounds: 5, overtime: true }
     },
+    rally_duel: {
+        id: RALLY_DUEL_MODE_ID, name: 'Rally Duel', emoji: '1V1',
+        desc: 'Normalized 1v1. No powers, runes, passives, or random pickups.',
+        mutators: { ballSpeedMul: 1, maxRounds: 5, overtime: true, rallyDuel: true }
+    },
     pinball: {
         id: 'pinball', name: 'Pinball Break', emoji: 'PB',
         desc: 'High-restitution wall play and breakable target chains.',
@@ -78,12 +85,22 @@ export const GAME_MODES = {
 export function applyMode(game, modeId) {
     const mode = GAME_MODES[modeId] || GAME_MODES.classic;
     const m = mode.mutators;
+    const competitive = mode.id === 'competitive' || mode.id === RALLY_DUEL_MODE_ID;
+    const rallyDuel = mode.id === RALLY_DUEL_MODE_ID;
+    const wasCompetitive = Boolean(game.competitiveRules);
+
+    if (competitive && !wasCompetitive) {
+        game._preCompetitiveMaxRounds = game.scoreboard.maxRounds;
+    }
+
+    clearCompetitiveRules(game);
 
     // Reset stats to defaults to avoid compounding speed/HP bugs
     game.ball.baseSpeed = 17;
     game.ball.rallySpeedStep = 0.30;
     game.ball.maxRallyMultiplier = 6.0;
-    game.ball.maxSpeed = game.ball.baseSpeed * game.ball.maxRallyMultiplier * (game.ball.skinConfig?.speedBonus || 1);
+    const cosmeticSpeedBonus = competitive ? 1 : (game.ball.skinConfig?.speedBonus || 1);
+    game.ball.maxSpeed = game.ball.baseSpeed * game.ball.maxRallyMultiplier * cosmeticSpeedBonus;
 
     game.player.gravity = -20;
     game.player.jumpForce = 8;
@@ -92,7 +109,7 @@ export function applyMode(game, modeId) {
     const p = game.player;
     if (p.loadout && p.loadout.char) {
         applyCharacter(p, p.loadout.char);
-        if (p.loadout.runes) {
+        if (!competitive && p.loadout.runes) {
             applyRunes(p, p.loadout.runes);
         }
     } else {
@@ -109,7 +126,7 @@ export function applyMode(game, modeId) {
     game.bots.forEach(bot => {
         if (bot.charId) {
             applyCharacter(bot, bot.charId);
-            if (bot.loadout && bot.loadout.runes) {
+            if (!competitive && bot.loadout && bot.loadout.runes) {
                 applyRunes(bot, bot.loadout.runes);
             }
         } else {
@@ -129,6 +146,7 @@ export function applyMode(game, modeId) {
     game._ffa = false;
     game._noNet = false;
     game._noTeams = false;
+    game._rallyDuel = rallyDuel;
 
     // Ball speed
     if (m.ballSpeedMul) {
@@ -162,7 +180,14 @@ export function applyMode(game, modeId) {
     game.ball._pinballBounce = !!m.pinballBounce;
     game._noTeams = !!m.noTeams;
 
-    if (m.maxRounds) game.scoreboard.setMaxRounds(m.maxRounds);
+    if (m.maxRounds) {
+        game.scoreboard.setMaxRounds(m.maxRounds);
+    } else if (!competitive && wasCompetitive
+        && Number.isFinite(game._preCompetitiveMaxRounds)) {
+        game.scoreboard.setMaxRounds(game._preCompetitiveMaxRounds);
+    }
+    if (!competitive && wasCompetitive) delete game._preCompetitiveMaxRounds;
+    if (competitive) applyCompetitiveRules(game);
 
     game.mode = mode;
     return mode;

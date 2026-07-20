@@ -343,7 +343,7 @@ export class Bot {
         if (this._chillTimer > 0) this._chillTimer -= dt;
 
         // Bot occasionally uses skill on incoming ball
-        if (ball && ball.active && ball.targetPlayer === this && this.skillCooldowns[this.loadout.skill] <= 0
+        if (!this._gameRef?._skillsDisabled && ball && ball.active && ball.targetPlayer === this && this.skillCooldowns[this.loadout.skill] <= 0
             && Math.random() < this.skillChance * dt) {
             useSkill(this, this.loadout.skill, { ball, target: this, game: this._gameRef });
             if (this.loadout.skill === 'blackhole' && this._gameRef) {

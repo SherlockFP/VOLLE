@@ -42,6 +42,9 @@ function defaults(id, name) {
         ownedItems: [],
         ownedAvatarSkins: ['default'],
         rewardedMatches: [],
+        purchaseReceipts: [],
+        premiumTransactions: [],
+        economyRevision: 0,
         createdAt: Date.now(),
         updatedAt: Date.now()
     };
@@ -74,7 +77,7 @@ class ProfileStore {
     }
 
     _public(record) {
-        const { tokenHash, rewardedMatches, ...profile } = record;
+        const { tokenHash, rewardedMatches, purchaseReceipts, premiumTransactions, ...profile } = record;
         return profile;
     }
 
@@ -99,6 +102,10 @@ class ProfileStore {
         return record || null;
     }
 
+    getById(id) {
+        return typeof id === 'string' ? this.records[id] || null : null;
+    }
+
     session(token, name, legacy) {
         const existing = this.authenticate(token);
         if (existing) {
@@ -110,17 +117,41 @@ class ProfileStore {
         return this.create(name, legacy);
     }
 
-    purchase(record, kind, id) {
+    purchase(record, kind, id, requestId = '') {
         const price = CATALOG[kind]?.[id];
         const field = PROFILE_FIELDS[kind];
         if (!price || !field) return { status: 404, error: 'item not found' };
+        const receiptId = typeof requestId === 'string' && /^[A-Za-z0-9._:-]{8,80}$/.test(requestId)
+            ? requestId
+            : '';
+        record.purchaseReceipts = Array.isArray(record.purchaseReceipts) ? record.purchaseReceipts : [];
+        const prior = receiptId
+            ? record.purchaseReceipts.find(receipt => receipt.requestId === receiptId)
+            : null;
+        if (prior) {
+            if (prior.kind !== kind || prior.id !== id) {
+                return { status: 409, error: 'idempotency key conflict' };
+            }
+            return { status: 200, profile: this._public(record), replayed: true };
+        }
         if (record[field].includes(id)) return { status: 409, error: 'already owned' };
         if (record.currency < price) return { status: 409, error: 'insufficient funds' };
         record.currency -= price;
         record[field].push(id);
+        record.economyRevision = Math.max(0, Number(record.economyRevision) || 0) + 1;
+        if (receiptId) {
+            record.purchaseReceipts.push({
+                requestId: receiptId,
+                kind,
+                id,
+                price,
+                createdAt: Date.now()
+            });
+            record.purchaseReceipts = record.purchaseReceipts.slice(-100);
+        }
         record.updatedAt = Date.now();
         this._save();
-        return { status: 200, profile: this._public(record) };
+        return { status: 200, profile: this._public(record), replayed: false };
     }
 
     reward(record, match) {
@@ -129,11 +160,30 @@ class ProfileStore {
         if (record.rewardedMatches.includes(matchId)) return { status: 409, error: 'reward already claimed' };
         const coins = match.won === true ? 5 : 1;
         record.currency += coins;
+        record.economyRevision = Math.max(0, Number(record.economyRevision) || 0) + 1;
         record.rewardedMatches.push(matchId);
         record.rewardedMatches = record.rewardedMatches.slice(-50);
         record.updatedAt = Date.now();
         this._save();
         return { status: 200, coins, profile: this._public(record) };
+    }
+
+    grantPremium(record, gems, transactionId) {
+        const amount = Math.max(0, Math.min(100000, Math.floor(Number(gems) || 0)));
+        if (!record || !amount || !/^[A-Za-z0-9._:-]{8,96}$/.test(String(transactionId || ''))) {
+            return { status: 400, error: 'invalid premium grant' };
+        }
+        record.premiumTransactions = Array.isArray(record.premiumTransactions)
+            ? record.premiumTransactions : [];
+        const prior = record.premiumTransactions.find(item => item.transactionId === transactionId);
+        if (prior) return { status: 200, replayed: true, profile: this._public(record) };
+        record.gems = Math.min(1000000, Math.max(0, Number(record.gems) || 0) + amount);
+        record.premiumTransactions.push({ transactionId, gems: amount, createdAt: Date.now() });
+        record.premiumTransactions = record.premiumTransactions.slice(-100);
+        record.economyRevision = Math.max(0, Number(record.economyRevision) || 0) + 1;
+        record.updatedAt = Date.now();
+        this._save();
+        return { status: 200, replayed: false, profile: this._public(record) };
     }
 
     _migrate(record, legacy) {

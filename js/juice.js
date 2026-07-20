@@ -42,6 +42,16 @@ export class Juice {
         // Particles (pool)
         this.particles = [];
         this.maxParticles = 240;
+        this._particlePool = [];
+        this._particleGeometries = Object.freeze({
+            cube: new THREE.BoxGeometry(1, 1, 1),
+            sphere: new THREE.SphereGeometry(0.6, 4, 4),
+            tetra: new THREE.TetrahedronGeometry(0.7),
+            spark: new THREE.CylinderGeometry(0.02, 0.02, 0.6, 4),
+            ring: new THREE.RingGeometry(0.3, 0.5, 24),
+            ringInner: new THREE.RingGeometry(0.2, 0.35, 16),
+            slash: new THREE.RingGeometry(0.4, 0.7, 16, 1, 0, Math.PI)
+        });
 
         // Flash
         this.flashAmt = 0;
@@ -93,6 +103,35 @@ export class Juice {
         this.flashAmt = Math.max(this.flashAmt, amt);
     }
 
+    _acquireParticle(shape, color, side = THREE.FrontSide) {
+        const geometry = this._particleGeometries[shape];
+        if (!geometry) return null;
+        const mesh = this._particlePool.pop() || new THREE.Mesh(
+            geometry,
+            new THREE.MeshBasicMaterial({ transparent: true, opacity: 1 })
+        );
+        mesh.geometry = geometry;
+        mesh.material.color.set(color);
+        mesh.material.opacity = 1;
+        mesh.material.side = side;
+        mesh.visible = true;
+        mesh.position.set(0, 0, 0);
+        mesh.rotation.set(0, 0, 0);
+        mesh.scale.set(1, 1, 1);
+        return mesh;
+    }
+
+    _releaseParticle(mesh) {
+        if (!mesh) return;
+        this.scene?.remove(mesh);
+        mesh.visible = false;
+        if (this._particlePool.length < this.maxParticles) {
+            this._particlePool.push(mesh);
+        } else {
+            mesh.material.dispose();
+        }
+    }
+
     // Particle patlaması. pos: Vector3, color: hex, count: adet.
     burst(pos, color = 0xff8844, count = 12, speed = 8) {
         if (!this.scene) return;
@@ -101,24 +140,14 @@ export class Juice {
             const size = 0.08 + Math.random() * 0.14;
             // ponytail: mixed shapes — cubes, spheres, and tetrahedrons for variety
             const shapeRoll = Math.random();
-            let geo;
-            if (shapeRoll > 0.7) {
-                geo = new THREE.TetrahedronGeometry(size * 0.7);
-            } else if (shapeRoll > 0.35) {
-                geo = new THREE.BoxGeometry(size, size, size);
-            } else {
-                geo = new THREE.SphereGeometry(size * 0.6, 4, 4);
-            }
+            const shape = shapeRoll > 0.7 ? 'tetra' : shapeRoll > 0.35 ? 'cube' : 'sphere';
             // ponytail: slight color variation per particle for richness
             const colorVar = new THREE.Color(color);
             colorVar.offsetHSL((Math.random() - 0.5) * 0.05, 0, (Math.random() - 0.5) * 0.1);
-            const mat = new THREE.MeshBasicMaterial({
-                color: colorVar,
-                transparent: true,
-                opacity: 1,
-            });
-            const p = new THREE.Mesh(geo, mat);
+            const p = this._acquireParticle(shape, colorVar);
+            if (!p) continue;
             p.position.copy(pos);
+            p.scale.setScalar(size);
             const angle = Math.random() * Math.PI * 2;
             const elevation = (Math.random() - 0.3) * Math.PI;
             const spd = speed * (0.5 + Math.random() * 0.5);
@@ -128,7 +157,13 @@ export class Juice {
                 Math.sin(angle) * Math.cos(elevation) * spd
             );
             this.scene.add(p);
-            this.particles.push({ mesh: p, vel, life: 0.6 + Math.random() * 0.4, maxLife: 1 });
+            this.particles.push({
+                mesh: p,
+                vel,
+                life: 0.6 + Math.random() * 0.4,
+                maxLife: 1,
+                baseScale: size
+            });
         }
     }
 
@@ -154,9 +189,8 @@ export class Juice {
     sparks(pos, color = 0xffee44, count = 8) {
         if (!this.scene) return;
         for (let i = 0; i < count && this.particles.length < this.maxParticles; i++) {
-            const geo = new THREE.CylinderGeometry(0.02, 0.02, 0.6, 4);
-            const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1 });
-            const p = new THREE.Mesh(geo, mat);
+            const p = this._acquireParticle('spark', color);
+            if (!p) continue;
             p.position.copy(pos);
             const vel = new THREE.Vector3(
                 (Math.random() - 0.5) * 14,
@@ -171,17 +205,17 @@ export class Juice {
     // Ring shockwave — yatay genişleyen halka (spike/impact).
     shockwave(pos, color = 0xff8844) {
         if (!this.scene) return;
-        const geo = new THREE.RingGeometry(0.3, 0.5, 24);
-        const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, side: THREE.DoubleSide });
-        const ring = new THREE.Mesh(geo, mat);
+        const ring = this._acquireParticle('ring', color, THREE.DoubleSide);
+        if (!ring) return;
+        ring.material.opacity = 0.9;
         ring.position.copy(pos);
         ring.rotation.x = -Math.PI / 2;
         this.scene.add(ring);
         this.particles.push({ mesh: ring, vel: new THREE.Vector3(), life: 0.5, maxLife: 0.5, gravity: 0, ring: true, scaleRate: 20 });
         // ponytail: secondary smaller ring for layered effect
-        const geo2 = new THREE.RingGeometry(0.2, 0.35, 16);
-        const mat2 = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6, side: THREE.DoubleSide });
-        const ring2 = new THREE.Mesh(geo2, mat2);
+        const ring2 = this._acquireParticle('ringInner', 0xffffff, THREE.DoubleSide);
+        if (!ring2) return;
+        ring2.material.opacity = 0.6;
         ring2.position.copy(pos);
         ring2.rotation.x = -Math.PI / 2;
         this.scene.add(ring2);
@@ -191,9 +225,9 @@ export class Juice {
     // Genji-tarzı deflect slash — dikey yarım halka, hızla genişler ve solar
     slashEffect(pos, dir, color = 0x00ffee) {
         if (!this.scene) return;
-        const geo = new THREE.RingGeometry(0.4, 0.7, 16, 1, 0, Math.PI);
-        const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, side: THREE.DoubleSide });
-        const arc = new THREE.Mesh(geo, mat);
+        const arc = this._acquireParticle('slash', color, THREE.DoubleSide);
+        if (!arc) return;
+        arc.material.opacity = 0.9;
         arc.position.copy(pos);
         // Hedefe baksın
         if (dir) arc.lookAt(pos.clone().add(dir));
@@ -280,14 +314,12 @@ export class Juice {
                     // spark'lar velocity yönüne dönsün
                     p.mesh.lookAt(p.mesh.position.clone().add(p.vel));
                 } else {
-                    p.mesh.scale.setScalar(Math.max(0.1, p.life / p.maxLife));
+                    p.mesh.scale.setScalar((p.baseScale || 1) * Math.max(0.1, p.life / p.maxLife));
                 }
                 if (p.mesh.position.y < 0) { p.vel.y *= -0.3; p.mesh.position.y = 0; }
             }
             if (p.life <= 0) {
-                this.scene.remove(p.mesh);
-                p.mesh.geometry.dispose();
-                p.mesh.material.dispose();
+                this._releaseParticle(p.mesh);
                 this.particles.splice(i, 1);
             }
         }
@@ -313,11 +345,7 @@ export class Juice {
         this.slowMoTarget = 1;
         this.resetCombo();
         this.flashAmt = 0;
-        this.particles.forEach(p => {
-            this.scene?.remove(p.mesh);
-            p.mesh.geometry.dispose();
-            p.mesh.material.dispose();
-        });
+        this.particles.forEach(p => this._releaseParticle(p.mesh));
         this.particles = [];
     }
 }

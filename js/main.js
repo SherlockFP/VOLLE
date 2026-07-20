@@ -1,5 +1,13 @@
 // main.js — App bootstrap, scene setup, game loop, screen handlers, loadout.
 import * as THREE from 'three';
+import {
+    RematchVote,
+    connectedRematchParticipants,
+    createMatchId,
+    isSafeMatchId,
+    isTerminalRematchState,
+    snapshotRematchParticipants
+} from './rematch.js';
 import { Renderer } from './renderer.js';
 import { Player, isEditableTarget } from './player.js';
 import { Arena, registerCustomMap } from './arena.js';
@@ -14,7 +22,7 @@ import { AvatarPainter, AVATAR_SKINS } from './avatar.js';
 import { CASES, KNIVES } from './cosmetics.js';
 import { createKnifeModel, disposeObject3D } from './weapon-models.js';
 import { MapEditorController } from './map-editor.js';
-import { normalizeMapConfig } from './map-config.js';
+import { normalizeMapConfig, validateMapConfig } from './map-config.js';
 import { checkAchievements } from './achievements.js';
 import { Daily } from './daily.js';
 import { Replay, extractReplayHighlight } from './replay.js';
@@ -61,6 +69,9 @@ import {
     normalizeCrosshairConfig,
     renderCrosshair
 } from './crosshair.js';
+
+const HOST_CHECKPOINT_INTERVAL_MS = 750;
+const HOST_CHECKPOINT_SIGNATURE_MAX_CHARS = 64 * 1024;
 
 class App {
     constructor() {
@@ -114,6 +125,8 @@ class App {
         };
         this.network = new Network(null);
         this.game = new Game(this.renderer, this.player, this.arena, this.audio, this.ui, this.network);
+        this.rematchVote = new RematchVote();
+        this._completedMatchPlayerIds = new Set();
         this.game.experimentalNetcode = normalizeNetcode(this.store.get('experimentalNetcode'));
         this.network.game = this.game;
         this.movementTrials = new MovementTrialClass();
@@ -126,18 +139,34 @@ class App {
         this.game.onMatchLoading = data => this._showMatchLoading(900, data);
         this.game.onLateJoinActivated = team => this._exitLateJoinSpectator(team);
         this.game.onMatchComplete = () => {
+            const connectedIds = [...this.network.playerConnections.keys()];
+            const queuedIds = connectedIds.filter(playerId =>
+                this.game.remotePlayers.get(playerId)?.queuedForNextRound
+            );
+            this._completedMatchPlayerIds = new Set(snapshotRematchParticipants(
+                this.network.playerId,
+                connectedIds,
+                queuedIds
+            ));
             this.awardMatchRewards();
             this.refreshMetaStats();
             this.ui.updateContractTracker(Daily, this.store);
         };
         this.game.onRoundEnd = () => this._queueRoundReplay();
         this.game.onMatchStart = () => {
+            clearTimeout(this._rematchTimer);
+            this._rematchTimer = null;
+            this._rematchStarting = false;
+            this.rematchVote.reset();
+            this._updateRematchUI?.();
             if (Spectator.active) Spectator.exit('match-start');
             this.ui.spectating = false;
             this.ui.hideTeamPopup();
         };
         this.game.onPerfectDeflect = result => this._showPerfectDeflect(result);
         this.game.onPracticeMetrics = summary => this._updatePracticeLab(summary);
+        this.game.onGuidedDrillUpdate = snapshot => this._updateGuidedDrillHUD(snapshot);
+        this.game.onGuidedDrillComplete = result => this._showGuidedDrillResult(result);
         this.player.game = this.game;
         this.player.audio = this.audio;
         this.socialLobby = new SocialLobby(this.renderer, this.player, {
@@ -188,6 +217,11 @@ class App {
         this._bgPowerUpTimer = 0;
         this._bgBallTimer = 0;
         this._bgBotTimer = 0;
+        this._hostCheckpointInterval = null;
+        this._hostCheckpointGeneration = 0;
+        this._lastHostCheckpointSignature = null;
+        this._lastHostCheckpointEpoch = null;
+        this._lastHostCheckpointSequence = null;
         // ponytail: AbortController prevents listener accumulation on game restart
         this._mainAbort = new AbortController();
         document.addEventListener('visibilitychange', () => this._onVisibilityChange(), { signal: this._mainAbort.signal });
@@ -572,6 +606,7 @@ class App {
 
     // Maç sonu reward: coins + xp, battlepass tier dolum, istatistik, achievement, daily.
     awardMatchRewards() {
+        if (!isTerminalRematchState(this.game.state)) return;
         if (this.game._rewardsClaimed) return;
         this.game._rewardsClaimed = true;
         if (this.game._practiceMode) {
@@ -585,7 +620,7 @@ class App {
         const won = winner === myTeam.toUpperCase();
         const draw = winner === 'DRAW';
         const ranked = this.store.recordRankedMatch({
-            matchId: `match-${Date.now()}`,
+            matchId: this.game.matchId || createMatchId(),
             opponentElo: this._rankedMatch?.opponentElo ?? this.store.getElo(),
             result: draw ? 'draw' : won ? 'win' : 'loss',
             playedAt: Date.now()
@@ -620,7 +655,7 @@ class App {
         const coins = won ? 5 : 1;
         const xp = this.store.boostedXp(50 + myStat.deflections * 3 + (won ? 100 : 30));
         const result = this.store.grant({ currency: coins, xp });
-        const matchId = globalThis.crypto?.randomUUID?.()
+        const matchId = this.game.matchId || globalThis.crypto?.randomUUID?.()
             || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
         this.store.grantMatchRemote({
             matchId,
@@ -949,7 +984,21 @@ class App {
         });
 
         bind('btn-practice', () => {
+            this.ui.showScreen('practiceMenu');
+        });
+        bind('btn-guided-deflect', () => this.startGuidedDeflectDrill());
+        bind('btn-free-practice', () => this.startPractice());
+        bind('btn-practice-back', () => this.ui.showScreen('mainMenu'));
+        bind('btn-drill-retry', () => this.startGuidedDeflectDrill());
+        bind('btn-drill-free-lab', () => {
+            document.getElementById('guided-drill-result')?.classList.add('hidden');
             this.startPractice();
+        });
+        bind('btn-drill-menu', () => {
+            this._exitPracticeSession();
+            this.game.setState(STATES.MENU);
+            this.player.unlock();
+            this.ui.showScreen('mainMenu');
         });
 
         bind('btn-achievements-back', () => {
@@ -1002,9 +1051,11 @@ class App {
         });
         bind('pause-exit', () => {
             document.getElementById('pause-menu')?.classList.add('hidden');
+            this._exitPracticeSession();
             this.player.unlock();
             this.ui.setPlayerTarget(false);
             this.game.cancelPreGame?.();
+            this._stopHostCheckpointLifecycle();
             this.network?.closeLobby();
             this.game.bots.forEach(b => b.remove());
             this.game.bots = [];
@@ -1061,13 +1112,64 @@ class App {
             config.dimensions.length = Number(document.getElementById('map-editor-length')?.value) || config.dimensions.length;
             const safe = normalizeMapConfig(config);
             const id = 'custom-local';
-            const maps = (this.store.get('customMaps') || []).filter(map => map.id !== id);
-            maps.push({ id, config: safe });
+            const currentMaps = this.store.get('customMaps') || [];
+            const previous = currentMaps.find(map => map.id === id);
+            const maps = currentMaps.filter(map => map.id !== id);
+            maps.push({ id, config: safe, publishedId: previous?.publishedId || '' });
             this.store.set('customMaps', maps.slice(-10));
             registerCustomMap(id, safe);
             this.mapEditor.setConfig(safe);
             this.arena.rebuild(id);
             this.startPractice();
+        });
+
+        bind('btn-map-publish', async () => {
+            if (!this.mapEditor) return;
+            const button = document.getElementById('btn-map-publish');
+            const status = document.getElementById('map-publish-status');
+            const config = this.mapEditor.getConfig();
+            config.name = document.getElementById('map-editor-name')?.value || config.name;
+            config.dimensions.width = Number(document.getElementById('map-editor-width')?.value) || config.dimensions.width;
+            config.dimensions.length = Number(document.getElementById('map-editor-length')?.value) || config.dimensions.length;
+            const validation = validateMapConfig(config);
+            if (!validation.valid) {
+                if (status) status.textContent = validation.errors[0] || 'Map validation failed';
+                return;
+            }
+            if (button) button.disabled = true;
+            if (status) status.textContent = 'Submitting for review...';
+            if (!this.store.remoteReady) {
+                await this.store.connectRemote(this.store.get('playerName'));
+            }
+            const local = (this.store.get('customMaps') || []).find(map => map.id === 'custom-local');
+            const result = await this.store.publishMap(validation.config, local?.publishedId || '');
+            if (result.ok) {
+                const maps = (this.store.get('customMaps') || []).filter(map => map.id !== 'custom-local');
+                maps.push({ id: 'custom-local', config: validation.config, publishedId: result.map.id });
+                this.store.set('customMaps', maps.slice(-10));
+                if (status) status.textContent = `${result.map.name} - pending review (v${result.map.revision})`;
+                this.refreshWorkshop(true);
+            } else if (status) {
+                status.textContent = result.error;
+            }
+            if (button) button.disabled = false;
+        });
+
+        bind('btn-workshop-public', () => this.refreshWorkshop(false));
+        bind('btn-workshop-mine', () => this.refreshWorkshop(true));
+        document.getElementById('workshop-search')?.addEventListener('keydown', event => {
+            if (event.key === 'Enter') this.refreshWorkshop(this.workshopMine === true);
+        });
+        document.getElementById('map-workshop-grid')?.addEventListener('click', async event => {
+            const button = event.target.closest('button[data-workshop-action]');
+            if (!button) return;
+            button.disabled = true;
+            await this.openWorkshopMap(
+                button.dataset.mapId,
+                button.dataset.mine === '1',
+                button.dataset.workshopAction === 'play'
+            );
+            button.disabled = false;
         });
 
         bind('btn-char-save', () => {
@@ -1109,6 +1211,145 @@ class App {
         this.ui.onPlayerSafety = player => this._handlePlayerSafety(player);
         this.ui.onPlayerInspect = player => this._inspectPlayerProfile(player);
 
+        this._updateRematchUI = (snapshot = null) => {
+            const buttons = [
+                document.getElementById('btn-play-again'),
+                document.getElementById('pg-play-again'),
+                document.getElementById('btn-match-result-rematch')
+            ].filter(Boolean);
+            const statuses = [
+                document.getElementById('rematch-status'),
+                document.getElementById('pg-rematch-status')
+            ].filter(Boolean);
+            const ready = Array.isArray(snapshot?.readyPlayerIds) ? snapshot.readyPlayerIds : [];
+            const required = Array.isArray(snapshot?.requiredPlayerIds) ? snapshot.requiredPlayerIds : [];
+            const localReady = ready.includes(this.network.playerId);
+            const label = this._rematchStarting
+                ? 'STARTING...'
+                : localReady
+                    ? required.length ? `READY ${ready.length}/${required.length}` : 'READY SENT'
+                    : 'REMATCH';
+            buttons.forEach(button => {
+                button.textContent = label;
+                button.disabled = this._rematchStarting || localReady;
+            });
+            const text = snapshot?.expired
+                ? 'Vote expired. Press Rematch to open a new vote.'
+                : this.network.connected && required.length
+                    ? `${ready.length}/${required.length} players ready - 30 second vote window`
+                    : this.network.connected ? 'Press Rematch when ready.' : 'Instant solo rematch.';
+            statuses.forEach(status => { status.textContent = text; });
+        };
+
+        this._activeRematchPlayerIds = () => connectedRematchParticipants(
+            this._completedMatchPlayerIds,
+            this.network.playerId,
+            this.network.playerConnections.keys()
+        );
+
+        this._publishRematchState = (extra = {}) => {
+            const snapshot = { ...this.rematchVote.snapshot(), ...extra };
+            this.network.broadcastRematchState(snapshot);
+            this._updateRematchUI(snapshot);
+            return snapshot;
+        };
+
+        this._startRematchMatch = (matchId, sourceMatchId = null) => {
+            const started = this.game.startGame(false, matchId);
+            if (started === false) return false;
+            clearTimeout(this._rematchTimer);
+            this._rematchTimer = null;
+            this.player.lock();
+            if (this.network.connected && this.network.isHost && sourceMatchId) {
+                this.network.broadcastRematchStart({
+                    sourceMatchId,
+                    ...this.game.snapshotState(),
+                    matchId: this.game.matchId
+                });
+            }
+            Replay.startRecording({
+                map: this.arena.mapId,
+                mode: this.game.mode?.id || 'classic',
+                players: this.game.getPlayerList().map(player => player.name),
+                matchId: this.game.matchId
+            });
+            this._lastRally = this.game.rallyCount;
+            return true;
+        };
+
+        this._launchRematch = sourceMatchId => {
+            if (this._rematchStarting || !this.network.isHost) return;
+            const rollback = this.rematchVote.snapshot();
+            const nextMatchId = createMatchId();
+            if (!this.rematchVote.markStarted(sourceMatchId, nextMatchId).accepted) return;
+            this._rematchStarting = true;
+            this._updateRematchUI(this.rematchVote.snapshot());
+            if (this._startRematchMatch(nextMatchId, sourceMatchId) !== false) return;
+            this.rematchVote.begin(sourceMatchId, rollback.requiredPlayerIds);
+            for (const playerId of rollback.readyPlayerIds) {
+                this.rematchVote.vote(sourceMatchId, playerId, true);
+            }
+            this._rematchStarting = false;
+            this._publishRematchState();
+        };
+
+        this._receiveRematchReady = ({ playerId, sourceMatchId, ready }) => {
+            if (!this.network.isHost || sourceMatchId !== this.game.matchId) return;
+            if (this.game.state !== STATES.CELEBRATION) return;
+            if (this.rematchVote.sourceMatchId !== sourceMatchId) {
+                if (!this.rematchVote.begin(sourceMatchId, this._activeRematchPlayerIds()).accepted) return;
+            } else {
+                this.rematchVote.setRequired(this._activeRematchPlayerIds());
+            }
+            const vote = this.rematchVote.vote(sourceMatchId, playerId, ready);
+            if (!vote.accepted || !vote.changed) return;
+            if (!this._rematchTimer) {
+                this._rematchTimer = setTimeout(() => {
+                    this._rematchTimer = null;
+                    this.rematchVote.begin(sourceMatchId, this._activeRematchPlayerIds());
+                    this._publishRematchState({ expired: true });
+                }, 30000);
+            }
+            const snapshot = this._publishRematchState();
+            if (snapshot.complete) this._launchRematch(sourceMatchId);
+        };
+
+        this._syncRematchRoster = () => {
+            if (!this.network.isHost || this.rematchVote.sourceMatchId !== this.game.matchId) return;
+            const snapshot = this.rematchVote.setRequired(this._activeRematchPlayerIds());
+            this._publishRematchState();
+            if (snapshot.complete) this._launchRematch(this.game.matchId);
+        };
+
+        this._requestRematch = () => {
+            if (!isTerminalRematchState(this.game.state)) return;
+            const sourceMatchId = this.game.matchId;
+            if (!isSafeMatchId(sourceMatchId) || this._rematchStarting) return;
+            if (!this.network.connected) {
+                this._startRematchMatch(createMatchId());
+                return;
+            }
+            this.network.sendRematchReady(sourceMatchId, true);
+            if (!this.network.isHost) {
+                this._updateRematchUI({
+                    sourceMatchId,
+                    requiredPlayerIds: [],
+                    readyPlayerIds: [this.network.playerId]
+                });
+            }
+        };
+
+        this.network.onRematchReady = payload => this._receiveRematchReady(payload);
+        this.network.onRematchState = data => {
+            if (data.sourceMatchId === this.game.matchId) this._updateRematchUI(data);
+        };
+        this.network.onRematchStart = data => {
+            if (data.sourceMatchId !== this.game.matchId || !isSafeMatchId(data.matchId)) return;
+            this._rematchStarting = true;
+            this._updateRematchUI(data);
+            this.game.startGameFromNetwork(data);
+        };
+
         bind('btn-start-game', async () => {
             if (this.network.connected && !this.isLobbyHost()) {
                 this.ui.showMessage?.('Only host can start', 1500);
@@ -1117,13 +1358,17 @@ class App {
             const startButton = document.getElementById('btn-start-game');
             if (startButton?.disabled) return;
             if (startButton) startButton.disabled = true;
+            this.audio.init();
+            await this._showMatchLoading(950);
+            const started = this.game.startGame();
+            if (started === false) {
+                if (startButton) startButton.disabled = false;
+                return;
+            }
             clearInterval(this._lobbyKeepAlive);
             if (this._lobbyCode) this._unregisterLobby(this._lobbyCode);
             this._lobbyCode = null;
-            this.audio.init();
-            await this._showMatchLoading(950);
             this.player.lock();
-            this.game.startGame();
             this.ui.updateContractTracker(Daily, this.store);
             if (this.network.connected && this.network.isHost) {
                 this.network.broadcast({ type: 'gameStart', ...this.game.snapshotState() });
@@ -1150,18 +1395,30 @@ class App {
             this.game.broadcastSystemMessage(`${this.game.playerName} is ${ready ? 'READY' : 'not ready'}`);
         });
 
-        bind('btn-add-bot-red', () => {
-            this.game.addBot('red');
+bind('btn-add-bot-red', () => {
+    if (!this.isLobbyHost()) {
+        this.ui.showMessage?.('Only the lobby host can manage bots.', 1400);
+        return;
+    }
+    this.game.addBot('red');
             this.broadcastLobbyState();
         });
 
-        bind('btn-add-bot-blue', () => {
-            this.game.addBot('blue');
+bind('btn-add-bot-blue', () => {
+    if (!this.isLobbyHost()) {
+        this.ui.showMessage?.('Only the lobby host can manage bots.', 1400);
+        return;
+    }
+    this.game.addBot('blue');
             this.broadcastLobbyState();
         });
 
-        bind('btn-remove-bot', () => {
-            this.game.removeBot();
+bind('btn-remove-bot', () => {
+    if (!this.isLobbyHost()) {
+        this.ui.showMessage?.('Only the lobby host can manage bots.', 1400);
+        return;
+    }
+    this.game.removeBot();
             this.broadcastLobbyState();
         });
 
@@ -1180,6 +1437,7 @@ class App {
         // Tab close / refresh while in a lobby → free the lobby immediately
         // instead of waiting for the 30s server TTL, and drop the P2P peer.
         window.addEventListener('beforeunload', () => {
+            this._stopHostCheckpointLifecycle();
             if (this.network?.isHost && this._lobbyCode) {
                 try {
                     // sendBeacon only supports POST → server'un POST /api/lobbies/:code
@@ -1193,14 +1451,14 @@ class App {
 
         // Game over
         bind('btn-play-again', () => {
-            this.awardMatchRewards();
-            this.game.startGame();
-            this.player.lock();
+            this._requestRematch();
         });
+        bind('btn-match-result-rematch', () => this._requestRematch());
 
         bind('btn-main-menu', () => {
             this.awardMatchRewards();
             this.game.cancelPreGame?.();
+            this._stopHostCheckpointLifecycle();
             this.network?.closeLobby();
             this.game.bots.forEach(b => b.remove());
             this.game.bots = [];
@@ -1218,10 +1476,9 @@ class App {
         // Post-game screen actions
         window._postGameAction = (action) => {
             if (action === 'play_again') {
-                this.awardMatchRewards();
-                this.game.startGame();
-                this.player.lock();
+                this._requestRematch();
             } else if (action === 'lobby') {
+                clearTimeout(this._rematchTimer);
                 this.awardMatchRewards();
                 this.game.ball.deactivate();
                 if (this.game.affixes) this.game.affixes.clearRound();
@@ -1235,7 +1492,9 @@ class App {
                 this.player.unlock();
                 this.refreshMetaStats();
             } else if (action === 'main_menu') {
+                clearTimeout(this._rematchTimer);
                 this.awardMatchRewards();
+                this._stopHostCheckpointLifecycle();
                 this.network?.closeLobby();
                 this.game.bots.forEach(b => b.remove());
                 this.game.bots = [];
@@ -1267,15 +1526,23 @@ class App {
         });
 
         // Carousel navigation
-        bind('carousel-prev', () => {
-            const keys = Object.keys(Arena.MAPS);
+bind('carousel-prev', () => {
+    if (!this.isLobbyHost()) {
+        this.ui.showMessage?.('Only the lobby host can change the map.', 1400);
+        return;
+    }
+    const keys = this.game.getSelectableMaps();
             this.carouselIndex = (this.carouselIndex - 1 + keys.length) % keys.length;
             this.game.selectMap(keys[this.carouselIndex]);
             this.updateCarousel();
             updateCSLobbyInfo();
         });
-        bind('carousel-next', () => {
-            const keys = Object.keys(Arena.MAPS);
+bind('carousel-next', () => {
+    if (!this.isLobbyHost()) {
+        this.ui.showMessage?.('Only the lobby host can change the map.', 1400);
+        return;
+    }
+    const keys = this.game.getSelectableMaps();
             this.carouselIndex = (this.carouselIndex + 1) % keys.length;
             this.game.selectMap(keys[this.carouselIndex]);
             this.updateCarousel();
@@ -1674,16 +1941,28 @@ class App {
             });
         }
 
-        const updateCSLobbyInfo = () => {
+const updateCSLobbyInfo = () => {
             const mapEl = document.getElementById('cs-lobby-map');
             const modeEl = document.getElementById('cs-lobby-mode');
-            if (mapEl) mapEl.textContent = this.arena?.config?.name || 'Beach';
-            if (modeEl) modeEl.textContent = this.game?.mode?.name || 'Classic';
-            // Sync carousel with current map
-            this.updateCarousel();
-        };
+    if (mapEl) mapEl.textContent = this.arena?.config?.name || 'Beach';
+    if (modeEl) modeEl.textContent = this.game?.mode?.name || 'Classic';
+    document.querySelectorAll('.mode-btn').forEach(button => {
+        const selected = button.dataset.mode === this.game?.mode?.id;
+        button.classList.toggle('selected', selected);
+        button.setAttribute('aria-pressed', String(selected));
+        button.disabled = !this.isLobbyHost();
+    });
+    const keys = this.game.getSelectableMaps();
+    const selectedMapIndex = keys.indexOf(this.arena?.mapId);
+    if (selectedMapIndex >= 0) this.carouselIndex = selectedMapIndex;
+    this.updateCarousel();
+};
 
-        bind('btn-random-map', () => {
+bind('btn-random-map', () => {
+    if (!this.isLobbyHost()) {
+        this.ui.showMessage?.('Only the lobby host can change the map.', 1400);
+        return;
+    }
             const keys = Object.keys(Arena.MAPS);
             const picked = this.game.pickRandomMap();
             this.carouselIndex = keys.indexOf(picked);
@@ -1714,16 +1993,27 @@ class App {
         });
 
         // Game mode selection buttons
-        document.querySelectorAll('.mode-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('selected'));
-                btn.classList.add('selected');
-                this.game.selectMode(btn.dataset.mode);
+document.querySelectorAll('.mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        if (!this.isLobbyHost()) {
+            this.ui.showMessage?.('Only the lobby host can change the mode.', 1400);
+            updateCSLobbyInfo();
+            return;
+        }
+        this.game.selectMode(btn.dataset.mode);
                 updateCSLobbyInfo();
             });
-        });
-        document.getElementById('match-modifier')?.addEventListener('change', event => this.game.setMatchModifier(event.target.value));
-        updateCSLobbyInfo();
+});
+document.getElementById('match-modifier')?.addEventListener('change', event => {
+    if (!this.isLobbyHost()) {
+        event.target.value = this.game.matchModifier || 'none';
+        return;
+    }
+    this.game.setMatchModifier(event.target.value);
+});
+this.game.onModeChange = updateCSLobbyInfo;
+this.game.onMapChange = updateCSLobbyInfo;
+updateCSLobbyInfo();
         this.initCarousel();
 
         // Karakter kart tıklama
@@ -2688,6 +2978,118 @@ class App {
         }
     }
 
+    async refreshWorkshop(mine = false) {
+        const grid = document.getElementById('map-workshop-grid');
+        const status = document.getElementById('map-workshop-status');
+        if (!grid) return;
+        this.workshopMine = mine;
+        grid.dataset.loaded = '1';
+        grid.replaceChildren();
+        if (status) status.textContent = mine ? 'Loading your submissions...' : 'Loading approved maps...';
+        if (mine && !this.store.remoteReady) {
+            await this.store.connectRemote(this.store.get('playerName'));
+        }
+        const query = document.getElementById('workshop-search')?.value || '';
+        const result = await this.store.listPublishedMaps({ mine, query, limit: 24 });
+        if (result.error) {
+            if (status) status.textContent = result.error;
+            return;
+        }
+        document.getElementById('btn-workshop-public')?.setAttribute('aria-pressed', String(!mine));
+        document.getElementById('btn-workshop-mine')?.setAttribute('aria-pressed', String(mine));
+        if (!result.maps.length) {
+            if (status) status.textContent = mine
+                ? 'No submissions yet. Publish your first arena.'
+                : 'No approved maps match this search.';
+            return;
+        }
+        const fragment = document.createDocumentFragment();
+        for (const map of result.maps) {
+            const card = document.createElement('article');
+            card.className = 'workshop-card';
+            card.dataset.status = ['approved', 'pending', 'rejected'].includes(map.status)
+                ? map.status
+                : 'pending';
+
+            const top = document.createElement('div');
+            top.className = 'workshop-card-top';
+            const title = document.createElement('h3');
+            title.textContent = map.name;
+            const badge = document.createElement('span');
+            badge.className = 'workshop-status';
+            badge.textContent = map.status;
+            top.append(title, badge);
+
+            const creator = document.createElement('p');
+            creator.className = 'workshop-creator';
+            creator.textContent = `by ${map.creatorName} | v${map.revision} | ${map.propCount} props`;
+            const description = document.createElement('p');
+            description.className = 'workshop-description';
+            description.textContent = map.description || 'Competitive arena prototype.';
+            card.append(top, creator, description);
+
+            if (mine && map.moderationNote) {
+                const note = document.createElement('p');
+                note.className = 'workshop-note';
+                note.textContent = `Review: ${map.moderationNote}`;
+                card.append(note);
+            }
+
+            const actions = document.createElement('div');
+            actions.className = 'workshop-actions';
+            for (const [action, label] of [['open', 'Open in Editor'], ['play', 'Play Solo']]) {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = action === 'play' ? 'btn btn-primary' : 'btn btn-secondary';
+                button.dataset.workshopAction = action;
+                button.dataset.mapId = map.id;
+                button.dataset.mine = mine ? '1' : '0';
+                button.textContent = label;
+                actions.append(button);
+            }
+            card.append(actions);
+            fragment.append(card);
+        }
+        grid.append(fragment);
+        if (status) status.textContent = `${result.maps.length} map loaded`;
+    }
+
+    async openWorkshopMap(mapId, mine = false, play = false) {
+        const status = document.getElementById('map-workshop-status');
+        if (status) status.textContent = 'Validating map package...';
+        const map = await this.store.getPublishedMap(mapId);
+        const validation = map ? validateMapConfig(map.config) : { valid: false, errors: ['Map unavailable'] };
+        if (!validation.valid) {
+            if (status) status.textContent = validation.errors[0] || 'Unsafe map package';
+            return;
+        }
+        const safe = normalizeMapConfig(validation.config);
+        if (play) {
+            const id = `workshop-${map.id}`;
+            registerCustomMap(id, safe);
+            this.arena.rebuild(id);
+            this.startPractice();
+            return;
+        }
+        const maps = (this.store.get('customMaps') || []).filter(entry => entry.id !== 'custom-local');
+        maps.push({
+            id: 'custom-local',
+            config: safe,
+            publishedId: mine ? map.id : ''
+        });
+        this.store.set('customMaps', maps.slice(-10));
+        registerCustomMap('custom-local', safe);
+        this.mapEditor?.setConfig(safe);
+        const name = document.getElementById('map-editor-name');
+        const width = document.getElementById('map-editor-width');
+        const length = document.getElementById('map-editor-length');
+        if (name) name.value = safe.name;
+        if (width) width.value = safe.dimensions.width;
+        if (length) length.value = safe.dimensions.length;
+        this.mapEditor?.render();
+        if (status) status.textContent = `${safe.name} downloaded to your local editor`;
+    }
+
     initMapEditor() {
         const canvas = document.getElementById('map-editor-canvas');
         if (!canvas) return;
@@ -2710,6 +3112,8 @@ class App {
         if (length) length.value = config.dimensions.length;
         refresh(config);
         this.mapEditor.render();
+        const workshop = document.getElementById('map-workshop-grid');
+        if (workshop && workshop.dataset.loaded !== '1') this.refreshWorkshop(false);
     }
 
     async _startRankedQueue() {
@@ -2990,15 +3394,15 @@ class App {
         });
     }
 
-    initCarousel() {
-        const keys = Object.keys(Arena.MAPS);
+initCarousel() {
+    const keys = this.game.getSelectableMaps();
         const idx = keys.indexOf(this.arena?.mapId);
         if (idx >= 0) this.carouselIndex = idx;
         this.updateCarousel();
     }
 
-    updateCarousel() {
-        const keys = Object.keys(Arena.MAPS);
+updateCarousel() {
+    const keys = this.game.getSelectableMaps();
         const mapId = keys[this.carouselIndex];
         const config = Arena.MAPS[mapId];
         if (!config) return;
@@ -3106,7 +3510,62 @@ class App {
     }
 
     // Practice range — bot yok, sınırsız top, spawn/taşı.
+    _capturePracticeSession() {
+        if (this._practiceSessionRestore) return;
+        this._practiceSessionRestore = {
+            mapId: this.arena.mapId,
+            modeId: this.game.mode?.id || 'classic',
+            team: this.player.team
+        };
+    }
+
+    _exitPracticeSession() {
+        if (!this.game._practiceMode
+            && !this._practiceSessionRestore
+            && !this.game.guidedDrill?.active
+            && !this.game._guidedDrillResultOpen) {
+            return false;
+        }
+        const restore = this._practiceSessionRestore;
+        this.game.cancelGuidedDrill();
+        this.game.clearPowerUps?.();
+        this.game.affixes?.clearRound();
+        this.game.chaosManager?.clear();
+        this.game._practiceMode = false;
+        document.getElementById('guided-drill-result')?.classList.add('hidden');
+        document.getElementById('practice-lab-hud')?.classList.add('hidden');
+        document.querySelectorAll('#btn-add-bot-red, #btn-add-bot-blue').forEach(button => {
+            button.disabled = false;
+        });
+        if (restore) {
+            this.game.state = STATES.LOBBY;
+            this.game.selectMode(restore.modeId);
+            this.game.selectMap(restore.mapId);
+            this.player.setTeam(restore.team === 'blue' ? 'blue' : 'red');
+            this.player.respawn();
+        }
+        this._practiceSessionRestore = null;
+        return true;
+    }
+
+    startGuidedDeflectDrill() {
+        this._capturePracticeSession();
+        document.getElementById('guided-drill-result')?.classList.add('hidden');
+        this.game.state = STATES.LOBBY;
+        this.game.selectMode('classic');
+        this.game.selectMap('esport_arena');
+        this.startPractice();
+        this.game.armGuidedDrill();
+        this.game.startGame(true);
+        this.player.lock();
+    }
+
     startPractice() {
+        this._capturePracticeSession();
+        this.game.cancelGuidedDrill();
+        this.game.clearPowerUps?.();
+        this.game.affixes?.clearRound();
+        this.game.chaosManager?.clear();
         this.game.state = STATES.LOBBY;
         this.player.setTeam('red');
         this.player.respawn();
@@ -3130,6 +3589,7 @@ class App {
     _startMovementTrial(trialId) {
         const trial = MOVEMENT_TRIALS[trialId];
         if (!trial) return;
+        this._capturePracticeSession();
         this.game.selectMap(trial.map);
         this.startPractice();
         if (trial.character) {
@@ -3276,13 +3736,77 @@ class App {
         this._perfectDeflectTimer = setTimeout(() => hud.classList.add('hidden'), 850);
     }
 
+    _updateGuidedDrillHUD(snapshot = {}) {
+        const stage = snapshot.stage || {};
+        const displayStage = snapshot.phase === 'transition'
+            ? snapshot.nextStage || stage
+            : stage;
+        const stats = snapshot.stats || {};
+        const seconds = Math.ceil((snapshot.phaseRemainingMs || 0) / 1000);
+        const values = {
+            'practice-lab-mode': displayStage.name || 'GUIDED',
+            'drill-stage': snapshot.phase === 'countdown'
+                ? 'READY'
+                : snapshot.phase === 'transition'
+                    ? `NEXT ${Math.min((snapshot.stageIndex || 0) + 2, 3)}/3`
+                    : `STAGE ${Math.min((snapshot.stageIndex || 0) + 1, 3)}/3`,
+            'drill-timer': `00:${String(seconds).padStart(2, '0')}`,
+            'drill-speed': `${Number(snapshot.speedMultiplier || 0).toFixed(2)}x`,
+            'drill-hits': stats.hits || 0,
+            'drill-directed': stats.directed || 0,
+            'drill-perfect': stats.perfect || 0,
+            'practice-hint': snapshot.phase === 'countdown'
+                ? 'Get ready. First serve incoming.'
+                : snapshot.phase === 'transition'
+                    ? `Next: ${displayStage.instruction || ''}`
+                    : stage.instruction || ''
+        };
+        Object.entries(values).forEach(([id, value]) => {
+            const element = document.getElementById(id);
+            if (element) element.textContent = value;
+        });
+        const track = document.getElementById('drill-stage-progress');
+        if (track && stage.durationMs) {
+            track.style.width = `${Math.min(
+                100,
+                (snapshot.phaseElapsedMs || 0) / stage.durationMs * 100
+            )}%`;
+        }
+    }
+
+    _showGuidedDrillResult(result = {}) {
+        const overlay = document.getElementById('guided-drill-result');
+        if (!overlay) return;
+        const grade = document.getElementById('drill-result-grade');
+        const score = document.getElementById('drill-result-score');
+        if (grade) grade.textContent = result.grade || 'D';
+        if (score) score.textContent = String(result.score || 0);
+        const list = document.getElementById('drill-result-stages');
+        if (list) {
+            list.replaceChildren();
+            for (const stage of result.stages || []) {
+                const row = document.createElement('div');
+                const name = document.createElement('span');
+                const value = document.createElement('b');
+                name.textContent = stage.name;
+                value.textContent = `${stage.score} ${stage.passed ? 'PASS' : 'RETRY'}`;
+                row.dataset.passed = stage.passed ? '1' : '0';
+                row.append(name, value);
+                list.append(row);
+            }
+        }
+        overlay.classList.remove('hidden');
+        this.game._guidedDrillResultOpen = true;
+        this.player.unlock();
+    }
+
     _updatePracticeLab(summary = {}) {
-        const accuracy = Math.round((summary.accuracy || 0) * 100);
+        const accuracy = Math.round(summary.accuracy || 0);
         const values = {
             'practice-accuracy': `${accuracy}%`,
             'practice-perfects': summary.perfects || 0,
-            'practice-best': Number.isFinite(summary.bestReactionMs)
-                ? `${Math.round(summary.bestReactionMs)}ms`
+            'practice-best': Number.isFinite(summary.best)
+                ? `${Math.round(summary.best)}ms`
                 : '--'
         };
         Object.entries(values).forEach(([id, value]) => {
@@ -3304,6 +3828,7 @@ class App {
             this.game.removeRemotePlayer(playerId);
             this.network.broadcast({ type: 'peerLeft', playerId, peerId });
             this.broadcastLobbyState();
+            this._syncRematchRoster?.();
         };
         this.network.onTeamChange = (name, team) => {
             this.game.switchPlayerTeam?.(name, team);
@@ -3377,6 +3902,7 @@ class App {
             this._exitToMenu('🚪 Host left — lobby closed');
         };
         this.network.onHostMigration = ({ candidate }) => {
+            this._stopHostCheckpointLifecycle();
             const banner = document.getElementById('host-migration-banner');
             const title = document.getElementById('host-migration-title');
             if (title) title.textContent = `${candidate?.name || 'Player'} is becoming host...`;
@@ -3395,9 +3921,11 @@ class App {
                 this._installMigratedHostHandlers(roomCode);
                 this.game.ball._clientOnly = false;
                 this._startBgLoop();
+                this._startHostCheckpointLifecycle();
                 this.ui.setRoomCode(roomCode);
                 this.ui.showMessage?.('You are the new host. Match resumed.', 2600);
             } else {
+                this._stopHostCheckpointLifecycle();
                 this.ui.showMessage?.('Host migrated. Match resumed.', 2200);
             }
         };
@@ -3432,11 +3960,13 @@ class App {
 
     // Leave the lobby cleanly. Host closes it for everyone; clients just drop.
     leaveLobby() {
+        this._stopHostCheckpointLifecycle();
         clearInterval(this._lobbyKeepAlive);
         this._stopBgLoop();
         this._cleanupListeners();
         if (this.network?.isHost && this._lobbyCode) this._unregisterLobby(this._lobbyCode);
         this._lobbyCode = null;
+        this._exitPracticeSession();
         document.getElementById('practice-lab-hud')?.classList.add('hidden');
         // Tell peers + tear down the P2P connection.
         this.network?.closeLobby?.();
@@ -3449,10 +3979,12 @@ class App {
 
     // Shared cleanup when returning to the menu from a lobby (host or client).
     _exitToMenu(message) {
+        this._stopHostCheckpointLifecycle();
         clearInterval(this._lobbyKeepAlive);
         this._stopBgLoop();
         this._cleanupListeners();
         this._lobbyCode = null;
+        this._exitPracticeSession();
         document.getElementById('practice-lab-hud')?.classList.add('hidden');
         this.network?.disconnect();
         this.game.cancelPreGame?.();
@@ -3558,6 +4090,7 @@ class App {
             // ponytail: bg loop is the authoritative host sim — must run regardless of tab visibility
             this._startBgLoop();
             this.game.startSolo();
+            this._startHostCheckpointLifecycle();
             this.ui.setRoomCode(code);
             this.ui.showScreen('lobby');
             const nameInput = document.getElementById('lobby-name-input');
@@ -3602,6 +4135,7 @@ class App {
                 // Mesh: tell remaining clients to drop P2P connection
                 this.network.broadcast({ type: 'peerLeft', playerId, peerId });
                 this.broadcastLobbyState();
+                this._syncRematchRoster?.();
                 this._registerLobby(code, this._lobbyName, this.network.connections.size, this.arena.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
             };
             // Host: client kendi takımını değiştirmek isterse uygula, sonra broadcast et.
@@ -3980,6 +4514,70 @@ class App {
             if (this.audio?.ctx?.state === 'suspended') this.audio.ctx.resume();
         }
     }
+    _publishHostCheckpointIfChanged() {
+        const network = this.network;
+        if (!network?.connected || !network.isHost
+            || typeof network.publishHostCheckpoint !== 'function') return false;
+        let state;
+        let signature;
+        try {
+            state = this.game?.snapshotState?.();
+            if (!state || typeof state !== 'object' || Array.isArray(state)) return false;
+            signature = JSON.stringify(state);
+        } catch (_) {
+            return false;
+        }
+        if (!signature || signature.length > HOST_CHECKPOINT_SIGNATURE_MAX_CHARS) return false;
+        const epoch = Number.isSafeInteger(network.migrationEpoch) ? network.migrationEpoch : 0;
+        const versionedSignature = `${epoch}:${signature}`;
+        if (versionedSignature === this._lastHostCheckpointSignature) return false;
+        let checkpoint;
+        try {
+            checkpoint = network.publishHostCheckpoint(state);
+        } catch (_) {
+            return false;
+        }
+        if (!checkpoint
+            || !Number.isSafeInteger(checkpoint.epoch)
+            || !Number.isSafeInteger(checkpoint.sequence)) return false;
+        this._lastHostCheckpointSignature = versionedSignature;
+        this._lastHostCheckpointEpoch = checkpoint.epoch;
+        this._lastHostCheckpointSequence = checkpoint.sequence;
+        return true;
+    }
+
+    _startHostCheckpointLifecycle() {
+        this._stopHostCheckpointLifecycle();
+        if (!this.network?.connected || !this.network.isHost) return false;
+        const generation = this._hostCheckpointGeneration;
+        this._publishHostCheckpointIfChanged();
+        this._hostCheckpointInterval = setInterval(() => {
+            if (generation !== this._hostCheckpointGeneration
+                || !this.network?.connected
+                || !this.network.isHost) {
+                if (generation === this._hostCheckpointGeneration) {
+                    this._stopHostCheckpointLifecycle();
+                }
+                return;
+            }
+            this._publishHostCheckpointIfChanged();
+        }, HOST_CHECKPOINT_INTERVAL_MS);
+        return true;
+    }
+
+    _stopHostCheckpointLifecycle() {
+        if (this._hostCheckpointInterval !== null) {
+            clearInterval(this._hostCheckpointInterval);
+            this._hostCheckpointInterval = null;
+        }
+        this._hostCheckpointGeneration = Number.isSafeInteger(this._hostCheckpointGeneration)
+            ? this._hostCheckpointGeneration + 1
+            : 1;
+        this._lastHostCheckpointSignature = null;
+        this._lastHostCheckpointEpoch = null;
+        this._lastHostCheckpointSequence = null;
+    }
+
     _startBgLoop() {
         if (this._bgInterval) return;
         this._bgAccumulator = 0;
@@ -4091,29 +4689,17 @@ class App {
             this._bgBallTimer %= 1 / 30;
             this._ballSeq = (this._ballSeq || 0) + 1;
             const b = this.game.ball;
-            const newState = b.state;
-            const newTarget = b.targetPlayer?.name || null;
-            // ponytail: delta — only include state/target when they change (rare)
-            const ballExtra = {};
-            if (this._lastBallState !== newState) { ballExtra.state = newState; this._lastBallState = newState; }
-            if (this._lastBallTarget !== newTarget) { ballExtra.targetName = newTarget; this._lastBallTarget = newTarget; }
-            this.network.broadcastBinary(this.network.encodeBallState({
-                seq: this._ballSeq,
-                x: b.position.x, y: b.position.y, z: b.position.z,
-                vx: b.velocity.x, vy: b.velocity.y, vz: b.velocity.z,
-                speed: b.currentSpeed, active: b.active,
-                ...ballExtra
-            }));
+            this.network.broadcastBallState(b, this._ballSeq);
         }
         // Score 2Hz
         this._bgScoreTimer += dt;
         if (this._bgScoreTimer >= 0.5) {
             this._bgScoreTimer = 0;
-            this.network.publishHostCheckpoint?.(this.game.snapshotState());
             this.network.broadcast({
                 type: 'scoreUpdate',
                 red: this.game.scoreboard.redScore, blue: this.game.scoreboard.blueScore,
                 time: this.game.scoreboard.timeRemaining, round: this.game.scoreboard.roundNum,
+                hotPotato: this.game.getHotPotatoSnapshot?.(),
                 players: this.game.scoreboard.getPlayerStats(),
                 killFeed: this.game.killFeed.slice(0, 5).map(k => ({
                     attacker: k.attacker, victim: k.victim, dmg: k.dmg, tag: k.tag
@@ -4299,7 +4885,10 @@ class App {
         }
 
         // Practice mode özel tuşlar
-        if (this.game._practiceMode && this.game.state === STATES.PLAYING) {
+        if (this.game._practiceMode
+            && !this.game.guidedDrill.active
+            && !this.game._guidedDrillResultOpen
+            && this.game.state === STATES.PLAYING) {
             if (this.player.keys['KeyR']) {
                 this.player.keys['KeyR'] = false;
                 this.game.ball.spawn();
@@ -4307,12 +4896,16 @@ class App {
             }
             if (this.player.keys['KeyF']) {
                 this.player.keys['KeyF'] = false;
+                this.game.ball.spawn();
                 const aim = this.player.getAimDirection();
                 const pos = this.player.getPosition();
                 this.game.ball.position.copy(pos).add(aim.multiplyScalar(5));
                 this.game.ball.position.y = Math.max(3, this.game.ball.position.y);
                 this.game.ball.velocity.set(0, -2, 0);
                 this.game.ball.active = true;
+                this.game.ball.state = 'falling';
+                this.game.ball.target = null;
+                this.game.ball._homingAge = 0;
                 this.game.ball.mesh.visible = true;
                 this.ui.showMessage?.('Ball moved', 800);
             }
@@ -4454,16 +5047,7 @@ class App {
                             vx: ball.velocity.x, vy: ball.velocity.y, vz: ball.velocity.z,
                             time: performance.now()
                         };
-                        this.network.broadcast({
-                            type: 'ballState',
-                            seq: this._ballSeq,
-                            x: ball.position.x, y: ball.position.y, z: ball.position.z,
-                            vx: ball.velocity.x, vy: ball.velocity.y, vz: ball.velocity.z,
-                            speed: ball.currentSpeed, active: ball.active,
-                            state: ball.state,
-                            targetId: ball.targetPlayer?.peerId || null,
-                            targetName: ball.targetPlayer?.name || null
-                        });
+                        this.network.broadcastBallState(ball, this._ballSeq);
                     }
                 }
             }
@@ -4475,6 +5059,7 @@ class App {
                     type: 'scoreUpdate',
                     red: this.game.scoreboard.redScore, blue: this.game.scoreboard.blueScore,
                     time: this.game.scoreboard.timeRemaining, round: this.game.scoreboard.roundNum,
+                    hotPotato: this.game.getHotPotatoSnapshot?.(),
                     players: this.game.scoreboard.getPlayerStats(),
                     killFeed: this.game.killFeed.slice(0, 5).map(k => ({
                         attacker: k.attacker, victim: k.victim, dmg: k.dmg, tag: k.tag

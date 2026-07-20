@@ -1,10 +1,56 @@
 // audio.js — Friendly, smooth, cute synthesized SFX
+const THREAT_ENTER_SECONDS = [Infinity, 1.8, 0.9, 0.42];
+const THREAT_COOLDOWN_MS = [Infinity, 1300, 850, 450];
+const THREAT_EXIT_FACTOR = 1.25;
+
+export function createThreatAudioState() {
+    return { urgency: 0, lastCueAt: null };
+}
+
+function classifyThreat(distance, speed, thresholdFactor = 1) {
+    if (!Number.isFinite(distance) || !Number.isFinite(speed) || distance < 0 || speed <= 0) return 0;
+    const seconds = distance / speed;
+    if (seconds <= THREAT_ENTER_SECONDS[3] * thresholdFactor) return 3;
+    if (seconds <= THREAT_ENTER_SECONDS[2] * thresholdFactor) return 2;
+    if (seconds <= THREAT_ENTER_SECONDS[1] * thresholdFactor) return 1;
+    return 0;
+}
+
+export function scheduleThreatAudio(state, sample) {
+    const reset = createThreatAudioState();
+    const current = state?.urgency >= 0 && state.urgency <= 3 ? state : reset;
+    if (!Number.isFinite(sample?.now)) return { state: reset, cue: 0 };
+    if (!sample.active) return { state: current, cue: 0 };
+
+    const rawUrgency = classifyThreat(sample.distance, sample.speed);
+    let urgency = rawUrgency;
+    if (rawUrgency < current.urgency) {
+        urgency = classifyThreat(sample.distance, sample.speed, THREAT_EXIT_FACTOR);
+    }
+    if (urgency === 0) return { state: reset, cue: 0 };
+
+    const elapsed = current.lastCueAt === null ? Infinity : sample.now - current.lastCueAt;
+    const cue = urgency > current.urgency || elapsed >= THREAT_COOLDOWN_MS[urgency]
+        ? urgency
+        : 0;
+    return {
+        state: {
+            urgency,
+            lastCueAt: cue ? sample.now : current.lastCueAt
+        },
+        cue
+    };
+}
+
 export class Audio {
     constructor() {
         this.ctx = null;
         this.masterGain = null;
         this.volume = 0.5;
         this.soundVolume = 0.5;
+        this._threatAudioState = createThreatAudioState();
+        this._threatCueGeneration = 0;
+        this._contextResumePromise = null;
         this._buffers = {}; // name → AudioBuffer cache
     }
 
@@ -12,8 +58,6 @@ export class Audio {
         if (this.ctx) return;
         try {
             this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-            // Bazı browser'larda AudioContext suspended başlar — resume gerek
-            if (this.ctx.state === 'suspended') this.ctx.resume();
         } catch (e) {
             console.warn('AudioContext:', e);
             return;
@@ -38,6 +82,7 @@ export class Audio {
         this.masterGain.connect(this.tone);
         this.tone.connect(this.limiter);
         this.limiter.connect(this.ctx.destination);
+        if (this.ctx.state === 'suspended') this._resumeAudioContext();
     }
 
     setVolume(v) {
@@ -49,6 +94,80 @@ export class Audio {
         this.volume = this.soundVolume;
         if (this.masterGain) this.masterGain.gain.value = this.soundVolume * 0.4;
         for (const sound of Object.values(this._sfxAudios || {})) sound.volume = this.soundVolume;
+    }
+
+    resetThreatAudio() {
+        this._threatAudioState = createThreatAudioState();
+        this._threatCueGeneration++;
+    }
+
+    updateThreatAudio(sample = {}) {
+        const now = Number.isFinite(sample.now)
+            ? sample.now
+            : (typeof performance !== 'undefined' ? performance.now() : Date.now());
+        const result = scheduleThreatAudio(this._threatAudioState, { ...sample, now });
+        this._threatAudioState = result.state;
+        if (result.cue) this.playThreatCue(result.cue);
+        return result.cue;
+    }
+
+    playThreatCue(urgency = 1) {
+        const generation = ++this._threatCueGeneration;
+        if (!this.ctx || !this.masterGain || this.soundVolume <= 0) return;
+        const level = Math.max(1, Math.min(3, Math.floor(urgency)));
+        if (this.ctx.state === 'suspended') {
+            this._resumeAudioContext().then(running => {
+                if (!running
+                    || generation !== this._threatCueGeneration
+                    || !this.masterGain
+                    || this.soundVolume <= 0) return;
+                this._playThreatCueNow(level);
+            });
+            return;
+        }
+        this._playThreatCueNow(level);
+    }
+
+    _resumeAudioContext() {
+        if (!this.ctx || this.ctx.state !== 'suspended') {
+            return Promise.resolve(this.ctx?.state === 'running');
+        }
+        if (this._contextResumePromise) return this._contextResumePromise;
+        let resumed;
+        try {
+            resumed = this.ctx.resume();
+        } catch (_) {
+            return Promise.resolve(false);
+        }
+        const flight = Promise.resolve(resumed)
+            .then(() => this.ctx?.state === 'running')
+            .catch(() => false)
+            .finally(() => {
+                if (this._contextResumePromise === flight) this._contextResumePromise = null;
+            });
+        this._contextResumePromise = flight;
+        return flight;
+    }
+
+    _playThreatCueNow(level) {
+        const t = this.ctx.currentTime;
+        const pulse = (type, frequency, offset, duration, gainValue) => {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.type = type;
+            osc.frequency.value = frequency;
+            gain.gain.setValueAtTime(0.0001, t + offset);
+            gain.gain.exponentialRampToValueAtTime(gainValue, t + offset + 0.008);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + offset + duration);
+            osc.connect(gain);
+            gain.connect(this.masterGain);
+            osc.start(t + offset);
+            osc.stop(t + offset + duration + 0.01);
+        };
+
+        pulse('sine', 300 + level * 55, 0, 0.15, 0.07);
+        if (level >= 2) pulse('triangle', 520 + level * 70, 0.07, 0.13, 0.055);
+        if (level >= 3) pulse('square', 920, 0.14, 0.08, 0.025);
     }
 
     // Preload TF2 sfx via fetch+blob. Uses .sfx aliases so IDM doesn't grab .mp3 URLs.

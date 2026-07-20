@@ -1,286 +1,369 @@
-# DODGBALL — Espor Oyununa Dönüşüm Planı
-
-> **Durum**: Aktif geliştirme. Bu plan, tokenler biterse başka AI'lerin/devralabilir.
-> **Yaklaşım**: Ponytail — en kısa çalışan diff, stdlib önce, mevcut kodu genişlet.
-> **Oyun**: 3D first-person dodgeball, Three.js + PeerJS, browser-based.
-
----
+# DODGB-V3 Product and Engineering Plan
+
+> Status: active
+> Product: browser-based first-person dodgeball arena game
+> Stack: Three.js, vanilla JavaScript modules, Node.js, PeerJS
+> Working directory: `C:\Users\Sher\Desktop\dodgb-v3`
+> Rule: v2 is the untouched reference. All new work happens in v3.
+
+## 1. Product decision
+
+Warrball will be a fast competitive arena game built around one readable skill:
+redirecting an accelerating ball under pressure.
+
+The product identity:
+
+- Krunker-like browser accessibility and fast queue entry.
+- Dodgeball-specific aim, timing, movement and team play.
+- Short matches with high replay value.
+- Competitive rules without paid power.
+- Cosmetics obtainable with money or meaningful play.
+- Community maps and creator rewards only after the core game retains players.
+
+The initial signature mode is `Rally Duel`:
+
+- 1v1.
+- Two clean maps.
+- No runes or active abilities.
+- Normal, great and perfect deflect timing.
+- Directional return, spike, lob and movement interaction.
+- Fast rematch.
+
+`Team Arena` follows after Rally Duel is stable:
+
+- 3v3 casual.
+- Team assists and passing.
+- Bot backfill.
+- Party and reconnect.
+
+Ranked 3v3 follows only after the authoritative server prototype works.
+
+## 2. Current implementation matrix
+
+### Present and integrated
+
+- Core Three.js game loop.
+- Player movement, stamina, dash and wall jump.
+- Ball physics, targeting, shot types, trails and skins.
+- Bot AI.
+- P2P multiplayer and host-authoritative simulation.
+- Host migration and late join.
+- Perfect deflect classification and practice metrics.
+- Tutorial flow.
+- Match analytics, MVP calculation and heatmap data.
+- Match result UI.
+- Ranked queue and seasonal ELO state.
+- Replay and spectator foundations.
+- Store, battle pass, daily rewards and season contracts.
+- Cosmetics, cases, knives, trails and MVP effects.
+- Toon shader, outline, bloom and quality presets.
+
+### Present but requiring audit or integration polish
+
+- Ranked integrity.
+- Match reward authority.
+- Tutorial pacing and completion UX.
+- Perfect deflect feedback readability.
+- Battle pass economy.
+- Case-opening policy.
+- Cosmetic preview consistency.
+- Replay presentation.
+- Spectator broadcast HUD.
+- Map editor validation.
+- Social and creator systems.
+- Performance diagnostics and particle allocation.
+
+### Missing production foundations
+
+- Durable account authentication.
+- Production database.
+- Server inventory ledger.
+- Payment provider integration.
+- Refund, tax and regional pricing flow.
+- Dedicated authoritative match service.
+- Moderation operations.
+- Creator publishing review pipeline.
+
+## 3. Non-negotiable rules
+
+- No gameplay power sold for real money.
+- Ranked v1 has normalized stats.
+- Ranked v1 disables runes, passives, active skills, ultimates and random power-ups.
+- Cosmetics cannot change hitboxes, visibility or simulation.
+- Client currency and match results are never trusted in production.
+- Paid random cases are not part of v3 launch.
+- Earn-only cases may remain if odds and duplicate conversion are transparent.
+- Premium-currency item pages show an understandable real-money equivalent.
+- New permanent queues are not added without enough concurrent players.
+- Effects cannot hide the ball or team ownership.
+- Creator payouts do not launch before moderation and fraud controls.
+
+## 4. Internal success gates
 
-## Mevcut Durum (Phase 0 — Tamam)
+These are initial product targets, not external industry claims. Replace them with
+real cohort data after closed testing.
 
-- ✅ 4 map: Beach, Factory, Space, Neon (`arena.js` MAPS)
-- ✅ Bot AI (`bot.js`) — easy/medium/hard
-- ✅ P2P multiplayer PeerJS (`network.js`)
-- ✅ HP/shield/stamina temel (`player.js`, `bot.js`)
-- ✅ Store: currency/xp/level (`store.js`)
-- ✅ Minimap, chat, scoreboard, countdown
-- ✅ Toon shader + outline (`renderer.js`, `shaders/`)
-- ✅ Ball: aim-based deflection, spike/lob/flat, trail, glow (`ball.js`)
-
----
-
-## Phase 1 — Çekirdek Sistemler (YÜKSEK ÖNCELİK)
-
-### 1.1 Karakter Sistemi — `js/characters.js` (YENİ)
-
-Karakter başına statlar + pasif yetenek. League of Legends tarzı.
-
-```js
-export const CHARACTERS = {
-  rally:    { name:'Rally',    maxHp:100, speed:10, deflectPower:1.0,  passive:'none'        },
-  tank:     { name:'Bulwark',  maxHp:150, speed:8,  deflectPower:0.9,  passive:'damage_reduc' },
-  scout:    { name:'Scout',    maxHp:80,  speed:13, deflectPower:1.1,  passive:'fast_stam'    },
-  sniper:   { name:'Sniper',   maxHp:90,  speed:9,  deflectPower:1.3,  passive:'spike_bonus'  },
-  guardian: { name:'Guardian', maxHp:120, speed:9,  deflectPower:1.0,  passive:'shield_regen' },
-};
-```
-
-- `player.applyLoadout(charId)` → statları uygula
-- Store'da `unlockedChars` zaten var, `rally` default
-- Bot'lara da karakter ata (random)
-
-### 1.2 Skill/Rune Sistemi — `js/skills.js` (YENİ)
-
-Aktif skill (Q tuşu) + pasif rune'lar. LoL rune tarzı 4 slot.
-
-**Aktif Skiller:**
-| Skill | Etki | Cooldown |
-|-------|------|----------|
-| `slow` | Topu 2sn %50 yavaşlat | 8s |
-| `freeze` | Topu 1.5sn dondur | 12s |
-| `burn` | Hedefe 3sn boyunca 5 dmg/s | 10s |
-| `shield` | 25 kalkan | 8s |
-| `smash` | Topa +30% hız vur | 10s |
-| `heal` | +20 HP | 15s |
-
-**Rune Slotları (pasif):**
-- HP Bonus (+25 max HP)
-- Damage Resist (-15% alınan hasar)
-- Deflect Power (+15% deflect gücü)
-- Speed Bonus (+15% hareket)
-- Stamina Regen (+50% stamina yenileme)
-- Cooldown Reduction (-20% skill cooldown)
-
-`player.useSkill(skillId)` → cooldown + etki uygula.
-`player.applyRunes(runeLoadout)` → stat bonusları.
-
-### 1.3 Hasar Sistemi İyileştirme — `player.js` / `bot.js` / `game.js`
-
-**Consecutive miss ramp (zaten kısmen var):**
-```
-tutamama sayısı → ekstra hasar
-0 miss  → base damage (25)
-1 miss  → +5 (30)
-2 miss  → +10 (35)
-3+ miss → +20 (45) "CRITICAL"
-```
-
-- `handleHit()` içinde `target.consecutiveMisses` oku
-- Başarıyla deflect edince `consecutiveMisses = 0` sıfırla
-- HP 0'a düşünce öl, round bitir
-- Bot'lar HP bar'ı zaten çiziyor (`drawHpBar`), player için `#vitals` zaten var
-
-**Damage meter:** HUD'a DPS/total damage ekle (`scoreboard.js` + `ui.js`).
-
-### 1.4 Spam Protection — `player.js`
-
-Mouse 1 spam ile topu sınırsız atamama:
-- **Stamina tabanlı attack**: Her deflect 25 stamina harcer
-- Stamina 0'sa attack yapamaz (zaten `stamina` var `#vitals`'da)
-- Stamina 35/s yenilenir
-- Cooldown 0.2s zaten var, ekstra stamina gate ekle
-- `player.canAttack` = `stamina >= 25 && attackCooldown <= 0`
-
-### 1.5 Map Banlama — `index.html` lobby + `game.js`
-
-LoL tarzı: her takım 1 map banler, kalanlardan random seç.
-- Lobby'e "Ban Map" bölümü ekle
-- `game.bannedMaps = []`
-- Ban butonu → map'i banned listeye al, disable et
-- Start game → banned olmayanlardan random veya host seçer
-
----
-
-## Phase 2 — İçerik (ORTA ÖNCELİK)
-
-### 2.1 Yeni Mapler + Büyük Mapler — `arena.js` MAPS genişlet
-
-Mevcut 4 map → 10+ map. Daha büyük court'lar.
+- Tutorial completion: at least 70%.
+- First-match completion: at least 80%.
+- D1 retention: at least 20%.
+- D7 retention: at least 8%.
+- Crash-free sessions: at least 99%.
+- Typical queue time: under 60 seconds.
+- Low-quality 720p target: stable 60 FPS on the selected baseline device.
+- Ball visibility failures in moderated playtests: zero accepted failures.
+- Ranked reward claims: idempotent and server-validated.
 
-| Map | Tema | Boyut | Özel |
-|-----|------|-------|------|
-| beach | 🏖️ Plaj | 78x54 | Okyanus, palmiyeler |
-| industrial | 🏭 Fabrika | 72x50 | Metalik |
-| space | 🚀 Uzay | 84x58 | Yıldızlar, düşük gravite |
-| neon | 🌆 Neon City | 78x54 | Glowing billboards |
-| **dojo** | 🥋 Dojo | 90x62 | Ahşap, fenerler |
-| **colosseum** | 🏛️ Kolezyum | 100x70 | Antik taş, geniş |
-| **volcano** | 🌋 Volkan | 88x60 | Lav, ateş efekti |
-| **ice** | ❄️ Buz Sarayı | 82x58 | Kaygan zemin, buz parçacıkları |
-| **cloud** | ☁️ Bulut | 95x65 | Yumuşak, düşük gravite |
-| **jungle** | 🌴 Jungle | 92x64 | Ağaçlar, nehir |
-| **cyber** | 🤖 Cyber | 80x56 | Hologramlar, grid |
+## 5. Release roadmap
 
-Her map için: floor/wall color, skyTop/Bottom, fog, özel prop'lar.
-`config.size` ekle: `small/medium/large` → spawn ayarları.
+### V3.0A: Reality check and rules
 
-### 2.2 Portal Mekaniği — `arena.js` + `game.js`
+Deliverables:
 
-- Arena'da 2 portal (mavi/oranje halka)
-- Top portala değince → diğer portaldan çıkış
-- `arena.buildPortals()` → 2 halka + particle
-- `ball.update()` içinde portal çarpışma kontrolü
-- Her 30sn'de portal yer değiştirir (random)
-- Top portalden çıkınca hız +20%
-
-### 2.3 Extra Top Modelleri — `ball.js`
+- Replace the old feature wish-list with this implementation matrix.
+- Unify the design system.
+- Define ranked v1 rules in one code module.
+- Normalize competitive stats.
+- Disable competitive abilities, runes, passives and power-ups.
+- Establish gameplay, economy, backend, asset and metric documents.
 
-`BALL_SKINS` config:
-| Skin | Görsel | Efekt |
-|------|--------|-------|
-| classic | Yıldız patern | — |
-| fire | Alev particle | +5% hız |
-| ice | Buz kristali | yavaşlatma efekti |
-| lightning | Şimşek trail | — |
-| bomb | Siyah küre | patlama特效 |
-| star | Parlak yıldız | — |
-| rainbow | HSL döngü | renk değişimi |
-
-`ball.setSkin(skinId)` → mesh'i yeniden build.
-Store'da `equippedBall` zaten var.
-
----
-
-## Phase 3 — UI/Meta (DÜŞÜK ÖNCELİK)
-
-### 3.1 Karakter Seçim Ekranı — `index.html` + `ui.js`
+Exit gate:
 
-Main menu'den "Play" → Karakter seçim → Lobby.
-- Karakter kartları grid (CSS)
-- Stat göstergesi (HP/speed/deflect radar chart?)
-- "Select" butonu → `store.set('selectedChar', id)`
-- Skill seçimi (1 aktif) + 4 rune slot
-- Loadout kaydet → `store.set('loadout', {char, skill, runes})`
-
-### 3.2 Shop/Market — `index.html` + `store.js`
-
-- Tablar: Characters / Balls / Runes / Cosmetics
-- Coin ile satın alma (store.buy zaten var)
-- Coin maç sonu kazanım (store.grant)
-- Owned items check (store.owns zaten var)
-- Preview 3D model (küçük canvas)
-
-### 3.3 Battlepass — `store.js` + `ui.js`
-
-- `store.data.battlepass` zaten var: `{tier, xp, claimed:[]}`
-- 50 tier, her tier'da reward (coin/character/ball/rune)
-- Maç sonu XP → tier dolum
-- Battlepass track UI (scrollable)
-- Free track + Premium track (opsiyonel)
-
-### 3.4 Avatar Çizim — `index.html` + `js/avatar.js`
-
-- Canvas tabanlı basit paint (16x16 veya 32x32 grid)
-- Renk paleti + brush + fill + erase
-- `store.set('customAvatar', dataURL)`
-- Skorbord'da avatar göster (small img)
-- Store'da `customAvatar` zaten var
-
-### 3.5 Practice Range — `game.js` + `ui.js`
-
-- "Practice" modu: bot yok, sınırsız top
-- Top spawnlama: R tuşu → top spawn
-- Top taşıma: F tuşu → top'u önüne koy
-- Hedef mankenleri (sabit bot'lar)
-- Skill cooldown'ları göster
-- Damage sayacı
-
-### 3.6 Party Play / Lobby Sistemi
-
-- `network.js` zaten P2P host/join var
-- Party: arkadaş kodu ile grup kur → birlikte lobby'ye gir
-- Lobby'den ayrıl → `network.disconnect()`
-- Ready check sistemi
-- Host kick oyuncu
-
-### 3.7 Aydinlik Skybox + Tema
-
-- Mevcut space/neon map'ler karanlık → aydınlık palette
-- Daha parlak ambient/hemisphere light
-- Fog mesafesi artır
-- Pastel renk paleti (TF2 vibe)
-
-### 3.8 Profesyonel UI/CSS
-
-- Steam-quality: daha temiz layout, animasyonlar
-- Settings genişlet: FOV, keybinds, grafik kalitesi, crosshair stil
-- HUD: damage meter, skill cooldown bar, kill feed
-- Tab menu: CS tarzı oyuncu listesi
-- Top bar: skor + timer + round
-
----
-
-## Phase 4 — Espor + Eğlence (OPSIYONEL)
-
-- Ranked mode (ELO)
-- Replay system (mesajları kaydet)
-- Spectator mode
-- Tournament bracket
-- Daily challenges
-- Achievements
-- Season pass
-- Voice chat (WebRTC)
-- Emoji/wheel quick chat
-
----
-
-## Implementasyon Sırası (Ponytail)
-
-1. **characters.js** — karakter statları (küçük dosya)
-2. **skills.js** — skill/rune tanımları (küçük dosya)
-3. **player.js extend** — applyLoadout, useSkill, stamina-based attack, consecutiveMisses
-4. **bot.js extend** — karakter ata, skill kullan
-5. **game.js extend** — handleHit damage ramp, portal, spam check
-6. **arena.js extend** — yeni mapler, portal build, aydinlik skybox
-7. **ball.js extend** — skin system, portal teleport
-8. **store.js extend** — loadout, owned skills, battlepass tier'lar
-9. **ui.js extend** — karakter select, shop, battlepass, avatar, damage meter
-10. **index.html extend** — yeni screen'ler, lobby ban, settings genişlet
-11. **style.css extend** — profesyonel tema, yeni UI bileşenleri
-
-Her phase'de: en kısa diff, mevcut pattern'i takip et, ponytail comment bırak.
-
----
-
-## Ponytail Notları
-
-- Yeni framework yok — Three.js + vanilla JS devam
-- Yeni dependency yok — peerjs zaten var
-- Her skill/character tek dosyada, basit objeler
-- Test: `__main__` self-check veya basit demo() (ponytail kuralı)
-- `ponytail:` comment ile bilinçli kısaltmaları işaretle
-
-## Dosya Yapısı
-
-```
-dodgb/
-├── index.html          (UI screen'leri)
-├── css/style.css       (tema)
-├── js/
-│   ├── main.js         (bootstrap)
-│   ├── game.js         (oyun mantığı)
-│   ├── player.js       (FPS controller + stats)
-│   ├── bot.js          (AI)
-│   ├── ball.js         (top fizik)
-│   ├── arena.js        (map'ler)
-│   ├── renderer.js     (Three.js)
-│   ├── ui.js           (HUD/menü)
-│   ├── network.js      (P2P)
-│   ├── scoreboard.js   (skor)
-│   ├── audio.js        (SFX)
-│   ├── store.js        (meta progression)
-│   ├── characters.js   (YENİ - karakter statları)
-│   ├── skills.js       (YENİ - skill/rune tanımları)
-│   ├── avatar.js       (YENİ - avatar çizim)
-│   └── shaders/
-```
+- Competitive rules are deterministic and shared by player and bots.
+- Casual mode keeps existing character identity.
+- No new shop or map work starts before this gate.
+
+### V3.0B: Rally Duel vertical slice
+
+Deliverables:
+
+- 1v1 ruleset.
+- Two selected maps.
+- Deflect timing and directional-return tuning.
+- Catch/parry prototype.
+- Ball heat indicator driven by speed.
+- Threat audio and direction indicator.
+- Short intro, result and rematch flow.
+- Training drill using existing practice metrics.
+- Bot opponent for empty queues.
+
+Exit gate:
+
+- Five external players can finish the tutorial and rematch without assistance.
+- Match outcome is understandable from visual/audio feedback.
+- No permanent ability or economy advantage exists.
+
+### V3.0C: HUD and game-feel polish
+
+Deliverables:
+
+- Three-layer UI: shell, pre-match and in-match HUD.
+- Stable score/timer placement.
+- Accessible cooldown and danger communication.
+- Reduced-motion support.
+- Shared particle geometry/materials.
+- Draw-call, triangle, texture and frame-time diagnostics.
+- Shader warm-up for critical materials.
+
+Exit gate:
+
+- Ball remains visible through every supported effect.
+- HUD works at 1280x720, 1920x1080 and 375px fallback width.
+- Low quality meets the selected baseline performance target.
+
+### V3.1: Team Arena and social loop
+
+Deliverables:
+
+- 3v3 casual.
+- Party invite and ready state.
+- Reconnect window.
+- Bot backfill.
+- Rematch.
+- Private lobby and server browser.
+- One weekly arcade rotation.
+
+Exit gate:
+
+- Low population does not split across multiple permanent queues.
+- Party disconnect and rejoin paths are recoverable.
+
+### V3.2: Production account and economy
+
+Deliverables:
+
+- Account authentication.
+- Production database.
+- Inventory and currency ledger.
+- Idempotent purchase/reward transactions.
+- Direct cosmetic store.
+- Mastery currency and free earning routes.
+- Regional pricing, refund and tax integration.
+- Founder/supporter pack.
+
+Exit gate:
+
+- No client can choose its own reward amount.
+- Every paid item has an exact preview and price.
+- Free players can earn a representative set of cosmetics.
+
+### V3.3: Authoritative online competition
+
+Deliverables:
+
+- Authoritative 1v1 match prototype.
+- Input sequence and server tick.
+- Snapshot interpolation and reconciliation.
+- Signed match result.
+- Server-owned ELO and rewards.
+- Leaver, reconnect and abandon rules.
+- Authoritative 3v3 after the 1v1 prototype passes.
+
+Exit gate:
+
+- Ranked result cannot be submitted by a standalone client request.
+- Replay and authoritative result agree on winner and score.
+
+### V3.4: Ranked and esports presentation
+
+Deliverables:
+
+- Placement matches.
+- Separate hidden MMR and visible rank presentation.
+- Map veto.
+- Spectator broadcast HUD.
+- Replay timeline and highlight markers.
+- Tournament lobby.
+- Season rewards.
+
+### V3.5: Creator beta
+
+Deliverables:
+
+- Map schema and limits.
+- Private test publishing.
+- Thumbnail and tags.
+- Moderation queue.
+- Report and takedown path.
+- Featured rotation.
+- Creator analytics.
+- Fraud-resistant creator reward model after sufficient player scale.
+
+## 6. Queue strategy
+
+Launch queues:
+
+- Quick Play.
+- Rally Duel.
+- Team Arena when ready.
+- One rotating Arcade card.
+- Custom/Private.
+
+Do not launch separate permanent queues for every mutator. Speedball, Multiball,
+Hot Potato, Pinball, Low Gravity and Instagib use the rotating Arcade slot.
+
+## 7. Economy decision
+
+Currencies:
+
+- Coins: earned through play.
+- Mastery Shards: earned from character/ball mastery.
+- Premium currency: optional, introduced with payment infrastructure.
+- Event Token: temporary and clearly expiring.
+
+Store:
+
+- Direct purchase is the primary paid model.
+- Cases use earn-only tickets.
+- No paid stat boosts.
+- No paid ranked access advantage.
+- No paid visibility advantage in gameplay.
+- Duplicate conversion is disclosed before opening a case.
+
+Battle pass:
+
+- Starts only after retention gates are credible.
+- Eight-week initial season.
+- Free reward on every tier.
+- Premium track contains cosmetic additions.
+- Catch-up XP near season end.
+- No artificial energy system.
+
+See `docs/V3_ECONOMY.md`.
+
+## 8. Design decision
+
+Style name: `Kinetic Arena Sport`.
+
+- Deep navy background.
+- Red and blue retain semantic team ownership.
+- Acid yellow marks actions, perfect timing and rewards.
+- Cyan is a technical accent, not the only brand color.
+- Russo One for display headings.
+- Chakra Petch for interface text.
+- Four to eight pixel corner radius.
+- Thick readable borders.
+- Minimal glow outside gameplay-critical objects.
+- SVG icon system; emoji is not the primary UI icon language.
+
+The authoritative visual specification is:
+`design-system/warrball/MASTER.md`.
+
+## 9. Asset and rendering decision
+
+- Repeated arena props use shared geometry/materials or instancing.
+- Transient effects avoid per-particle geometry/material allocation.
+- Every model has triangle, material and texture budgets.
+- Every shader has a low-quality fallback.
+- Critical textures and shaders are preloaded.
+- Runtime diagnostics use renderer information and frame-time samples.
+- Visual work is measured before and after changes.
+
+See `docs/V3_ASSET_PIPELINE.md`.
+
+## 10. Backend decision
+
+PeerJS remains acceptable for casual/private testing. It is not the final ranked
+authority.
+
+Production services are separated into:
+
+- Account/profile service.
+- Inventory/economy ledger.
+- Matchmaking/lobby service.
+- Authoritative match service.
+- Analytics ingestion.
+- Moderation/admin tools.
+
+See `docs/V3_BACKEND.md`.
+
+## 11. Definition of done
+
+Every implementation item records:
+
+- User value.
+- Exact files touched.
+- Dependencies.
+- Happy path.
+- Failure path.
+- Security boundary.
+- Performance impact.
+- Accessibility behavior.
+- Measurable acceptance check.
+- Deferred work.
+
+## 12. Current execution order
+
+1. V3 documents and design source of truth.
+2. Competitive rules module.
+3. Ranked stat/ability normalization.
+4. Rally Duel specification and integration.
+5. HUD and ball-readability pass.
+6. Particle/rendering allocation pass.
+7. Team Arena/social integration.
+8. Production account/economy foundation.
+9. Authoritative match prototype.
+10. Ranked/esports presentation.
+11. Creator beta.
+
+Detailed task state lives in `docs/V3_BACKLOG.md`.
+

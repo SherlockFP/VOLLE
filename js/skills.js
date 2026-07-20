@@ -117,6 +117,7 @@ export function tickSkillCooldowns(entity, dt) {
 
 // Skill kullanmayı dene. Başarılıysa etkiyi uygula, true döndür.
 export function useSkill(entity, skillId, context = {}) {
+    if (context.game?._skillsDisabled || entity?._gameRef?._skillsDisabled) return false;
     const skill = SKILLS[skillId];
     if (!skill) return false;
     if (!entity.skillCooldowns) entity.skillCooldowns = {};

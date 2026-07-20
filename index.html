@@ -402,17 +402,18 @@
                 <!-- Mode select -->
                 <div class="cs-section">
                     <div class="cs-section-title">MODE</div>
-                    <div class="cs-mode-row" id="mode-select">
-                        <button class="cs-mode-btn mode-btn selected" data-mode="classic">🏐 Classic</button>
-                        <button class="cs-mode-btn mode-btn" data-mode="speedball">⚡ Speed</button>
-                        <button class="cs-mode-btn mode-btn" data-mode="lowgrav">🌙 Low G</button>
-                        <button class="cs-mode-btn mode-btn" data-mode="instagib">💀 Insta</button>
-                        <button class="cs-mode-btn mode-btn" data-mode="tanky">🛡️ Tanky</button>
-                        <button class="cs-mode-btn mode-btn" data-mode="multiball">🏐🏐 Multi</button>
-                        <button class="cs-mode-btn mode-btn" data-mode="freeze">🧊 Freeze</button>
-                        <button class="cs-mode-btn mode-btn" data-mode="hotpotato">🥔 Potato</button>
-                        <button class="cs-mode-btn mode-btn" data-mode="competitive">🏆 Competitive</button>
-                        <button class="cs-mode-btn mode-btn" data-mode="pinball">PB Pinball</button>
+    <div class="cs-mode-row" id="mode-select" role="group" aria-label="Game mode">
+        <button type="button" class="cs-mode-btn mode-btn selected" data-mode="classic" aria-pressed="true">🏐 Classic</button>
+        <button type="button" class="cs-mode-btn mode-btn" data-mode="speedball" aria-pressed="false">⚡ Speed</button>
+        <button type="button" class="cs-mode-btn mode-btn" data-mode="lowgrav" aria-pressed="false">🌙 Low G</button>
+        <button type="button" class="cs-mode-btn mode-btn" data-mode="instagib" aria-pressed="false">💀 Insta</button>
+        <button type="button" class="cs-mode-btn mode-btn" data-mode="tanky" aria-pressed="false">🛡️ Tanky</button>
+        <button type="button" class="cs-mode-btn mode-btn" data-mode="multiball" aria-pressed="false">🏐🏐 Multi</button>
+        <button type="button" class="cs-mode-btn mode-btn" data-mode="freeze" aria-pressed="false">🧊 Freeze</button>
+        <button type="button" class="cs-mode-btn mode-btn" data-mode="hotpotato" aria-pressed="false">🥔 Potato</button>
+        <button type="button" class="cs-mode-btn mode-btn" data-mode="competitive" aria-pressed="false">🏆 Competitive</button>
+        <button type="button" class="cs-mode-btn mode-btn rally-duel-mode" data-mode="rally_duel" aria-pressed="false" title="1V1 - normalized stats - no powers">1V1 Rally Duel</button>
+        <button type="button" class="cs-mode-btn mode-btn" data-mode="pinball" aria-pressed="false">PB Pinball</button>
                     </div>
                     <label class="match-modifier" for="match-modifier"><span>MAP MODIFIER</span><select id="match-modifier"><option value="none">Standard rules</option><option value="lowgrav">Low gravity</option><option value="pinball">Pinball bounce</option><option value="night">Night lights</option></select></label>
                 </div>
@@ -773,7 +774,7 @@
                 <span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-map"></use></svg></span>
                 <div><span class="shell-kicker">LOCAL MAP LAB</span><h1>Map Editor</h1><p>Build with safe primitives, save locally, then launch directly into Practice.</p></div>
             </div>
-            <div class="map-editor-scope"><b>Available now:</b> local creation and playtesting. <b>Not connected yet:</b> online Workshop upload, voting, download.</div>
+            <div class="map-editor-scope"><b>Available now:</b> create, playtest, publish, review status, browse approved maps, and download safely. <b>Next:</b> voting and playlists.</div>
             <div class="map-editor-layout">
                 <canvas id="map-editor-canvas" width="760" height="520"></canvas>
                 <div class="map-editor-tools">
@@ -798,9 +799,28 @@
                     <div id="map-editor-status" aria-live="polite">0 / 64 props</div>
                     <button id="btn-map-delete" class="btn btn-secondary">Delete selected</button>
                     <button id="btn-map-save" class="btn btn-primary">Save & Play Solo</button>
-                    <button id="btn-map-editor-back" class="btn btn-secondary">← Back</button>
+                    <button id="btn-map-publish" class="btn btn-secondary">Publish to Workshop</button>
+                    <div id="map-publish-status" role="status" aria-live="polite"></div>
+                    <button id="btn-map-editor-back" class="btn btn-secondary">Back</button>
                 </div>
             </div>
+            <section class="map-workshop" aria-labelledby="map-workshop-title">
+                <div class="map-workshop-head">
+                    <div>
+                        <span class="shell-kicker">COMMUNITY CIRCUIT</span>
+                        <h2 id="map-workshop-title">Workshop Feed</h2>
+                    </div>
+                    <div class="map-workshop-controls">
+                        <label class="workshop-search">Find arena
+                            <input id="workshop-search" maxlength="48" placeholder="Name or creator">
+                        </label>
+                        <button id="btn-workshop-public" class="btn btn-secondary" aria-pressed="true">Approved</button>
+                        <button id="btn-workshop-mine" class="btn btn-secondary" aria-pressed="false">My Maps</button>
+                    </div>
+                </div>
+                <div id="map-workshop-status" role="status" aria-live="polite">Open the editor to load Workshop maps.</div>
+                <div id="map-workshop-grid" class="map-workshop-grid"></div>
+            </section>
         </div>
     </div>
 
@@ -978,6 +998,27 @@
         </div>
     </div>
 
+    <div id="practice-menu-screen" class="screen hidden">
+        <div class="panel wide-panel practice-menu-panel">
+            <span class="shell-kicker">SKILL CIRCUIT</span>
+            <h1>Practice Protocol</h1>
+            <p>Build reliable contact before entering competitive queues.</p>
+            <div class="practice-mode-grid">
+                <button id="btn-guided-deflect" class="practice-mode-card">
+                    <span>73 SEC / 3 STAGES</span>
+                    <b>Guided Deflect</b>
+                    <small>Control, direction, perfect timing, local grade.</small>
+                </button>
+                <button id="btn-free-practice" class="practice-mode-card">
+                    <span>UNRESTRICTED</span>
+                    <b>Free Lab</b>
+                    <small>Manual spawn, reposition, and open-ended reps.</small>
+                </button>
+            </div>
+            <button id="btn-practice-back" class="btn btn-secondary">Back</button>
+        </div>
+    </div>
+
     <div id="tournament-screen" class="screen hidden">
         <div class="panel wide-panel">
             <h1>🥇 Tournament</h1>
@@ -1014,7 +1055,24 @@
                 <div class="hud-timer" id="hud-round-timer">5:00</div>
                 <div class="hud-team-score blue" id="hud-score-blue">0</div>
             </div>
+            <div id="hud-competitive-status"
+                class="hud-competitive-status hidden"
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+                aria-hidden="true">
+                <span id="hud-competitive-mode">COMPETITIVE</span>
+                <b id="hud-competitive-round">ROUND 1/5</b>
+                <span id="hud-competitive-phase">LIVE</span>
+                <small id="hud-competitive-rules">NORMALIZED RULES</small>
+            </div>
         </div>
+
+        <aside id="hot-potato-hud" class="hot-potato-hud hidden" aria-live="polite">
+            <span>HOT POTATO</span>
+            <b id="hot-potato-time">--</b>
+            <small id="hot-potato-holder">WAITING FOR TARGET</small>
+        </aside>
 
         <!-- Ball speed — clean top-right text -->
         <div id="hud-speed" class="hud-speed-text"></div>
@@ -1246,10 +1304,27 @@
     </aside>
     <aside id="practice-lab-hud" class="practice-lab-hud hidden" aria-live="polite">
         <header><span>PRACTICE LAB</span><b id="practice-lab-mode">DEFLECT</b></header>
-        <div><span>Accuracy <b id="practice-accuracy">0%</b></span><span>Perfect <b id="practice-perfects">0</b></span><span>Best <b id="practice-best">--</b></span></div>
+        <div class="guided-drill-head"><b id="drill-stage">FREE LAB</b><b id="drill-timer">--:--</b><b id="drill-speed">--</b></div>
+        <div><span>Accuracy <b id="practice-accuracy">0%</b></span><span>Perfect <b id="practice-perfects">0</b></span><span>Best Timing <b id="practice-best">--</b></span></div>
         <div class="practice-lab-track"><i id="practice-lab-progress"></i></div>
-        <small>R spawn / F reposition / T reset metrics</small>
+        <div class="guided-drill-metrics"><span>Hits <b id="drill-hits">0</b></span><span>Directed <b id="drill-directed">0</b></span><span>Perfect <b id="drill-perfect">0</b></span></div>
+        <div class="practice-lab-track drill-stage-track"><i id="drill-stage-progress"></i></div>
+        <small id="practice-hint">R spawn / F reposition / T reset metrics</small>
     </aside>
+
+    <div id="guided-drill-result" class="guided-drill-result hidden">
+        <div class="guided-drill-result-card">
+            <span class="shell-kicker">SESSION COMPLETE</span>
+            <div class="drill-grade">GRADE <b id="drill-result-grade">D</b></div>
+            <div class="drill-score"><b id="drill-result-score">0</b><span>SCORE</span></div>
+            <div id="drill-result-stages" class="drill-result-stages"></div>
+            <div class="drill-result-actions">
+                <button id="btn-drill-retry" class="btn btn-primary">Retry</button>
+                <button id="btn-drill-free-lab" class="btn btn-secondary">Free Lab</button>
+                <button id="btn-drill-menu" class="btn btn-secondary">Main Menu</button>
+            </div>
+        </div>
+    </div>
 
     <!-- ===== GAME OVER ===== -->
     <div id="game-over-screen" class="screen hidden">
@@ -1276,7 +1351,8 @@
             </div>
 
             <div class="game-over-actions">
-                <button id="btn-play-again" class="btn btn-primary"><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg>Play Again</button>
+                <div id="rematch-status" class="rematch-status" role="status" aria-live="polite">Instant solo rematch.</div>
+                <button id="btn-play-again" class="btn btn-primary"><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg>Rematch</button>
                 <button id="btn-main-menu" class="btn btn-secondary"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Main Menu</button>
             </div>
         </div>
@@ -1305,7 +1381,7 @@
             <div class="stat-card"><div class="stat-value" id="mr-damage">0</div><div class="stat-label">DAMAGE</div></div>
         </div>
         <div class="result-buttons">
-            <button class="btn btn-primary" onclick="location.reload()">PLAY AGAIN</button>
+            <button id="btn-match-result-rematch" class="btn btn-primary">REMATCH</button>
         </div>
     </div>
 
@@ -1344,8 +1420,9 @@
                     </div>
                 </div>
                 <div class="pg-buttons">
-                    <button id="pg-play-again" class="btn btn-primary"><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg>Play Again</button>
-                    <button id="pg-lobby" class="btn btn-secondary"><svg class="ui-icon" aria-hidden="true"><use href="#i-globe"></use></svg>Lobby</button>
+                    <div id="pg-rematch-status" class="rematch-status" role="status" aria-live="polite">Instant solo rematch.</div>
+                    <button id="pg-play-again" class="btn btn-primary"><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg>Rematch</button>
+                    <button id="pg-lobby" class="btn btn-secondary"><svg class="ui-icon" aria-hidden="true"><use href="#i-globe"></use></svg>Return to Lobby</button>
                     <button id="pg-main-menu" class="btn btn-secondary"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Main Menu</button>
                 </div>
             </div>

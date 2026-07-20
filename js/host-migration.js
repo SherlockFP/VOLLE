@@ -1,11 +1,18 @@
 const MAX_SAFE_EPOCH = Number.MAX_SAFE_INTEGER - 1;
 const PLAYER_ID_PATTERN = /^[A-Za-z0-9._:@-]{1,128}$/;
-const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+const FORBIDDEN_KEYS = new Set([
+    '__proto__',
+    'constructor',
+    'prototype',
+    'resumeToken'
+]);
+const RESUME_PROOF_PATTERN = /^[a-f0-9]{64}$/;
 
 export const HOST_MIGRATION_TIMEOUT_MS = 5000;
 export const HOST_MIGRATION_BACKOFF_BASE_MS = 250;
 export const HOST_MIGRATION_BACKOFF_MAX_MS = 4000;
 export const HOST_MIGRATION_MAX_ATTEMPTS = 5;
+export const HOST_MIGRATION_MAX_ROSTER = 64;
 export const HOST_CHECKPOINT_MAX_BYTES = 64 * 1024;
 export const HOST_CHECKPOINT_MAX_DEPTH = 8;
 export const HOST_CHECKPOINT_MAX_ITEMS = 256;
@@ -48,6 +55,10 @@ function candidateScore(candidate) {
         stability: boundedMetric(candidate?.stability, 0, 1, 0),
         uptime: boundedMetric(candidate?.uptime, 0, Number.MAX_SAFE_INTEGER, 0),
         packetLoss: boundedMetric(candidate?.packetLoss, 0, 1, 1),
+        migrationOrder: Number.isSafeInteger(candidate?.migrationOrder)
+            && candidate.migrationOrder >= 0
+            ? candidate.migrationOrder
+            : Number.MAX_SAFE_INTEGER,
         playerId: isValidPlayerId(candidate?.playerId) ? candidate.playerId : ''
     };
 }
@@ -60,6 +71,7 @@ export function compareHostCandidates(left, right) {
     if (a.stability !== b.stability) return b.stability - a.stability;
     if (a.uptime !== b.uptime) return b.uptime - a.uptime;
     if (a.packetLoss !== b.packetLoss) return a.packetLoss - b.packetLoss;
+    if (a.migrationOrder !== b.migrationOrder) return a.migrationOrder - b.migrationOrder;
     if (a.playerId < b.playerId) return -1;
     if (a.playerId > b.playerId) return 1;
     return 0;
@@ -161,17 +173,95 @@ function eligibleIdSet(candidates) {
         .map(candidate => candidate.playerId));
 }
 
-export function electionAgreement(votes, candidates, epoch) {
-    if (!Array.isArray(votes) || !Number.isSafeInteger(epoch) || epoch < 1) return null;
+function migrationRosterPairs(roster) {
+    if (!Array.isArray(roster)
+        || roster.length < 1
+        || roster.length > HOST_MIGRATION_MAX_ROSTER) return null;
+    const pairs = [];
+    const playerIds = new Set();
+    const peerIds = new Set();
+    for (const player of roster) {
+        if (!player || !isValidPlayerId(player.playerId)
+            || typeof player.peerId !== 'string'
+            || player.peerId.length < 1
+            || player.peerId.length > 128
+            || Object.hasOwn(player, 'resumeToken')
+            || playerIds.has(player.playerId)
+            || peerIds.has(player.peerId)) return null;
+        const resumeProof = player.resumeProof;
+        if (resumeProof !== undefined
+            && (typeof resumeProof !== 'string'
+                || !RESUME_PROOF_PATTERN.test(resumeProof))) return null;
+        playerIds.add(player.playerId);
+        peerIds.add(player.peerId);
+        const migrationOrder = Number.isSafeInteger(player.migrationOrder)
+            && player.migrationOrder >= 0
+            ? player.migrationOrder
+            : '';
+        const resumeReserved = player.resumeReserved === true
+            || resumeProof !== undefined;
+        pairs.push(
+            `${player.playerId}\0${player.peerId}\0${migrationOrder}`
+            + `\0${resumeReserved ? 1 : 0}\0${resumeProof || ''}`
+        );
+    }
+    return pairs.sort();
+}
+
+function digestText(value) {
+    let left = 0x811c9dc5;
+    let right = 0x9e3779b9;
+    for (let index = 0; index < value.length; index++) {
+        const code = value.charCodeAt(index);
+        left = Math.imul(left ^ code, 0x01000193);
+        right = Math.imul(right ^ code, 0x85ebca6b);
+    }
+    return `${(left >>> 0).toString(16).padStart(8, '0')}`
+        + `${(right >>> 0).toString(16).padStart(8, '0')}`;
+}
+
+export function migrationRosterDigest(roster) {
+    const pairs = migrationRosterPairs(roster);
+    return pairs ? digestText(pairs.join('\u0001')) : null;
+}
+
+export function migrationAttemptId(epoch, roster, candidateId) {
+    const digest = migrationRosterDigest(roster);
+    if (!Number.isSafeInteger(epoch) || epoch < 1
+        || !digest || !isValidPlayerId(candidateId)) return null;
+    return `migration-${epoch}-${digestText(`${digest}\0${candidateId}`)}`;
+}
+
+function migrationRostersMatch(left, right) {
+    const a = migrationRosterPairs(left);
+    const b = migrationRosterPairs(right);
+    return Boolean(a && b)
+        && a.length === b.length
+        && a.every((pair, index) => pair === b[index]);
+}
+
+export function electionAgreement(
+    votes,
+    candidates,
+    epoch,
+    attemptId = undefined,
+    rosterDigest = undefined
+) {
+    if (!Array.isArray(votes)
+        || votes.length > HOST_MIGRATION_MAX_ROSTER
+        || !Number.isSafeInteger(epoch)
+        || epoch < 1) return null;
     const eligibleIds = eligibleIdSet(candidates);
     if (!eligibleIds.size) return null;
     const seenVoters = new Set();
     const counts = new Map();
     for (const vote of votes) {
         if (!vote || vote.epoch !== epoch
+            || (attemptId !== undefined && vote.attemptId !== attemptId)
+            || (rosterDigest !== undefined && vote.rosterDigest !== rosterDigest)
             || !eligibleIds.has(vote.voterId)
             || !eligibleIds.has(vote.candidateId)
-            || seenVoters.has(vote.voterId)) continue;
+            || seenVoters.has(vote.voterId)) return null;
         seenVoters.add(vote.voterId);
         counts.set(vote.candidateId, (counts.get(vote.candidateId) || 0) + 1);
     }
@@ -183,9 +273,45 @@ export function electionAgreement(votes, candidates, epoch) {
     return agreed[0] || null;
 }
 
-export function hasElectionAgreement(votes, candidateId, candidates, epoch) {
+export function hasElectionAgreement(
+    votes,
+    candidateId,
+    candidates,
+    epoch,
+    attemptId = undefined,
+    rosterDigest = undefined
+) {
     return isValidPlayerId(candidateId)
-        && electionAgreement(votes, candidates, epoch) === candidateId;
+        && electionAgreement(
+            votes,
+            candidates,
+            epoch,
+            attemptId,
+            rosterDigest
+        ) === candidateId;
+}
+
+function votesMatchObserved(votes, observedVotes, epoch, attemptId, rosterDigest) {
+    if (observedVotes === undefined) return true;
+    const observed = observedVotes instanceof Map
+        ? [...observedVotes.values()]
+        : observedVotes;
+    if (!Array.isArray(observed)) return false;
+    const byVoter = new Map();
+    for (const vote of observed) {
+        if (!vote || vote.epoch !== epoch
+            || vote.attemptId !== attemptId
+            || vote.rosterDigest !== rosterDigest
+            || byVoter.has(vote.voterId)) return false;
+        byVoter.set(vote.voterId, vote);
+    }
+    return votes.every(vote => {
+        const seen = byVoter.get(vote.voterId);
+        return seen?.epoch === vote.epoch
+            && seen?.candidateId === vote.candidateId
+            && seen?.attemptId === vote.attemptId
+            && seen?.rosterDigest === vote.rosterDigest;
+    });
 }
 
 export function validateHostMigrationProposal(proposal, context = {}) {
@@ -194,12 +320,48 @@ export function validateHostMigrationProposal(proposal, context = {}) {
     }
     const expectedEpoch = nextMigrationEpoch(context.currentEpoch);
     if (expectedEpoch === null || proposal.epoch !== expectedEpoch) return false;
-    const candidate = (Array.isArray(context.candidates) ? context.candidates : [])
-        .find(item => item?.playerId === proposal.candidateId);
-    if (!isEligibleHostCandidate(candidate)) return false;
-    if (context.votes !== undefined
-        && !hasElectionAgreement(context.votes, proposal.candidateId, context.candidates, proposal.epoch)) {
-        return false;
-    }
-    return true;
+    const candidates = Array.isArray(context.candidates) ? context.candidates : [];
+    const expectedRoster = context.roster || candidates;
+    const expectedDigest = migrationRosterDigest(expectedRoster);
+    const expectedAttemptId = migrationAttemptId(
+        proposal.epoch,
+        expectedRoster,
+        proposal.candidateId
+    );
+    if (!expectedDigest || !expectedAttemptId
+        || proposal.rosterDigest !== expectedDigest
+        || proposal.attemptId !== expectedAttemptId
+        || (context.expectedRosterDigest !== undefined
+            && proposal.rosterDigest !== context.expectedRosterDigest)
+        || (context.expectedAttemptId !== undefined
+            && proposal.attemptId !== context.expectedAttemptId)) return false;
+    const candidate = candidates.find(item => item?.playerId === proposal.candidateId);
+    const elected = selectHostCandidate(candidates);
+    if (!isEligibleHostCandidate(candidate)
+        || elected?.playerId !== proposal.candidateId
+        || (context.expectedPeerId !== undefined
+            && (proposal.hostPeerId !== context.expectedPeerId
+                || candidate.peerId !== context.expectedPeerId))) return false;
+
+    return migrationRostersMatch(proposal.roster, expectedRoster)
+        && Array.isArray(proposal.votes)
+        && proposal.votes.every(vote =>
+            vote?.candidateId === proposal.candidateId
+            && vote.attemptId === proposal.attemptId
+            && vote.rosterDigest === proposal.rosterDigest)
+        && votesMatchObserved(
+            proposal.votes,
+            context.observedVotes,
+            proposal.epoch,
+            proposal.attemptId,
+            proposal.rosterDigest
+        )
+        && hasElectionAgreement(
+            proposal.votes,
+            proposal.candidateId,
+            candidates,
+            proposal.epoch,
+            proposal.attemptId,
+            proposal.rosterDigest
+        );
 }

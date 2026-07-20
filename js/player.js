@@ -614,6 +614,7 @@ export class Player {
     }
 
     useUltimate() {
+        if (this.game?._skillsDisabled) return null;
         if (this.ultimateCharge < 100 || this.ultimateActive) return null;
         this.ultimateCharge = 0;
         this.ultimateActive = true;

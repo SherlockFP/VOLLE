@@ -2,11 +2,41 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { ProfileStore } = require('./server/profile-store');
+const { verifyMatchReceipt } = require('./server/match-receipt');
+const { CreatorMapStore } = require('./server/creator-map-store');
+const { RequestLimiter } = require('./server/request-limiter');
+const { PaymentLedger, verifyPaymentEvent } = require('./server/payment-ledger');
+const { TelemetryStore } = require('./server/telemetry');
 
 const PORT = process.env.PORT || 8000;
 const ROOT = __dirname;
 const profiles = new ProfileStore(path.join(ROOT, 'data', 'profiles.json'));
+const creatorMaps = new CreatorMapStore(path.join(ROOT, 'data', 'creator-maps.json'));
+const paymentLedger = new PaymentLedger(path.join(ROOT, 'data', 'payment-ledger.json'));
+const telemetry = new TelemetryStore(path.join(ROOT, 'data', 'telemetry.json'));
+const MATCH_REWARD_SECRET = process.env.MATCH_REWARD_SECRET || '';
+const CREATOR_MODERATION_KEY = process.env.CREATOR_MODERATION_KEY || '';
+const PAYMENT_WEBHOOK_SECRET = process.env.PAYMENT_WEBHOOK_SECRET || '';
+const requestLimiter = new RequestLimiter();
+const RATE_LIMITS = {
+    session: [10, 60000],
+    purchase: [20, 60000],
+    reward: [30, 60000],
+    mapRead: [90, 60000],
+    mapWrite: [10, 60000],
+    lobbyWrite: [30, 60000],
+    paymentWebhook: [40, 60000],
+    telemetry: [120, 60000]
+};
+
+function validModerationKey(req) {
+    if (CREATOR_MODERATION_KEY.length < 32) return false;
+    const expected = Buffer.from(CREATOR_MODERATION_KEY);
+    const provided = Buffer.from(String(req.headers['x-moderation-key'] || ''));
+    return provided.length === expected.length && crypto.timingSafeEqual(provided, expected);
+}
 
 const MIME = {
     '.html': 'text/html; charset=utf-8',
@@ -39,13 +69,22 @@ function pruneLobbies() {
     }
 }
 
-function readBody(req) {
+function readBody(req, maxLength = 1e4) {
     return new Promise((resolve) => {
         let body = '';
-        req.on('data', c => { body += c; if (body.length > 1e4) req.destroy(); });
+        let tooLarge = false;
+        req.on('data', c => {
+            if (tooLarge) return;
+            body += c;
+            if (body.length > maxLength) {
+                tooLarge = true;
+                body = '';
+            }
+        });
         req.on('end', () => {
+            if (tooLarge) { resolve({ __bodyTooLarge: true }); return; }
             try { resolve(body ? JSON.parse(body) : {}); }
-            catch { resolve({}); }
+            catch { resolve({ __invalidJson: true }); }
         });
     });
 }
@@ -61,11 +100,28 @@ function bearer(req) {
     return value.startsWith('Bearer ') ? value.slice(7) : '';
 }
 
+function requestIdentity(req) {
+    return String(req.socket?.remoteAddress || 'unknown').slice(0, 80);
+}
+
+function allowRequest(req, res, bucketName) {
+    const [limit, windowMs] = RATE_LIMITS[bucketName] || [30, 60000];
+    const result = requestLimiter.consume(`${bucketName}:${requestIdentity(req)}`, limit, windowMs);
+    res.setHeader('X-RateLimit-Limit', String(limit));
+    res.setHeader('X-RateLimit-Remaining', String(result.remaining));
+    if (result.allowed) return true;
+    const retryAfter = Math.max(1, Math.ceil(result.retryAfterMs / 1000));
+    res.setHeader('Retry-After', String(retryAfter));
+    sendJson(res, { error: 'rate limit exceeded', retryAfter }, 429);
+    return false;
+}
+
 const server = http.createServer(async (req, res) => {
     const urlPath = req.url.split('?')[0];
 
     // --- Persistent guest profile/economy API ---
     if (urlPath === '/api/profile/session' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'session')) return;
         const b = await readBody(req);
         sendJson(res, profiles.session(b.token, b.playerName, b.legacy));
         return;
@@ -77,21 +133,134 @@ const server = http.createServer(async (req, res) => {
         return;
     }
     if (urlPath === '/api/profile/purchase' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'purchase')) return;
         const profile = profiles.authenticate(bearer(req));
         if (!profile) { sendJson(res, { error: 'unauthorized' }, 401); return; }
         const b = await readBody(req);
-        const result = profiles.purchase(profile, b.kind, b.id);
-        sendJson(res, result.error ? { error: result.error } : { profile: result.profile }, result.status);
+        const requestId = req.headers['idempotency-key'] || b.requestId;
+        const result = profiles.purchase(profile, b.kind, b.id, requestId);
+        sendJson(res, result.error ? { error: result.error } : {
+            profile: result.profile,
+            replayed: result.replayed
+        }, result.status);
         return;
     }
     if (urlPath === '/api/profile/reward' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'reward')) return;
         const profile = profiles.authenticate(bearer(req));
         if (!profile) { sendJson(res, { error: 'unauthorized' }, 401); return; }
-        const result = profiles.reward(profile, await readBody(req));
+        if (MATCH_REWARD_SECRET.length < 32) {
+            sendJson(res, { error: 'reward service unavailable' }, 503);
+            return;
+        }
+        const b = await readBody(req);
+        const signature = req.headers['x-match-signature'] || b.signature;
+        const receipt = verifyMatchReceipt(MATCH_REWARD_SECRET, b.receipt, signature);
+        if (!receipt || receipt.profileId !== profile.id) {
+            sendJson(res, { error: 'invalid match receipt' }, 403);
+            return;
+        }
+        const result = profiles.reward(profile, receipt);
         sendJson(res, result.error ? { error: result.error } : {
             coins: result.coins,
             profile: result.profile
         }, result.status);
+        return;
+    }
+
+    if (urlPath === '/api/payments/webhook' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'paymentWebhook')) return;
+        if (PAYMENT_WEBHOOK_SECRET.length < 32) {
+            sendJson(res, { error: 'payment service unavailable' }, 503);
+            return;
+        }
+        const body = await readBody(req, 12000);
+        if (body.__bodyTooLarge) { sendJson(res, { error: 'payload too large' }, 413); return; }
+        if (body.__invalidJson) { sendJson(res, { error: 'invalid json' }, 400); return; }
+        const event = verifyPaymentEvent(
+            PAYMENT_WEBHOOK_SECRET,
+            body,
+            req.headers['x-payment-signature']
+        );
+        if (!event) { sendJson(res, { error: 'invalid payment signature' }, 403); return; }
+        const result = paymentLedger.apply(profiles, event);
+        sendJson(res, result.error ? { error: result.error } : result, result.status);
+        return;
+    }
+
+    if (urlPath === '/api/telemetry' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'telemetry')) return;
+        const profile = profiles.authenticate(bearer(req));
+        if (!profile) { sendJson(res, { error: 'unauthorized' }, 401); return; }
+        const body = await readBody(req, 4096);
+        if (body.__bodyTooLarge) { sendJson(res, { error: 'payload too large' }, 413); return; }
+        if (body.__invalidJson) { sendJson(res, { error: 'invalid json' }, 400); return; }
+        const result = telemetry.ingest(profile.id, body);
+        sendJson(res, result.error ? { error: result.error } : {
+            accepted: result.accepted,
+            replayed: result.replayed,
+            flagged: result.flagged
+        }, result.status);
+        return;
+    }
+
+    // --- Authenticated creator map publishing and public workshop reads. ---
+    if (urlPath === '/api/maps' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'mapWrite')) return;
+        const profile = profiles.authenticate(bearer(req));
+        if (!profile) { sendJson(res, { error: 'unauthorized' }, 401); return; }
+        const body = await readBody(req, 100000);
+        if (body.__bodyTooLarge) { sendJson(res, { error: 'payload too large' }, 413); return; }
+        if (body.__invalidJson) { sendJson(res, { error: 'invalid json' }, 400); return; }
+        const result = creatorMaps.publish(profile, body);
+        sendJson(res, result.error ? { error: result.error } : {
+            map: result.map,
+            replayed: result.replayed
+        }, result.status);
+        return;
+    }
+    if (urlPath === '/api/maps' && req.method === 'GET') {
+        if (!allowRequest(req, res, 'mapRead')) return;
+        const params = new URLSearchParams(req.url.split('?')[1] || '');
+        const mine = params.get('mine') === '1';
+        const profile = mine ? profiles.authenticate(bearer(req)) : null;
+        if (mine && !profile) { sendJson(res, { error: 'unauthorized' }, 401); return; }
+        sendJson(res, creatorMaps.list({
+            creatorId: profile?.id || '',
+            cursor: params.get('cursor'),
+            limit: params.get('limit'),
+            query: params.get('q'),
+            sort: params.get('sort')
+        }));
+        return;
+    }
+    if (urlPath.startsWith('/api/maps/') && urlPath.endsWith('/moderate') && req.method === 'POST') {
+        if (CREATOR_MODERATION_KEY.length < 32) {
+            sendJson(res, { error: 'moderation unavailable' }, 503);
+            return;
+        }
+        if (!validModerationKey(req)) {
+            sendJson(res, { error: 'forbidden' }, 403);
+            return;
+        }
+        const encodedId = urlPath.slice('/api/maps/'.length, -'/moderate'.length);
+        if (!encodedId) { sendJson(res, { error: 'map not found' }, 404); return; }
+        const body = await readBody(req, 4096);
+        if (body.__bodyTooLarge) { sendJson(res, { error: 'payload too large' }, 413); return; }
+        if (body.__invalidJson) { sendJson(res, { error: 'invalid json' }, 400); return; }
+        const result = creatorMaps.moderate(
+            decodeURIComponent(encodedId),
+            body.status,
+            body.note
+        );
+        sendJson(res, result.error ? { error: result.error } : { map: result.map }, result.status);
+        return;
+    }
+    if (urlPath.startsWith('/api/maps/') && req.method === 'GET') {
+        const id = decodeURIComponent(urlPath.slice('/api/maps/'.length));
+        const profile = profiles.authenticate(bearer(req));
+        const result = creatorMaps.get(id, profile?.id || '');
+        sendJson(res, result.error ? { error: result.error } : { map: result.map }, result.status);
         return;
     }
 
@@ -102,6 +271,7 @@ const server = http.createServer(async (req, res) => {
         return;
     }
     if (urlPath === '/api/lobbies' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'lobbyWrite')) return;
         const b = await readBody(req);
         if (!b.code) { sendJson(res, { error: 'code required' }, 400); return; }
         lobbies.set(b.code, {
@@ -120,6 +290,7 @@ const server = http.createServer(async (req, res) => {
         return;
     }
     if (urlPath.startsWith('/api/lobbies/') && (req.method === 'DELETE' || req.method === 'POST')) {
+        if (!allowRequest(req, res, 'lobbyWrite')) return;
         const code = decodeURIComponent(urlPath.split('/').pop());
         lobbies.delete(code);
         sendJson(res, { ok: true });
@@ -138,6 +309,7 @@ const server = http.createServer(async (req, res) => {
         return;
     }
     if (urlPath === '/api/social-hubs' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'lobbyWrite')) return;
         const b = await readBody(req);
         const mapId = String(b.mapId || '').toLowerCase();
         if (!b.code || mapId !== 'island') {
@@ -156,6 +328,7 @@ const server = http.createServer(async (req, res) => {
         return;
     }
     if (urlPath.startsWith('/api/social-hubs/') && (req.method === 'DELETE' || req.method === 'POST')) {
+        if (!allowRequest(req, res, 'lobbyWrite')) return;
         const code = decodeURIComponent(urlPath.split('/').pop());
         socialHubs.delete(code);
         sendJson(res, { ok: true });
@@ -163,6 +336,7 @@ const server = http.createServer(async (req, res) => {
     }
     // sendBeacon can only POST — used by the client's beforeunload to close a lobby.
     if (urlPath === '/api/lobbies/close' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'lobbyWrite')) return;
         const b = await readBody(req);
         if (b.code) lobbies.delete(b.code);
         sendJson(res, { ok: true });

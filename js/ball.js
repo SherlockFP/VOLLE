@@ -273,6 +273,18 @@ export class Ball {
         this.glow = new THREE.Mesh(glowGeo, this.glowMat);
         this.mesh.add(this.glow);
 
+        this.heatMat = new THREE.MeshBasicMaterial({
+            color: 0xffd447,
+            transparent: true,
+            opacity: 0,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            depthTest: true
+        });
+        this.heatShell = new THREE.Mesh(glowGeo, this.heatMat);
+        this.heatShell.scale.setScalar(1.08);
+        this.mesh.add(this.heatShell);
+
         this.mesh.visible = false;
         this.scene.add(this.mesh);
     }
@@ -772,6 +784,7 @@ export class Ball {
         const spinGlow = Math.min(0.15, Math.abs(this.spin) * 0.02);
         this.glowMat.opacity = Math.min(0.5, 0.06 + srGlow * 0.035 + spinGlow);
         this.glow.scale.setScalar(Math.min(1.5, 1 + srGlow * 0.05 + spinGlow * 0.5));
+        this._updateHeatVisual();
 
         // Trail — denser when moving fast for a smooth comet streak.
         const sp = this.velocity.length();
@@ -913,6 +926,15 @@ export class Ball {
 
     getRallySpeed() {
         return this.baseSpeed * this.getRallyMultiplier() * (this.skinConfig?.speedBonus || 1);
+    }
+
+    _updateHeatVisual() {
+        const ratio = this.baseSpeed > 0 ? this.currentSpeed / this.baseSpeed : 1;
+        const heat = clamp((ratio - 1) / 3, 0, 1);
+        const color = ratio >= 3.5 ? 0xfff4dc : ratio >= 2.25 ? 0xff4d35 : 0xffd447;
+        this.heatMat.color.setHex(color);
+        this.heatMat.opacity = heat * 0.3;
+        this.heatShell.scale.setScalar(1.08 + heat * 0.16);
     }
 
     updateColor() {
@@ -1200,6 +1222,7 @@ export class Ball {
         const spinGlow = Math.min(0.15, Math.abs(this.spin) * 0.02);
         this.glowMat.opacity = Math.min(0.5, 0.06 + srGlow * 0.035 + spinGlow);
         this.glow.scale.setScalar(Math.min(1.5, 1 + srGlow * 0.05 + spinGlow * 0.5));
+        this._updateHeatVisual();
 
         // Trail
         const sp = this.velocity.length();

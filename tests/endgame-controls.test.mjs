@@ -48,8 +48,20 @@ test('practice disables bot additions and returns a bounced ball to the player',
 
     assert.match(game, /if \(this\._practiceMode\) return null;/);
     assert.match(main, /this\.game\._practiceMode = true;\s*document\.querySelectorAll\('#btn-add-bot-red, #btn-add-bot-blue'\)/);
-    assert.match(game, /if \(this\._practiceMode && bounced\) \{\s*this\.ball\.setTarget\(this\.player\);\s*this\.ball\.state = 'homing';/);
+    assert.match(game, /if \(this\._practiceMode && !this\.guidedDrill\.active && bounced\) \{\s*this\.ball\.setTarget\(this\.player\);\s*this\.ball\.state = 'homing';/);
     assert.match(game, /this\.ball\.active && !this\._practiceMode && !this\.ball\._affixGhost/);
+});
+
+test('guided practice consumes frame remainder and fully clears power-up state', async () => {
+    const game = await readFile(new URL('../js/game.js', import.meta.url), 'utf8');
+    const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
+
+    assert.match(game, /clearPowerUps\(\) \{\s*this\._clearAllPowerUps\(\);/);
+    assert.match(game, /let remainingMs = Math\.min\(Math\.max\(dt \* 1000, 0\), 250\);/);
+    assert.match(game, /while \(remainingMs > 0 && this\.guidedDrill\.active && guard\+\+ < 8\)/);
+    assert.match(game, /this\._megaballToken !== token \|\| !this\._megaballActive/);
+    assert.match(game, /this\.player\._powerUpDamageMul = null;/);
+    assert.match(main, /_exitPracticeSession\(\) \{[\s\S]*?this\.game\.selectMode\(restore\.modeId\);[\s\S]*?this\.game\.selectMap\(restore\.mapId\);[\s\S]*?this\.player\.setTeam/);
 });
 
 test('map pickups are rare, contested interactions with a recovery core', async () => {

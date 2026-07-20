@@ -245,7 +245,7 @@ class StoreClass {
     _applyRemoteProfile(profile) {
         const fields = [
             'currency', 'gems', 'ownedBalls',
-            'ownedSkills', 'ownedItems', 'ownedAvatarSkins'
+            'ownedSkills', 'ownedItems', 'ownedAvatarSkins', 'economyRevision'
         ];
         fields.forEach(field => {
             if (profile[field] !== undefined) this.data[field] = profile[field];
@@ -263,13 +263,15 @@ class StoreClass {
             return false;
         }
         try {
+            const requestId = `purchase:${kind}:${id}`;
             const response = await fetch('/api/profile/purchase', {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${this.profileToken}`,
+                    'Idempotency-Key': requestId,
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ kind, id })
+                body: JSON.stringify({ kind, id, requestId })
             });
             if (!response.ok) return false;
             const result = await response.json();
@@ -282,14 +284,18 @@ class StoreClass {
 
     async grantMatchRemote(match) {
         if (!this.remoteReady) return false;
+        const receipt = match?.receipt;
+        const signature = match?.signature;
+        if (!receipt || typeof signature !== 'string') return false;
         try {
             const response = await fetch('/api/profile/reward', {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${this.profileToken}`,
+                    'X-Match-Signature': signature,
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify(match)
+                body: JSON.stringify({ receipt })
             });
             if (!response.ok) return false;
             const result = await response.json();
@@ -297,6 +303,64 @@ class StoreClass {
             return true;
         } catch {
             return false;
+        }
+    }
+
+    async publishMap(config, mapId = '', description = '') {
+        if (!this.remoteReady) return { ok: false, error: 'Profile service unavailable' };
+        try {
+            const response = await fetch('/api/maps', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${this.profileToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ config, mapId, description })
+            });
+            const result = await response.json();
+            return response.ok
+                ? { ok: true, map: result.map, replayed: result.replayed === true }
+                : { ok: false, error: result.error || 'Publish failed' };
+        } catch {
+            return { ok: false, error: 'Publish service unavailable' };
+        }
+    }
+
+    async listPublishedMaps({ mine = false, cursor = '', limit = 20, query = '', sort = 'newest' } = {}) {
+        try {
+            const params = new URLSearchParams({
+                mine: mine ? '1' : '0',
+                cursor: String(cursor || ''),
+                limit: String(Math.max(1, Math.min(50, Number(limit) || 20))),
+                q: String(query || '').slice(0, 48),
+                sort: ['newest', 'oldest', 'name'].includes(sort) ? sort : 'newest'
+            });
+            const headers = mine && this.profileToken
+                ? { 'Authorization': `Bearer ${this.profileToken}` }
+                : {};
+            const response = await fetch(`/api/maps?${params}`, { headers });
+            if (!response.ok) {
+                const result = await response.json().catch(() => ({}));
+                return { maps: [], nextCursor: null, error: result.error || 'Workshop unavailable' };
+            }
+            return response.json();
+        } catch {
+            return { maps: [], nextCursor: null, error: 'Workshop unavailable' };
+        }
+    }
+
+    async getPublishedMap(mapId) {
+        if (typeof mapId !== 'string' || !mapId) return null;
+        try {
+            const headers = this.profileToken
+                ? { 'Authorization': `Bearer ${this.profileToken}` }
+                : {};
+            const response = await fetch(`/api/maps/${encodeURIComponent(mapId)}`, { headers });
+            if (!response.ok) return null;
+            const result = await response.json();
+            return result.map || null;
+        } catch {
+            return null;
         }
     }
 
