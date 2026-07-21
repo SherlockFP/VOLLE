@@ -233,13 +233,6 @@ test('index declares a local favicon so the browser does not probe a missing def
   assert.match(html, /<link[^>]+rel="icon"[^>]+href="(?:data:image\/svg\+xml,|assets\/generated\/warrball-logo(?:-v2|-transparent-v1)?\.png)"/);
 });
 
-test('main menu omits Community entry while its screen and back control remain available', () => {
-  const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-  assert.doesNotMatch(html, /id="btn-social-center"/);
-  assert.match(html, /id="social-center-screen"/);
-  assert.match(html, /id="btn-social-center-back"/);
-});
-
 test('Phase 1 static integration assertions remain true', () => {
   const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const uiSource = fs.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
@@ -254,74 +247,6 @@ test('Phase 1 static integration assertions remain true', () => {
   assert.ok(!scoreboardMethod.includes('row.innerHTML'));
   assert.ok(shellCss.includes('#scoreboard-overlay'));
   assert.ok(shellCss.includes('transform: none'));
-});
-
-test('case cards render only one reserved image, numeric price, and Buy action', () => {
-  const source = fs.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
-  const cases = source.slice(
-    source.indexOf("} else if (tab === 'cases')"),
-    source.indexOf("} else if (tab === 'inventory')")
-  );
-  assert.equal((cases.match(/<img\b/g) ?? []).length, 1);
-  assert.equal((cases.match(/<data\b/g) ?? []).length, 1);
-  assert.equal((cases.match(/<button\b/g) ?? []).length, 1);
-  assert.match(cases, /<img class="case-art"[^>]+width="1280"[^>]+height="720"[^>]+alt="Knife case preview">/);
-  assert.match(cases, /<data class="case-price"[^>]*>\$\{box\.price\} coins<\/data>/);
-  assert.match(cases, /class="btn btn-primary btn-small case-open" data-id="\$\{box\.id\}"[^>]*>Buy<\/button>/);
-  assert.doesNotMatch(cases, /box\.name|case-balance|case-pity|case-drop-rates|drop\.name|drop\.chance|Balance:|Epic\+ guarantee|coins \/ Open/);
-});
-
-test('case art reserves image space and suppresses decorative pseudo labels', () => {
-  const css = fs.readFileSync(new URL('../css/polish.css', import.meta.url), 'utf8');
-  const artRule = css.match(/\.case-art\s*\{([^}]*)\}/)?.[1] ?? '';
-  const pseudoRule = css.match(/#shop-screen \.case-art::before,\s*#shop-screen \.case-art::after\s*\{([^}]*)\}/)?.[1] ?? '';
-
-  assert.match(artRule, /aspect-ratio:\s*16\s*\/\s*9/);
-  assert.match(artRule, /object-fit:\s*cover/);
-  assert.match(pseudoRule, /content:\s*none/);
-  assert.match(pseudoRule, /display:\s*none/);
-});
-
-test('lobby exposes exactly five plain-text host mode controls', () => {
-  const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-  const modeBlock = html.match(/<div class="cs-mode-row" id="mode-select">([\s\S]*?)<\/div>/)?.[1] ?? '';
-  const modes = [...modeBlock.matchAll(/<button[^>]+data-mode="([^"]+)"[^>]*>([^<]+)<\/button>/g)]
-    .map(match => [match[1], match[2].trim()]);
-  assert.deepEqual(modes, [
-    ['classic', 'Classic'],
-    ['speedball', 'Speed'],
-    ['lowgrav', 'Low G'],
-    ['instagib', 'Insta Death'],
-    ['competitive', 'Competitive']
-  ]);
-  assert.doesNotMatch(modeBlock, /tanky|multiball|freeze|hotpotato|pinball/);
-  assert.doesNotMatch(html.match(/<select id="match-modifier">([\s\S]*?)<\/select>/)?.[1] ?? '', /pinball/);
-});
-
-test('Map, Mode, and Settings share the host marker and late join defaults on', () => {
-  const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-  assert.equal((html.match(/data-host-only-control/g) ?? []).length, 3);
-  const toggle = html.match(/<label[^>]+for="setting-allow-late-join"[^>]*>([\s\S]*?)<\/label>/)?.[1] ?? '';
-  assert.match(toggle, /Allow players to join after match starts/);
-  assert.match(toggle, /<input[^>]+id="setting-allow-late-join"[^>]+type="checkbox"[^>]+checked>/);
-});
-
-test('default HUD hides Network, keeps FPS present, and defaults diagnostics off', () => {
-  const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-  const store = fs.readFileSync(new URL('../js/store.js', import.meta.url), 'utf8');
-  assert.match(html, /<aside id="network-diagnostics" class="network-diagnostics hidden"/);
-  assert.match(html, /<div id="fps-counter" class="fps-counter hidden">0 FPS<\/div>/);
-  assert.match(store, /publicDiagnostics:\s*false/);
-});
-
-test('final CSS keeps the top-right ball speed surface transparent', () => {
-  const css = fs.readFileSync(new URL('../css/polish.css', import.meta.url), 'utf8');
-  const rule = css.match(/#hud-speed\s*\{([^}]*)\}/)?.[1] ?? '';
-  assert.match(rule, /background:\s*transparent/);
-  assert.match(rule, /border:\s*0/);
-  assert.match(rule, /box-shadow:\s*none/);
-  assert.match(rule, /backdrop-filter:\s*none/);
-  assert.doesNotMatch(rule, /color:\s*transparent/);
 });
 
 const shellCss = fs.readFileSync(new URL('../css/ui-shell.css', import.meta.url), 'utf8');

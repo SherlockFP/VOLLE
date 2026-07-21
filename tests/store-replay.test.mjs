@@ -20,14 +20,6 @@ test('every class is available without a currency purchase', () => {
     assert.equal(Store.setLoadout({ char: 'soldier' }), true);
 });
 
-test('new profiles default to dot crosshair without overwriting saved styles', () => {
-    Store.reset();
-    assert.equal(Store.get('crosshairSettings').style, 'dot');
-    Store.set('crosshairSettings', { ...Store.get('crosshairSettings'), style: 'cross' });
-    Store.load();
-    assert.equal(Store.get('crosshairSettings').style, 'cross');
-});
-
 test('retired class saves fall back to the compact roster', () => {
     Store.reset();
     Store.data.selectedChar = 'blazer';

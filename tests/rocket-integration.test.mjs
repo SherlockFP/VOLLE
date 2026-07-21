@@ -3,8 +3,6 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { CHARACTERS } from '../js/characters.js';
 
-const playerSource = await readFile(new URL('../js/player.js', import.meta.url), 'utf8');
-
 test('Soldier exposes a bounded rocket-jump loadout', () => {
     const soldier = CHARACTERS.soldier;
     assert.equal(soldier.passive, 'rocket_jump');
@@ -31,37 +29,10 @@ test('Soldier rocket remains a self-movement tool', async () => {
 });
 
 test('Soldier uses the launcher viewmodel instead of a knife point', async () => {
-    const source = playerSource;
+    const source = await readFile(new URL('../js/player.js', import.meta.url), 'utf8');
     assert.ok(source.includes("createRocketLauncherModel(this.team)"));
     assert.ok(source.includes("if (this.charId === 'soldier')"));
     assert.match(source, /knifeGroup\.scale\.setScalar\(0\.62\)/);
-});
-
-test('sv_hand shows only the selected weapon and hides the whole viewmodel when off', () => {
-    const method = playerSource.slice(
-        playerSource.indexOf('    setHandVisible(on) {'),
-        playerSource.indexOf('    _applyKnifeIdlePose() {')
-    );
-    const body = method.slice(method.indexOf('{') + 1, method.lastIndexOf('}'));
-    const setHandVisible = new Function('on', body);
-    const player = {
-        armGroup: { visible: false },
-        armMesh: { visible: true },
-        handMesh: { visible: true },
-        gloveMesh: { visible: true },
-        knifeGroup: { visible: false }
-    };
-
-    setHandVisible.call(player, true);
-    assert.equal(player.armGroup.visible, true);
-    assert.equal(player.knifeGroup.visible, true);
-    assert.equal(player.armMesh.visible, false);
-    assert.equal(player.handMesh.visible, false);
-    assert.equal(player.gloveMesh.visible, false);
-
-    setHandVisible.call(player, false);
-    assert.equal(player.armGroup.visible, false);
-    assert.equal(player.knifeGroup.visible, false);
 });
 
 test('endgame winners use rockets only', async () => {

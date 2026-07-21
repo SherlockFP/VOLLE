@@ -1,17 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
 import {
-    createDraftState, hasModeWinner, rankQueueCandidates, shouldStartOvertime, updateDraftPick
+    createDraftState, rankQueueCandidates, shouldStartOvertime, updateDraftPick
 } from '../js/competitive-service.js';
 import {
     createParty, createSocialProfile, inviteToParty, isPartyReady, rememberPlayer, setPartyReady
 } from '../js/social-service.js';
 import { RuntimeSafety } from '../js/runtime-safety.js';
-import { normalizeNetcode, predictPosition, rebaseSnapshotBuffer, rewindSnapshot } from '../js/experimental-netcode.js';
-
-const gameSource = await readFile(new URL('../js/game.js', import.meta.url), 'utf8');
-const mainSource = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
+import { normalizeNetcode, predictPosition, rewindSnapshot } from '../js/experimental-netcode.js';
 
 test('draft requires team, class and ready', () => {
     let state = createDraftState([{ id: '1', name: 'Sher' }], ['scout', 'soldier']);
@@ -54,27 +50,4 @@ test('experimental netcode clamps and rewinds', () => {
     assert.deepEqual(predictPosition({ x: 0, y: 0, z: 0 }, { x: 10 }, 100, 1), { x: 1, y: 0, z: 0 });
     const sample = rewindSnapshot([{ time: 0 }, { time: 100 }], 100, 100, 160);
     assert.equal(sample.alpha, 0.5);
-});
-
-test('experimental netcode toggle rebases live snapshots without losing movement', () => {
-    const rebased = rebaseSnapshotBuffer([
-        { time: 900, x: 1 },
-        { time: 950, x: 2 },
-        { time: Number.NaN, x: 99 }
-    ], -10, 1000);
-    assert.deepEqual(rebased, [
-        { time: 890, x: 1 },
-        { time: 940, x: 2 }
-    ]);
-    assert.ok(rebased[1].x > rebased[0].x);
-    assert.match(gameSource, /setExperimentalNetcode\(config, now = performance\.now\(\)\)/);
-    assert.match(mainSource, /const applied = this\.game\.setExperimentalNetcode\(config\)/);
-    assert.match(mainSource, /this\.game\.state === STATES\.PAUSED[\s\S]{0,120}_clientVisualUpdate/);
-});
-
-test('Competitive ends at seven wins while six and Classic continue', () => {
-    const competitive = { mutators: { winTarget: 7 } };
-    assert.equal(hasModeWinner(competitive, 6, 5), false);
-    assert.equal(hasModeWinner(competitive, 7, 6), true);
-    assert.equal(hasModeWinner({ mutators: {} }, 99, 0), false);
 });

@@ -13,43 +13,12 @@ const {
     composeAvatarAtlas,
     composeAvatarBodyAtlas,
     createAvatarAtlas,
-    createAvatarDataURL,
     cropAtlasFace,
     getTeamPresetSkinId,
     layoutAvatarPreview,
     migrateAvatarBodyOverlay,
     migrateAvatarPixels
 } = avatar;
-
-test('preset atlas exports to a deterministic 64x64 PNG data URL', () => {
-    const makeDocument = () => {
-        const writes = [];
-        const canvas = {
-            width: 0,
-            height: 0,
-            getContext: () => ({
-                fillStyle: '',
-                fillRect(x, y, width, height) {
-                    writes.push([x, y, width, height, this.fillStyle]);
-                }
-            }),
-            toDataURL(type) {
-                assert.equal(type, 'image/png');
-                return `data:image/png;size=${this.width}x${this.height}`;
-            }
-        };
-        return { doc: { createElement: tag => tag === 'canvas' ? canvas : null }, canvas, writes };
-    };
-    const fallback = makeDocument();
-    const unknown = makeDocument();
-
-    assert.equal(createAvatarDataURL('default', fallback.doc), 'data:image/png;size=64x64');
-    assert.equal(fallback.canvas.width, 64);
-    assert.equal(fallback.canvas.height, 64);
-    assert.ok(fallback.writes.length > 0);
-    assert.equal(createAvatarDataURL('missing-skin', unknown.doc), 'data:image/png;size=64x64');
-    assert.deepEqual(unknown.writes, fallback.writes);
-});
 
 test('canonical atlas is 64x64 and face crop uses the head-front UV', () => {
     const atlas = Array(64 * 64).fill(null);

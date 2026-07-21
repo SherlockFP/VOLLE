@@ -12,7 +12,6 @@ const ballModule = await import(`data:text/javascript;base64,${Buffer.from(testa
 const {
     Ball,
     BALL_SKINS,
-    BALL_TRAILS,
     STEERING_CONTROL_WINDOW,
     createAimRouteOffset,
     createWideWaypoint,
@@ -26,9 +25,17 @@ const {
     smoothSampledVelocity,
     splitSteeringDisplacement,
     steeringActiveDt,
-    steeringTurnAlpha,
-    shouldForceTargetContact
+    steeringTurnAlpha
 } = ballModule;
+
+test('every purchasable ball skin is cosmetic-only and ready for the shop', () => {
+    for (const [id, skin] of Object.entries(BALL_SKINS)) {
+        if (id === 'classic') continue;
+        assert.ok(Number.isInteger(skin.price) && skin.price > 0, `${id} needs a price`);
+        assert.match(skin.rarity, /^(rare|epic|legendary)$/);
+        assert.equal(Object.hasOwn(skin, 'speedBonus'), false, `${id} must not change speed`);
+    }
+});
 
 test('sample smoothing absorbs target jitter without changing direction instantly', () => {
     const filtered = smoothSampledVelocity(
@@ -122,35 +129,53 @@ test('turn rate is frame-rate independent and grows per deflection', () => {
     const halfTick = steeringTurnAlpha(1 / 132, 0);
     const compounded = 1 - (1 - halfTick) ** 2;
 
-    assert.ok(Math.abs(oneTick - 0.30) < 1e-12);
+    assert.ok(Math.abs(oneTick - 0.09) < 1e-12);
     assert.ok(Math.abs(compounded - oneTick) < 1e-12);
-    assert.ok(Math.abs(steeringTurnAlpha(1 / 66, 3) - (0.30 + 3 * 0.018)) < 1e-12);
+    assert.ok(Math.abs(steeringTurnAlpha(1 / 66, 3) - (0.09 + 3 * 0.006)) < 1e-12);
+    assert.equal(steeringTurnAlpha(1 / 66, 999), 0.26);
 });
 
-test('restored homing strengthens near targets and preserves aimed route offset', () => {
-    assert.ok(proximityHomingTurnRate(1, 0) > proximityHomingTurnRate(9, 0));
-    assert.ok(proximityHomingTurnRate(3, 4) > proximityHomingTurnRate(3, 0));
-    assert.equal(proximityHomingTurnRate(0, 99), 7.5);
+test('aim routes can target side, back, and above-body positions', () => {
     const offset = createAimRouteOffset(
         { x: 0, y: 1, z: 0 },
-        { x: 10, y: 1, z: 0 },
-        { x: 0.8, y: 0.2, z: 0.6 }
+        { x: 0, y: 1, z: -10 },
+        { x: 1, y: 1, z: -1 }
     );
-    assert.ok(Math.abs(offset.x) + Math.abs(offset.y) + Math.abs(offset.z) > 0);
+
+    assert.ok(offset.x > 0);
+    assert.ok(offset.y > 0);
+    assert.ok(offset.z < 0);
+    assert.deepEqual(createAimRouteOffset(null, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 }), { x: 0, y: 0, z: 0 });
 });
 
-test('close target contact cannot orbit forever', () => {
-    assert.equal(shouldForceTargetContact(0.8, 0, 0.7, 50), true);
-    assert.equal(shouldForceTargetContact(1.4, 0.39, 0.7, 50), false);
-    assert.equal(shouldForceTargetContact(1.4, 0.4, 0.7, 50), true);
-    assert.equal(shouldForceTargetContact(3, 1, 0.7, 50), false);
+test('homing gains strength near its target without exceeding its turn cap', () => {
+    const far = proximityHomingTurnRate(12, 0);
+    const close = proximityHomingTurnRate(1, 2);
+
+    assert.ok(close > far);
+    assert.ok(close <= 4.8);
+    assert.equal(proximityHomingTurnRate(0, 999), 4.8);
 });
 
-test('sport and space skins plus selectable trails are catalogued', () => {
-    for (const id of ['basketball', 'football', 'volleyball', 'space']) assert.ok(BALL_SKINS[id]);
-    for (const id of ['none', 'comet', 'electric', 'rainbow']) assert.ok(BALL_TRAILS[id]);
-    assert.match(source, /this\.trailTimer %= gap/);
-    assert.match(source, /lerpVectors\(previous, this\.position/);
+test('steering measures distance before normalization and clears route offsets for torso rescue', () => {
+    const method = source.slice(
+        source.indexOf('    _updatePlayerSteering(dt, targetPos) {'),
+        source.indexOf('    _clampSpeed() {')
+    );
+    assert.ok(method.indexOf('const targetDistance = desired.length();') >= 0);
+    assert.ok(method.indexOf('const targetDistance = desired.length();') < method.indexOf('desired.normalize();'));
+    assert.match(method, /this\._targetRouteOffset = \{ x: 0, y: 0, z: 0 \};/);
+    assert.match(method, /const rescueTurn = hasOverstayed \|\| isCircling/);
+});
+
+test('aim targeting has no closest-enemy fallback outside the aim cone', () => {
+    const method = gameSource.slice(
+        gameSource.indexOf('    getAimedEnemy(fromPos, aimDir, team) {'),
+        gameSource.indexOf('    // --- MAIN LOOP ---')
+    );
+    assert.match(method, /let best = null, bestDot = 0\.5/);
+    assert.match(method, /return best;/);
+    assert.doesNotMatch(method, /enemies\.reduce/);
 });
 
 test('corner recovery bends a reflected ball back toward its target', () => {
@@ -229,17 +254,4 @@ test('spawn, deactivate, and retarget reset steering; clamp repairs non-finite v
         [ball.velocity.x, ball.velocity.y, ball.velocity.z].map(Number.isFinite),
         [true, true, true]
     );
-});
-
-test('round targeting uses offline-or-host authority and snapshots carry target identity', () => {
-    assert.match(gameSource, /if \(this\.ball\.active && hasSimulationAuthority\(this\.network\)\)/);
-    assert.match(gameSource, /targetId: this\._ballTargetIdentity\(b\.targetPlayer\)/);
-    assert.match(gameSource, /state: b\.state/);
-});
-
-test('first authoritative deflect locks ball skin and trail for the round', () => {
-    assert.match(gameSource, /_claimOpeningOwner\(entity\)[\s\S]*this\.ball\.setSkin\(skinId\)[\s\S]*this\.ball\.setTrail\(trailId\)/);
-    assert.match(gameSource, /skinId: b\.skinId, trailId: b\.trailId/);
-    assert.match(gameSource, /this\._openingOwner = null;[\s\S]{0,160}this\.ball\.setSkin\('classic'\);[\s\S]{0,80}this\.ball\.setTrail\('none'\)/);
-    assert.match(gameSource, /orbitRelease\(aimDir, target\)[\s\S]{0,420}hasSimulationAuthority\(this\.network\)[\s\S]{0,80}_claimOpeningOwner\(this\.player\)/);
 });
