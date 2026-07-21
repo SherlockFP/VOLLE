@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Warrball - Competitive Ball Combat</title>
     <meta name="description" content="Warrball is a fast, competitive first-person ball combat game. Master movement, classes, and the arena.">
-    <link rel="icon" type="image/png" href="assets/generated/warrball-logo-v2.png">
+    <link rel="icon" type="image/png" href="assets/generated/warrball-logo-transparent-v1.png">
     <link rel="stylesheet" href="css/style.css?v=1.74">
     <link rel="stylesheet" href="css/ui-tokens.css?v=1">
     <link rel="stylesheet" href="css/ui-shell.css?v=1">
@@ -48,7 +48,7 @@
     <!-- Loading Screen -->
     <div id="loading-screen">
         <div class="loading-content">
-            <img class="brand-mark brand-mark-loading" src="assets/generated/warrball-logo-v2.png" alt="">
+            <img class="brand-mark brand-mark-loading" src="assets/generated/warrball-logo-transparent-v1.png" alt="">
             <div class="loading-logo">WARRBALL</div>
             <div class="loading-bar-track"><div class="loading-bar-fill"></div></div>
             <div class="loading-status">Loading assets...</div>
@@ -61,7 +61,7 @@
                 <span></span><i></i><b></b>
             </div>
             <div class="match-loading-copy">
-                <img class="brand-mark brand-mark-match" src="assets/generated/warrball-logo-v2.png" alt="">
+                <img class="brand-mark brand-mark-match" src="assets/generated/warrball-logo-transparent-v1.png" alt="">
                 <span id="match-loading-mode">CLASSIC</span>
                 <h2 id="match-loading-map">BEACH OPEN</h2>
                 <p id="match-loading-tip">Tip: move after every throw.</p>
@@ -142,7 +142,7 @@
                 </div>
                 <div class="ow-splash">
                     <span class="ow-kicker">WELCOME TO THE ARENA</span>
-                    <img class="brand-mark brand-mark-menu" src="assets/generated/warrball-logo-v2.png" alt="Warrball emblem">
+                    <img class="brand-mark brand-mark-menu" src="assets/generated/warrball-logo-transparent-v1.png" alt="Warrball emblem">
                     <div class="ow-logo">WARRBALL</div>
                     <div class="ow-tagline">FIRST PERSON DODGEBALL</div>
                     <div class="ow-mode-chip" id="menu-mode-status"><span>QUICK PLAY</span><b>Create or join a lobby</b></div>
@@ -323,6 +323,7 @@
                 <button id="btn-mp-join" class="btn btn-secondary mp-btn">🔗 Join by Code</button>
                 <p class="mp-hint">Enter a friend's room code to connect.</p>
                 <button id="btn-mp-solo" class="btn btn-secondary mp-btn">🤖 Solo vs Bots</button>
+                <button id="btn-mp-quick" class="btn btn-primary mp-btn">Quick Play</button>
                 <button id="btn-mp-back" class="btn btn-secondary mp-btn">← Back to Menu</button>
             </div>
             <!-- RIGHT: Lobby Browser -->
@@ -330,6 +331,12 @@
                 <div class="mp-lobby-header">
                     <h2>🖥️ Open Lobbies</h2>
                     <button id="btn-mp-refresh" class="btn btn-small" title="Refresh">↻</button>
+                </div>
+                <div class="mp-lobby-filters" aria-label="Lobby filters">
+                    <label>Mode <select id="mp-lobby-mode-filter"><option value="all">All modes</option></select></label>
+                    <label>Map <input id="mp-lobby-map-filter" type="search" maxlength="40" placeholder="Any map"></label>
+                    <label>Queue <select id="mp-lobby-queue-filter"><option value="all">All</option><option value="casual">Casual</option><option value="ranked">Ranked</option></select></label>
+                    <label class="mp-lobby-open"><input id="mp-lobby-open-filter" type="checkbox" checked> Open slots</label>
                 </div>
                 <div class="mp-lobby-list" id="mp-lobby-list">
                     <div class="mp-lobby-empty">Loading...</div>
@@ -357,7 +364,7 @@
     <div id="lobby-screen" class="screen hidden">
         <!-- Top bar -->
         <div class="cs-topbar">
-            <div class="cs-roomcode"><img class="brand-mark brand-mark-room" src="assets/generated/warrball-logo-v2.png" alt=""> Room: <span id="room-code">LOCAL</span></div>
+            <div class="cs-roomcode"><img class="brand-mark brand-mark-room" src="assets/generated/warrball-logo-transparent-v1.png" alt=""> Room: <span id="room-code">LOCAL</span></div>
             <div class="cs-lobby-name">
                 <input id="lobby-name-input" class="cs-lobby-name-input" type="text" maxlength="32" placeholder="Lobby Name" value="Lobby" spellcheck="false">
             </div>
@@ -415,7 +422,7 @@
         <button type="button" class="cs-mode-btn mode-btn rally-duel-mode" data-mode="rally_duel" aria-pressed="false" title="1V1 - normalized stats - no powers">1V1 Rally Duel</button>
         <button type="button" class="cs-mode-btn mode-btn" data-mode="pinball" aria-pressed="false">PB Pinball</button>
                     </div>
-                    <label class="match-modifier" for="match-modifier"><span>MAP MODIFIER</span><select id="match-modifier"><option value="none">Standard rules</option><option value="lowgrav">Low gravity</option><option value="pinball">Pinball bounce</option><option value="night">Night lights</option></select></label>
+                    <label class="match-modifier" for="match-modifier"><span>MAP MODIFIER</span><select id="match-modifier"><option value="none">Standard rules</option><option value="lowgrav">Low gravity</option><option value="pinball">Pinball bounce</option><option value="night">Night lights</option><option value="ffa_sudden" disabled>FFA sudden speed</option><option value="ffa_double" disabled>FFA double ball opening</option></select></label>
                 </div>
 
                 <!-- Settings button (opens unified modal) -->
@@ -625,6 +632,14 @@
                         </label>
                     </div>
                     <div class="settings-row settings-row-toggle">
+                        <label>Voice Chat <span class="settings-hint">V hold: team voice / FFA proximity</span></label>
+                        <label class="toggle-switch"><input type="checkbox" id="setting-voice-chat" checked><span class="toggle-slider"></span></label>
+                    </div>
+                    <div class="settings-row settings-row-toggle">
+                        <label>Mute Microphone</label>
+                        <label class="toggle-switch"><input type="checkbox" id="setting-voice-mute"><span class="toggle-slider"></span></label>
+                    </div>
+                    <div class="settings-row settings-row-toggle">
                         <label>Experimental Netcode <span class="settings-hint">Interpolation + prediction + lag compensation</span></label>
                         <label class="toggle-switch">
                             <input type="checkbox" id="setting-experimental-netcode">
@@ -692,8 +707,10 @@
             <div class="shop-toolbar">
                 <div class="shop-tabs" id="shop-tabs" aria-label="Shop categories">
                     <button class="shop-tab selected" data-tab="chars">Characters</button>
+                    <button class="shop-tab" data-tab="live">Live Deals</button>
                     <button class="shop-tab" data-tab="balls">Balls</button>
                     <button class="shop-tab" data-tab="avatars">Character Skins</button>
+                    <button class="shop-tab" data-tab="wearables">Wearables</button>
                     <button class="shop-tab" data-tab="cases">Cases</button>
                     <button class="shop-tab" data-tab="inventory">Inventory</button>
                     <button class="shop-tab" data-tab="skills">Skills</button>

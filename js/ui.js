@@ -10,6 +10,7 @@ import { MatchHistory } from './matchhistory.js';
 import { getRank, getRankProgress } from './ranked.js';
 import { Leaderboard } from './leaderboard.js';
 import { Arena } from './arena.js';
+import { COSMETICS, COSMETIC_TYPES, cosmeticsByType } from './cosmetic-catalog.js';
 
 const CHARACTER_ATLAS = 'assets/generated/characters/character-atlas.png';
 const BALL_BASE_SPEED = 17;
@@ -227,11 +228,13 @@ export class UI {
         }
     }
 
-    updateScoreboard(stats) {
-        this.updateScoreboardTable('scoreboard-body', stats);
+    updateScoreboard(stats, ffa = false) {
+        this.updateScoreboardTable('scoreboard-body', stats, ffa);
+        const heading = document.querySelector('#scoreboard-overlay th:nth-child(2)');
+        if (heading) heading.textContent = ffa ? 'Mode' : 'Team';
     }
 
-    updateScoreboardTable(tbodyId, stats) {
+    updateScoreboardTable(tbodyId, stats, ffa = false) {
         const tbody = document.getElementById(tbodyId);
         if (!tbody) return;
         tbody.innerHTML = '';
@@ -243,7 +246,7 @@ export class UI {
             const level = p.level || (p.isBot ? Math.min(20, i + 1) : (store?.get?.('level') || 1));
             const values = [
                 `${p.name}${p.isYou ? ' (YOU)' : ''}`,
-                String(p.team || '').toUpperCase(),
+                ffa ? 'SOLO' : String(p.team || '').toUpperCase(),
                 String(rank),
                 String(level),
                 String(p.score ?? 0),
@@ -406,15 +409,17 @@ export class UI {
         }
     }
 
-    showGameOver(winner, stats) {
+    showGameOver(winner, stats, ffa = false) {
         this.showScreen('gameOver');
         const el = document.getElementById('winner-text');
         if (el) {
-            el.textContent = winner === 'DRAW' ? "It's a Draw!" : `${winner} Team Wins!`;
+            el.textContent = winner === 'DRAW' ? "It's a Draw!" : ffa ? `${winner} Wins!` : `${winner} Team Wins!`;
             el.className = `winner-${winner.toLowerCase()}`;
         }
-        this.updateScoreboard(stats);
-        this.updateScoreboardTable('scoreboard-body-final', stats);
+        this.updateScoreboard(stats, ffa);
+        this.updateScoreboardTable('scoreboard-body-final', stats, ffa);
+        const heading = document.querySelector('#game-over .scoreboard-table th:nth-child(2)');
+        if (heading) heading.textContent = ffa ? 'Mode' : 'Team';
     }
 
     showCountdown(num, callback, token = ++this._countdownToken) {
@@ -1115,7 +1120,32 @@ export class UI {
         if (!grid) return;
         grid.innerHTML = '';
 
-        if (tab === 'chars') {
+        if (tab === 'live') {
+            const market = store.getLiveMarket?.() || { offers: [] };
+            const until = Number.isFinite(market.expiresAt)
+                ? new Date(market.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                : '';
+            if (!market.offers?.length) {
+                grid.innerHTML = '<p class="shop-empty">Loading today\'s deals...</p>';
+                return;
+            }
+            market.offers.forEach(offer => {
+                const item = offer.kind === 'cosmetic' ? COSMETICS[offer.itemId] : BALL_SKINS[offer.itemId];
+                if (!item) return;
+                const owned = offer.kind === 'cosmetic'
+                    ? store.ownsCosmetic(offer.itemId)
+                    : store.ownsBall(offer.itemId);
+                const card = document.createElement('div');
+                card.className = `shop-card live-deal rarity-${item.rarity || 'common'} ${owned ? 'owned' : ''}`;
+                const visual = offer.kind === 'cosmetic'
+                    ? `<div class="cosmetic-preview cosmetic-preview-${item.type}" style="--cosmetic-primary:${item.colors[0]};--cosmetic-secondary:${item.colors[1]}"></div>`
+                    : '<div class="ball-inspect-stage"><div class="ball-preview"></div><span class="ball-inspect-trail" aria-hidden="true"></span></div>';
+                card.innerHTML = `<div class="live-deal-badge">-${offer.discount}% TODAY</div>${visual}<div class="char-name">${item.name}</div><div class="char-desc">Rotates at ${until || 'midnight'}.</div>${owned ? '<div class="shop-owned">Owned</div>' : `<button class="btn btn-primary btn-small live-offer-buy" data-offer-id="${offer.id}"><s>${offer.basePrice}</s> COINS ${offer.price}</button>`}`;
+                const preview = card.querySelector('.ball-preview');
+                if (preview) preview.dataset.effect = item.effect || 'core';
+                grid.appendChild(card);
+            });
+        } else if (tab === 'chars') {
             Object.values(CHARACTERS).forEach((c, index) => {
                 if (!c.price) return;
                 const owned = store.ownsCharacter(c.id);
@@ -1129,9 +1159,24 @@ export class UI {
                 if (id === 'classic') return;
                 const owned = store.ownsBall(id);
                 const card = document.createElement('div');
-                card.className = `shop-card ${owned ? 'owned' : ''}`;
+                card.className = `shop-card ball-skin rarity-${b.rarity || 'common'} ${owned ? 'owned' : ''}`;
                 const equipped = store.get('equippedBall') === id;
-                card.innerHTML = `<div class="ball-preview" style="background:${'#'+b.color.toString(16).padStart(6,'0')}"></div><div class="char-name">${b.name}</div>${owned ? (equipped ? '<div class="shop-owned">✔ Equipped</div>' : `<button class="btn btn-small shop-equip" data-type="ball" data-id="${id}">🎯 Equip</button>`) : `<button class="btn btn-primary btn-small shop-buy" data-type="ball" data-id="${id}">🪙 150</button>`}`;
+                card.innerHTML = `<div class="ball-inspect-stage"><div class="ball-preview" style="background:${'#'+b.color.toString(16).padStart(6,'0')}"></div><span class="ball-inspect-trail" aria-hidden="true"></span></div><div class="char-name">${b.name}</div><button class="btn btn-small ball-inspect" data-id="${id}" aria-pressed="false">Inspect trail</button>${owned ? (equipped ? '<div class="shop-owned">✔ Equipped</div>' : `<button class="btn btn-small shop-equip" data-type="ball" data-id="${id}">🎯 Equip</button>`) : `<button class="btn btn-primary btn-small shop-buy" data-type="ball" data-id="${id}">🪙 150</button>`}`;
+                const preview = card.querySelector('.ball-preview');
+                if (preview) {
+                    preview.style.background = '';
+                    preview.dataset.effect = b.effect || 'core';
+                    preview.style.setProperty('--ball-color', `#${b.color.toString(16).padStart(6, '0')}`);
+                    preview.style.setProperty('--ball-glow', `#${b.glow.toString(16).padStart(6, '0')}`);
+                }
+                if (b.rarity) {
+                    const rarity = document.createElement('div');
+                    rarity.className = 'ball-rarity';
+                    rarity.textContent = b.rarity;
+                    card.querySelector('.char-name')?.after(rarity);
+                }
+                const buy = card.querySelector('.shop-buy');
+                if (buy) buy.textContent = `COINS ${b.price || 150}`;
                 grid.appendChild(card);
             });
         } else if (tab === 'skills') {
@@ -1161,6 +1206,50 @@ export class UI {
                 trial.textContent = '15m Trial';
                 card.appendChild(trial);
             });
+        } else if (tab === 'wearables') {
+            const equipped = store.get('equippedWearables') || {};
+            Object.entries(COSMETIC_TYPES).forEach(([type, label]) => {
+                const heading = document.createElement('h3');
+                heading.className = 'cosmetic-category-title';
+                heading.textContent = label;
+                if (equipped[type] && equipped[type] !== 'none') {
+                    const clear = document.createElement('button');
+                    clear.className = 'btn btn-small cosmetic-clear';
+                    clear.dataset.type = type;
+                    clear.textContent = `Remove ${label}`;
+                    heading.appendChild(clear);
+                }
+                grid.appendChild(heading);
+                cosmeticsByType(type).forEach(item => {
+                    const owned = store.ownsCosmetic(item.id);
+                    const active = equipped[type] === item.id;
+                    const card = document.createElement('article');
+                    card.className = `shop-card cosmetic-card rarity-${item.rarity} ${owned ? 'owned' : ''} ${active ? 'equipped' : ''}`;
+                    card.style.setProperty('--cosmetic-primary', item.colors[0]);
+                    card.style.setProperty('--cosmetic-secondary', item.colors[1]);
+                    const preview = document.createElement('div');
+                    preview.className = `cosmetic-preview cosmetic-preview-${type}`;
+                    preview.dataset.style = item.style;
+                    preview.setAttribute('aria-hidden', 'true');
+                    const name = document.createElement('div');
+                    name.className = 'char-name';
+                    name.textContent = item.name;
+                    const rarity = document.createElement('span');
+                    rarity.className = `skin-rarity rarity-${item.rarity}`;
+                    rarity.textContent = item.rarity;
+                    const description = document.createElement('div');
+                    description.className = 'char-desc';
+                    description.textContent = item.description;
+                    const action = document.createElement('button');
+                    action.className = owned ? 'btn btn-small shop-equip' : 'btn btn-primary btn-small shop-buy';
+                    action.dataset.type = 'cosmetic';
+                    action.dataset.id = item.id;
+                    action.textContent = active ? 'Equipped' : owned ? 'Equip' : `COINS ${item.price}`;
+                    action.disabled = active;
+                    card.append(preview, name, rarity, description, action);
+                    grid.appendChild(card);
+                });
+            });
         } else if (tab === 'boosts') {
             const card = document.createElement('div');
             card.className = 'shop-card';
@@ -1180,7 +1269,7 @@ export class UI {
                         Epic+ guarantee: ${pity.nextGuaranteed ? 'NEXT OPEN' : `${pity.count}/${pity.threshold}`}
                     </div>
                     <div class="case-drop-rates">${rates.map(drop =>
-                        `<span class="rarity-${drop.rarity} case-drop ${drop.type}">${drop.preview ? `<i class="case-avatar-preview" style="--case-head:${drop.preview.head};--case-body:${drop.preview.body};--case-arms:${drop.preview.arms}"></i>` : ''}<b>${drop.name}<small>${drop.type === 'avatar' ? 'CHARACTER SKIN' : 'KNIFE'}</small></b><em>${(drop.chance * 100).toFixed(0)}%</em></span>`
+                        `<span class="rarity-${drop.rarity} case-drop ${drop.type}">${drop.preview?.head ? `<i class="case-avatar-preview" style="--case-head:${drop.preview.head};--case-body:${drop.preview.body};--case-arms:${drop.preview.arms}"></i>` : ''}<b>${drop.name}<small>${drop.type === 'avatar' ? 'CHARACTER SKIN' : drop.type === 'ball' ? 'BALL SKIN' : drop.type === 'cosmetic' ? String(drop.preview?.type || 'COSMETIC').toUpperCase() : 'KNIFE'}</small></b><em>${(drop.chance * 100).toFixed(0)}%</em></span>`
                     ).join('')}</div>
                     <button class="btn btn-primary btn-small case-open" data-id="${box.id}">${box.price} coins / Open</button>`;
                 grid.appendChild(card);
@@ -1230,7 +1319,12 @@ export class UI {
         items[targetIndex] = result.reward;
         track.className = 'case-reel-track';
         track.innerHTML = items.map(item => {
-            const type = item.type === 'avatar' ? 'CHARACTER SKIN' : item.model === 'butterfly' ? 'BUTTERFLY KNIFE' : item.model === 'karambit' ? 'KARAMBIT' : 'KNIFE';
+            const type = item.type === 'avatar' ? 'CHARACTER SKIN'
+                : item.type === 'ball' ? 'BALL SKIN'
+                : item.type === 'cosmetic' ? String(item.preview?.type || 'COSMETIC').toUpperCase()
+                : item.model === 'butterfly' ? 'BUTTERFLY KNIFE'
+                : item.model === 'karambit' ? 'KARAMBIT'
+                : 'KNIFE';
             return `<div class="case-reel-item rarity-${item.rarity || result.reward.rarity}"><span class="case-reel-orb ${item.type === 'avatar' ? 'avatar' : ''}" aria-hidden="true"></span><small>${type}</small><b>${item.name || item.id}</b></div>`;
         }).join('');
         resultEl.textContent = '';

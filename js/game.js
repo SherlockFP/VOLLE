@@ -30,6 +30,8 @@ import {
     disposeObject3D
 } from './weapon-models.js';
 import { KNIVES } from './cosmetics.js';
+import { normalizeWearableLoadout } from './cosmetic-catalog.js';
+import { applyEntityCosmetics, spawnImpactCosmetic, updateEntityCosmetics } from './cosmetic-models.js';
 import {
     activateQueuedEntity,
     isLiveJoinState,
@@ -108,6 +110,10 @@ export class Game {
         this.scoreboard = new Scoreboard();
         this.bots = [];
         this.remotePlayers = new Map();
+        this.localCosmeticEntity = { group: new THREE.Group() };
+        this.localCosmeticEntity.group.name = 'local-cosmetics';
+        this.renderer.scene.add(this.localCosmeticEntity.group);
+        applyEntityCosmetics(this.localCosmeticEntity, null);
         this._pendingLethalHit = null;
         this._pendingLethalVictim = null;
         this._predictedLocalDeath = false;
@@ -488,11 +494,10 @@ addBot(team, { name: preferredName = null } = {}) {
         this._activeBlackHoles = [];
     }
 
-    spawnSplitBall(ball) {
+    spawnSplitBall(ball, life = 5) {
         const perp = new THREE.Vector3(-ball.velocity.z, 0.3, ball.velocity.x).normalize();
         const pos = ball.position.clone();
         const vel = perp.multiplyScalar(ball.currentSpeed * 0.5).add(new THREE.Vector3(0, 3, 0));
-        const life = 5;
         this._createSplitBallMesh(pos, vel, life);
         // ponytail: broadcast so clients render split ball at same pos/vel
         if (this.network?.isHost) this.network.broadcastSplitBallSpawn(pos.x, pos.y, pos.z, vel.x, vel.y, vel.z);
@@ -926,6 +931,7 @@ startGame(skipPreGame = false, matchId = null) {
         if (this.ball._warmup) { this.ball.deactivate(); this.ball._warmup = false; }
         if (this._guidedDrillArmed) this._beginGuidedDrill();
         else this.ball.spawn();
+        if (this._ffaOpeningDouble && !this._guidedDrillArmed) this.spawnSplitBall(this.ball, 18);
         this.ball._pinballBounce = !!this.arena.config?.isPinball || !!this.mode?.mutators?.pinballBounce;
         if (!this._guidedDrillArmed) this._applyBallAffix();
         this.lastDeflector = null;
@@ -1040,7 +1046,9 @@ getSelectableMaps() {
 
     setMatchModifier(modifier = 'none') {
         if (this.state !== STATES.LOBBY && this.state !== STATES.MENU) return false;
-        this.matchModifier = ['none', 'lowgrav', 'pinball', 'night'].includes(modifier) ? modifier : 'none';
+        const ffaModifier = ['ffa_sudden', 'ffa_double'].includes(modifier);
+        this.matchModifier = ['none', 'lowgrav', 'pinball', 'night', 'ffa_sudden', 'ffa_double'].includes(modifier)
+            && (!ffaModifier || this._ffa) ? modifier : 'none';
         this.applyMatchModifier();
         this.ui.showMessage?.(`Modifier: ${this.matchModifier === 'none' ? 'Standard' : this.matchModifier}`, 1400);
         return true;
@@ -1048,6 +1056,8 @@ getSelectableMaps() {
 
     applyMatchModifier() {
         const modifier = this.matchModifier || 'none';
+        this.ball._ffaSpeedMultiplier = modifier === 'ffa_sudden' && this._ffa ? 1.3 : 1;
+        this._ffaOpeningDouble = modifier === 'ffa_double' && this._ffa;
         if (modifier === 'lowgrav') { this.player.gravity = -7; this.player.jumpForce = 12; }
         if (modifier === 'pinball') this.ball._pinballBounce = true;
         if (modifier === 'night') this.renderer?.setClearColor?.(0x03101f, 1);
@@ -1153,6 +1163,11 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         const p = this.remotePlayers.get(playerId);
         if (!p) return;
         Object.values(p._avatarPartTextures || {}).forEach(texture => texture.dispose?.());
+        if (p.cosmeticsRoot) {
+            p.group.remove(p.cosmeticsRoot);
+            disposeObject3D(p.cosmeticsRoot);
+            p.cosmeticsRoot = null;
+        }
         this.renderer.scene.remove(p.group);
         this.scoreboard.removePlayer(p.name);
         this.remotePlayers.delete(playerId);
@@ -1335,6 +1350,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 this.headMesh.material.needsUpdate = true;
             }
         };
+        applyEntityCosmetics(p, null);
         group.position.copy(p.position).add(new THREE.Vector3(0, -1.2, 0));
         return p;
     }
@@ -1494,6 +1510,28 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
     // Ölen takımın karşı tarafına puan verir. İki takım da ölürse draw.
     _checkTeamElimination() {
         const all = this.getAllTargets();
+        if (this._ffa) {
+            const alive = all.filter(p => p.alive);
+            if (alive.length > 1) return false;
+            const winnerName = alive[0]?.name || (alive[0] === this.player ? this.playerName : null);
+            const winner = winnerName ? 'ffa' : 'draw';
+            if (winnerName) {
+                this.scoreboard.recordPoint(winnerName, 1);
+                this.announce(`${winnerName} WINS THE ROUND!`, 'tf2_domination', 0.5, 2000);
+            } else {
+                this.ui.showMessage?.('DOUBLE KO - DRAW!', 2000);
+            }
+            if (this.network?.isHost) {
+                this.network.broadcastRoundEnd({
+                    winner,
+                    winnerName,
+                    red: this.scoreboard.redScore,
+                    blue: this.scoreboard.blueScore,
+                    round: this.scoreboard.roundNum
+                });
+            }
+            return true;
+        }
         const redAlive = all.filter(p => p.alive && p.team === 'red');
         const blueAlive = all.filter(p => p.alive && p.team === 'blue');
         let winner = null;
@@ -1556,6 +1594,15 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
     // --- MAIN LOOP ---
 
     update(dt) {
+        const localCosmetics = this.localCosmeticEntity;
+        if (localCosmetics) {
+            applyEntityCosmetics(localCosmetics, window.__store?.get?.('equippedWearables'));
+            localCosmetics.group.position.copy(this.player.getPosition()).add(new THREE.Vector3(0, -1.2, 0));
+            localCosmetics.group.rotation.y = this.player.camera?.rotation?.y || 0;
+            localCosmetics.group.visible = this.player.alive !== false
+                && [STATES.COUNTDOWN, STATES.PLAYING, STATES.ROUND_END, STATES.CELEBRATION].includes(this.state);
+            updateEntityCosmetics(localCosmetics, performance.now() / 1000);
+        }
         // Juice: hit-stop/slow-mo/screen shake uygula, effective dt döndür
         const effectiveDt = this.juice.update(dt);
         if (effectiveDt === 0 && this.state !== STATES.CELEBRATION) return; // hit-stop: dünya donar (ama celebration'da değil)
@@ -2509,6 +2556,10 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         }
 
         const hitPos = hitTarget.getPosition();
+        const impactId = attacker === this.player
+            ? window.__store?.get?.('equippedWearables')?.impact
+            : attacker?.wearableLoadout?.impact;
+        spawnImpactCosmetic(this.renderer.scene, impactId, hitPos);
         const isLethal = lethal || hitTarget.hp <= 0;
         if (attacker === this.player) {
             this.onReplayEvent?.({
@@ -2594,8 +2645,10 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 this.ui.flashHit();
                 this._killcamDeathPos = this.player.getPosition();
                 this._showKillcam(scorerName || (this.ball.lastShotBy || 'Unknown'));
-                const aliveTeammates = this.bots.filter(b => b.alive && b.team === this.player.team);
-                if (aliveTeammates.length > 0) this._spectateTarget = aliveTeammates[0];
+                const aliveTargets = this._ffa
+                    ? this.getAllTargets().filter(p => p !== this.player && p.alive)
+                    : this.bots.filter(b => b.alive && b.team === this.player.team);
+                if (aliveTargets.length > 0) this._spectateTarget = aliveTargets[0];
             }
         }
 
@@ -2614,8 +2667,10 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                     }
                     this._killcamDeathPos = this.player.getPosition();
                     this._showKillcam(scorerName || (this.ball.lastShotBy || 'Unknown'));
-                    const aliveTeammates = this.bots.filter(b => b.alive && b.team === this.player.team);
-                    if (aliveTeammates.length > 0) this._spectateTarget = aliveTeammates[0];
+                    const aliveTargets = this._ffa
+                        ? this.getAllTargets().filter(p => p !== this.player && p.alive)
+                        : this.bots.filter(b => b.alive && b.team === this.player.team);
+                    if (aliveTargets.length > 0) this._spectateTarget = aliveTargets[0];
                 } else {
                     hitTarget.alive = false;
                     if (hitTarget.group) hitTarget.group.visible = false;
@@ -3286,8 +3341,11 @@ spawnPowerUp() {
     }
 
     endGame() {
-        const winner = this.scoreboard.getWinner();
         const stats = this.scoreboard.getPlayerStats();
+        const rankedFfa = [...stats].sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+        const winner = this._ffa && rankedFfa[0] && rankedFfa[0].score !== rankedFfa[1]?.score
+            ? rankedFfa[0].name
+            : this.scoreboard.getWinner();
         this.clearBlackHoles();
         this.clearSplitBalls();
         this._clearRockets();
@@ -3301,7 +3359,7 @@ spawnPowerUp() {
         this.setState(STATES.CELEBRATION);
         this._celebrationTimer = 30;
         this._winningTeam = winner === 'RED' ? 'red' : winner === 'BLUE' ? 'blue' : null;
-        this._won = this._winningTeam !== null && this.player.team === this._winningTeam;
+        this._won = this._ffa ? winner === this.playerName : this._winningTeam !== null && this.player.team === this._winningTeam;
 
         // Winner/loser TF2 anouncer
         if (this._won) {
@@ -3316,7 +3374,7 @@ spawnPowerUp() {
         // ponytail: let everyone move/look, only winners shoot
         this.ball.deactivate();
         // Kaybedenler vuramaz
-        this.player._celebNoAttack = (this.player.team !== this._winningTeam);
+        this.player._celebNoAttack = this._ffa ? !this._won : this.player.team !== this._winningTeam;
         this.player.respawn();
         this.bots.forEach(bot => { if (!bot.alive) bot.respawn(); });
         this.ui.setPlayerTarget(false);
@@ -3474,8 +3532,8 @@ spawnPowerUp() {
         // Win pays ~5x a loss; losers still earn a small consolation.
         const xp = this._won ? 400 + kills * 30 : 80 + kills * 8;
         const winnerText = this._finalWinner === 'DRAW'
-            ? `DRAW: Red ${this.scoreboard.redScore} - ${this.scoreboard.blueScore} Blue`
-            : `${this._finalWinner} TEAM WINS: Red ${this.scoreboard.redScore} - ${this.scoreboard.blueScore} Blue`;
+            ? this._ffa ? 'DRAW: FFA tie' : `DRAW: Red ${this.scoreboard.redScore} - ${this.scoreboard.blueScore} Blue`
+            : this._ffa ? `${this._finalWinner} WINS FFA` : `${this._finalWinner} TEAM WINS: Red ${this.scoreboard.redScore} - ${this.scoreboard.blueScore} Blue`;
         const playerStats = this.scoreboard.getPlayerStats();
         this.onMatchComplete?.();
         const analytics = this.matchAnalytics.getReport({
@@ -3762,6 +3820,7 @@ spawnPowerUp() {
             playerId: this.network?.playerId,
             charId: this.player.charId,
             avatar: ownAvatar,
+            cosmetics: normalizeWearableLoadout(window.__store?.get?.('equippedWearables')),
             queuedForNextRound: !!this.player.queuedForNextRound,
             pendingTeam: this.player.pendingTeam || null,
             activateRound: this.player.activateRound || null
@@ -3775,6 +3834,7 @@ spawnPowerUp() {
             peerId: p.peerId || playerId,
             charId: p.charId || 'rally',
             avatar: p.avatar || null,
+            cosmetics: normalizeWearableLoadout(p.wearableLoadout),
             queuedForNextRound: !!p.queuedForNextRound,
             pendingTeam: p.pendingTeam || null,
             activateRound: p.activateRound || null
@@ -3835,6 +3895,14 @@ spawnPowerUp() {
 
     // Her frame'de çağrılır — remote player'ların pozisyonlarını lerp ile
     // interpolate eder (30Hz snapshot aktarımı akıcı görülür).
+    setRemoteCosmetics(playerId, loadout) {
+        const player = this.remotePlayers.get(playerId);
+        if (!player) return null;
+        const safe = normalizeWearableLoadout(loadout);
+        applyEntityCosmetics(player, safe);
+        return safe;
+    }
+
     invokeRemoteSnapshots(dt) {
         if (!this.remotePlayers.size) return;
         const netcode = normalizeNetcode(this.experimentalNetcode);
@@ -3842,6 +3910,7 @@ spawnPowerUp() {
         const now = performance.now();
         const renderTime = now - interpDelay;
         for (const p of this.remotePlayers.values()) {
+            updateEntityCosmetics(p, now / 1000);
             p.attackTimer = Math.max(0, (p.attackTimer || 0) - dt);
             if (p.rightArm) {
                 const targetSwing = p.attackTimer > 0 ? -1.2 : 0;
@@ -4122,6 +4191,7 @@ spawnPowerUp() {
                         p.avatar = pl.avatar;
                         if (p.setAvatarTexture) p.setAvatarTexture(pl.avatar);
                     }
+                    applyEntityCosmetics(p, pl.cosmetics ? normalizeWearableLoadout(pl.cosmetics) : null);
                 }
             }
         }
@@ -5073,6 +5143,7 @@ spawnPowerUp() {
         this.chaosManager?.clear();
         if (data?.winner === 'red') this.ui.showMessage?.('🔴 RED TEAM WINS THE ROUND!', 2000);
         else if (data?.winner === 'blue') this.ui.showMessage?.('🔵 BLUE TEAM WINS THE ROUND!', 2000);
+        else if (data?.winner === 'ffa' && data.winnerName) this.ui.showMessage?.(`${data.winnerName} WINS THE ROUND!`, 2000);
         else if (data?.winner === 'draw') this.ui.showMessage?.('⚔️ DOUBLE KO — DRAW!', 2000);
     }
     startRoundFromNetwork(data = {}) {

@@ -444,7 +444,7 @@ export class Bot {
     }
 
     tryDeflect(ball, dt = 0.016) {
-        if (this.attacking || this.attackTimer > 0) return false;
+        if (!this.alive || this.attacking || this.attackTimer > 0) return false;
         const dist = ball.distanceTo(this.getPosition());
 
         // Build reaction timer when ball is within alert range (~8 units),
@@ -516,9 +516,15 @@ export class Bot {
         this._burnTimer = 0;
         this._chillTimer = 0;
         this.skillCooldowns = {};
+        this._deflectDecided = false;
+        this._willDeflect = false;
         this.alive = true;
         this.drawHpBar();
+        this.group.position.copy(this.position);
+        this.group.rotation.y = this.team === 'red' ? 0 : Math.PI;
+        this.group.visible = true;
         this.group.scale.setScalar(0.01);
+        this.setTargetOutline(false);
     }
 
     remove() {

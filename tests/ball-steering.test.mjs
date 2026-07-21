@@ -10,12 +10,15 @@ const ballModule = await import(`data:text/javascript;base64,${Buffer.from(testa
 
 const {
     Ball,
+    BALL_SKINS,
     STEERING_CONTROL_WINDOW,
+    createAimRouteOffset,
     createWideWaypoint,
     hasCrossedTargetPlane,
     isSteeringControlLocked,
     networkBallStep,
     predictLeadTarget,
+    proximityHomingTurnRate,
     recoverCornerHoming,
     sampleBoundedVelocity,
     smoothSampledVelocity,
@@ -23,6 +26,15 @@ const {
     steeringActiveDt,
     steeringTurnAlpha
 } = ballModule;
+
+test('every purchasable ball skin is cosmetic-only and ready for the shop', () => {
+    for (const [id, skin] of Object.entries(BALL_SKINS)) {
+        if (id === 'classic') continue;
+        assert.ok(Number.isInteger(skin.price) && skin.price > 0, `${id} needs a price`);
+        assert.match(skin.rarity, /^(rare|epic|legendary)$/);
+        assert.equal(Object.hasOwn(skin, 'speedBonus'), false, `${id} must not change speed`);
+    }
+});
 
 test('sample smoothing absorbs target jitter without changing direction instantly', () => {
     const filtered = smoothSampledVelocity(
@@ -116,9 +128,31 @@ test('turn rate is frame-rate independent and grows per deflection', () => {
     const halfTick = steeringTurnAlpha(1 / 132, 0);
     const compounded = 1 - (1 - halfTick) ** 2;
 
-    assert.ok(Math.abs(oneTick - 0.26) < 1e-12);
+    assert.ok(Math.abs(oneTick - 0.30) < 1e-12);
     assert.ok(Math.abs(compounded - oneTick) < 1e-12);
-    assert.ok(Math.abs(steeringTurnAlpha(1 / 66, 3) - (0.26 + 3 * 0.018)) < 1e-12);
+    assert.ok(Math.abs(steeringTurnAlpha(1 / 66, 3) - (0.30 + 3 * 0.018)) < 1e-12);
+});
+
+test('aim routes can target side, back, and above-body positions', () => {
+    const offset = createAimRouteOffset(
+        { x: 0, y: 1, z: 0 },
+        { x: 0, y: 1, z: -10 },
+        { x: 1, y: 1, z: -1 }
+    );
+
+    assert.ok(offset.x > 0);
+    assert.ok(offset.y > 0);
+    assert.ok(offset.z < 0);
+    assert.deepEqual(createAimRouteOffset(null, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 }), { x: 0, y: 0, z: 0 });
+});
+
+test('homing gains strength near its target without exceeding its turn cap', () => {
+    const far = proximityHomingTurnRate(12, 0);
+    const close = proximityHomingTurnRate(1, 2);
+
+    assert.ok(close > far);
+    assert.ok(close <= 7.5);
+    assert.equal(proximityHomingTurnRate(0, 999), 7.5);
 });
 
 test('corner recovery bends a reflected ball back toward its target', () => {

@@ -50,6 +50,27 @@ test('coin purchases reject insufficient funds and persist ownership', () => {
     assert.equal(Store.buyAvatarSkin('neon'), false);
 });
 
+test('ball purchases validate the catalog and use the configured price', () => {
+    Store.reset();
+    Store.grant({ currency: 360 });
+    const before = Store.get('currency');
+    assert.equal(Store.buyBall('solar'), true);
+    assert.equal(Store.ownsBall('solar'), true);
+    assert.equal(Store.get('currency'), before - 360);
+    assert.equal(Store.buyBall('not-a-ball'), false);
+});
+
+test('wearable purchases equip one owned item per cosmetic slot', () => {
+    Store.reset();
+    Store.grant({ currency: 500 });
+    assert.equal(Store.buyCosmetic('pet_slime'), true);
+    assert.equal(Store.equipCosmetic('pet_slime'), true);
+    assert.equal(Store.get('equippedWearables').pet, 'pet_slime');
+    assert.equal(Store.equipCosmetic('pet_dragon'), false);
+    assert.equal(Store.clearCosmeticSlot('pet'), true);
+    assert.equal(Store.get('equippedWearables').pet, 'none');
+});
+
 test('character mastery levels up without losing overflow XP', () => {
     Store.reset();
     const result = Store.recordGame({ characterId: 'rally', characterXp: 300 });

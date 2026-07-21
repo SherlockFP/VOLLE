@@ -6,6 +6,9 @@ import { applyRunes, tickSkillCooldowns, useSkill, DEFAULT_LOADOUT, ULTIMATES } 
 import { createKnifeModel, createRocketLauncherModel, disposeObject3D } from './weapon-models.js';
 
 const STAMINA_PER_DEFLECT = 7;
+const RAPID_DEFLECT_COST_STEP = 2;
+const RAPID_DEFLECT_MAX_FATIGUE = 4;
+const RAPID_DEFLECT_FATIGUE_DECAY = 3;
 const STAMINA_REGEN = 20;     // per second
 const STAMINA_EXHAUST_THRESHOLD = 15;
 const ATTACK_COOLDOWN = 0.6;  // spam protection — wider window for fast balls
@@ -345,6 +348,8 @@ export class Player {
         this.stamina = 100;          // ponytail: stamina gate blocks mouse-1 spam
         this.staminaMax = 100;
         this.exhausted = false;
+        this.deflectFatigue = 0;
+        this._lastDeflectAttemptAt = -Infinity;
 
         // Sprint — hold Shift, drains stamina
         this.sprintMultiplier = 1.3;
@@ -589,11 +594,18 @@ export class Player {
         // Mouse-1 spam ile sınırsız top atılamaz.
         if (this._celebNoAttack) return false; // celebration'da loser'lar vuramaz
         if (this.attackCooldown > 0) return false;
-        if (this.stamina < STAMINA_PER_DEFLECT) {
+        const now = performance.now() / 1000;
+        const elapsed = now - this._lastDeflectAttemptAt;
+        this.deflectFatigue = Math.max(0, this.deflectFatigue - elapsed * RAPID_DEFLECT_FATIGUE_DECAY);
+        const staminaCost = STAMINA_PER_DEFLECT
+            + Math.ceil(this.deflectFatigue) * RAPID_DEFLECT_COST_STEP;
+        if (this.stamina < staminaCost) {
             this.exhausted = true;
             return false;
         }
-        this.stamina -= STAMINA_PER_DEFLECT;
+        this.stamina -= staminaCost;
+        this.deflectFatigue = Math.min(RAPID_DEFLECT_MAX_FATIGUE, this.deflectFatigue + 1);
+        this._lastDeflectAttemptAt = now;
         if (this.stamina < STAMINA_EXHAUST_THRESHOLD) this.exhausted = true;
         this.attacking = true;
         this.attackCooldown = this.attackDuration;
@@ -651,7 +663,7 @@ export class Player {
         if (!this.alive) {
             this.deathTimer -= dt;
             // ponytail: auto-respawn after death timer expires (round-mid death)
-            if (this.deathTimer <= 0 && this.game?.state === 'PLAYING') {
+            if (this.deathTimer <= 0 && this.game?.state === 'PLAYING' && !this.game?._ffa) {
                 this.respawn();
             }
             return;
@@ -1100,6 +1112,8 @@ export class Player {
         this.shield = 0;
         this.stamina = this.staminaMax;
         this.exhausted = false;
+        this.deflectFatigue = 0;
+        this._lastDeflectAttemptAt = -Infinity;
         this.consecutiveMisses = 0;
         this._burnTimer = 0;
         this._chillTimer = 0;
@@ -1177,6 +1191,8 @@ export class Player {
         this.shield = 0;
         this.stamina = this.staminaMax;
         this.exhausted = false;
+        this.deflectFatigue = 0;
+        this._lastDeflectAttemptAt = -Infinity;
         this.consecutiveMisses = 0;
         this._burnTimer = 0;
         this._chillTimer = 0;

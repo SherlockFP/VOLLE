@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
 import { CASES, KNIVES, canEquipKnife, getCaseDropRates, rollCase } from '../js/cosmetics.js';
+
+const require = createRequire(import.meta.url);
+const { CASES: SERVER_CASES } = require('../server/case-catalog');
 
 test('case boundaries resolve catalog cosmetics', () => {
     assert.equal(rollCase('missing', () => 0), null);
@@ -32,9 +36,33 @@ test('minimum rarity rolls only within the eligible case pool', () => {
 });
 
 test('premium cases expose local butterfly and karambit finishes', () => {
-    assert.deepEqual(Object.keys(CASES).sort(), ['arsenal', 'chroma', 'kickoff']);
+    assert.deepEqual(Object.keys(CASES).sort(), ['arsenal', 'chroma', 'companions', 'elemental', 'kickoff', 'mythic']);
     assert.equal(KNIVES.doppler.model, 'butterfly');
     assert.equal(KNIVES.fade.model, 'karambit');
     assert.equal(KNIVES.crimson_web.rarity, 'epic');
     assert.equal(rollCase('arsenal', () => 0.99).id, 'royal');
+});
+
+test('expanded cases resolve balls, pets, wearables, avatars, and knives', () => {
+    for (const id of ['elemental', 'companions', 'mythic']) {
+        const rates = getCaseDropRates(id);
+        assert.equal(rates.length, CASES[id].drops.length);
+        assert.ok(rates.every(drop => drop.name && drop.rarity && drop.chance > 0));
+        assert.ok(Math.abs(rates.reduce((sum, drop) => sum + drop.chance, 0) - 1) < 1e-12);
+    }
+    assert.equal(rollCase('elemental', () => 0).type, 'ball');
+    assert.equal(rollCase('companions', () => 0).type, 'cosmetic');
+    assert.equal(rollCase('mythic', () => 0).type, 'knife');
+});
+
+test('client case odds exactly match the authoritative server catalog', () => {
+    for (const [caseId, box] of Object.entries(CASES)) {
+        assert.equal(SERVER_CASES[caseId].price, box.price);
+        assert.deepEqual(SERVER_CASES[caseId].drops, box.drops.map(drop => [
+            drop.type || 'knife',
+            drop.id,
+            getCaseDropRates(caseId).find(item => item.id === drop.id).rarity,
+            drop.weight
+        ]));
+    }
 });

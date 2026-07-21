@@ -16,6 +16,7 @@ import { GAME_MODES } from './gamemodes.js';
 import { Audio } from './audio.js';
 import { UI } from './ui.js';
 import { Network } from './network.js';
+import { VoiceChat } from './voice.js';
 import { Store } from './store.js';
 import { DEFAULT_LOADOUT } from './skills.js';
 import { AvatarPainter, AVATAR_SKINS } from './avatar.js';
@@ -44,6 +45,7 @@ import {
     rankQueueCandidates,
     updateDraftPick
 } from './competitive-service.js';
+import { filterLobbies, pickQuickLobby } from './lobby-browser.js';
 import {
     createParty,
     createSocialProfile,
@@ -106,6 +108,10 @@ class App {
         if (dmgMult) dmgMult.value = this.store.get('damageMultiplier') || 1;
         const netcodeToggle = document.getElementById('setting-experimental-netcode');
         if (netcodeToggle) netcodeToggle.checked = this.store.get('experimentalNetcode')?.enabled === true;
+        const voiceToggle = document.getElementById('setting-voice-chat');
+        if (voiceToggle) voiceToggle.checked = this.store.get('voiceChatEnabled') !== false;
+        const voiceMuteToggle = document.getElementById('setting-voice-mute');
+        if (voiceMuteToggle) voiceMuteToggle.checked = this.store.get('voiceMuted') === true;
         this.avatarPainter = null;
         this.mapEditor = null;
         this.replayView = null;
@@ -125,6 +131,7 @@ class App {
         };
         this.network = new Network(null);
         this.game = new Game(this.renderer, this.player, this.arena, this.audio, this.ui, this.network);
+        this.voice = new VoiceChat(this.network);
         this.rematchVote = new RematchVote();
         this._completedMatchPlayerIds = new Set();
         this.game.experimentalNetcode = normalizeNetcode(this.store.get('experimentalNetcode'));
@@ -295,7 +302,7 @@ class App {
                 e.preventDefault();
                 e.stopPropagation();
                 this.ui.showScoreboard();
-                this.ui.updateScoreboard(this.game.scoreboard.getPlayerStats());
+                this.ui.updateScoreboard(this.game.scoreboard.getPlayerStats(), this.game._ffa);
             }
             // Y/T/Enter → open chat during play, lobby, celebration, or post-game
             if ((e.code === 'KeyY' || e.code === 'KeyT' || e.code === 'Enter') &&
@@ -381,8 +388,9 @@ class App {
                 return;
             }
             // V → push-to-talk voice (basılı tut)
-            if (e.code === 'KeyV' && this.voice) {
-                this.voice.pttDown();
+            if (e.code === 'KeyV' && this.voice && !isEditableTarget(e.target)) {
+                e.preventDefault();
+                void this._startVoicePtt();
             }
             if (e.code === 'Escape') {
                 if (this.gameConsole?.visible) return;
@@ -615,9 +623,9 @@ class App {
         }
         const stats = this.game.scoreboard.getPlayerStats();
         const myStat = stats.find(s => s.name === this.game.playerName) || { score:0, deflections:0, hits:0 };
-        const winner = this.game.scoreboard.getWinner();
+        const winner = this.game._ffa ? this.game._finalWinner : this.game.scoreboard.getWinner();
         const myTeam = this.player.team;
-        const won = winner === myTeam.toUpperCase();
+        const won = this.game._ffa ? winner === this.game.playerName : winner === myTeam.toUpperCase();
         const draw = winner === 'DRAW';
         const ranked = this.store.recordRankedMatch({
             matchId: this.game.matchId || createMatchId(),
@@ -768,6 +776,7 @@ class App {
             this.game.startSolo();
             this.ui.showScreen('lobby');
         });
+        bind('btn-mp-quick', () => this._startQuickPlay());
         bind('btn-mp-back', () => {
             clearInterval(this._mpRefreshTimer);
             this.ui.showScreen('mainMenu');
@@ -775,6 +784,10 @@ class App {
         bind('btn-mp-refresh', () => {
             this._refreshLobbyList();
         });
+        ['mp-lobby-mode-filter', 'mp-lobby-map-filter', 'mp-lobby-queue-filter', 'mp-lobby-open-filter'].forEach(id => {
+            document.getElementById(id)?.addEventListener('change', () => this._refreshLobbyList());
+        });
+        document.getElementById('mp-lobby-map-filter')?.addEventListener('input', () => this._refreshLobbyList());
 
         bind('replay-toggle-pause', () => {
             Replay.togglePause();
@@ -1942,6 +1955,20 @@ bind('carousel-next', () => {
                 if (cb) cb.checked = e.target.checked;
             });
         }
+        const voiceToggle = document.getElementById('setting-voice-chat');
+        if (voiceToggle) {
+            voiceToggle.addEventListener('change', event => {
+                this.store.set('voiceChatEnabled', event.target.checked);
+                if (!event.target.checked) this.voice.disable();
+            });
+        }
+        const voiceMuteToggle = document.getElementById('setting-voice-mute');
+        if (voiceMuteToggle) {
+            voiceMuteToggle.addEventListener('change', event => {
+                this.store.set('voiceMuted', event.target.checked);
+                this.voice.setMuted(event.target.checked);
+            });
+        }
         const netcodeToggle = document.getElementById('setting-experimental-netcode');
         if (netcodeToggle) {
             netcodeToggle.addEventListener('change', event => {
@@ -1962,6 +1989,11 @@ const updateCSLobbyInfo = () => {
     document.getElementById('lobby-screen')?.classList.toggle('lobby-client', !host);
     if (mapEl) mapEl.textContent = this.arena?.config?.name || 'Beach';
     if (modeEl) modeEl.textContent = this.game?.mode?.name || 'Classic';
+    const modifierSelect = document.getElementById('match-modifier');
+    modifierSelect?.querySelectorAll('option[value^="ffa_"]').forEach(option => {
+        option.disabled = !this.game?._ffa;
+    });
+    if (modifierSelect) modifierSelect.value = this.game.matchModifier || 'none';
     document.querySelectorAll('.mode-btn').forEach(button => {
         const selected = button.dataset.mode === this.game?.mode?.id;
         button.classList.toggle('selected', selected);
@@ -1972,6 +2004,15 @@ const updateCSLobbyInfo = () => {
     const selectedMapIndex = keys.indexOf(this.arena?.mapId);
     if (selectedMapIndex >= 0) this.carouselIndex = selectedMapIndex;
     this.updateCarousel();
+    if (host && this._lobbyCode) {
+        this._registerLobby(
+            this._lobbyCode,
+            this._lobbyName || 'Lobby',
+            this.network?.connections.size + 1 || 1,
+            this.arena?.config?.name || 'Unknown',
+            this.game?.mode?.name || 'Classic'
+        );
+    }
 };
 
 bind('btn-random-map', () => {
@@ -2086,6 +2127,19 @@ updateCSLobbyInfo();
                 }
             }
             // Shop buy buttons
+            const liveOfferBtn = e.target.closest('.live-offer-buy');
+            if (liveOfferBtn) {
+                const ok = await this.store.purchaseLiveOffer(liveOfferBtn.dataset.offerId);
+                if (ok) {
+                    this.ui.showMessage?.('Live deal purchased!');
+                    await this.store.refreshLiveMarket();
+                    this.ui.renderShop(this.store, 'live');
+                    this.refreshMetaStats();
+                } else {
+                    this.ui.showMessage?.('Live deal is unavailable, owned, or you need more coins.');
+                }
+                return;
+            }
             const buyBtn = e.target.closest('.shop-buy');
             if (buyBtn) {
                 const type = buyBtn.dataset.type;
@@ -2120,11 +2174,23 @@ updateCSLobbyInfo();
                     this.ui.showMessage?.('Trial unavailable or already active.');
                 }
             }
+            const cosmeticClear = e.target.closest('.cosmetic-clear');
+            if (cosmeticClear) {
+                this.store.clearCosmeticSlot(cosmeticClear.dataset.type);
+                await this._syncWearableLoadout();
+                this.ui.renderShop(this.store, 'wearables');
+                this.ui.showMessage?.('Cosmetic removed.');
+                return;
+            }
             // Equip ball from shop
             const equipBtn = e.target.closest('.shop-equip');
             if (equipBtn) {
                 const ballId = equipBtn.dataset.id;
-                if (equipBtn.dataset.type === 'avatar') {
+                if (equipBtn.dataset.type === 'cosmetic') {
+                    const ok = this.store.equipCosmetic(ballId);
+                    this.ui.showMessage?.(ok ? 'Cosmetic equipped!' : 'This cosmetic cannot be equipped.');
+                    if (ok) await this._syncWearableLoadout();
+                } else if (equipBtn.dataset.type === 'avatar') {
                     this.store.equipAvatarSkin(ballId);
                     this.initAvatarPainter();
                     this.avatarPainter?.applyPreset(ballId);
@@ -2137,6 +2203,15 @@ updateCSLobbyInfo();
                 const activeTab = document.querySelector('.shop-tab.selected')?.dataset.tab || 'chars';
                 this.ui.renderShop(this.store, activeTab);
                 this.refreshMetaStats();
+            }
+            const ballInspect = e.target.closest('.ball-inspect');
+            if (ballInspect) {
+                const card = ballInspect.closest('.ball-skin');
+                const inspecting = card?.classList.toggle('inspecting') === true;
+                ballInspect.setAttribute('aria-pressed', String(inspecting));
+                ballInspect.textContent = inspecting ? 'Stop preview' : 'Inspect trail';
+                const skin = BALL_SKINS[ballInspect.dataset.id];
+                this.ui.showMessage?.(inspecting ? `${skin?.name || 'Ball'} trail preview` : 'Preview stopped', 1100);
             }
             // Battlepass claim
             const claimBtn = e.target.closest('.bp-claim');
@@ -2224,6 +2299,9 @@ updateCSLobbyInfo();
                 document.querySelectorAll('.shop-tab').forEach(t => t.classList.remove('selected'));
                 tabBtn.classList.add('selected');
                 this.ui.renderShop(this.store, tabBtn.dataset.tab);
+                if (tabBtn.dataset.tab === 'live') {
+                    void this.store.refreshLiveMarket().then(() => this.ui.renderShop(this.store, 'live'));
+                }
                 this._renderCosmeticCustomizer(tabBtn.dataset.tab);
             }
             const cosmeticSave = e.target.closest('.cosmetic-customizer-save');
@@ -2247,7 +2325,8 @@ updateCSLobbyInfo();
             if (caseBtn) {
                 const box = CASES[caseBtn.dataset.id];
                 const balance = Number(this.store.get('currency')) || 0;
-                const result = this.store.openCase(caseBtn.dataset.id);
+                let result = await this.store.openCaseRemote(caseBtn.dataset.id);
+                if (!result && !this.store.remoteReady) result = this.store.openCase(caseBtn.dataset.id);
                 this.ui.showMessage?.(result
                     ? `${result.duplicate ? `Duplicate +${result.refund} coins` : 'Unlocked'}: ${result.reward.name}`
                     : !box ? 'Case unavailable.' : `Need ${box.price} coins - Balance ${balance}`);
@@ -3900,6 +3979,16 @@ updateCarousel() {
         });
     }
 
+    async _syncWearableLoadout() {
+        const playerId = this.network?.playerId;
+        if (!playerId) return false;
+        const entitlement = await this.store.syncCosmeticLoadout(playerId);
+        if (!entitlement) return false;
+        if (this.network?.isHost) this.broadcastLobbyState();
+        else if (this.network?.connected) this.network.send({ type: 'cosmeticLoadout', entitlement });
+        return true;
+    }
+
     // Wire the client-side network callbacks (used by every join path).
     _setupClientNetHandlers() {
         this._setupReconnectUI();
@@ -3926,6 +4015,7 @@ updateCarousel() {
             }
             // Mesh: on welcome, connect to all existing peers directly (skip host relay)
             if (data?.type === 'welcome' && !this.network.isHost && data.players) {
+                void this._syncWearableLoadout();
                 const myId = this.network.playerId;
                 const myPeerId = this.network.peer?.id;
                 const hostId = this.network.hostConn?.peer;
@@ -4079,13 +4169,34 @@ updateCarousel() {
             container.innerHTML = '<div class="mp-lobby-empty">No open lobbies found. Create one or refresh.</div>';
             return;
         }
-        container.innerHTML = list.map(l => `
+        const modeFilter = document.getElementById('mp-lobby-mode-filter');
+        const mapFilter = document.getElementById('mp-lobby-map-filter');
+        const queueFilter = document.getElementById('mp-lobby-queue-filter');
+        const openFilter = document.getElementById('mp-lobby-open-filter');
+        if (modeFilter) {
+            const selected = modeFilter.value || 'all';
+            const modes = [...new Set(list.map(l => l.mode).filter(Boolean))].sort();
+            modeFilter.replaceChildren(new Option('All modes', 'all'), ...modes.map(mode => new Option(mode, mode)));
+            modeFilter.value = modes.includes(selected) ? selected : 'all';
+        }
+        const filtered = filterLobbies(list, {
+            mode: modeFilter?.value,
+            map: mapFilter?.value,
+            queue: queueFilter?.value,
+            openOnly: openFilter?.checked
+        });
+        if (!filtered.length) {
+            container.innerHTML = '<div class="mp-lobby-empty">No lobbies match these filters.</div>';
+            return;
+        }
+        container.innerHTML = filtered.map(l => `
             <div class="mp-lobby-card" data-code="${this._esc(l.code)}">
                 <div class="lobby-icon">🏐</div>
                 <div class="lobby-info">
                     <div class="lobby-name">${this._esc(l.name || 'Lobby')}</div>
-                    <div class="lobby-meta">${this._esc(l.hostName)} · ${this._esc(l.map)} · ${this._esc(l.mode)}</div>
+                    <div class="lobby-meta">${this._esc(l.hostName)} · ${this._esc(l.map)}</div>
                 </div>
+                <div class="lobby-mode-badge">MODE: ${this._esc(l.mode || 'Classic')}</div>
                 <div class="lobby-players">👤 ${l.players || 1}</div>
                 <button class="btn btn-primary btn-join btn-small">Join</button>
             </div>
@@ -4097,6 +4208,17 @@ updateCarousel() {
                 this._quickJoin(card.dataset.code);
             });
         });
+    }
+
+    async _startQuickPlay() {
+        const lobbies = await this._lobbyApi('/api/lobbies', { method: 'GET' });
+        const match = pickQuickLobby(lobbies, { queue: 'casual', openOnly: true });
+        if (match) {
+            await this._quickJoin(match.code);
+            return;
+        }
+        this.ui.showMessage?.('No casual lobby found - creating one.', 1800);
+        this._doHostGame();
     }
 
     _esc(s) { return String(s).replace(/[<>&"']/g, m => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[m])); }
@@ -4779,9 +4901,54 @@ updateCarousel() {
         this.renderer.render(this.camera);
     }
 
+    _voiceTargets() {
+        if (!this.network?.peer || !this.network.connected) return [];
+        const localPosition = this.player.getPosition();
+        return [...this.game.remotePlayers.values()].filter(target => {
+            if (!target.alive || !target.peerId) return false;
+            if (!this.game._ffa) return target.team === this.player.team;
+            return target.position?.distanceTo?.(localPosition) <= 22;
+        }).map(target => ({
+            peerId: target.peerId,
+            muted: this._mutedPlayers.has(target.name) || this.socialProfile.muted?.includes(target.name)
+        }));
+    }
+
+    _syncVoiceChat() {
+        if (!this.voice?.enabled) return;
+        this.voice.syncTargets(this._voiceTargets());
+    }
+
+    async _startVoicePtt() {
+        if (this.store.get('voiceChatEnabled') === false) {
+            this.ui.showMessage?.('Voice chat is disabled in Settings.', 1600);
+            return;
+        }
+        if (!this.network?.peer || !this.network.connected) {
+            this.ui.showMessage?.('Voice chat requires an online lobby.', 1600);
+            return;
+        }
+        const wasEnabled = this.voice.enabled;
+        if (!await this.voice.enable()) {
+            this.ui.showMessage?.('Microphone permission is required for voice chat.', 2200);
+            return;
+        }
+        this.voice.setPushToTalk(true);
+        this.voice.setMuted(this.store.get('voiceMuted') === true);
+        this._syncVoiceChat();
+        this.voice.pttDown();
+        if (!wasEnabled) this.ui.showMessage?.(this.game._ffa ? 'Voice ready: FFA proximity.' : 'Voice ready: team channel.', 1800);
+    }
+
     loop() {
         requestAnimationFrame(() => this.loop());
         const dt = Math.min(this.clock.getDelta(), 0.05);
+
+        this._voiceSyncTimer = (this._voiceSyncTimer || 0) - dt;
+        if (this._voiceSyncTimer <= 0) {
+            this._voiceSyncTimer = 0.5;
+            this._syncVoiceChat();
+        }
 
         this._diagnosticsTimer = (this._diagnosticsTimer || 0) - dt;
         if (this._diagnosticsTimer <= 0) {
@@ -5178,7 +5345,9 @@ updateCarousel() {
                 }
                 const info = document.getElementById('spectator-info');
                 if (info) {
-                    info.textContent = `TEAM ${view.distance <= 1 ? 'POV' : 'TPS'}  ${t.name || 'TEAMMATE'}  CLICK switch  WHEEL zoom`;
+                    info.textContent = this.game._ffa
+                        ? `FFA ${view.distance <= 1 ? 'POV' : 'TPS'}  ${t.name || 'PLAYER'}  CLICK switch  WHEEL zoom`
+                        : `TEAM ${view.distance <= 1 ? 'POV' : 'TPS'}  ${t.name || 'TEAMMATE'}  CLICK switch  WHEEL zoom`;
                     info.classList.remove('hidden');
                 }
             } else if (this.player.alive) {

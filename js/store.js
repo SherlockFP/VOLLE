@@ -4,7 +4,7 @@
 import { CHARACTERS } from './characters.js';
 import { SKILLS, RUNES, DEFAULT_LOADOUT } from './skills.js';
 import { AVATAR_SKINS } from './avatar.js';
-import { CASES, KNIVES, canEquipKnife, rollCase } from './cosmetics.js';
+import { CASES, KNIVES, canEquipKnife, resolveCaseReward, rollCase } from './cosmetics.js';
 import { createRankedState, recordRankedMatch as applyRankedMatch } from './ranked-service.js';
 import {
     SEASON_CONTRACTS,
@@ -22,9 +22,18 @@ import {
 } from './social.js';
 import { createSocialProfile } from './social-service.js';
 import { DEFAULT_NETCODE, normalizeNetcode } from './experimental-netcode.js';
+import { COSMETICS, DEFAULT_WEARABLE_LOADOUT, normalizeWearableLoadout } from './cosmetic-catalog.js';
 
 const KEY = 'dodgball_save_v2';
 const PROFILE_TOKEN_KEY = 'dodgball_profile_token';
+const BALL_PRICES = Object.freeze({
+    fire: 150, ice: 150, lightning: 150, bomb: 150, star: 150, rainbow: 150,
+    plasma: 180, abyss: 180, melon: 180,
+    inferno: 220, frostbite: 220, voltstorm: 260, nebula: 280, creeper: 300,
+    happy: 300, glitch: 340, void_eye: 340, candy: 260, solar: 360, toxic: 240, disco: 320,
+    magma: 380, ocean: 300, honey: 280, dragon: 420, portal: 400,
+    moon: 260, pumpkin: 300, matrix: 340, sakura: 320, blackhole: 460
+});
 
 function buildCharacterProgress() {
     return Object.fromEntries(Object.keys(CHARACTERS).map(id => [id, { level: 1, xp: 0 }]));
@@ -78,6 +87,8 @@ const DEFAULTS = {
     customAvatar: null,
     ownedAvatarSkins: ['default'],
     equippedAvatarSkin: 'default',
+    ownedCosmetics: [],
+    equippedWearables: { ...DEFAULT_WEARABLE_LOADOUT },
     ownedKnives: ['training'],
     equippedKnives: { red: 'training', blue: 'training' },
     knifeStats: {},
@@ -134,6 +145,7 @@ class StoreClass {
         this.data = this._read();
         this.remoteReady = false;
         this.profileToken = '';
+        this.liveMarket = { offers: [], expiresAt: 0 };
     }
 
     _read() {
@@ -168,6 +180,13 @@ class StoreClass {
                 rankedState: parsed.rankedState || createRankedState({ elo: Math.round(legacyElo) }),
                 unlockedChars: Object.keys(CHARACTERS),
                 ownedAvatarSkins: parsed.ownedAvatarSkins || DEFAULTS.ownedAvatarSkins,
+                ownedCosmetics: Array.isArray(parsed.ownedCosmetics)
+                    ? parsed.ownedCosmetics.filter(id => COSMETICS[id])
+                    : DEFAULTS.ownedCosmetics,
+                equippedWearables: normalizeWearableLoadout(
+                    parsed.equippedWearables,
+                    parsed.ownedCosmetics || DEFAULTS.ownedCosmetics
+                ),
                 ownedKnives: Array.isArray(parsed.ownedKnives) ? parsed.ownedKnives.filter(id => KNIVES[id]) : DEFAULTS.ownedKnives,
                 equippedKnives: { ...DEFAULTS.equippedKnives, ...(parsed.equippedKnives || {}) },
                 knifeStats: parsed.knifeStats && typeof parsed.knifeStats === 'object' ? parsed.knifeStats : {},
@@ -222,7 +241,11 @@ class StoreClass {
                 ownedBalls: this.data.ownedBalls,
                 ownedSkills: this.data.ownedSkills,
                 ownedItems: this.data.ownedItems,
-                ownedAvatarSkins: this.data.ownedAvatarSkins
+                ownedAvatarSkins: this.data.ownedAvatarSkins,
+                ownedKnives: this.data.ownedKnives,
+                ownedCosmetics: this.data.ownedCosmetics,
+                equippedWearables: this.data.equippedWearables,
+                casePity: this.data.casePity
             };
             const response = await fetch('/api/profile/session', {
                 method: 'POST',
@@ -245,12 +268,37 @@ class StoreClass {
     _applyRemoteProfile(profile) {
         const fields = [
             'currency', 'gems', 'ownedBalls',
-            'ownedSkills', 'ownedItems', 'ownedAvatarSkins', 'economyRevision'
+            'ownedSkills', 'ownedItems', 'ownedAvatarSkins', 'ownedKnives',
+            'ownedCosmetics', 'casePity', 'equippedWearables', 'economyRevision'
         ];
         fields.forEach(field => {
             if (profile[field] !== undefined) this.data[field] = profile[field];
         });
+        this.data.equippedWearables = normalizeWearableLoadout(
+            this.data.equippedWearables,
+            this.data.ownedCosmetics
+        );
         this.save();
+    }
+
+    async syncCosmeticLoadout(playerId) {
+        if (!this.remoteReady && !await this.connectRemote(this.get('playerName'))) return null;
+        try {
+            const response = await fetch('/api/profile/cosmetics/equip', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${this.profileToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ playerId, loadout: this.data.equippedWearables })
+            });
+            if (!response.ok) return null;
+            const result = await response.json();
+            if (result.profile) this._applyRemoteProfile(result.profile);
+            return typeof result.entitlement === 'string' ? result.entitlement : null;
+        } catch {
+            return null;
+        }
     }
 
     async purchase(kind, id) {
@@ -260,6 +308,7 @@ class StoreClass {
             if (kind === 'skill') return this.buySkill(id);
             if (kind === 'rune') return this.buyRune(id);
             if (kind === 'avatar') return this.buyAvatarSkin(id);
+            if (kind === 'cosmetic') return this.buyCosmetic(id);
             return false;
         }
         try {
@@ -296,6 +345,45 @@ class StoreClass {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({ receipt })
+            });
+            if (!response.ok) return false;
+            const result = await response.json();
+            this._applyRemoteProfile(result.profile);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    getLiveMarket() {
+        return this.liveMarket;
+    }
+
+    async refreshLiveMarket() {
+        try {
+            const response = await fetch('/api/live-market');
+            if (!response.ok) return false;
+            const market = await response.json();
+            if (!Array.isArray(market.offers) || !Number.isFinite(market.expiresAt)) return false;
+            this.liveMarket = market;
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    async purchaseLiveOffer(offerId) {
+        if (!this.remoteReady && !await this.connectRemote(this.get('playerName'))) return false;
+        try {
+            const requestId = `live:${String(offerId).replace(/[^A-Za-z0-9._:-]/g, '').slice(0, 64)}`;
+            const response = await fetch('/api/profile/live-market/purchase', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${this.profileToken}`,
+                    'Idempotency-Key': requestId,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ offerId, requestId })
             });
             if (!response.ok) return false;
             const result = await response.json();
@@ -422,6 +510,7 @@ class StoreClass {
     ownsBall(ballId) { return this.data.ownedBalls.includes(ballId); }
     ownsSkill(skillId) { return this.data.ownedSkills.includes(skillId); }
     ownsAvatarSkin(skinId) { return (this.data.ownedAvatarSkins || []).includes(skinId); }
+    ownsCosmetic(cosmeticId) { return (this.data.ownedCosmetics || []).includes(cosmeticId); }
 
     _socialUserId() {
         return String(this.data.playerName || 'player')
@@ -502,6 +591,37 @@ class StoreClass {
         return true;
     }
 
+    buyCosmetic(cosmeticId) {
+        const cosmetic = COSMETICS[cosmeticId];
+        if (!cosmetic || this.ownsCosmetic(cosmeticId) || this.data.currency < cosmetic.price) return false;
+        this.data.currency -= cosmetic.price;
+        this.data.stats.totalSpent = (this.data.stats.totalSpent || 0) + cosmetic.price;
+        this.data.ownedCosmetics.push(cosmeticId);
+        this.save();
+        return true;
+    }
+
+    equipCosmetic(cosmeticId) {
+        const cosmetic = COSMETICS[cosmeticId];
+        if (!cosmetic || !this.ownsCosmetic(cosmeticId)) return false;
+        this.data.equippedWearables = normalizeWearableLoadout({
+            ...this.data.equippedWearables,
+            [cosmetic.type]: cosmeticId
+        }, this.data.ownedCosmetics);
+        this.save();
+        return true;
+    }
+
+    clearCosmeticSlot(type) {
+        if (!Object.hasOwn(DEFAULT_WEARABLE_LOADOUT, type)) return false;
+        this.data.equippedWearables = normalizeWearableLoadout({
+            ...this.data.equippedWearables,
+            [type]: 'none'
+        }, this.data.ownedCosmetics);
+        this.save();
+        return true;
+    }
+
     _openCase(caseId, random = Math.random, free = false) {
         const box = CASES[caseId];
         if (!box || (!free && this.data.currency < box.price)) return null;
@@ -513,8 +633,14 @@ class StoreClass {
             this.data.currency -= box.price;
             this.data.stats.totalSpent = (this.data.stats.totalSpent || 0) + box.price;
         }
-        const isAvatar = reward.type === 'avatar';
-        const owned = isAvatar ? this.data.ownedAvatarSkins : this.data.ownedKnives;
+        const ownership = {
+            avatar: this.data.ownedAvatarSkins,
+            knife: this.data.ownedKnives,
+            ball: this.data.ownedBalls,
+            cosmetic: this.data.ownedCosmetics
+        };
+        const owned = ownership[reward.type];
+        if (!owned) return null;
         const duplicate = owned.includes(reward.id);
         const refund = duplicate ? (free ? 35 : Math.floor(box.price * 0.35)) : 0;
         if (refund) this.data.currency += refund;
@@ -533,6 +659,30 @@ class StoreClass {
 
     openCase(caseId, random = Math.random) {
         return this._openCase(caseId, random, false);
+    }
+
+    async openCaseRemote(caseId) {
+        if (!this.remoteReady && !await this.connectRemote(this.get('playerName'))) return null;
+        try {
+            const nonce = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+            const requestId = `case:${caseId}:${nonce}`.slice(0, 96);
+            const response = await fetch('/api/profile/cases/open', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${this.profileToken}`,
+                    'Idempotency-Key': requestId,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ caseId, requestId })
+            });
+            if (!response.ok) return null;
+            const payload = await response.json();
+            if (payload.profile) this._applyRemoteProfile(payload.profile);
+            const reward = resolveCaseReward(caseId, payload.result?.reward);
+            return reward ? { ...payload.result, reward } : null;
+        } catch {
+            return null;
+        }
     }
 
     getCasePityState(caseId) {
@@ -663,9 +813,10 @@ class StoreClass {
     // Top skin satın al
     buyBall(ballId) {
         if (this.ownsBall(ballId)) return false;
-        if (this.data.currency < 150) return false;
-        this.data.currency -= 150;
-        this.data.stats.totalSpent = (this.data.stats.totalSpent || 0) + 150;
+        const price = BALL_PRICES[ballId];
+        if (!price || this.data.currency < price) return false;
+        this.data.currency -= price;
+        this.data.stats.totalSpent = (this.data.stats.totalSpent || 0) + price;
         this.data.ownedBalls.push(ballId);
         this.save();
         return true;

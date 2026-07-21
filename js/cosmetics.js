@@ -1,4 +1,13 @@
 import { AVATAR_SKINS } from './avatar.js';
+import { COSMETICS } from './cosmetic-catalog.js';
+
+const CASE_BALLS = Object.freeze({
+    magma: { id: 'magma', name: 'Magma Core', rarity: 'legendary' },
+    ocean: { id: 'ocean', name: 'Ocean Depths', rarity: 'epic' },
+    moon: { id: 'moon', name: 'Moon Rock', rarity: 'rare' },
+    portal: { id: 'portal', name: 'Portal Rift', rarity: 'legendary' },
+    blackhole: { id: 'blackhole', name: 'Black Hole', rarity: 'legendary' }
+});
 
 export const KNIVES = Object.freeze({
     training: Object.freeze({ id: 'training', name: 'Training Edge', rarity: 'common', model: 'classic', color: '#d7f3ff', accent: '#4e7d99', teams: ['red', 'blue'] }),
@@ -8,7 +17,13 @@ export const KNIVES = Object.freeze({
     sherlock: Object.freeze({ id: 'sherlock', name: 'Sherlock Signature', rarity: 'legendary', model: 'karambit', color: '#ffd36b', accent: '#7b4c11', teams: ['red', 'blue'] }),
     doppler: Object.freeze({ id: 'doppler', name: 'Butterfly | Emerald Doppler', rarity: 'legendary', model: 'butterfly', color: '#28e092', accent: '#075f4d', teams: ['red', 'blue'] }),
     fade: Object.freeze({ id: 'fade', name: 'Karambit | Fade', rarity: 'legendary', model: 'karambit', color: '#ffbd56', accent: '#f05ca8', teams: ['red', 'blue'] }),
-    crimson_web: Object.freeze({ id: 'crimson_web', name: 'Karambit | Crimson Web', rarity: 'epic', model: 'karambit', color: '#d92f4d', accent: '#4a0918', teams: ['red', 'blue'] })
+    crimson_web: Object.freeze({ id: 'crimson_web', name: 'Karambit | Crimson Web', rarity: 'epic', model: 'karambit', color: '#d92f4d', accent: '#4a0918', teams: ['red', 'blue'] }),
+    obsidian: Object.freeze({ id: 'obsidian', name: 'Obsidian Rift', rarity: 'epic', model: 'karambit', color: '#181124', accent: '#9b5cff', teams: ['red', 'blue'] }),
+    aurora: Object.freeze({ id: 'aurora', name: 'Aurora Butterfly', rarity: 'legendary', model: 'butterfly', color: '#58f2d5', accent: '#ef72ff', teams: ['red', 'blue'] }),
+    pixel_edge: Object.freeze({ id: 'pixel_edge', name: 'Pixel Edge', rarity: 'rare', model: 'classic', color: '#59e5df', accent: '#166a78', teams: ['red', 'blue'] }),
+    icefang: Object.freeze({ id: 'icefang', name: 'Frost Fang', rarity: 'epic', model: 'karambit', color: '#dffbff', accent: '#398bd1', teams: ['blue'] }),
+    dragonclaw: Object.freeze({ id: 'dragonclaw', name: 'Dragon Claw', rarity: 'legendary', model: 'karambit', color: '#ff7d32', accent: '#5c0909', teams: ['red'] }),
+    reactor: Object.freeze({ id: 'reactor', name: 'Reactor Butterfly', rarity: 'legendary', model: 'butterfly', color: '#b5ff42', accent: '#174d1d', teams: ['red', 'blue'] })
 });
 
 export const CASES = Object.freeze({
@@ -44,6 +59,47 @@ export const CASES = Object.freeze({
             { id: 'void', type: 'avatar', rarity: 'epic', weight: 9 },
             { id: 'royal', type: 'avatar', rarity: 'legendary', weight: 6 }
         ])
+    }),
+    elemental: Object.freeze({
+        id: 'elemental', name: 'Elemental Case', price: 190,
+        drops: Object.freeze([
+            { id: 'magma', type: 'ball', rarity: 'legendary', weight: 4 },
+            { id: 'ocean', type: 'ball', rarity: 'epic', weight: 12 },
+            { id: 'moon', type: 'ball', rarity: 'rare', weight: 18 },
+            { id: 'icefang', weight: 14 }, { id: 'dragonclaw', weight: 4 },
+            { id: 'cape_ember', type: 'cosmetic', weight: 18 },
+            { id: 'cape_frost', type: 'cosmetic', weight: 18 },
+            { id: 'aura_void', type: 'cosmetic', weight: 4 },
+            { id: 'impact_fire', type: 'cosmetic', weight: 8 }
+        ])
+    }),
+    companions: Object.freeze({
+        id: 'companions', name: 'Companion Case', price: 210,
+        drops: Object.freeze([
+            { id: 'pet_slime', type: 'cosmetic', weight: 24 },
+            { id: 'pet_snowman', type: 'cosmetic', weight: 20 },
+            { id: 'pet_bee', type: 'cosmetic', weight: 16 },
+            { id: 'pet_drone', type: 'cosmetic', weight: 14 },
+            { id: 'pet_axolotl', type: 'cosmetic', weight: 8 },
+            { id: 'pet_dragon', type: 'cosmetic', weight: 4 },
+            { id: 'bee_runner', type: 'avatar', rarity: 'epic', weight: 8 },
+            { id: 'axolotl_scout', type: 'avatar', rarity: 'legendary', weight: 4 },
+            { id: 'pixel_edge', weight: 2 }
+        ])
+    }),
+    mythic: Object.freeze({
+        id: 'mythic', name: 'Mythic Arena Case', price: 280,
+        drops: Object.freeze([
+            { id: 'aurora', weight: 8 }, { id: 'reactor', weight: 8 },
+            { id: 'portal', type: 'ball', rarity: 'legendary', weight: 10 },
+            { id: 'blackhole', type: 'ball', rarity: 'legendary', weight: 6 },
+            { id: 'galaxy_idol', type: 'avatar', rarity: 'legendary', weight: 10 },
+            { id: 'infernal_smile', type: 'avatar', rarity: 'legendary', weight: 10 },
+            { id: 'cape_royal', type: 'cosmetic', weight: 12 },
+            { id: 'cape_glitch', type: 'cosmetic', weight: 10 },
+            { id: 'shoes_magma', type: 'cosmetic', weight: 12 },
+            { id: 'impact_glitch', type: 'cosmetic', weight: 14 }
+        ])
     })
 });
 
@@ -52,8 +108,21 @@ function resolveCaseDrop(drop) {
         const skin = AVATAR_SKINS[drop.id];
         return skin ? { ...skin, type: 'avatar', rarity: drop.rarity } : null;
     }
+    if (drop.type === 'ball') {
+        const ball = CASE_BALLS[drop.id];
+        return ball ? { ...ball, id: drop.id, type: 'ball', rarity: drop.rarity || ball.rarity } : null;
+    }
+    if (drop.type === 'cosmetic') {
+        const cosmetic = COSMETICS[drop.id];
+        return cosmetic ? { ...cosmetic, type: 'cosmetic' } : null;
+    }
     const knife = KNIVES[drop.id];
     return knife ? { ...knife, type: 'knife' } : null;
+}
+
+export function resolveCaseReward(caseId, reward) {
+    const drop = CASES[caseId]?.drops.find(item => item.id === reward?.id && (item.type || 'knife') === reward?.type);
+    return drop ? resolveCaseDrop(drop) : null;
 }
 
 export function secureCosmeticRandom() {
@@ -93,7 +162,7 @@ export function getCaseDropRates(caseId, options = {}) {
         name: resolveCaseDrop(drop)?.name || drop.id,
         rarity: resolveCaseDrop(drop)?.rarity || 'common',
         type: resolveCaseDrop(drop)?.type || 'knife',
-        preview: resolveCaseDrop(drop)?.type === 'avatar' ? resolveCaseDrop(drop) : null,
+        preview: ['avatar', 'cosmetic'].includes(resolveCaseDrop(drop)?.type) ? resolveCaseDrop(drop) : null,
         chance: total > 0 ? drop.weight / total : 0
     }));
 }

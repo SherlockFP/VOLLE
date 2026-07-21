@@ -1,24 +1,31 @@
-// voice.js — WebRTC voice chat for party play. Push-to-talk.
-// ponytail: getUserMedia + RTCPeerConnection, mesh P2P. Basit, backend yok.
-// ponytail: global lock — tek oda, per-account lock gerekirse WebRTC mesh'i genişlet.
+// voice.js - PeerJS media calls. V is push-to-talk; routing stays local.
+
+export function shouldInitiateVoice(localPeerId, remotePeerId) {
+    return typeof localPeerId === 'string' && localPeerId.length > 0
+        && typeof remotePeerId === 'string' && remotePeerId.length > 0
+        && localPeerId !== remotePeerId && localPeerId < remotePeerId;
+}
 
 export class VoiceChat {
     constructor(network) {
         this.network = network;
         this.stream = null;
-        this.peers = new Map(); // peerId → RTCPeerConnection
+        this.peers = new Map();
+        this.remoteAudio = new Map();
         this.enabled = false;
-        this.muted = false;
-        this.pushToTalk = false;
+        this.userMuted = false;
+        this.pushToTalk = true;
         this.pttActive = false;
         this.audioContext = null;
         this.analyser = null;
-        this.onSpeaking = null; // callback(peerId, speaking)
+        this.onSpeaking = null;
         this._speakingState = new Map();
+        this._targets = new Map();
+        this._boundPeer = null;
     }
 
-    // Mikrofonu aç. Kullanıcı izni ister.
     async enable() {
+        if (this.enabled) return true;
         try {
             this.stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
             this.enabled = true;
@@ -27,59 +34,108 @@ export class VoiceChat {
             this.analyser = this.audioContext.createAnalyser();
             this.analyser.fftSize = 256;
             source.connect(this.analyser);
+            this._applyTrackState();
+            this._bindPeer();
             return true;
-        } catch (e) {
-            console.warn('Voice chat enable failed:', e);
+        } catch (error) {
+            console.warn('Voice chat enable failed:', error);
             return false;
         }
     }
 
     disable() {
-        this.stream?.getTracks().forEach(t => t.stop());
+        this.stream?.getTracks().forEach(track => track.stop());
         this.stream = null;
-        this.peers.forEach(pc => pc.close());
-        this.peers.clear();
+        this.disconnectAll();
+        this.audioContext?.close?.();
+        this.audioContext = null;
+        this.analyser = null;
         this.enabled = false;
     }
 
-    setMuted(m) { this.muted = m; this.stream?.getAudioTracks().forEach(t => t.enabled = !m); }
-    setPushToTalk(on) { this.pushToTalk = on; this.muted = on; this.stream?.getAudioTracks().forEach(t => t.enabled = !on); }
-    pttDown() { if (this.pushToTalk) { this.pttActive = true; this.stream?.getAudioTracks().forEach(t => t.enabled = true); } }
-    pttUp() { if (this.pushToTalk) { this.pttActive = false; this.stream?.getAudioTracks().forEach(t => t.enabled = false); } }
+    setMuted(muted) { this.userMuted = Boolean(muted); this._applyTrackState(); }
+    setPushToTalk(enabled) { this.pushToTalk = Boolean(enabled); this._applyTrackState(); }
+    pttDown() { this.pttActive = true; this._applyTrackState(); }
+    pttUp() { this.pttActive = false; this._applyTrackState(); }
 
-    // Belirli bir peer'a voice connection kur (PeerJS connection üzerinden).
-    async connectToPeer(peerId, dataConn) {
-        if (!this.enabled || !this.stream || this.peers.has(peerId)) return;
-        // ponytail: PeerJS'in DataConnection'ı üzerinden WebRTC voice kurmak
-        // karmaşık — basit yaklaşım: dataConn.peer ile yeni RTCPeerConnection
-        try {
-            const pc = new RTCPeerConnection();
-            this.stream.getTracks().forEach(t => pc.addTrack(t, this.stream));
-            pc.ontrack = (e) => {
-                const audio = new Audio();
-                audio.srcObject = e.streams[0];
-                audio.play();
-                this._monitorSpeaking(peerId, e.streams[0]);
-            };
-            this.peers.set(peerId, pc);
-        } catch (e) {
-            console.warn('Voice peer connect failed:', e);
+    _applyTrackState() {
+        const live = !this.userMuted && (!this.pushToTalk || this.pttActive);
+        this.stream?.getAudioTracks().forEach(track => { track.enabled = live; });
+    }
+
+    _bindPeer() {
+        const peer = this.network?.peer;
+        if (!peer || peer === this._boundPeer) return;
+        this._boundPeer = peer;
+        peer.on('call', call => this._acceptCall(call));
+    }
+
+    syncTargets(targets = []) {
+        this._bindPeer();
+        this._targets = new Map(targets
+            .filter(target => typeof target?.peerId === 'string' && target.peerId)
+            .map(target => [target.peerId, target]));
+        for (const peerId of [...this.peers.keys()]) {
+            if (!this._targets.has(peerId)) this.disconnectPeer(peerId);
+        }
+        if (!this.enabled || !this.stream) return;
+        const localPeerId = this.network?.peer?.id;
+        for (const peerId of this._targets.keys()) {
+            if (shouldInitiateVoice(localPeerId, peerId)) this.connectToPeer(peerId);
         }
     }
 
-    // Konuşma tespiti — analyser ile volume ölç.
+    connectToPeer(peerId) {
+        if (!this.enabled || !this.stream || this.peers.has(peerId)) return;
+        const call = this.network?.peer?.call?.(peerId, this.stream);
+        if (call) this._trackCall(peerId, call);
+    }
+
+    _acceptCall(call) {
+        if (!this.enabled || !this.stream || !this._targets.has(call.peer) || this.peers.has(call.peer)) {
+            call.close?.();
+            return;
+        }
+        call.answer(this.stream);
+        this._trackCall(call.peer, call);
+    }
+
+    _trackCall(peerId, call) {
+        this.peers.set(peerId, call);
+        call.on('stream', stream => this._attachRemoteAudio(peerId, stream));
+        call.on('close', () => this._clearPeer(peerId, call));
+        call.on('error', () => this._clearPeer(peerId, call));
+    }
+
+    _attachRemoteAudio(peerId, stream) {
+        const audio = new Audio();
+        audio.autoplay = true;
+        audio.srcObject = stream;
+        audio.muted = Boolean(this._targets.get(peerId)?.muted);
+        this.remoteAudio.set(peerId, audio);
+        audio.play?.().catch(() => {});
+        this._monitorSpeaking(peerId, stream);
+    }
+
+    setRemoteMuted(peerId, muted) {
+        const audio = this.remoteAudio.get(peerId);
+        if (audio) audio.muted = Boolean(muted);
+        const target = this._targets.get(peerId);
+        if (target) target.muted = Boolean(muted);
+    }
+
     _monitorSpeaking(peerId, stream) {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        const src = ctx.createMediaStreamSource(stream);
-        const an = ctx.createAnalyser();
-        an.fftSize = 256;
-        src.connect(an);
-        const data = new Uint8Array(an.frequencyBinCount);
+        const context = new (window.AudioContext || window.webkitAudioContext)();
+        const source = context.createMediaStreamSource(stream);
+        const analyser = context.createAnalyser();
+        analyser.fftSize = 256;
+        source.connect(analyser);
+        const data = new Uint8Array(analyser.frequencyBinCount);
         const check = () => {
-            if (!this.peers.has(peerId)) return;
-            an.getByteFrequencyData(data);
-            const vol = data.reduce((a, b) => a + b, 0) / data.length;
-            const speaking = vol > 20;
+            if (!this.peers.has(peerId)) { context.close?.(); return; }
+            analyser.getByteFrequencyData(data);
+            const volume = data.reduce((sum, value) => sum + value, 0) / data.length;
+            const speaking = volume > 20;
             if (speaking !== this._speakingState.get(peerId)) {
                 this._speakingState.set(peerId, speaking);
                 this.onSpeaking?.(peerId, speaking);
@@ -89,22 +145,29 @@ export class VoiceChat {
         check();
     }
 
-    // Kendi konuşma seviyeni ölç (UI için).
     getMyVolume() {
         if (!this.analyser) return 0;
         const data = new Uint8Array(this.analyser.frequencyBinCount);
         this.analyser.getByteFrequencyData(data);
-        return data.reduce((a, b) => a + b, 0) / data.length;
+        return data.reduce((sum, value) => sum + value, 0) / data.length;
+    }
+
+    _clearPeer(peerId, call) {
+        if (this.peers.get(peerId) !== call) return;
+        this.peers.delete(peerId);
+        this.remoteAudio.get(peerId)?.pause?.();
+        this.remoteAudio.delete(peerId);
+        this._speakingState.delete(peerId);
     }
 
     disconnectPeer(peerId) {
-        const pc = this.peers.get(peerId);
-        if (pc) { pc.close(); this.peers.delete(peerId); this._speakingState.delete(peerId); }
+        const call = this.peers.get(peerId);
+        call?.close?.();
+        if (call) this._clearPeer(peerId, call);
     }
 
     disconnectAll() {
-        this.peers.forEach(pc => pc.close());
-        this.peers.clear();
+        for (const peerId of [...this.peers.keys()]) this.disconnectPeer(peerId);
         this._speakingState.clear();
     }
 }

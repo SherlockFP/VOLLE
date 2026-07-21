@@ -14,6 +14,9 @@ import {
     validateHostMigrationProposal
 } from './host-migration.js';
 import { isSafeMatchId } from './rematch.js';
+import { COSMETIC_TYPES, normalizeWearableLoadout } from './cosmetic-catalog.js';
+
+const COSMETIC_TYPE_IDS = Object.freeze(Object.keys(COSMETIC_TYPES));
 
 const BIN = { BALL: 1, POS: 2, POS_V2: 3 };
 const PLAYER_ID_KEY = 'dodgb.playerId';
@@ -1542,6 +1545,8 @@ export class Network {
     _allowSocialPacket(peerId, type, now = Date.now()) {
         const config = type === 'socialChat'
             ? { windowMs: 5000, max: 8 }
+            : type === 'cosmeticLoadout'
+                ? { windowMs: 10000, max: 6 }
             : type === 'rematchReady'
                 ? { windowMs: 1000, max: 4 }
                 : { windowMs: 1000, max: 30 };
@@ -1553,6 +1558,27 @@ export class Network {
         }
         entry.count++;
         return entry.count <= config.max;
+    }
+
+    async _acceptCosmeticEntitlement(entitlement, peerId) {
+        const playerId = this.peerToPlayerId.get(peerId);
+        if (!this.isHost || !playerId || typeof entitlement !== 'string') return false;
+        try {
+            const response = await fetch('/api/cosmetics/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ entitlement })
+            });
+            if (!response.ok) return false;
+            const verified = await response.json();
+            if (verified.playerId !== playerId) return false;
+            const safe = normalizeWearableLoadout(verified.loadout);
+            if (!this.game.setRemoteCosmetics?.(playerId, safe)) return false;
+            this.broadcast({ type: 'cosmeticLoadout', playerId, loadout: safe });
+            return true;
+        } catch {
+            return false;
+        }
     }
 
     // --- ponytail: binary codec for hot-path packets ---
@@ -1849,6 +1875,16 @@ export class Network {
                     && (data.ping === undefined || (Number.isFinite(data.ping) && data.ping >= 0 && data.ping <= 250));
             case 'position':
                 return isValidPositionPacket(data);
+            case 'cosmeticLoadout':
+                if (typeof data.entitlement === 'string') return data.entitlement.length <= 2048;
+                return isSafeTargetId(data.playerId)
+                    && data.loadout
+                    && typeof data.loadout === 'object'
+                    && !Array.isArray(data.loadout)
+                    && Object.keys(data.loadout).length <= COSMETIC_TYPE_IDS.length
+                    && Object.entries(data.loadout).every(([type, id]) =>
+                        COSMETIC_TYPE_IDS.includes(type)
+                        && (id === null || (typeof id === 'string' && id.length <= 32)));
             case 'chat':
                 return typeof data.text === 'string' && data.text.length <= 500;
             case 'socialPresence':
@@ -2015,6 +2051,17 @@ export class Network {
                     this._lastPositionSeq.set(playerId, data.seq);
                 }
                     this.game.updateRemotePlayer(playerId, data, transportPeerId);
+                }
+                break;
+            case 'cosmeticLoadout':
+                {
+                    if (this.isHost) {
+                        if (!this._allowSocialPacket(peerId, 'cosmeticLoadout')) break;
+                        void this._acceptCosmeticEntitlement(data.entitlement, peerId);
+                    } else if (peerId === this.hostConn?.peer && isSafeTargetId(data.playerId)) {
+                        const safe = normalizeWearableLoadout(data.loadout);
+                        this.game.setRemoteCosmetics?.(data.playerId, safe);
+                    }
                 }
                 break;
             case 'attack':

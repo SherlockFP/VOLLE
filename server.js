@@ -3,12 +3,18 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { ProfileStore } = require('./server/profile-store');
+const { CATALOG, ProfileStore } = require('./server/profile-store');
 const { verifyMatchReceipt } = require('./server/match-receipt');
 const { CreatorMapStore } = require('./server/creator-map-store');
 const { RequestLimiter } = require('./server/request-limiter');
 const { PaymentLedger, verifyPaymentEvent } = require('./server/payment-ledger');
 const { TelemetryStore } = require('./server/telemetry');
+const { createLiveMarket, findLiveOffer } = require('./server/live-market');
+const {
+    normalizeEquippedCosmetics,
+    signCosmeticEntitlement,
+    verifyCosmeticEntitlement
+} = require('./server/cosmetic-entitlement');
 
 const PORT = process.env.PORT || 8000;
 const ROOT = __dirname;
@@ -19,6 +25,7 @@ const telemetry = new TelemetryStore(path.join(ROOT, 'data', 'telemetry.json'));
 const MATCH_REWARD_SECRET = process.env.MATCH_REWARD_SECRET || '';
 const CREATOR_MODERATION_KEY = process.env.CREATOR_MODERATION_KEY || '';
 const PAYMENT_WEBHOOK_SECRET = process.env.PAYMENT_WEBHOOK_SECRET || '';
+const COSMETIC_ENTITLEMENT_SECRET = crypto.randomBytes(32);
 const requestLimiter = new RequestLimiter();
 const RATE_LIMITS = {
     session: [10, 60000],
@@ -133,6 +140,25 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, { profile: profiles._public(profile) });
         return;
     }
+    if (urlPath === '/api/live-market' && req.method === 'GET') {
+        sendJson(res, createLiveMarket(CATALOG));
+        return;
+    }
+    if (urlPath === '/api/profile/live-market/purchase' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'purchase')) return;
+        const profile = profiles.authenticate(bearer(req));
+        if (!profile) { sendJson(res, { error: 'unauthorized' }, 401); return; }
+        const body = await readBody(req);
+        const offer = findLiveOffer(CATALOG, body.offerId);
+        if (!offer) { sendJson(res, { error: 'offer unavailable' }, 404); return; }
+        const requestId = req.headers['idempotency-key'] || body.requestId;
+        const result = profiles.purchase(profile, offer.kind, offer.itemId, requestId, offer.price);
+        sendJson(res, result.error ? { error: result.error } : {
+            profile: result.profile,
+            replayed: result.replayed
+        }, result.status);
+        return;
+    }
     if (urlPath === '/api/profile/purchase' && req.method === 'POST') {
         if (!allowRequest(req, res, 'purchase')) return;
         const profile = profiles.authenticate(bearer(req));
@@ -165,6 +191,45 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, result.error ? { error: result.error } : {
             coins: result.coins,
             profile: result.profile
+        }, result.status);
+        return;
+    }
+    if (urlPath === '/api/profile/cosmetics/equip' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'purchase')) return;
+        const profile = profiles.authenticate(bearer(req));
+        if (!profile) { sendJson(res, { error: 'unauthorized' }, 401); return; }
+        const body = await readBody(req, 4096);
+        const loadout = normalizeEquippedCosmetics(body.loadout, profile.ownedCosmetics, CATALOG.cosmetic);
+        const entitlement = signCosmeticEntitlement(
+            COSMETIC_ENTITLEMENT_SECRET,
+            profile,
+            body.playerId,
+            loadout
+        );
+        if (!entitlement) { sendJson(res, { error: 'invalid player identity' }, 400); return; }
+        const result = profiles.equipCosmetics(profile, loadout);
+        sendJson(res, { profile: result.profile, entitlement, loadout: result.loadout });
+        return;
+    }
+    if (urlPath === '/api/cosmetics/verify' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'purchase')) return;
+        const body = await readBody(req, 4096);
+        const verified = verifyCosmeticEntitlement(COSMETIC_ENTITLEMENT_SECRET, body.entitlement);
+        if (!verified) { sendJson(res, { error: 'invalid entitlement' }, 403); return; }
+        sendJson(res, { playerId: verified.playerId, loadout: verified.loadout });
+        return;
+    }
+    if (urlPath === '/api/profile/cases/open' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'purchase')) return;
+        const profile = profiles.authenticate(bearer(req));
+        if (!profile) { sendJson(res, { error: 'unauthorized' }, 401); return; }
+        const body = await readBody(req, 4096);
+        const requestId = req.headers['idempotency-key'] || body.requestId;
+        const result = profiles.openCase(profile, body.caseId, requestId);
+        sendJson(res, result.error ? { error: result.error } : {
+            profile: result.profile,
+            result: result.result,
+            replayed: result.replayed
         }, result.status);
         return;
     }

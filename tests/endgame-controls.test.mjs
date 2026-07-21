@@ -16,14 +16,14 @@ test('round transitions retain pointer lock and chat Enter submits before editab
     const editableGuard = source.indexOf("if (isEditableTarget(e.target) && e.code !== 'Escape') return;");
 
     assert.ok(chatStart >= 0 && chatStart < editableGuard);
-    assert.match(source, /STATES\.COUNTDOWN\n\s*\|\| this\.game\.state === STATES\.ROUND_END/);
+    assert.match(source, /STATES\.COUNTDOWN\r?\n\s*\|\| this\.game\.state === STATES\.ROUND_END/);
     assert.match(source, /this\.sendChatFromInput\(\);/);
 });
 
 test('celebration respawns players and shows one local Victory or Lose banner', async () => {
     const source = await readFile(new URL('../js/game.js', import.meta.url), 'utf8');
 
-    assert.match(source, /this\.player\._celebNoAttack = \(this\.player\.team !== this\._winningTeam\);\n\s*this\.player\.respawn\(\);/);
+    assert.match(source, /this\.player\._celebNoAttack = \(this\.player\.team !== this\._winningTeam\);\r?\n\s*this\.player\.respawn\(\);/);
     assert.match(source, /this\._won \? 'VICTORY' : 'LOSE'/);
     assert.match(source, /if \(subEl\) subEl\.textContent = '';/);
 });

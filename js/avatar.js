@@ -40,6 +40,14 @@ export const AVATAR_SKINS = Object.freeze({
     void: skin('void', 'Void Runner', 600, 'slim', null, '#b9a3ff', '#211447', '#7e4bd5', '#0d1028'),
     royal: skin('royal', 'Royal Guard', 750, 'classic', null, '#f4d5ad', '#7045c9', '#f1c55e', '#23214c'),
     circuit: skin('circuit', 'Circuit Vanguard', 650, 'slim', null, '#c7fff1', '#103a4d', '#36d8ca', '#131b37'),
+    creeper_knight: skin('creeper_knight', 'Creeper Knight', 520, 'classic', null, '#b8e59b', '#246b31', '#55a643', '#163a20'),
+    ender_mage: skin('ender_mage', 'Ender Mage', 680, 'slim', null, '#3a244d', '#151020', '#8d4ac7', '#09070f'),
+    magma_guard: skin('magma_guard', 'Magma Guard', 620, 'classic', null, '#5b1e12', '#2e0b08', '#e44b1a', '#170605'),
+    bee_runner: skin('bee_runner', 'Bee Runner', 460, 'slim', null, '#ffd660', '#25221d', '#f5bd26', '#181713'),
+    axolotl_scout: skin('axolotl_scout', 'Axolotl Scout', 560, 'slim', null, '#ffadd6', '#4dbed0', '#ff83bd', '#275c88'),
+    ghost_keeper: skin('ghost_keeper', 'Ghost Keeper', 720, 'classic', null, '#e8faff', '#d8eef5', '#8ed6e8', '#435d78'),
+    infernal_smile: skin('infernal_smile', 'Infernal Smile', 760, 'classic', null, '#ffb662', '#4b0a0a', '#ff4b20', '#220606'),
+    galaxy_idol: skin('galaxy_idol', 'Galaxy Idol', 820, 'slim', null, '#e6c8ff', '#2c1457', '#df65ff', '#111a42'),
     blue_default: skin('blue_default', 'Blue Current', 0, 'classic', 'blue', '#e2bd98', '#2469d8', '#67d8ff', '#142e68'),
     red_guard: skin('red_guard', 'Red Current', 0, 'classic', 'red', '#e2bd98', '#d83d49', '#ff806f', '#651c2a')
 });

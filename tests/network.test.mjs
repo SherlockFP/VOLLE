@@ -80,6 +80,40 @@ test('legacy position packet remains readable', () => {
     assert.equal(decoded.seq, undefined);
 });
 
+test('cosmetic loadout packets allow only bounded known slots', () => {
+    const network = new Network({});
+    assert.equal(network._validateMsg({
+        type: 'cosmeticLoadout',
+        playerId: 'player-1',
+        loadout: { cape: 'cape_ember', pet: 'none', shoes: 'none', aura: 'aura_void', impact: 'impact_fire' }
+    }), true);
+    assert.equal(network._validateMsg({ type: 'cosmeticLoadout', entitlement: 'signed.payload' }), true);
+    assert.equal(network._validateMsg({
+        type: 'cosmeticLoadout',
+        playerId: 'player-1',
+        loadout: { admin: 'cape_ember' }
+    }), false);
+    assert.equal(network._validateMsg({
+        type: 'cosmeticLoadout',
+        playerId: 'player-1',
+        loadout: { cape: 'x'.repeat(33) }
+    }), false);
+});
+
+test('host rejects raw paid cosmetic loadouts without a server entitlement', () => {
+    let applied = 0;
+    const network = new Network({ setRemoteCosmetics: () => { applied++; } });
+    network.isHost = true;
+    network.connections.set('peer-1', { _admitted: true });
+    network.peerToPlayerId.set('peer-1', 'player-1');
+    network.handleMessage({
+        type: 'cosmeticLoadout',
+        playerId: 'player-1',
+        loadout: { cape: 'cape_royal' }
+    }, 'peer-1');
+    assert.equal(applied, 0);
+});
+
 test('long legacy position packet is decoded structurally, not by total length', () => {
     const network = new Network({});
     const name = 'legacy-player-with-optional-fields';

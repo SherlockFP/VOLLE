@@ -60,8 +60,8 @@ export const GAME_MODES = {
     },
     ffa: {
         id: 'ffa', name: 'Free For All', emoji: '⚔️',
-        desc: 'Herkes tek. File yok. Son kalan kazanır.',
-        mutators: { ffa: true, noNet: true, noTeams: true }
+        desc: 'Herkes tek. File yok. Tek isabet eler, son kalan kazanır.',
+        mutators: { ffa: true, noNet: true, noTeams: true, oneHitKill: true }
     },
     competitive: {
         id: 'competitive', name: 'Competitive', emoji: '🏆',
