@@ -65,6 +65,11 @@ const MIME = {
 // Hosts register their room code + metadata; clients list + quick-join.
 const lobbies = new Map(); // code -> { code, name, players, map, mode, hostName, updatedAt }
 const socialHubs = new Map(); // code -> { code, mapId, mapName, hostName, players, updatedAt }
+const SOCIAL_HUB_MAP_NAMES = Object.freeze({
+    estate: 'Grand Estate',
+    skyline: 'Skyline Deck',
+    harbor: 'Harbor Commons'
+});
 const LOBBY_TTL = 30000; // 30s stale prune
 
 function pruneLobbies() {
@@ -392,14 +397,15 @@ const server = http.createServer(async (req, res) => {
         if (!allowRequest(req, res, 'lobbyWrite')) return;
         const b = await readBody(req);
         const mapId = String(b.mapId || '').toLowerCase();
-        if (!b.code || mapId !== 'estate') {
+        const mapName = Object.hasOwn(SOCIAL_HUB_MAP_NAMES, mapId) ? SOCIAL_HUB_MAP_NAMES[mapId] : '';
+        if (!b.code || !mapName) {
             sendJson(res, { error: 'valid code and mapId required' }, 400);
             return;
         }
         socialHubs.set(b.code, {
             code: b.code,
             mapId,
-            mapName: 'Grand Estate',
+            mapName,
             hostName: String(b.hostName || 'Host').slice(0, 32),
             players: Math.max(1, Math.min(32, Number(b.players) || 1)),
             updatedAt: Date.now()

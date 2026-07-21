@@ -345,3 +345,13 @@ test('final dash tick clips dash direction before reporting momentum', () => {
     assert.deepEqual(clipped.velocity, { x: 0, z: 0 });
     assert.deepEqual(clipped.dashDir, { x: 0, z: 0 });
 });
+
+test('death clears stale motion and input while respawn keeps team spawn selection', () => {
+    const dieMethod = source.slice(source.indexOf('    die() {'), source.indexOf('    revive() {'));
+    const respawnMethod = source.slice(source.indexOf('    respawn() {'), source.indexOf('    setSensitivity('));
+
+    assert.match(dieMethod, /this\.velocity\.set\(0, 0, 0\);/);
+    assert.match(dieMethod, /this\.verticalVel = 0;/);
+    assert.match(dieMethod, /this\._clearInputState\(\);/);
+    assert.match(respawnMethod, /this\.arena\.getPlayerSpawn\(this\.team\)/);
+});

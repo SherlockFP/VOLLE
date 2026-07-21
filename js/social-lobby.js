@@ -16,7 +16,42 @@ export const SOCIAL_HUB_MAPS = Object.freeze({
         name: 'Grand Estate',
         bounds: ESTATE_BOUNDS,
         spawn: Object.freeze({ x: 0, y: 2, z: 126 }),
+        poseArea: POSE_AREA,
+        zones: Object.freeze([
+            Object.freeze({ id: 'lobby', name: 'Arrival Court', x: 0, z: 118 }),
+            Object.freeze({ id: 'social', name: 'Fountain Plaza', x: 0, z: 34 }),
+            Object.freeze({ id: 'activity', name: 'Pool Gardens', x: -82, z: 85 }),
+            Object.freeze({ id: 'shop', name: 'East Gallery', x: 108, z: 0 })
+        ]),
         credit: 'Original Warrball procedural environment'
+    }),
+    skyline: Object.freeze({
+        id: 'skyline',
+        name: 'Skyline Deck',
+        bounds: Object.freeze({ minX: -140, maxX: 140, minY: -18, maxY: 92, minZ: -120, maxZ: 120 }),
+        spawn: Object.freeze({ x: 0, y: 3, z: 98 }),
+        poseArea: Object.freeze({ x: 0, z: 12, radius: 10 }),
+        zones: Object.freeze([
+            Object.freeze({ id: 'lobby', name: 'Transit Gate', x: 0, z: 96 }),
+            Object.freeze({ id: 'social', name: 'Neon Lounge', x: -72, z: 18 }),
+            Object.freeze({ id: 'activity', name: 'Air Court', x: 0, z: -62 }),
+            Object.freeze({ id: 'shop', name: 'Market Pods', x: 76, z: 20 })
+        ]),
+        credit: 'Original Warrball rooftop environment'
+    }),
+    harbor: Object.freeze({
+        id: 'harbor',
+        name: 'Harbor Commons',
+        bounds: Object.freeze({ minX: -170, maxX: 170, minY: -10, maxY: 72, minZ: -135, maxZ: 150 }),
+        spawn: Object.freeze({ x: 0, y: 2, z: 126 }),
+        poseArea: Object.freeze({ x: 0, z: 30, radius: 11 }),
+        zones: Object.freeze([
+            Object.freeze({ id: 'lobby', name: 'Ferry Landing', x: 0, z: 126 }),
+            Object.freeze({ id: 'social', name: 'Boardwalk Stage', x: 0, z: 30 }),
+            Object.freeze({ id: 'activity', name: 'Dock Run', x: -88, z: -30 }),
+            Object.freeze({ id: 'shop', name: 'Container Market', x: 88, z: -18 })
+        ]),
+        credit: 'Original Warrball waterfront environment'
     })
 });
 
@@ -32,6 +67,36 @@ const SOCIAL_MAP_BLOCKS = Object.freeze([
     [108, -30, 26, 1, 9, 'east-house'], [134, 0, 1, 31, 9, 'east-house'], [82, 0, 1, 31, 9, 'east-house'],
     [91, 30, 8, 1, 9, 'east-house'], [125, 30, 8, 1, 9, 'east-house']
 ]);
+
+const SKYLINE_BLOCKS = Object.freeze([
+    [0, 112, 54, 2, 10, 'lobby'], [-58, 88, 2, 26, 12, 'lobby'], [58, 88, 2, 26, 12, 'lobby'],
+    [-72, 18, 28, 2, 9, 'social'], [-98, 18, 2, 30, 9, 'social'], [-46, 18, 2, 30, 9, 'social'],
+    [0, -92, 50, 2, 8, 'activity'], [-52, -62, 2, 32, 8, 'activity'], [52, -62, 2, 32, 8, 'activity'],
+    [76, 20, 25, 2, 8, 'shop'], [51, 20, 2, 24, 8, 'shop'], [101, 20, 2, 24, 8, 'shop'],
+    [-20, -8, 12, 3, 4, 'activity'], [20, -8, 12, 3, 4, 'activity']
+]);
+
+const HARBOR_BLOCKS = Object.freeze([
+    [0, 142, 58, 2, 9, 'lobby'], [-60, 122, 2, 22, 9, 'lobby'], [60, 122, 2, 22, 9, 'lobby'],
+    [0, 30, 40, 2, 8, 'social'], [-42, 30, 2, 28, 8, 'social'], [42, 30, 2, 28, 8, 'social'],
+    [-88, -30, 34, 2, 7, 'activity'], [-122, -30, 2, 38, 7, 'activity'], [-54, -30, 2, 38, 7, 'activity'],
+    [88, -18, 32, 2, 12, 'shop'], [56, -18, 2, 32, 12, 'shop'], [120, -18, 2, 32, 12, 'shop'],
+    [-18, -92, 2, 34, 5, 'dock'], [18, -92, 2, 34, 5, 'dock']
+]);
+
+const MAP_LAYOUTS = Object.freeze({
+    estate: Object.freeze({ blocks: SOCIAL_MAP_BLOCKS, pools: ESTATE_POOLS, groundY: ESTATE_GROUND_Y, platform: Object.freeze({ x: 0, z: 0, y: 0, halfWidth: 174, halfDepth: 154 }) }),
+    skyline: Object.freeze({ blocks: SKYLINE_BLOCKS, pools: Object.freeze([]), groundY: 0, platform: Object.freeze({ x: 0, z: 0, y: 0, halfWidth: 134, halfDepth: 114 }) }),
+    harbor: Object.freeze({
+        blocks: HARBOR_BLOCKS,
+        pools: Object.freeze([
+            Object.freeze({ minX: -48, maxX: 48, minZ: -126, maxZ: -60, surfaceY: .2, floorY: -4.5, kind: 'harbor' }),
+            Object.freeze({ minX: -158, maxX: -132, minZ: -108, maxZ: 72, surfaceY: .2, floorY: -4.5, kind: 'harbor' })
+        ]),
+        groundY: 0,
+        platform: Object.freeze({ x: 0, z: 8, y: 0, halfWidth: 164, halfDepth: 136 })
+    })
+});
 
 const CHARACTER_ASSETS = ['a', 'f', 'k', 'r'].map(
     id => `assets/cc0/kenney/blocky-characters/character-${id}.glb`
@@ -125,25 +190,28 @@ export function getSocialLobbyMapState(player, presence, mapId = 'estate') {
 
 export function createSocialLobbyArena(mapId = 'estate') {
     const map = getSocialHubMap(mapId);
+    const layout = MAP_LAYOUTS[map.id];
     const boundaries = createSocialBoundaryColliders(map.bounds);
-    const blocks = SOCIAL_MAP_BLOCKS.map(([x, z, halfWidth, halfDepth, maxY, zone]) => ({
+    const blocks = layout.blocks.map(([x, z, halfWidth, halfDepth, maxY, zone]) => ({
         minX: x - halfWidth, maxX: x + halfWidth, minY: -2, maxY, minZ: z - halfDepth, maxZ: z + halfDepth, zone
     }));
-    const props = SOCIAL_LOBBY_PROP_COLLIDERS.map(({ position, radius }) => ({ pos: position, radius, zone: 'decor' }));
+    const props = map.id === 'estate'
+        ? SOCIAL_LOBBY_PROP_COLLIDERS.map(({ position, radius }) => ({ pos: position, radius, zone: 'decor' }))
+        : [];
     const collidables = [...boundaries, ...blocks, ...props];
     const grid = createSocialColliderGrid(collidables, 22);
     return {
         bounds: map.bounds,
         ceilingHeight: map.bounds.maxY,
-        config: { name: `Warrball Social Hub - ${map.name}`, lowGravity: false, slippery: false, gameplay: { sandTraction: 1 } },
+        config: { name: `Warrball Social Hub - ${map.name}`, zones: map.zones, lowGravity: false, slippery: false, gameplay: { sandTraction: 1 } },
         collidables,
         getNearbyCollidables: position => grid.query(position),
-        platforms: [{ x: 0, z: 0, y: ESTATE_GROUND_Y, halfWidth: 174, halfDepth: 154 }],
+        platforms: [{ ...layout.platform }],
         jumpPads: [],
         getWaterAt(position) {
             if (!Number.isFinite(position?.x) || !Number.isFinite(position?.z)) return null;
-            const pool = ESTATE_POOLS.find(entry => position.x >= entry.minX && position.x <= entry.maxX && position.z >= entry.minZ && position.z <= entry.maxZ);
-            return pool ? { kind: 'pool', surfaceY: pool.surfaceY, floorY: pool.floorY } : null;
+            const pool = layout.pools.find(entry => position.x >= entry.minX && position.x <= entry.maxX && position.z >= entry.minZ && position.z <= entry.maxZ);
+            return pool ? { kind: pool.kind || 'pool', surfaceY: pool.surfaceY, floorY: pool.floorY } : null;
         },
         getHazardAt: () => null,
         getPlayerSpawn: () => new THREE.Vector3(map.spawn.x, map.spawn.y, map.spawn.z)
@@ -352,7 +420,7 @@ export class SocialLobby {
         this.root.visible = false;
         this.active = false;
         this.mapId = 'estate';
-        this.arenas = { estate: createSocialLobbyArena('estate') };
+        this.arenas = Object.fromEntries(Object.keys(SOCIAL_HUB_MAPS).map(id => [id, createSocialLobbyArena(id)]));
         this.arena = this.arenas.estate;
         this.mixers = [];
         this.visitors = new Map();
@@ -365,6 +433,8 @@ export class SocialLobby {
         this._boundaryColliders = this.arena.collidables.filter(collider => collider.invisibleBoundary);
         this._mapBlocks = Object.freeze(this.arena.collidables.filter(collider => Number.isFinite(collider.minX) && !collider.invisibleBoundary));
         this._buildEstateWorld();
+        this._buildSkylineWorld();
+        this._buildHarborWorld();
         this.scene?.add(this.root);
         this._assetLoadPromise = null;
         this.ready = Promise.resolve();
@@ -431,7 +501,148 @@ export class SocialLobby {
         this.root.add(this.estateWorld);
         this.mapWorlds = { estate: this.estateWorld };
         this._waterMeshes = [];
-        this.estateWorld.traverse(child => { if (child.userData?.estateWater) this._waterMeshes.push(child); });
+        this.estateWorld.traverse(child => {
+            if (!child.userData?.estateWater) return;
+            child.userData.waterBaseY = child.position.y;
+            this._waterMeshes.push(child);
+        });
+    }
+
+    _buildSkylineWorld() {
+        const world = new THREE.Group();
+        world.name = 'warrball-skyline-deck';
+        world.visible = false;
+        const materials = createEstateMaterials(this.renderer?.renderer);
+        materials.lawn.color.setHex(0x141c31);
+        materials.marble.color.setHex(0x24324a);
+        materials.stone.color.setHex(0x111827);
+        materials.wood.color.setHex(0x293a56);
+        materials.stucco.color.setHex(0x1d2940);
+        materials.roof.color.setHex(0x07111f);
+        materials.trim.color.setHex(0x9cecff);
+        materials.metal.color.setHex(0x7a8ca8);
+        materials.accent.color.setHex(0x36d8ca);
+        materials.accent.emissive.setHex(0x116c75);
+
+        addBox(world, [280, 3, 240], [0, -1.5, 0], materials.lawn, { castShadow: false });
+        addBox(world, [24, .24, 198], [0, .13, 2], materials.marble, { castShadow: false });
+        addBox(world, [226, .24, 18], [0, .14, 12], materials.marble, { castShadow: false });
+        addBox(world, [112, .28, 66], [0, .16, -62], materials.stone, { castShadow: false });
+        for (const x of [-53, 53]) addBox(world, [2, .55, 66], [x, .46, -62], materials.accent, { castShadow: false });
+        for (const z of [-93, -31]) addBox(world, [108, .55, 2], [0, .46, z], materials.accent, { castShadow: false });
+
+        for (const x of [-58, 58]) {
+            addBox(world, [5, 17, 5], [x, 8.5, 94], materials.metal);
+            addBox(world, [14, 2, 5], [x, 15.5, 94], materials.accent);
+        }
+        addBox(world, [122, 2.2, 5], [0, 17, 94], materials.trim);
+
+        addBox(world, [56, .4, 58], [-72, .22, 18], materials.wood, { castShadow: false });
+        addBox(world, [56, 1, 3], [-72, .55, -10], materials.accent);
+        for (const x of [-94, -78, -62, -50]) {
+            addCylinder(world, .6, 8, [x, 4, 18], materials.metal, 12);
+            addBox(world, [7, .8, 3], [x, .5, 18], materials.trim, { rotationY: .25 });
+        }
+        addBox(world, [58, .7, 60], [-72, 8, 18], materials.glass, { castShadow: false });
+
+        for (const [x, z, color] of [[64, 3, 0x36d8ca], [88, 3, 0xdfe104], [64, 37, 0xff5b7a], [88, 37, 0x7f7cff]]) {
+            const podMaterial = materials.stucco.clone();
+            podMaterial.color.setHex(color);
+            addBox(world, [20, 8, 22], [x, 4, z], podMaterial);
+            addBox(world, [13, 4.5, .35], [x, 3.5, z + 11.2], materials.glass, { castShadow: false });
+        }
+
+        for (const [x, z, height] of [[-126,-96,42],[-112,-42,28],[-124,72,50],[122,-82,34],[118,76,46],[-84,-111,25],[82,-109,32]]) {
+            addBox(world, [18, height, 18], [x, height / 2 - 2, z], materials.roof, { castShadow: false });
+            addBox(world, [12, .8, 12], [x, height - 1.5, z], materials.accent, { castShadow: false });
+        }
+
+        const pose = SOCIAL_HUB_MAPS.skyline.poseArea;
+        const posePad = addCylinder(world, pose.radius, .45, [pose.x, .28, pose.z], materials.accent, 40);
+        posePad.userData.poseArea = true;
+        const sky = new THREE.Mesh(new THREE.SphereGeometry(390, 28, 20), new THREE.MeshBasicMaterial({ color: 0x071226, side: THREE.BackSide }));
+        world.add(sky);
+        const key = new THREE.DirectionalLight(0x9defff, 2.1);
+        key.position.set(-70, 110, 45);
+        world.add(key, new THREE.HemisphereLight(0x5279b8, 0x07111f, 1.15));
+        this.root.add(world);
+        this.mapWorlds.skyline = world;
+    }
+
+    _buildHarborWorld() {
+        const world = new THREE.Group();
+        world.name = 'warrball-harbor-commons';
+        world.visible = false;
+        const materials = createEstateMaterials(this.renderer?.renderer);
+        materials.lawn.color.setHex(0x70806c);
+        materials.marble.color.setHex(0xb7b09d);
+        materials.stone.color.setHex(0x58636b);
+        materials.wood.color.setHex(0x754b2d);
+        materials.stucco.color.setHex(0xd8c6a4);
+        materials.roof.color.setHex(0x263743);
+        materials.trim.color.setHex(0xffe1a6);
+        materials.metal.color.setHex(0xc8793e);
+        materials.accent.color.setHex(0x23bdc6);
+        materials.accent.emissive.setHex(0x07535c);
+
+        addBox(world, [340, 2, 285], [0, -1, 7], materials.stone, { castShadow: false });
+        addBox(world, [108, .45, 236], [0, .22, 18], materials.wood, { castShadow: false });
+        addBox(world, [278, .45, 30], [0, .23, 30], materials.wood, { castShadow: false });
+        addBox(world, [122, .45, 38], [0, .24, 126], materials.marble, { castShadow: false });
+
+        for (const pool of MAP_LAYOUTS.harbor.pools) {
+            const water = new THREE.Mesh(new THREE.PlaneGeometry(pool.maxX - pool.minX, pool.maxZ - pool.minZ), materials.water);
+            water.rotation.x = -Math.PI / 2;
+            water.position.set((pool.minX + pool.maxX) / 2, pool.surfaceY + .02, (pool.minZ + pool.maxZ) / 2);
+            water.userData.waterBaseY = water.position.y;
+            world.add(water);
+            this._waterMeshes.push(water);
+        }
+
+        for (const x of [-60, 60]) {
+            addCylinder(world, 1, 12, [x, 6, 126], materials.metal, 16);
+            addBox(world, [14, 2, 4], [x, 11.5, 126], materials.accent);
+        }
+        addBox(world, [124, 2, 4], [0, 13, 126], materials.trim);
+
+        addBox(world, [82, .65, 58], [0, .36, 30], materials.marble, { castShadow: false });
+        addBox(world, [52, 1.8, 8], [0, .9, 3], materials.accent);
+        for (const x of [-32, -16, 16, 32]) addCylinder(world, .55, 7, [x, 3.5, 30], materials.metal, 12);
+
+        for (const [x, z, color, rotationY] of [[70,-42,0xc85942,0],[98,-42,0x2f7f9e,0],[84,-17,0xd5a837,Math.PI / 2],[103,8,0x4b8f66,0]]) {
+            const container = materials.stucco.clone();
+            container.color.setHex(color);
+            addBox(world, [25, 9, 14], [x, 4.5, z], container, { rotationY });
+            addBox(world, [13, 5, .3], [x, 3.8, z + 7.1], materials.glass, { castShadow: false, rotationY });
+        }
+
+        addBox(world, [70, .55, 80], [-88, .3, -30], materials.wood, { castShadow: false });
+        for (const [x, z, height] of [[-112,-58,5],[-88,-46,8],[-64,-28,6],[-105,-6,7],[-73,3,5]]) {
+            addBox(world, [8, height, 8], [x, height / 2, z], materials.marble);
+            addBox(world, [9, .45, 9], [x, height + .24, z], materials.accent);
+        }
+        for (const x of [-18, 18]) {
+            addBox(world, [10, .55, 66], [x, .34, -93], materials.wood, { castShadow: false });
+            for (const z of [-120, -98, -76, -62]) addCylinder(world, .5, 5, [x, 2.5, z], materials.metal, 10);
+        }
+
+        addCylinder(world, 7, 2.4, [-142, 1.2, 96], materials.marble, 24);
+        addCylinder(world, 4.2, 28, [-142, 15, 96], materials.stucco, 24);
+        addCylinder(world, 5.5, 2.5, [-142, 29, 96], materials.roof, 24);
+        const beacon = new THREE.PointLight(0xffd78a, 5, 80);
+        beacon.position.set(-142, 31, 96);
+        world.add(beacon);
+
+        const pose = SOCIAL_HUB_MAPS.harbor.poseArea;
+        const posePad = addCylinder(world, pose.radius, .45, [pose.x, .3, pose.z], materials.accent, 40);
+        posePad.userData.poseArea = true;
+        const sky = new THREE.Mesh(new THREE.SphereGeometry(430, 28, 20), new THREE.MeshBasicMaterial({ color: 0x6ba8bd, side: THREE.BackSide }));
+        world.add(sky);
+        const sun = new THREE.DirectionalLight(0xffddad, 2.2);
+        sun.position.set(100, 120, 70);
+        world.add(sun, new THREE.HemisphereLight(0xd7f4ff, 0x314b45, 1.2));
+        this.root.add(world);
+        this.mapWorlds.harbor = world;
     }
 
     async _loadAssets() {
@@ -542,11 +753,15 @@ export class SocialLobby {
         for (const mixer of this.mixers) mixer.update(step);
         const position = this.player?.getPosition?.();
         if (position) {
-            const inside = Math.hypot(position.x - POSE_AREA.x, position.z - POSE_AREA.z) < POSE_AREA.radius;
+            const poseArea = SOCIAL_HUB_MAPS[this.mapId].poseArea;
+            const inside = Math.hypot(position.x - poseArea.x, position.z - poseArea.z) < poseArea.radius;
             if (inside !== this._insidePoseArea) this.onPoseArea?.(inside);
             this._insidePoseArea = inside;
         }
-        for (let i = 0; i < this._waterMeshes.length; i++) this._waterMeshes[i].position.y = .24 + Math.sin(this._elapsed * 1.4 + i) * .025;
+        for (let i = 0; i < this._waterMeshes.length; i++) {
+            const water = this._waterMeshes[i];
+            water.position.y = (water.userData.waterBaseY ?? .24) + Math.sin(this._elapsed * 1.4 + i) * .025;
+        }
         if (this._presenceDirty) this._emitPresence();
     }
 

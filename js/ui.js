@@ -767,7 +767,7 @@ export class UI {
             }
             const card = document.createElement('div');
             card.className = `cs-player-card team-${p.team}${p.isYou ? ' you' : ''}${p.isBot ? ' bot' : ''}`;
-            card.draggable = !!isHost && !p.isBot;
+            card.draggable = !!isHost && !p.isYou;
             card.dataset.playerName = p.name;
             card.dataset.playerTeam = p.team;
             const char = CHARACTERS[p.charId] || CHARACTERS.rally;
@@ -777,7 +777,7 @@ export class UI {
                 ? (ownAvatarOnly?.dataURL ? `<img src="${ownAvatarOnly.dataURL}">` : emoji)
                 : (p.avatar ? `<img src="${p.avatar}">` : emoji);
             const kickBtn = (isHost && !p.isYou)
-                ? `<button class="cs-btn-kick" data-kick-name="${this.escapeHTML(p.name)}" data-kick-peer="${this.escapeHTML(p.peerId || '')}" data-kick-bot="${p.isBot?1:0}" title="Kick">✕</button>`
+                ? `<button class="cs-btn-kick" type="button" data-kick-name="${this.escapeHTML(p.name)}" data-kick-peer="${this.escapeHTML(p.peerId || '')}" data-kick-bot="${p.isBot?1:0}" aria-label="Kick ${this.escapeHTML(p.name)}" title="Kick player">X</button>`
                 : '';
             const hostBadge = p.isHost ? '<span class="cs-badge cs-badge-host">HOST</span>' : '';
             const botBadge = p.isBot ? '<span class="cs-badge cs-badge-bot">BOT</span>' : '';
@@ -1058,8 +1058,19 @@ export class UI {
         grid.innerHTML = '';
         const owned = store.get('unlockedChars');
         const selected = store.get('selectedChar');
+        const selectedCharacter = CHARACTERS[selected] || CHARACTERS.rally;
+        const selectedLoadout = store.get('loadout') || {};
+        const selectedSkill = SKILLS[selectedLoadout.skill] || SKILLS.slow;
+        const selectedRune = RUNES[(selectedLoadout.runes || [])[0]] || RUNES.deflect_power;
+        const heroName = document.getElementById('hero-selected-name');
+        const heroSkill = document.getElementById('hero-selected-skill');
+        const heroRune = document.getElementById('hero-selected-rune');
+        if (heroName) heroName.textContent = selectedCharacter.name;
+        if (heroSkill) heroSkill.textContent = selectedSkill.name;
+        if (heroRune) heroRune.textContent = selectedRune.name;
         Object.values(CHARACTERS).forEach((c, index) => {
-            const card = document.createElement('div');
+            const card = document.createElement('button');
+            card.type = 'button';
             const isOwned = owned.includes(c.id);
             const isSelected = selected === c.id;
             const mastery = store.getCharacterProgress(c.id);
@@ -1086,7 +1097,8 @@ export class UI {
             const ownedSkills = store.get('ownedSkills');
             const currentSkill = store.get('loadout').skill;
             Object.values(SKILLS).forEach((s, index) => {
-                const card = document.createElement('div');
+                const card = document.createElement('button');
+                card.type = 'button';
                 const owned = ownedSkills.includes(s.id);
                 card.className = `skill-card ${currentSkill === s.id ? 'selected' : ''} ${!owned ? 'locked' : ''}`;
                 card.dataset.skill = s.id;
@@ -1102,7 +1114,8 @@ export class UI {
             const ownedRunes = store.get('ownedItems');
             const currentRunes = store.get('loadout').runes || [];
             Object.values(RUNES).forEach((r, index) => {
-                const card = document.createElement('div');
+                const card = document.createElement('button');
+                card.type = 'button';
                 const owned = ownedRunes.includes(r.id);
                 const equipped = currentRunes.includes(r.id);
                 card.className = `rune-card ${equipped ? 'selected' : ''} ${!owned ? 'locked' : ''}`;
@@ -1269,11 +1282,23 @@ export class UI {
                 grid.appendChild(card);
             });
         } else if (tab === 'skills') {
+            const roles = {
+                slow: 'Control', freeze: 'Control', teleport: 'Control', blackhole: 'Control',
+                burn: 'Offense', smash: 'Offense', shield: 'Defense', heal: 'Support'
+            };
+            const activeSkill = store.get('loadout')?.skill;
             Object.values(SKILLS).forEach(s => {
                 const owned = store.ownsSkill(s.id);
-                const card = document.createElement('div');
-                card.className = `shop-card ${owned ? 'owned' : ''}`;
-                card.innerHTML = `<div class="shop-item-icon" aria-hidden="true"><svg class="ui-icon"><use href="#i-target"></use></svg></div><div class="char-name">${s.name}</div><div class="char-desc">${s.desc}</div>${owned ? '<div class="shop-owned">Owned</div>' : `<button class="btn btn-primary btn-small shop-buy" data-type="skill" data-id="${s.id}">COINS 100</button>`}`;
+                const equipped = activeSkill === s.id;
+                const role = roles[s.id] || 'Utility';
+                const card = document.createElement('article');
+                card.className = `shop-card shop-skill-card role-${role.toLowerCase()} ${owned ? 'owned' : ''} ${equipped ? 'equipped' : ''}`;
+                card.innerHTML = `
+                    <div class="shop-skill-top"><div class="shop-item-icon" aria-hidden="true"><svg class="ui-icon"><use href="#i-target"></use></svg></div><span class="skill-role">${role}</span></div>
+                    <div class="char-name">${s.name}</div>
+                    <div class="char-desc">${s.desc}</div>
+                    <div class="skill-cooldown"><span>Cooldown</span><strong>${s.cooldown}s</strong><i style="--cooldown:${Math.min(100, Math.round(s.cooldown / 105 * 100))}%"></i></div>
+                    ${equipped ? '<div class="shop-owned">Equipped</div>' : owned ? `<button class="btn btn-secondary btn-small skill-equip" data-id="${s.id}">Equip skill</button>` : `<button class="btn btn-primary btn-small shop-buy" data-type="skill" data-id="${s.id}">COINS 100</button>`}`;
                 grid.appendChild(card);
             });
         } else if (tab === 'avatars') {
@@ -1382,33 +1407,31 @@ export class UI {
             grid.appendChild(card);
         } else if (tab === 'cases') {
             Object.values(CASES).forEach(box => {
-                const card = document.createElement('div');
+                const card = document.createElement('article');
                 card.className = `shop-card case-card case-${box.id}`;
                 const pity = store.getCasePityState(box.id);
-                const rates = getCaseDropRates(box.id, pity.nextGuaranteed ? { minimumRarity: 'epic' } : {});
                 card.innerHTML = `
-                    <div class="case-art" aria-hidden="true"><i></i><span>${box.name.replace(' Case', '')}</span></div>
-                    <div class="char-name">${box.name}</div>
-                    <div class="case-balance">Balance: ${store.get('currency')} coins</div>
+                    <div class="case-art"><img src="${box.art}" width="512" height="512" loading="lazy" alt="${box.name} crate"></div>
+                    <div class="case-card-head"><div><span class="case-series">ARENA DROP</span><div class="char-name">${box.name}</div></div><strong>${box.price}</strong></div>
+                    <div class="case-balance">Balance: ${store.get('currency')} credits</div>
                     <div class="case-pity ${pity.nextGuaranteed ? 'ready' : ''}">
                         Epic+ guarantee: ${pity.nextGuaranteed ? 'NEXT OPEN' : `${pity.count}/${pity.threshold}`}
                     </div>
-                    <div class="case-drop-rates">${rates.map(drop =>
-                        `<span class="rarity-${drop.rarity} case-drop ${drop.type}">${drop.preview?.head ? `<i class="case-avatar-preview" style="--case-head:${drop.preview.head};--case-body:${drop.preview.body};--case-arms:${drop.preview.arms}"></i>` : ''}<b>${drop.name}<small>${drop.type === 'avatar' ? 'CHARACTER SKIN' : drop.type === 'ball' ? 'BALL SKIN' : drop.type === 'cosmetic' ? String(drop.preview?.type || 'COSMETIC').toUpperCase() : 'KNIFE'}</small></b><em>${(drop.chance * 100).toFixed(0)}%</em></span>`
-                    ).join('')}</div>
-                    <button class="btn btn-primary btn-small case-open" data-id="${box.id}">${box.price} coins / Open</button>`;
+                    <button class="btn btn-primary btn-small case-select" type="button" data-id="${box.id}" aria-label="Inspect ${box.name}">Inspect and open</button>`;
                 grid.appendChild(card);
             });
         } else if (tab === 'inventory') {
             const owned = new Set(store.get('ownedKnives') || []);
             const equipped = store.get('equippedKnives') || {};
-            Object.values(KNIVES).filter(knife => owned.has(knife.id)).forEach(knife => {
-                const card = document.createElement('div');
+            const inventory = Object.values(KNIVES).filter(knife => owned.has(knife.id));
+            inventory.forEach(knife => {
+                const card = document.createElement('article');
                 card.className = `shop-card inventory-card rarity-${knife.rarity}`;
                 const kills = Number(store.get('knifeStats')?.[knife.id]) || 0;
-                card.innerHTML = `<div class="knife-preview knife-preview-3d model-${knife.model}" style="--knife-color:${knife.color};--knife-accent:${knife.accent}" aria-hidden="true"></div><div class="char-name">${knife.name}</div><div class="char-desc">${knife.rarity.toUpperCase()} / ${knife.model.toUpperCase()} / ${(knife.finish || 'satin').toUpperCase()} / ${knife.teams.map(t => t.toUpperCase()).join(' + ')}</div><div class="stat-track"><span>STATTRACK</span><b>${String(kills).padStart(6, '0')}</b></div><button class="btn btn-small knife-inspect" data-id="${knife.id}">3D Inspect</button><div class="inventory-actions">${knife.teams.map(team => equipped[team] === knife.id ? `<span class="shop-owned">${team.toUpperCase()} equipped</span>` : `<button class="btn btn-small knife-equip" data-id="${knife.id}" data-team="${team}">Equip ${team}</button>`).join('')}</div>`;
+                card.innerHTML = `<div class="knife-preview knife-preview-3d model-${knife.model}" style="--knife-color:${knife.color};--knife-accent:${knife.accent}" aria-hidden="true"></div><div class="inventory-card-copy"><span class="skin-rarity rarity-${knife.rarity}">${knife.rarity}</span><div class="char-name">${knife.name}</div><div class="char-desc">${knife.model.toUpperCase()} / ${(knife.finish || 'satin').toUpperCase()}</div></div><div class="stat-track"><span>STATTRACK</span><b>${String(kills).padStart(6, '0')}</b></div><button class="btn btn-small knife-inspect" data-id="${knife.id}">3D Inspect</button><div class="inventory-actions">${knife.teams.map(team => equipped[team] === knife.id ? `<span class="shop-owned">${team.toUpperCase()} equipped</span>` : `<button class="btn btn-small knife-equip" data-id="${knife.id}" data-team="${team}">Equip ${team}</button>`).join('')}</div>`;
                 grid.appendChild(card);
             });
+            if (!inventory.length) grid.innerHTML = '<p class="shop-empty">Your inventory is empty. Open a case to add your first item.</p>';
         }
         this._finalizeShopCatalog(grid);
     }
@@ -1524,16 +1547,23 @@ export class UI {
         if (!grid) return;
         grid.innerHTML = '';
         const unlocked = store.get('unlockedAchievements') || [];
-        Object.values(ACHIEVEMENTS).forEach(a => {
+        const achievements = Object.values(ACHIEVEMENTS);
+        const unlockedAchievements = achievements.filter(a => unlocked.includes(a.id));
+        const earned = unlockedAchievements.reduce((total, a) => total + (Number(a.reward) || 0), 0);
+        const unlockedCount = document.getElementById('achievement-unlocked-count');
+        const totalCount = document.getElementById('achievement-total-count');
+        const rewardTotal = document.getElementById('achievement-reward-total');
+        if (unlockedCount) unlockedCount.textContent = String(unlockedAchievements.length);
+        if (totalCount) totalCount.textContent = String(achievements.length);
+        if (rewardTotal) rewardTotal.textContent = String(earned);
+        achievements.forEach((a, index) => {
             const isUnlocked = unlocked.includes(a.id);
-            const card = document.createElement('div');
+            const card = document.createElement('article');
             card.className = `achievement-card ${isUnlocked ? 'unlocked' : 'locked'}`;
             card.innerHTML = `
-                <div class="ach-emoji">${a.emoji}</div>
-                <div class="ach-name">${a.name}</div>
-                <div class="ach-desc">${a.desc}</div>
-                <div class="ach-reward">🪙 ${a.reward}</div>
-                ${isUnlocked ? '<div class="ach-check">✅</div>' : '<div class="ach-lock">🔒</div>'}
+                <div class="achievement-mark" aria-hidden="true"><svg class="ui-icon"><use href="#i-trophy"></use></svg><span>${String(index + 1).padStart(2, '0')}</span></div>
+                <div class="achievement-copy"><span class="achievement-state">${isUnlocked ? 'UNLOCKED' : 'LOCKED'}</span><div class="ach-name">${a.name}</div><div class="ach-desc">${a.desc}</div></div>
+                <div class="ach-reward"><svg class="ui-icon" aria-hidden="true"><use href="#i-coins"></use></svg>${a.reward}</div>
             `;
             grid.appendChild(card);
         });
@@ -1549,7 +1579,7 @@ export class UI {
             const login = document.createElement('div');
             login.className = `daily-card daily-login-card ${state.loginClaimed ? 'claimed' : 'ready'}`;
             login.innerHTML = `
-                <div class="daily-emoji">7D</div>
+                <div class="daily-symbol">LOGIN</div>
                 <div class="daily-name">Daily Login</div>
                 <div class="daily-count">Day ${state.streak}/7 - ${state.loginCoins} coins</div>
                 <button class="btn btn-primary btn-small daily-login-claim" ${state.loginClaimed ? 'disabled' : ''}>
@@ -1562,7 +1592,7 @@ export class UI {
             const dailyRates = getCaseDropRates('kickoff', dailyPity.nextGuaranteed ? { minimumRarity: 'epic' } : {});
             freeCase.className = `daily-card daily-case-card ${state.freeCaseClaimed ? 'claimed' : 'ready'}`;
             freeCase.innerHTML = `
-                <div class="daily-emoji">CASE</div>
+                <div class="daily-symbol">CASE</div>
                 <div class="daily-name">Daily Kickoff Case</div>
                 <div class="daily-count">One free opening every day</div>
                 <div class="case-pity ${dailyPity.nextGuaranteed ? 'ready' : ''}">
@@ -1577,19 +1607,25 @@ export class UI {
             grid.appendChild(freeCase);
         }
         const challenges = daily.getChallenges();
+        const completed = challenges.filter(c => c.progress >= c.target).length;
+        const readyRewards = challenges.filter(c => c.progress >= c.target && !c.claimed).reduce((total, c) => total + (Number(c.reward) || 0), 0);
+        const completeCount = document.getElementById('challenge-complete-count');
+        const rewardTotal = document.getElementById('challenge-reward-total');
+        if (completeCount) completeCount.textContent = String(completed);
+        if (rewardTotal) rewardTotal.textContent = String(readyRewards);
         challenges.forEach(c => {
             const pct = Math.min(100, (c.progress / c.target) * 100);
             const done = c.progress >= c.target;
             const card = document.createElement('div');
             card.className = `daily-card ${c.claimed ? 'claimed' : ''} ${done && !c.claimed ? 'ready' : ''}`;
             card.innerHTML = `
-                <div class="daily-emoji">${c.emoji}</div>
+                <div class="daily-symbol">GOAL</div>
                 <div class="daily-name">${c.name}</div>
                 <div class="daily-progress-bar"><div class="daily-progress-fill" style="width:${pct}%"></div></div>
                 <div class="daily-count">${c.progress}/${c.target}</div>
-                <div class="ach-reward">🪙 ${c.reward}</div>
+                <div class="ach-reward"><svg class="ui-icon" aria-hidden="true"><use href="#i-coins"></use></svg>${c.reward}</div>
                 ${done && !c.claimed ? `<button class="btn btn-primary btn-small daily-claim" data-id="${c.id}">Claim</button>` : ''}
-                ${c.claimed ? '<div class="ach-check">✅</div>' : ''}
+                ${c.claimed ? '<div class="daily-complete">COMPLETED</div>' : ''}
             `;
             grid.appendChild(card);
         });

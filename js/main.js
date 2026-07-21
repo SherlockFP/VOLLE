@@ -62,7 +62,6 @@ import { normalizeNetcode } from './experimental-netcode.js';
 import { RuntimeLog } from './runtime-safety.js';
 import { AfkMonitor, RollingNetworkMonitor, ModerationReportQueue } from './release-safety.js';
 import {
-    COSMETIC_ALLOWLISTS,
     migrateCosmeticLoadout,
     normalizeCosmeticLoadout
 } from './cosmetic-customization.js';
@@ -496,28 +495,6 @@ class App {
         this.game.console = this.gameConsole; // game loop can check visibility
 
         this.loop();
-        queueMicrotask(() => this._enterSocialLobby('estate', { autoLock: false }));
-    }
-
-    _renderCosmeticCustomizer(tab) {
-        const panel = document.getElementById('cosmetic-customizer');
-        if (!panel) return;
-        panel.classList.toggle('hidden', tab !== 'inventory');
-        if (tab !== 'inventory') return;
-        const loadout = migrateCosmeticLoadout(this.store.get('cosmeticLoadout'));
-        const options = (values, selected) => values.map(value =>
-            `<option value="${value}" ${value === selected ? 'selected' : ''}>${value}</option>`
-        ).join('');
-        panel.innerHTML = `<h3>Cosmetic Workbench</h3><div class="cosmetic-customizer-grid">
-            <label>Name tag<input id="cosmetic-name-tag" maxlength="24" value="${this._esc(loadout.knife.nameTag)}"></label>
-            <label>Pattern seed<input id="cosmetic-pattern-seed" type="number" min="0" max="999999" value="${loadout.knife.patternSeed}"></label>
-            <label>Wear<input id="cosmetic-wear" type="range" min="0" max="1" step="0.01" value="${loadout.knife.wear}"></label>
-            <label>Charm<select id="cosmetic-charm"><option value="">none</option>${options(COSMETIC_ALLOWLISTS.charms, loadout.knife.charm)}</select></label>
-            ${loadout.knife.stickers.map((sticker, index) => `<label>Sticker ${index + 1}<select id="cosmetic-sticker-${index}"><option value="">none</option>${options(COSMETIC_ALLOWLISTS.stickers, sticker)}</select></label>`).join('')}
-            <label>Ball trail<select id="cosmetic-ball-trail">${options(COSMETIC_ALLOWLISTS.ballTrails, loadout.ballTrail)}</select></label>
-            <label>Goal effect<select id="cosmetic-goal-effect">${options(COSMETIC_ALLOWLISTS.goalEffects, loadout.goalEffect)}</select></label>
-            <label>MVP effect<select id="cosmetic-mvp-effect">${options(COSMETIC_ALLOWLISTS.mvpEffects, loadout.mvpEffect)}</select></label>
-        </div><button class="btn btn-primary cosmetic-customizer-save">Save loadout</button>`;
     }
 
     _getKnifeStyle(id) {
@@ -809,6 +786,11 @@ class App {
         });
         bind('btn-mp-refresh', () => {
             this._refreshLobbyList();
+        });
+        document.addEventListener('keydown', event => {
+            if (event.key !== 'Escape') return;
+            const inspector = document.getElementById('case-inspector');
+            if (!inspector?.classList.contains('hidden')) inspector.classList.add('hidden');
         });
         ['mp-lobby-mode-filter', 'mp-lobby-map-filter', 'mp-lobby-queue-filter', 'mp-lobby-open-filter'].forEach(id => {
             document.getElementById(id)?.addEventListener('change', () => this._refreshLobbyList());
@@ -2200,6 +2182,16 @@ updateCSLobbyInfo();
                     this.ui.showMessage?.('Not enough coins or owned!');
                 }
             }
+            const skillEquip = e.target.closest('.skill-equip');
+            if (skillEquip) {
+                const skillId = skillEquip.dataset.id;
+                const loadout = { ...this.store.get('loadout'), skill: skillId };
+                const equipped = this.store.setLoadout(loadout);
+                if (equipped) this.player.loadout.skill = skillId;
+                this.ui.showMessage?.(equipped ? 'Skill equipped.' : 'Unlock this skill first.');
+                this.ui.renderShop(this.store, 'skills');
+                return;
+            }
             const trialBtn = e.target.closest('.shop-trial');
             if (trialBtn) {
                 const id = trialBtn.dataset.id;
@@ -2340,37 +2332,58 @@ updateCSLobbyInfo();
                 if (tabBtn.dataset.tab === 'live') {
                     void this.store.refreshLiveMarket().then(() => this.ui.renderShop(this.store, 'live'));
                 }
-                this._renderCosmeticCustomizer(tabBtn.dataset.tab);
             }
-            const cosmeticSave = e.target.closest('.cosmetic-customizer-save');
-            if (cosmeticSave) {
-                const current = migrateCosmeticLoadout(this.store.get('cosmeticLoadout'));
-                current.knife.nameTag = document.getElementById('cosmetic-name-tag')?.value || '';
-                current.knife.patternSeed = Number(document.getElementById('cosmetic-pattern-seed')?.value) || 0;
-                current.knife.wear = Number(document.getElementById('cosmetic-wear')?.value) || 0;
-                current.knife.charm = document.getElementById('cosmetic-charm')?.value || null;
-                current.knife.stickers = [0, 1, 2, 3].map(index =>
-                    document.getElementById(`cosmetic-sticker-${index}`)?.value || null
-                );
-                current.ballTrail = document.getElementById('cosmetic-ball-trail')?.value || 'none';
-                current.goalEffect = document.getElementById('cosmetic-goal-effect')?.value || 'none';
-                current.mvpEffect = document.getElementById('cosmetic-mvp-effect')?.value || 'none';
-                const saved = normalizeCosmeticLoadout(current);
-                this.store.set('cosmeticLoadout', saved);
-                if (saved.knife.id === this.player.knifeId) this.player.setKnifeStyle?.(this._getKnifeStyle(saved.knife.id));
-                this.ui.showMessage?.('Cosmetic loadout saved.', 1400);
+            const caseClose = e.target.closest('#case-inspector-close');
+            if (caseClose || (e.target.id === 'case-inspector')) {
+                document.getElementById('case-inspector')?.classList.add('hidden');
                 return;
             }
-            const caseBtn = e.target.closest('.case-open');
-            if (caseBtn) {
-                const box = CASES[caseBtn.dataset.id];
+            const caseSelect = e.target.closest('.case-select');
+            if (caseSelect) {
+                const box = CASES[caseSelect.dataset.id];
+                if (!box) return;
                 const balance = Number(this.store.get('currency')) || 0;
-                let result = await this.store.openCaseRemote(caseBtn.dataset.id);
-                if (!result && !this.store.remoteReady) result = this.store.openCase(caseBtn.dataset.id);
+                const pity = this.store.getCasePityState(box.id);
+                const inspector = document.getElementById('case-inspector');
+                const art = document.getElementById('case-inspector-art');
+                const open = document.getElementById('case-inspector-open');
+                if (art) {
+                    art.src = box.art;
+                    art.alt = `${box.name} crate`;
+                }
+                document.getElementById('case-inspector-title').textContent = box.name;
+                document.getElementById('case-inspector-meta').textContent = 'Confirm to purchase, then the case reel starts.';
+                document.getElementById('case-inspector-balance').textContent = `${balance} credits`;
+                document.getElementById('case-inspector-pity').textContent = pity.nextGuaranteed
+                    ? 'Next open'
+                    : `${pity.count}/${pity.threshold}`;
+                if (open) {
+                    open.dataset.id = box.id;
+                    open.disabled = false;
+                    open.lastChild.textContent = `Open for ${box.price} credits`;
+                }
+                inspector?.classList.remove('hidden');
+                open?.focus();
+                return;
+            }
+            const caseOpen = e.target.closest('#case-inspector-open');
+            if (caseOpen) {
+                const box = CASES[caseOpen.dataset.id];
+                const balance = Number(this.store.get('currency')) || 0;
+                if (!box || caseOpen.disabled) return;
+                caseOpen.disabled = true;
+                caseOpen.classList.add('is-opening');
+                let result = await this.store.openCaseRemote(box.id);
+                if (!result && !this.store.remoteReady) result = this.store.openCase(box.id);
+                caseOpen.disabled = false;
+                caseOpen.classList.remove('is-opening');
                 this.ui.showMessage?.(result
                     ? `${result.duplicate ? `Duplicate +${result.refund} coins` : 'Unlocked'}: ${result.reward.name}`
-                    : !box ? 'Case unavailable.' : `Need ${box.price} coins - Balance ${balance}`);
-                if (result) this.ui.showCaseReel(box, result);
+                    : `Need ${box.price} coins - Balance ${balance}`);
+                if (result) {
+                    document.getElementById('case-inspector')?.classList.add('hidden');
+                    this.ui.showCaseReel(box, result);
+                }
                 this.ui.renderShop(this.store, 'cases');
                 this.refreshMetaStats();
                 return;
@@ -4216,7 +4229,7 @@ updateCarousel() {
     _setupClientNetHandlers() {
         this._setupReconnectUI();
         this.network.onKicked = (reason) => {
-            this._exitToMenu(reason === 'password' ? '❌ Wrong lobby password' : '❌ Kicked from lobby');
+            this._exitToMenu(reason === 'password' ? 'Wrong lobby password.' : 'You were kicked from the lobby.');
         };
         this.network.onTeamChange = (pName, team) => {
             this.game.switchPlayerTeam?.(pName, team);
@@ -4434,14 +4447,37 @@ updateCarousel() {
     }
 
     async _startQuickPlay() {
-        const lobbies = await this._lobbyApi('/api/lobbies', { method: 'GET' });
-        const match = pickQuickLobby(lobbies, { queue: 'casual', openOnly: true });
-        if (match) {
-            await this._quickJoin(match.code);
-            return;
+        const button = document.getElementById('btn-mp-quick');
+        const queue = document.getElementById('quick-play-queue')?.value || 'casual';
+        const modeId = document.getElementById('quick-play-mode')?.value || 'all';
+        const mapId = document.getElementById('quick-play-map')?.value || 'all';
+        const mode = modeId === 'all' ? 'all' : GAME_MODES[modeId]?.name || modeId;
+        const map = mapId === 'all' ? '' : Arena.MAPS[mapId]?.name || mapId;
+        if (button) {
+            button.disabled = true;
+            button.setAttribute('aria-busy', 'true');
         }
-        this.ui.showMessage?.('No casual lobby found - creating one.', 1800);
-        this._doHostGame();
+        try {
+            const lobbies = await this._lobbyApi('/api/lobbies', { method: 'GET' });
+            const match = pickQuickLobby(lobbies, { queue, mode, map, openOnly: true });
+            if (match) {
+                await this._quickJoin(match.code);
+                return;
+            }
+            const hostedMode = queue === 'ranked' ? 'competitive' : modeId;
+            if (hostedMode !== 'all' && GAME_MODES[hostedMode]) this.game.selectMode(hostedMode);
+            if (mapId !== 'all' && Arena.MAPS[mapId] && !Arena.MAPS[mapId].hiddenFromRotation) {
+                this.game.selectMap(mapId);
+            }
+            this._rankedHosting = queue === 'ranked';
+            this.ui.showMessage?.(`No matching ${queue} lobby - creating one.`, 1800);
+            await this._doHostGame();
+        } finally {
+            if (button) {
+                button.disabled = false;
+                button.removeAttribute('aria-busy');
+            }
+        }
     }
 
     _esc(s) { return String(s).replace(/[<>&"']/g, m => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[m])); }
@@ -5010,6 +5046,13 @@ updateCarousel() {
         if (document.hidden) {
             this.game.invokeRemoteSnapshots(dt);
             this.game.invokeBallSmoothing?.(dt);
+            const advancesPlayer = this.game.state === STATES.PLAYING
+                || this.game.state === STATES.ROUND_END
+                || this.game.state === STATES.COUNTDOWN
+                || this.game.state === STATES.CELEBRATION;
+            if (advancesPlayer && !Spectator.active && !this.ui.isTeamPopupOpen?.()) {
+                this.player.update(dt);
+            }
         }
         // Process attack queue (bg tab hidden icin — main loop calismaz)
         this._bgProcessAttackQueue();

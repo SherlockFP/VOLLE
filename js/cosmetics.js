@@ -29,6 +29,7 @@ export const KNIVES = Object.freeze({
 export const CASES = Object.freeze({
     kickoff: Object.freeze({
         id: 'kickoff', name: 'Kickoff Case', price: 120,
+        art: 'assets/generated/cases/kickoff-case.webp',
         drops: Object.freeze([
             { id: 'tide', weight: 28 }, { id: 'flare', weight: 28 },
             { id: 'prism', weight: 16 }, { id: 'sherlock', weight: 3 },
@@ -40,6 +41,7 @@ export const CASES = Object.freeze({
     }),
     chroma: Object.freeze({
         id: 'chroma', name: 'Chroma Case', price: 180,
+        art: 'assets/generated/cases/chroma-case.webp',
         drops: Object.freeze([
             { id: 'tide', weight: 22 }, { id: 'flare', weight: 22 }, { id: 'prism', weight: 17 },
             { id: 'crimson_web', weight: 6 }, { id: 'doppler', weight: 2 },
@@ -52,6 +54,7 @@ export const CASES = Object.freeze({
     }),
     arsenal: Object.freeze({
         id: 'arsenal', name: 'Arsenal Case', price: 240,
+        art: 'assets/generated/cases/arsenal-case.webp',
         drops: Object.freeze([
             { id: 'prism', weight: 32 }, { id: 'crimson_web', weight: 25 }, { id: 'fade', weight: 10 },
             { id: 'doppler', weight: 5 }, { id: 'sherlock', weight: 3 },
@@ -62,6 +65,7 @@ export const CASES = Object.freeze({
     }),
     elemental: Object.freeze({
         id: 'elemental', name: 'Elemental Case', price: 190,
+        art: 'assets/generated/cases/elemental-case.webp',
         drops: Object.freeze([
             { id: 'magma', type: 'ball', rarity: 'legendary', weight: 4 },
             { id: 'ocean', type: 'ball', rarity: 'epic', weight: 12 },
@@ -75,6 +79,7 @@ export const CASES = Object.freeze({
     }),
     companions: Object.freeze({
         id: 'companions', name: 'Companion Case', price: 210,
+        art: 'assets/generated/cases/companions-case.webp',
         drops: Object.freeze([
             { id: 'pet_slime', type: 'cosmetic', weight: 24 },
             { id: 'pet_snowman', type: 'cosmetic', weight: 20 },
@@ -89,6 +94,7 @@ export const CASES = Object.freeze({
     }),
     mythic: Object.freeze({
         id: 'mythic', name: 'Mythic Arena Case', price: 280,
+        art: 'assets/generated/cases/mythic-case.webp',
         drops: Object.freeze([
             { id: 'aurora', weight: 8 }, { id: 'reactor', weight: 8 },
             { id: 'portal', type: 'ball', rarity: 'legendary', weight: 10 },

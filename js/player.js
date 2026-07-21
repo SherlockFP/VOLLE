@@ -1130,6 +1130,9 @@ export class Player {
         this.alive = false;
         this.deathTimer = 2.0;
         this.hp = 0;
+        this.velocity.set(0, 0, 0);
+        this.verticalVel = 0;
+        this._clearInputState();
         this.setHandVisible(false); // ponytail: ölünce hand gizle — spectate temiz
     }
 

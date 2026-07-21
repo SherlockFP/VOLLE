@@ -315,23 +315,31 @@
     <!-- ===== MULTIPLAYER MENU (Create / Join + Lobby Browser) ===== -->
     <div id="multiplayer-menu" class="screen hidden">
         <div class="mp-layout">
-            <!-- LEFT: Actions -->
             <div class="mp-left">
-                <h1 class="mp-title">🌐 Multiplayer</h1>
-                <p class="mp-subtitle">Play with friends — P2P</p>
-                <button id="btn-mp-create" class="btn btn-primary mp-btn">🖥️ Create Lobby</button>
-                <p class="mp-hint">You host the room. Share the code with friends.</p>
-                <button id="btn-mp-join" class="btn btn-secondary mp-btn">🔗 Join by Code</button>
-                <p class="mp-hint">Enter a friend's room code to connect.</p>
-                <button id="btn-mp-solo" class="btn btn-secondary mp-btn">🤖 Solo vs Bots</button>
-                <button id="btn-mp-quick" class="btn btn-primary mp-btn">Quick Play</button>
-                <button id="btn-mp-back" class="btn btn-secondary mp-btn">← Back to Menu</button>
+                <header class="mp-command-header">
+                    <span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-globe"></use></svg></span>
+                    <div><span class="shell-kicker">MATCH COMMAND</span><h1 class="mp-title">Multiplayer</h1><p class="mp-subtitle">Build a route, then enter the arena.</p></div>
+                </header>
+                <section class="quick-play-builder" aria-labelledby="quick-play-title">
+                    <div class="quick-play-heading"><div><span class="shell-kicker">FAST DEPLOY</span><h2 id="quick-play-title">Quick Play</h2></div><span class="quick-play-status">LIVE</span></div>
+                    <div class="quick-play-fields">
+                        <label for="quick-play-queue"><span>Queue</span><select id="quick-play-queue"><option value="casual">Casual</option><option value="ranked">Ranked</option></select></label>
+                        <label for="quick-play-mode"><span>Mode</span><select id="quick-play-mode"><option value="all">Any mode</option><option value="classic">Classic</option><option value="speedball">Speedball</option><option value="rally_duel">1V1 Rally Duel</option><option value="competitive">Competitive</option></select></label>
+                        <label for="quick-play-map"><span>Map</span><select id="quick-play-map"><option value="all">Any map</option><option value="beach">Beach Arena</option><option value="industrial">Factory</option><option value="neon">Neon City</option><option value="circuit_dome">Circuit Dome</option></select></label>
+                    </div>
+                    <button id="btn-mp-quick" class="btn btn-primary mp-btn"><svg class="ui-icon" aria-hidden="true"><use href="#i-play"></use></svg>Find Match</button>
+                </section>
+                <div class="mp-secondary-actions">
+                    <button id="btn-mp-create" class="btn btn-secondary mp-btn"><svg class="ui-icon" aria-hidden="true"><use href="#i-monitor"></use></svg>Create Lobby</button>
+                    <button id="btn-mp-join" class="btn btn-secondary mp-btn"><svg class="ui-icon" aria-hidden="true"><use href="#i-link"></use></svg>Join by Code</button>
+                    <button id="btn-mp-solo" class="btn btn-secondary mp-btn"><svg class="ui-icon" aria-hidden="true"><use href="#i-user"></use></svg>Solo vs Bots</button>
+                </div>
+                <button id="btn-mp-back" class="btn btn-secondary mp-btn mp-back"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back to Menu</button>
             </div>
-            <!-- RIGHT: Lobby Browser -->
             <div class="mp-right">
                 <div class="mp-lobby-header">
-                    <h2>🖥️ Open Lobbies</h2>
-                    <button id="btn-mp-refresh" class="btn btn-small" title="Refresh">↻</button>
+                    <div><span class="shell-kicker">SERVER BOARD</span><h2>Open Lobbies</h2></div>
+                    <button id="btn-mp-refresh" class="btn btn-small" type="button" aria-label="Refresh lobby list"><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg></button>
                 </div>
                 <div class="mp-lobby-filters" aria-label="Lobby filters">
                     <label>Mode <select id="mp-lobby-mode-filter"><option value="all">All modes</option></select></label>
@@ -377,7 +385,7 @@
         <div class="cs-body">
             <!-- RED TEAM -->
             <div class="cs-team-col red">
-                <div class="cs-team-header red">🔴 RED</div>
+                <div class="cs-team-header red">RED TEAM</div>
                 <div class="cs-team-players" id="cs-team-red"></div>
                 <div class="cs-team-actions">
                     <button id="btn-team-red" class="cs-btn-team red">Join Red</button>
@@ -391,7 +399,7 @@
                 <div class="cs-section cs-lobby-host-controls">
                     <div class="cs-section-title">MAP</div>
                     <div class="map-carousel">
-                        <button class="carousel-btn carousel-prev" id="carousel-prev">◀</button>
+                        <button class="carousel-btn carousel-prev" id="carousel-prev" type="button" aria-label="Previous map"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg></button>
                         <div class="carousel-card" id="carousel-card">
                             <div class="carousel-gradient" id="carousel-gradient"></div>
                             <canvas id="lobby-map-canvas" width="520" height="240" aria-label="Selected map preview"></canvas>
@@ -403,7 +411,7 @@
                                 </div>
                             </div>
                         </div>
-                        <button class="carousel-btn carousel-next" id="carousel-next">▶</button>
+                        <button class="carousel-btn carousel-next" id="carousel-next" type="button" aria-label="Next map"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-right"></use></svg></button>
                     </div>
                 </div>
 
@@ -411,15 +419,15 @@
                 <div class="cs-section cs-lobby-host-controls">
                     <div class="cs-section-title">MODE</div>
     <div class="cs-mode-row" id="mode-select" role="group" aria-label="Game mode">
-        <button type="button" class="cs-mode-btn mode-btn selected" data-mode="classic" aria-pressed="true">🏐 Classic</button>
-        <button type="button" class="cs-mode-btn mode-btn" data-mode="speedball" aria-pressed="false">⚡ Speed</button>
-        <button type="button" class="cs-mode-btn mode-btn" data-mode="lowgrav" aria-pressed="false">🌙 Low G</button>
-        <button type="button" class="cs-mode-btn mode-btn" data-mode="instagib" aria-pressed="false">💀 Insta</button>
-        <button type="button" class="cs-mode-btn mode-btn" data-mode="tanky" aria-pressed="false">🛡️ Tanky</button>
-        <button type="button" class="cs-mode-btn mode-btn" data-mode="multiball" aria-pressed="false">🏐🏐 Multi</button>
-        <button type="button" class="cs-mode-btn mode-btn" data-mode="freeze" aria-pressed="false">🧊 Freeze</button>
-        <button type="button" class="cs-mode-btn mode-btn" data-mode="hotpotato" aria-pressed="false">🥔 Potato</button>
-        <button type="button" class="cs-mode-btn mode-btn" data-mode="competitive" aria-pressed="false">🏆 Competitive</button>
+        <button type="button" class="cs-mode-btn mode-btn selected" data-mode="classic" aria-pressed="true">Classic</button>
+        <button type="button" class="cs-mode-btn mode-btn" data-mode="speedball" aria-pressed="false">Speed</button>
+        <button type="button" class="cs-mode-btn mode-btn" data-mode="lowgrav" aria-pressed="false">Low G</button>
+        <button type="button" class="cs-mode-btn mode-btn" data-mode="instagib" aria-pressed="false">Insta</button>
+        <button type="button" class="cs-mode-btn mode-btn" data-mode="tanky" aria-pressed="false">Tanky</button>
+        <button type="button" class="cs-mode-btn mode-btn" data-mode="multiball" aria-pressed="false">Multi</button>
+        <button type="button" class="cs-mode-btn mode-btn" data-mode="freeze" aria-pressed="false">Freeze</button>
+        <button type="button" class="cs-mode-btn mode-btn" data-mode="hotpotato" aria-pressed="false">Potato</button>
+        <button type="button" class="cs-mode-btn mode-btn" data-mode="competitive" aria-pressed="false">Competitive</button>
         <button type="button" class="cs-mode-btn mode-btn rally-duel-mode" data-mode="rally_duel" aria-pressed="false" title="1V1 - normalized stats - no powers">1V1 Rally Duel</button>
         <button type="button" class="cs-mode-btn mode-btn" data-mode="pinball" aria-pressed="false">PB Pinball</button>
                     </div>
@@ -428,7 +436,7 @@
 
                 <!-- Settings button (opens unified modal) -->
                 <div class="cs-section cs-section-settings cs-lobby-host-controls">
-                    <button id="btn-lobby-settings" class="cs-lobby-settings-btn">⚙ Settings</button>
+                    <button id="btn-lobby-settings" class="cs-lobby-settings-btn"><svg class="ui-icon" aria-hidden="true"><use href="#i-settings"></use></svg>Settings</button>
                 </div>
 
                 <!-- Chat (always visible in lobby) -->
@@ -437,7 +445,7 @@
                     <div class="lobby-chat-log" id="lobby-chat-log"></div>
                     <div class="lobby-chat-input-row">
                         <input type="text" id="lobby-chat-input" maxlength="80" placeholder="Type a message…" autocomplete="off">
-                        <button id="lobby-chat-send" class="cs-btn-chat-send">➤</button>
+                        <button id="lobby-chat-send" class="cs-btn-chat-send" type="button" aria-label="Send lobby message"><svg class="ui-icon" aria-hidden="true"><use href="#i-play"></use></svg></button>
                     </div>
                 </div>
 
@@ -445,7 +453,7 @@
 
             <!-- BLUE TEAM -->
             <div class="cs-team-col blue">
-                <div class="cs-team-header blue">🔵 BLUE</div>
+                <div class="cs-team-header blue">BLUE TEAM</div>
                 <div class="cs-team-players" id="cs-team-blue"></div>
                 <div class="cs-team-actions">
                     <button id="btn-team-blue" class="cs-btn-team blue">Join Blue</button>
@@ -457,11 +465,11 @@
         <!-- Bottom actions bar -->
         <div class="cs-bottom">
             <div class="cs-bottom-left">
-                <button id="btn-remove-bot" class="cs-btn-action" title="Remove Bot">−🤖</button>
-                <button id="btn-random-map" class="cs-btn-action" title="Random Map">🎲</button>
-                <button id="btn-lobby-lock" class="cs-btn-action" title="Set lobby password (host)">🔓</button>
+                <button id="btn-remove-bot" class="cs-btn-action" title="Remove Bot">- BOT</button>
+                <button id="btn-random-map" class="cs-btn-action" title="Random Map"><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg></button>
+                <button id="btn-lobby-lock" class="cs-btn-action" title="Set lobby password (host)">LOCK</button>
             </div>
-            <button id="btn-start-game" class="cs-btn-start">▶ START GAME</button>
+            <button id="btn-start-game" class="cs-btn-start"><svg class="ui-icon" aria-hidden="true"><use href="#i-play"></use></svg>START GAME</button>
             <div class="cs-bottom-right">
                 <button id="btn-party-ready" class="cs-btn-ready" type="button" aria-pressed="false">READY</button>
                 <span class="cs-bot-count" id="cs-bot-count">Bots: 4</span>
@@ -682,18 +690,21 @@
 
     <!-- ===== CHARACTER SELECT ===== -->
     <div id="character-screen" class="screen hidden">
-        <div class="panel wide-panel">
-            <h1>🦸 Character & Loadout</h1>
-            <h2>Pick your fighter, skill, and runes</h2>
-
-            <div class="char-grid" id="char-grid"></div>
-
-            <section class="loadout-section"><header><span class="shell-kicker">Q ABILITY</span><h3>Active Skill</h3><p>One decisive move. Cooldowns are tuned for fair rallies.</p></header><div class="skill-grid" id="skill-grid"></div></section>
-            <section class="loadout-section"><header><span class="shell-kicker">ONE SLOT</span><h3>Rune</h3><p>Choose one passive perk for a clear playstyle.</p></header><div class="rune-grid" id="rune-grid"></div></section>
-
-            <div class="btn-row">
+        <div class="panel wide-panel shell-panel hero-shell">
+            <header class="shell-header">
+                <div class="shell-title"><span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-user"></use></svg></span><div><span class="shell-kicker">HERO BAY</span><h1>Heroes</h1><p>Build a readable role, ability, and rune package.</p></div></div>
+                <div class="hero-loadout-summary" aria-label="Current loadout">
+                    <span><small>Hero</small><strong id="hero-selected-name">Rally</strong></span>
+                    <span><small>Ability</small><strong id="hero-selected-skill">Slow Ball</strong></span>
+                    <span><small>Rune</small><strong id="hero-selected-rune">Deflect Power</strong></span>
+                </div>
+            </header>
+            <section class="loadout-section hero-roster"><header><span class="shell-kicker">ROSTER</span><h2>Choose Your Hero</h2><p>Compare health, speed, deflect power, and mastery at a glance.</p></header><div class="char-grid" id="char-grid"></div></section>
+            <section class="loadout-section"><header><span class="shell-kicker">Q ABILITY</span><h2>Active Skill</h2><p>One decisive move. Cooldowns are tuned for fair rallies.</p></header><div class="skill-grid" id="skill-grid"></div></section>
+            <section class="loadout-section"><header><span class="shell-kicker">ONE SLOT</span><h2>Rune</h2><p>Choose one passive perk for a clear playstyle.</p></header><div class="rune-grid" id="rune-grid"></div></section>
+            <div class="hero-actions">
+                <button id="btn-char-back" class="btn btn-secondary"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back</button>
                 <button id="btn-char-save" class="btn btn-primary">Save Loadout</button>
-                <button id="btn-char-back" class="btn btn-secondary">← Back</button>
             </div>
         </div>
     </div>
@@ -740,7 +751,6 @@
                         <span id="shop-catalog-count" class="shop-catalog-count" role="status" aria-live="polite">Loading items</span>
                     </header>
                     <div class="shop-grid" id="shop-grid" role="tabpanel" aria-labelledby="shop-tab-chars" tabindex="0"></div>
-                    <section id="cosmetic-customizer" class="cosmetic-customizer hidden" aria-live="polite"></section>
                 </section>
             </main>
             <footer class="shop-footer">
@@ -872,11 +882,17 @@
 
     <!-- ===== ACHIEVEMENTS ===== -->
     <div id="achievements-screen" class="screen hidden">
-        <div class="panel wide-panel">
-            <h1>🏅 Achievements</h1>
-            <h2>Unlock rewards by playing</h2>
+        <div class="panel wide-panel shell-panel progression-shell achievement-shell">
+            <header class="shell-header">
+                <div class="shell-title"><span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-trophy"></use></svg></span><div><span class="shell-kicker">LEGACY BOARD</span><h1>Achievements</h1><p>Permanent milestones earned across every arena.</p></div></div>
+                <div class="achievement-summary" aria-label="Achievement progress">
+                    <span><strong id="achievement-unlocked-count">0</strong><small>unlocked</small></span>
+                    <span><strong id="achievement-total-count">0</strong><small>total</small></span>
+                    <span><strong id="achievement-reward-total">0</strong><small>credits earned</small></span>
+                </div>
+            </header>
             <div class="achievement-grid" id="achievement-grid"></div>
-            <button id="btn-achievements-back" class="btn btn-secondary" style="margin-top: 20px;">← Back</button>
+            <button id="btn-achievements-back" class="btn btn-secondary shell-back"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back to menu</button>
         </div>
     </div>
 
@@ -885,7 +901,7 @@
         <div class="panel wide-panel shell-panel progression-shell">
             <header class="shell-header">
                 <div class="shell-title"><span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-target"></use></svg></span><div><span class="shell-kicker">DAILY CONTRACTS</span><h1>Challenges</h1><p>Three focused goals. New set every 24 hours.</p></div></div>
-                <span class="challenge-reset">LOCAL RESET</span>
+                <div class="challenge-summary"><span><strong id="challenge-complete-count">0</strong><small>complete</small></span><span><strong id="challenge-reward-total">0</strong><small>credits ready</small></span><span class="challenge-reset">LOCAL RESET</span></div>
             </header>
             <div class="daily-grid" id="daily-grid"></div>
             <button id="btn-daily-back" class="btn btn-secondary shell-back"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back to menu</button>
@@ -1274,6 +1290,19 @@
                     <option value="free-roam">Free-roam</option>
                 </select>
             </label>
+        </div>
+    </div>
+    <div id="case-inspector" class="case-inspector hidden" role="dialog" aria-modal="true" aria-labelledby="case-inspector-title">
+        <div class="case-inspector-card">
+            <button id="case-inspector-close" class="case-inspector-close" type="button" aria-label="Close case preview"><svg class="ui-icon" aria-hidden="true"><use href="#i-close"></use></svg></button>
+            <div class="case-inspector-visual"><img id="case-inspector-art" src="assets/generated/cases/kickoff-case.webp" alt=""></div>
+            <div class="case-inspector-copy">
+                <span class="shell-kicker">CASE SIMULATOR</span>
+                <h2 id="case-inspector-title">Kickoff Case</h2>
+                <p id="case-inspector-meta">Purchase starts only when you confirm.</p>
+                <div class="case-inspector-stats"><span><small>Balance</small><strong id="case-inspector-balance">0 credits</strong></span><span><small>Epic+ protection</small><strong id="case-inspector-pity">0/10</strong></span></div>
+                <button id="case-inspector-open" class="btn btn-primary" type="button" data-id="kickoff"><svg class="ui-icon" aria-hidden="true"><use href="#i-play"></use></svg>Open for 120 credits</button>
+            </div>
         </div>
     </div>
     <div id="case-reel" class="case-reel hidden" role="dialog" aria-modal="true" aria-label="Case opening"><div class="case-reel-card"><div class="case-reel-top"><span>WARRBALL CASE OPENING</span><button id="case-reel-skip" type="button">SKIP</button></div><div class="case-reel-window"><div id="case-reel-track" class="case-reel-track"></div></div><div id="case-reel-result" class="case-reel-result" aria-live="polite"></div><div id="case-reward-preview" class="case-reward-preview" aria-label="3D reward preview"><i></i></div></div></div>

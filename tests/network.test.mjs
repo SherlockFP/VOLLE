@@ -60,6 +60,22 @@ test('stale position packets never reach the game', () => {
     assert.equal(updates, 2);
 });
 
+test('client accepts kick packets only from its host transport', () => {
+    const network = new Network({});
+    network.playerName = 'Target';
+    network.hostConn = { peer: 'host-peer' };
+    let kicked = 0;
+    let disconnected = 0;
+    network.onKicked = () => kicked++;
+    network.disconnect = () => disconnected++;
+
+    network.handleMessage({ type: 'kick', name: 'Target' }, 'mesh-peer');
+    assert.deepEqual({ kicked, disconnected }, { kicked: 0, disconnected: 0 });
+
+    network.handleMessage({ type: 'kick', name: 'Target' }, 'host-peer');
+    assert.deepEqual({ kicked, disconnected }, { kicked: 1, disconnected: 1 });
+});
+
 test('reconnect backoff is bounded', () => {
     assert.deepEqual([1, 2, 3, 4].map(reconnectDelay), [500, 1000, 2000, 2000]);
 });

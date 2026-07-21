@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const source = await readFile(new URL('../js/ball.js', import.meta.url), 'utf8');
+const gameSource = await readFile(new URL('../js/game.js', import.meta.url), 'utf8');
 const testableSource = source
     .replace("import * as THREE from 'three';", 'const THREE = {};')
     .replace("import { ObjectPool } from './objectPool.js';", 'class ObjectPool {}');
@@ -128,9 +129,10 @@ test('turn rate is frame-rate independent and grows per deflection', () => {
     const halfTick = steeringTurnAlpha(1 / 132, 0);
     const compounded = 1 - (1 - halfTick) ** 2;
 
-    assert.ok(Math.abs(oneTick - 0.30) < 1e-12);
+    assert.ok(Math.abs(oneTick - 0.09) < 1e-12);
     assert.ok(Math.abs(compounded - oneTick) < 1e-12);
-    assert.ok(Math.abs(steeringTurnAlpha(1 / 66, 3) - (0.30 + 3 * 0.018)) < 1e-12);
+    assert.ok(Math.abs(steeringTurnAlpha(1 / 66, 3) - (0.09 + 3 * 0.006)) < 1e-12);
+    assert.equal(steeringTurnAlpha(1 / 66, 999), 0.26);
 });
 
 test('aim routes can target side, back, and above-body positions', () => {
@@ -151,8 +153,29 @@ test('homing gains strength near its target without exceeding its turn cap', () 
     const close = proximityHomingTurnRate(1, 2);
 
     assert.ok(close > far);
-    assert.ok(close <= 7.5);
-    assert.equal(proximityHomingTurnRate(0, 999), 7.5);
+    assert.ok(close <= 4.8);
+    assert.equal(proximityHomingTurnRate(0, 999), 4.8);
+});
+
+test('steering measures distance before normalization and clears route offsets for torso rescue', () => {
+    const method = source.slice(
+        source.indexOf('    _updatePlayerSteering(dt, targetPos) {'),
+        source.indexOf('    _clampSpeed() {')
+    );
+    assert.ok(method.indexOf('const targetDistance = desired.length();') >= 0);
+    assert.ok(method.indexOf('const targetDistance = desired.length();') < method.indexOf('desired.normalize();'));
+    assert.match(method, /this\._targetRouteOffset = \{ x: 0, y: 0, z: 0 \};/);
+    assert.match(method, /const rescueTurn = hasOverstayed \|\| isCircling/);
+});
+
+test('aim targeting has no closest-enemy fallback outside the aim cone', () => {
+    const method = gameSource.slice(
+        gameSource.indexOf('    getAimedEnemy(fromPos, aimDir, team) {'),
+        gameSource.indexOf('    // --- MAIN LOOP ---')
+    );
+    assert.match(method, /let best = null, bestDot = 0\.5/);
+    assert.match(method, /return best;/);
+    assert.doesNotMatch(method, /enemies\.reduce/);
 });
 
 test('corner recovery bends a reflected ball back toward its target', () => {

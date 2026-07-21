@@ -12,15 +12,15 @@ const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
 export function steeringTurnAlpha(dt, deflections = 0) {
     if (!Number.isFinite(dt) || dt <= 0) return 0;
-    const tickTurn = clamp(0.30 + Math.max(0, deflections) * 0.018, 0, 0.9);
+    const tickTurn = clamp(0.09 + Math.max(0, deflections) * 0.006, 0, 0.26);
     return 1 - Math.pow(1 - tickTurn, dt / STEERING_TICK);
 }
 
 export function proximityHomingTurnRate(distance, homingAge = 0) {
     const safeDistance = Math.max(0, Number.isFinite(distance) ? distance : 9);
     const proximity = 1 - clamp(safeDistance / 9, 0, 1);
-    const ageBonus = clamp(Number.isFinite(homingAge) ? homingAge * 0.12 : 0, 0, 0.85);
-    return clamp(3.5 + proximity * 3.4 + ageBonus, 3.5, 7.5);
+    const ageBonus = clamp(Number.isFinite(homingAge) ? homingAge * 0.08 : 0, 0, 0.6);
+    return clamp(2 + proximity * 2.2 + ageBonus, 2, 4.8);
 }
 
 export function createAimRouteOffset(origin, target, aimDirection) {
@@ -527,7 +527,9 @@ export class Ball {
                         : 1;
                     this._homingAge = (this._homingAge || 0) + dt;
                     // ponytail: softer steer at close range — prevents aggressive snap
-                    const steer = Math.min(proximityHomingTurnRate(dist, this._homingAge) * speedFactor * dt, 1);
+                    const steer = 1 - Math.exp(
+                        -proximityHomingTurnRate(dist, this._homingAge) * speedFactor * dt
+                    );
                     const newDir = velDir.lerp(desired, steer).normalize();
                     this.velocity.copy(newDir.multiplyScalar(this.currentSpeed));
                 }
@@ -564,7 +566,9 @@ export class Ball {
                         ? 1 + (this.currentSpeed - 500) / 400
                         : 1;
                     this._homingAge = (this._homingAge || 0) + dt;
-                    const steer = Math.min(proximityHomingTurnRate(dist, this._homingAge) * speedFactor * dt, 1);
+                    const steer = 1 - Math.exp(
+                        -proximityHomingTurnRate(dist, this._homingAge) * speedFactor * dt
+                    );
                     const newDir = velDir.lerp(desired, steer).normalize();
                     this.velocity.copy(newDir.multiplyScalar(this.currentSpeed));
                 }
@@ -607,17 +611,21 @@ export class Ball {
         if ((this.state === 'rally' || this.state === 'homing') && this.targetPlayer) {
             const tPos = this._getTargetPos();
             const proxDist = this.position.distanceTo(tPos);
+            const toTarget = new THREE.Vector3().subVectors(tPos, this.position);
+            const approachDot = this.velocity.lengthSq() > 0.001 && toTarget.lengthSq() > 0.001
+                ? this.velocity.clone().normalize().dot(toTarget.normalize())
+                : 0;
             // Wider proximity range for fast balls — prevents orbiting at high speed
             const effectiveProxRange = this._proximityRange + Math.min(this.currentSpeed * 0.002, 1.5);
             if (proxDist < effectiveProxRange && proxDist > this.hitRange) {
                 this._proximityTimer += dt;
                 // Faster trigger at high speed — 0.2s instead of 0.4s
-                const threshold = this.currentSpeed > 100 ? 0.2 : this._proximityThreshold;
-                if (this._proximityTimer >= threshold) {
+                const threshold = clamp(0.42 - this.currentSpeed * 0.0024, 0.18, 0.38);
+                if (this._proximityTimer >= threshold && approachDot > -0.15) {
                     this._forceHit = true;
                     this._proximityTimer = 0;
                 }
-            } else if (proxDist <= this.hitRange && this.currentSpeed > 80) {
+            } else if (proxDist <= this.hitRange && this.currentSpeed > 80 && approachDot > -0.15) {
                 // Ball is within hit range and moving fast → force hit immediately (tunneling fix)
                 this._forceHit = true;
             } else {
@@ -851,7 +859,7 @@ export class Ball {
         legs:    { y: -1.35, label: 'LEGS' }
     };
 
-    _getTargetPos() {
+    _getTargetPos(includeRouteOffset = true) {
         if (!this.targetPlayer) return this.position.clone();
         const base = typeof this.targetPlayer.getPosition === 'function'
             ? this.targetPlayer.getPosition()
@@ -864,7 +872,7 @@ export class Ball {
         if (usesGroundPosition) basePos.y += 0.65;
         const zone = Ball.BODY_ZONES[this.bodyZone] || Ball.BODY_ZONES.chest;
         basePos.y = Math.max(0.35, basePos.y + zone.y);
-        if (this._targetRouteOffset) {
+        if (includeRouteOffset && this._targetRouteOffset) {
             basePos.x += this._targetRouteOffset.x;
             basePos.y += this._targetRouteOffset.y;
             basePos.z += this._targetRouteOffset.z;
@@ -916,39 +924,58 @@ export class Ball {
         const oldAge = this._steeringAge;
         const steeringDt = steeringActiveDt(oldAge, dt);
         this._steeringAge += Number.isFinite(dt) && dt > 0 ? dt : 0;
+        if (this._steeringPhase === 'waypoint'
+            && hasCrossedTargetPlane(this.position, targetPos, this._steeringPlaneNormal)) {
+            this._steeringPhase = 'torso';
+            this._steeringWaypoint = null;
+            this._steeringPlaneNormal = null;
+            this._targetRouteOffset = { x: 0, y: 0, z: 0 };
+            targetPos = this._getTargetPos(false);
+        }
         const sampledVelocity = sampleBoundedVelocity(this._steeringTargetSample, targetPos, dt);
         const filteredVelocity = smoothSampledVelocity(this._steeringTargetVelocity, sampledVelocity, dt);
         this._steeringTargetVelocity = filteredVelocity;
         this._steeringTargetSample.copy(targetPos);
         if (steeringDt <= 0) return 0;
 
-        if (this._steeringPhase === 'waypoint'
-            && hasCrossedTargetPlane(this.position, targetPos, this._steeringPlaneNormal)) {
-            this._steeringPhase = 'torso';
-            this._steeringWaypoint = null;
-        }
         const target = this._steeringPhase === 'waypoint'
             ? this._steeringWaypoint
             : predictLeadTarget(targetPos, this._steeringTargetVelocity, this.position, this.currentSpeed);
         const desired = new THREE.Vector3(target.x, target.y, target.z).sub(this.position);
-        if (desired.lengthSq() < 0.000001) return steeringDt;
+        const targetDistance = desired.length();
+        if (targetDistance < 0.001) return steeringDt;
         desired.normalize();
         const velocityLength = this.velocity.length();
         const current = velocityLength > 0.001
             ? this.velocity.clone().multiplyScalar(1 / velocityLength)
             : this._steeringInitialDir.clone();
-        const targetDistance = desired.length();
+        const torsoPos = this._getTargetPos(false);
+        const toTorso = new THREE.Vector3().subVectors(torsoPos, this.position);
+        const torsoDistance = toTorso.length();
+        const torsoDirection = torsoDistance > 0.001 ? toTorso.normalize() : desired;
         const hasOverstayed = this._steeringAge > 1.15;
-        const isCircling = targetDistance < 7 && current.dot(desired.clone().normalize()) < 0.2;
+        const rescueRange = clamp(this.currentSpeed * 0.055, 3.5, 6);
+        const isCircling = torsoDistance < rescueRange && current.dot(torsoDirection) < 0.15;
         if (hasOverstayed || isCircling) {
             this._steeringPhase = 'torso';
             this._steeringWaypoint = null;
+            this._steeringPlaneNormal = null;
+            this._targetRouteOffset = { x: 0, y: 0, z: 0 };
         }
         const direct = hasOverstayed || isCircling
-            ? new THREE.Vector3().subVectors(targetPos, this.position).normalize()
-            : desired.normalize();
-        const proximityTurn = 1 - Math.exp(-Math.min(8, proximityHomingTurnRate(this.position.distanceTo(targetPos), this._steeringAge)) * steeringDt);
-        const turn = Math.max(steeringTurnAlpha(steeringDt, this.deflections), proximityTurn, (hasOverstayed || isCircling) ? 0.18 : 0);
+            ? torsoDirection
+            : desired;
+        const proximityTurn = 1 - Math.exp(
+            -proximityHomingTurnRate(torsoDistance, this._steeringAge) * steeringDt
+        );
+        const rescueTurn = hasOverstayed || isCircling
+            ? 1 - Math.exp(-7 * steeringDt)
+            : 0;
+        const turn = Math.max(
+            steeringTurnAlpha(steeringDt, this.deflections),
+            proximityTurn,
+            rescueTurn
+        );
         const next = current.lerp(direct, turn);
         if (finitePoint(next) && next.lengthSq() > 0.000001) {
             this.velocity.copy(next.normalize().multiplyScalar(this.currentSpeed));

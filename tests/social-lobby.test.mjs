@@ -23,10 +23,17 @@ const {
     getSocialLobbyMapState
 } = await import(`data:text/javascript;base64,${Buffer.from(moduleSource).toString('base64')}`);
 
-test('social hub exposes exactly one estate map with no retired map id', () => {
+test('social hub exposes three distinct maps with no retired map id', () => {
     const retiredMapId = [105, 115, 108, 97, 110, 100].map(code => String.fromCharCode(code)).join('');
-    assert.deepEqual(Object.keys(SOCIAL_HUB_MAPS), ['estate']);
+    assert.deepEqual(Object.keys(SOCIAL_HUB_MAPS), ['estate', 'skyline', 'harbor']);
     assert.equal(SOCIAL_HUB_MAPS.estate.id, 'estate');
+    assert.equal(SOCIAL_HUB_MAPS.skyline.name, 'Skyline Deck');
+    assert.equal(SOCIAL_HUB_MAPS.harbor.name, 'Harbor Commons');
+    for (const map of Object.values(SOCIAL_HUB_MAPS)) {
+        assert.deepEqual(map.zones.map(zone => zone.id), ['lobby', 'social', 'activity', 'shop']);
+        assert.ok(map.bounds.maxX > map.bounds.minX);
+        assert.ok(map.bounds.maxZ > map.bounds.minZ);
+    }
     assert.equal(source.toLowerCase().includes(retiredMapId), false);
 });
 
@@ -60,6 +67,24 @@ test('estate pools are swimmable and plaza remains dry', () => {
     assert.deepEqual(arena.getWaterAt({ x: 82, z: 85 }), { kind: 'pool', surfaceY: 1.65, floorY: -3.2 });
     assert.equal(arena.getWaterAt({ x: 0, z: 34 }), null);
     assert.equal(arena.getWaterAt({ x: Infinity, z: 85 }), null);
+});
+
+test('each hub has its own movement contract, zones, and water rules', () => {
+    const estate = createSocialLobbyArena('estate');
+    const skyline = createSocialLobbyArena('skyline');
+    const harbor = createSocialLobbyArena('harbor');
+    assert.notDeepEqual(skyline.bounds, estate.bounds);
+    assert.notDeepEqual(harbor.bounds, estate.bounds);
+    assert.deepEqual([skyline.getPlayerSpawn().x, skyline.getPlayerSpawn().y, skyline.getPlayerSpawn().z], [0, 3, 98]);
+    assert.deepEqual([harbor.getPlayerSpawn().x, harbor.getPlayerSpawn().y, harbor.getPlayerSpawn().z], [0, 2, 126]);
+    for (const arena of [estate, skyline, harbor]) {
+        assert.equal(arena.collidables.filter(collider => collider.invisibleBoundary).length, 4);
+        assert.deepEqual(arena.config.zones.map(zone => zone.id), ['lobby', 'social', 'activity', 'shop']);
+        assert.ok(arena.collidables.some(collider => !collider.invisibleBoundary));
+    }
+    assert.equal(skyline.getWaterAt({ x: 0, z: 0 }), null);
+    assert.deepEqual(harbor.getWaterAt({ x: 0, z: -90 }), { kind: 'harbor', surfaceY: .2, floorY: -4.5 });
+    assert.equal(harbor.getWaterAt({ x: 90, z: -18 }), null);
 });
 
 test('map state normalizes and clamps player and visitors without mutation', () => {
@@ -108,10 +133,14 @@ test('collider grid indexes boxes and round decor in nearby cells', () => {
     assert.deepEqual(grid.query({ x: 20, z: 20 }), []);
 });
 
-test('runtime builds a local procedural estate and preserves lifecycle API', () => {
+test('runtime builds three local procedural worlds and preserves lifecycle API', () => {
     assert.equal(source.includes('https://'), false);
     assert.match(source, /_buildEstateWorld\(\)/);
+    assert.match(source, /_buildSkylineWorld\(\)/);
+    assert.match(source, /_buildHarborWorld\(\)/);
     assert.match(source, /warrball-grand-estate/);
+    assert.match(source, /warrball-skyline-deck/);
+    assert.match(source, /warrball-harbor-commons/);
     assert.match(source, /createProceduralTexture/);
     assert.match(source, /new THREE\.CanvasTexture/);
     assert.match(source, /THREE\.RepeatWrapping/);

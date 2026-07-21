@@ -1575,7 +1575,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
 
     // Aim-directed target: the enemy whose direction best matches where the player
     // is aiming. Used for aimed (rocketdodge) shots so the ball goes where you look.
-    // Falls back to closest enemy if nothing is roughly ahead.
+    // Returns no target when the aim cone is empty.
     getAimedEnemy(fromPos, aimDir, team) {
         const enemies = this.getEnemyTargets(team);
         if (!enemies.length) return null;
@@ -1585,13 +1585,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             const dot = aimDir.dot(dir);
             if (dot > bestDot) { bestDot = dot; best = e; }
         });
-        if (best) return best;
-        return enemies.reduce((closest, enemy) => {
-            if (!closest) return enemy;
-            return fromPos.distanceTo(enemy.getPosition()) < fromPos.distanceTo(closest.getPosition())
-                ? enemy
-                : closest;
-        }, null);
+        return best;
     }
 
     // --- MAIN LOOP ---

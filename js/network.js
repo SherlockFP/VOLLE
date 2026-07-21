@@ -2308,7 +2308,9 @@ export class Network {
                 break;
             case 'kick':
                 // Host told us (or the named player) to leave the lobby.
-                if (!this.isHost && (data.name === this.playerName || !data.name)) {
+                if (!this.isHost
+                    && peerId === this.hostConn?.peer
+                    && data.name === this.playerName) {
                     if (this.onKicked) this.onKicked(data.reason);
                     this.disconnect();
                 }
