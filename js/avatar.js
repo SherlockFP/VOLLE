@@ -125,6 +125,25 @@ export function createAvatarAtlas(skinId = 'default') {
     return pixels;
 }
 
+export function createAvatarDataURL(skinId = 'default', doc = globalThis.document) {
+    const canvas = doc?.createElement?.('canvas');
+    if (!canvas) return '';
+    canvas.width = ATLAS_SIZE;
+    canvas.height = ATLAS_SIZE;
+    const ctx = canvas.getContext?.('2d');
+    if (!ctx) return '';
+    const pixels = createAvatarAtlas(skinId);
+    for (let y = 0; y < ATLAS_SIZE; y++) {
+        for (let x = 0; x < ATLAS_SIZE; x++) {
+            const color = pixels[y * ATLAS_SIZE + x];
+            if (!color) continue;
+            ctx.fillStyle = color;
+            ctx.fillRect(x, y, 1, 1);
+        }
+    }
+    return canvas.toDataURL?.('image/png') || '';
+}
+
 export function cropAtlasFace(pixels) {
     if (!Array.isArray(pixels) || pixels.length !== ATLAS_SIZE * ATLAS_SIZE) {
         return Array(FACE_SIZE * FACE_SIZE).fill(null);

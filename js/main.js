@@ -1,13 +1,5 @@
 // main.js — App bootstrap, scene setup, game loop, screen handlers, loadout.
 import * as THREE from 'three';
-import {
-    RematchVote,
-    connectedRematchParticipants,
-    createMatchId,
-    isSafeMatchId,
-    isTerminalRematchState,
-    snapshotRematchParticipants
-} from './rematch.js';
 import { Renderer } from './renderer.js';
 import { Player, isEditableTarget } from './player.js';
 import { Arena, registerCustomMap } from './arena.js';
@@ -16,16 +8,13 @@ import { GAME_MODES } from './gamemodes.js';
 import { Audio } from './audio.js';
 import { UI } from './ui.js';
 import { Network } from './network.js';
-import { VoiceChat } from './voice.js';
 import { Store } from './store.js';
 import { DEFAULT_LOADOUT } from './skills.js';
 import { AvatarPainter, AVATAR_SKINS } from './avatar.js';
-import { createShowcaseAvatar, ShopShowcaseRenderer } from './shop-showcase.js';
-import { COSMETIC_PRACTICE_MAP_ID, CosmeticPracticeSession } from './cosmetic-practice.js';
 import { CASES, KNIVES } from './cosmetics.js';
 import { createKnifeModel, disposeObject3D } from './weapon-models.js';
 import { MapEditorController } from './map-editor.js';
-import { normalizeMapConfig, validateMapConfig } from './map-config.js';
+import { normalizeMapConfig } from './map-config.js';
 import { checkAchievements } from './achievements.js';
 import { Daily } from './daily.js';
 import { Replay, extractReplayHighlight } from './replay.js';
@@ -47,7 +36,6 @@ import {
     rankQueueCandidates,
     updateDraftPick
 } from './competitive-service.js';
-import { filterLobbies, pickQuickLobby } from './lobby-browser.js';
 import {
     createParty,
     createSocialProfile,
@@ -62,6 +50,7 @@ import { normalizeNetcode } from './experimental-netcode.js';
 import { RuntimeLog } from './runtime-safety.js';
 import { AfkMonitor, RollingNetworkMonitor, ModerationReportQueue } from './release-safety.js';
 import {
+    COSMETIC_ALLOWLISTS,
     migrateCosmeticLoadout,
     normalizeCosmeticLoadout
 } from './cosmetic-customization.js';
@@ -72,9 +61,6 @@ import {
     normalizeCrosshairConfig,
     renderCrosshair
 } from './crosshair.js';
-
-const HOST_CHECKPOINT_INTERVAL_MS = 750;
-const HOST_CHECKPOINT_SIGNATURE_MAX_CHARS = 64 * 1024;
 
 class App {
     constructor() {
@@ -109,18 +95,7 @@ class App {
         if (dmgMult) dmgMult.value = this.store.get('damageMultiplier') || 1;
         const netcodeToggle = document.getElementById('setting-experimental-netcode');
         if (netcodeToggle) netcodeToggle.checked = this.store.get('experimentalNetcode')?.enabled === true;
-        const voiceToggle = document.getElementById('setting-voice-chat');
-        if (voiceToggle) voiceToggle.checked = this.store.get('voiceChatEnabled') !== false;
-        const voiceMuteToggle = document.getElementById('setting-voice-mute');
-        if (voiceMuteToggle) voiceMuteToggle.checked = this.store.get('voiceMuted') === true;
         this.avatarPainter = null;
-        this.shopShowcase = null;
-        this.cosmeticPractice = new CosmeticPracticeSession({
-            currency: this.store.get('currency'),
-            ownedSkinIds: this.store.get('ownedAvatarSkins'),
-            equippedSkinId: this.store.get('equippedAvatarSkin')
-        });
-        this._cosmeticPracticeAvatar = null;
         this.mapEditor = null;
         this.replayView = null;
         this._replaySpectatorGame = null;
@@ -139,11 +114,11 @@ class App {
         };
         this.network = new Network(null);
         this.game = new Game(this.renderer, this.player, this.arena, this.audio, this.ui, this.network);
-        this.voice = new VoiceChat(this.network);
-        this.rematchVote = new RematchVote();
-        this._completedMatchPlayerIds = new Set();
-        this.game.experimentalNetcode = normalizeNetcode(this.store.get('experimentalNetcode'));
+        this.game._showFps = true;
+        this.game.setExperimentalNetcode(this.store.get('experimentalNetcode'));
         this.network.game = this.game;
+        this._allowLateJoin = document.getElementById('setting-allow-late-join')?.checked !== false;
+        this.network.allowLateJoin = this._allowLateJoin;
         this.movementTrials = new MovementTrialClass();
         this.game.onReplayEvent = event => Replay.record(event);
         this.game.onRocketJump = event => {
@@ -154,34 +129,18 @@ class App {
         this.game.onMatchLoading = data => this._showMatchLoading(900, data);
         this.game.onLateJoinActivated = team => this._exitLateJoinSpectator(team);
         this.game.onMatchComplete = () => {
-            const connectedIds = [...this.network.playerConnections.keys()];
-            const queuedIds = connectedIds.filter(playerId =>
-                this.game.remotePlayers.get(playerId)?.queuedForNextRound
-            );
-            this._completedMatchPlayerIds = new Set(snapshotRematchParticipants(
-                this.network.playerId,
-                connectedIds,
-                queuedIds
-            ));
             this.awardMatchRewards();
             this.refreshMetaStats();
             this.ui.updateContractTracker(Daily, this.store);
         };
         this.game.onRoundEnd = () => this._queueRoundReplay();
         this.game.onMatchStart = () => {
-            clearTimeout(this._rematchTimer);
-            this._rematchTimer = null;
-            this._rematchStarting = false;
-            this.rematchVote.reset();
-            this._updateRematchUI?.();
             if (Spectator.active) Spectator.exit('match-start');
             this.ui.spectating = false;
             this.ui.hideTeamPopup();
         };
         this.game.onPerfectDeflect = result => this._showPerfectDeflect(result);
         this.game.onPracticeMetrics = summary => this._updatePracticeLab(summary);
-        this.game.onGuidedDrillUpdate = snapshot => this._updateGuidedDrillHUD(snapshot);
-        this.game.onGuidedDrillComplete = result => this._showGuidedDrillResult(result);
         this.player.game = this.game;
         this.player.audio = this.audio;
         this.socialLobby = new SocialLobby(this.renderer, this.player, {
@@ -232,11 +191,6 @@ class App {
         this._bgPowerUpTimer = 0;
         this._bgBallTimer = 0;
         this._bgBotTimer = 0;
-        this._hostCheckpointInterval = null;
-        this._hostCheckpointGeneration = 0;
-        this._lastHostCheckpointSignature = null;
-        this._lastHostCheckpointEpoch = null;
-        this._lastHostCheckpointSequence = null;
         // ponytail: AbortController prevents listener accumulation on game restart
         this._mainAbort = new AbortController();
         document.addEventListener('visibilitychange', () => this._onVisibilityChange(), { signal: this._mainAbort.signal });
@@ -291,13 +245,6 @@ class App {
             // Console visible → skip all other handlers
             if (this.gameConsole?.visible) return;
 
-            if (this.cosmeticPractice?.active && e.code === 'Escape') {
-                e.preventDefault();
-                e.stopPropagation();
-                this._exitCosmeticPractice();
-                return;
-            }
-
             // While typing in chat, only Enter/Escape matter (handled below).
             if (this.chatOpen) {
                 if (e.code === 'Enter') {
@@ -317,7 +264,7 @@ class App {
                 e.preventDefault();
                 e.stopPropagation();
                 this.ui.showScoreboard();
-                this.ui.updateScoreboard(this.game.scoreboard.getPlayerStats(), this.game._ffa);
+                this.ui.updateScoreboard(this.game.scoreboard.getPlayerStats());
             }
             // Y/T/Enter → open chat during play, lobby, celebration, or post-game
             if ((e.code === 'KeyY' || e.code === 'KeyT' || e.code === 'Enter') &&
@@ -383,7 +330,8 @@ class App {
                 }
                 if (next && next !== current) {
                     this.store.set('equippedBall', next);
-                    this.game.ball.setSkin(next);
+                    this.player.ballSkinId = next;
+                    if (this.game.state !== STATES.PLAYING) this.game.ball.setSkin(next);
                     this.ui.updateBallSkin?.(next);
                     this.ui.showMessage?.(`🎾 Ball: ${BALL_SKINS[next].name}`, 1500);
                 }
@@ -403,9 +351,8 @@ class App {
                 return;
             }
             // V → push-to-talk voice (basılı tut)
-            if (e.code === 'KeyV' && this.voice && !isEditableTarget(e.target)) {
-                e.preventDefault();
-                void this._startVoicePtt();
+            if (e.code === 'KeyV' && this.voice) {
+                this.voice.pttDown();
             }
             if (e.code === 'Escape') {
                 if (this.gameConsole?.visible) return;
@@ -478,7 +425,6 @@ class App {
         this._setupMenuMouse();
 
         this.setupMenuHandlers();
-        this._initShopShowcase();
         this.applyAccessibility();
         this.refreshMetaStats();
         this.store.connectRemote(this.store.get('playerName')).then(connected => {
@@ -497,12 +443,25 @@ class App {
         this.loop();
     }
 
-    _getKnifeStyle(id) {
-        const base = KNIVES[id] || KNIVES.training;
-        const custom = migrateCosmeticLoadout(this.store.get('cosmeticLoadout')).knife;
-        return custom.id === base.id
-            ? { ...base, patternSeed: custom.patternSeed, wear: custom.wear }
-            : base;
+    _renderCosmeticCustomizer(tab) {
+        const panel = document.getElementById('cosmetic-customizer');
+        if (!panel) return;
+        panel.classList.toggle('hidden', tab !== 'inventory');
+        if (tab !== 'inventory') return;
+        const loadout = migrateCosmeticLoadout(this.store.get('cosmeticLoadout'));
+        const options = (values, selected) => values.map(value =>
+            `<option value="${value}" ${value === selected ? 'selected' : ''}>${value}</option>`
+        ).join('');
+        panel.innerHTML = `<h3>Cosmetic Workbench</h3><div class="cosmetic-customizer-grid">
+            <label>Name tag<input id="cosmetic-name-tag" maxlength="24" value="${this._esc(loadout.knife.nameTag)}"></label>
+            <label>Pattern seed<input id="cosmetic-pattern-seed" type="number" min="0" max="999999" value="${loadout.knife.patternSeed}"></label>
+            <label>Wear<input id="cosmetic-wear" type="range" min="0" max="1" step="0.01" value="${loadout.knife.wear}"></label>
+            <label>Charm<select id="cosmetic-charm"><option value="">none</option>${options(COSMETIC_ALLOWLISTS.charms, loadout.knife.charm)}</select></label>
+            ${loadout.knife.stickers.map((sticker, index) => `<label>Sticker ${index + 1}<select id="cosmetic-sticker-${index}"><option value="">none</option>${options(COSMETIC_ALLOWLISTS.stickers, sticker)}</select></label>`).join('')}
+            <label>Ball trail<select id="cosmetic-ball-trail">${options(COSMETIC_ALLOWLISTS.ballTrails, loadout.ballTrail)}</select></label>
+            <label>Goal effect<select id="cosmetic-goal-effect">${options(COSMETIC_ALLOWLISTS.goalEffects, loadout.goalEffect)}</select></label>
+            <label>MVP effect<select id="cosmetic-mvp-effect">${options(COSMETIC_ALLOWLISTS.mvpEffects, loadout.mvpEffect)}</select></label>
+        </div><button class="btn btn-primary cosmetic-customizer-save">Save loadout</button>`;
     }
 
     // Store'dan loadout uygula (karakter + rune + ball skin).
@@ -513,10 +472,14 @@ class App {
         this.player.loadout.skill = loadout.skill || 'slow';
         // Ball skin uygula
         const ballSkin = this.store.get('equippedBall') || 'classic';
+        const ballTrail = migrateCosmeticLoadout(this.store.get('cosmeticLoadout')).ballTrail;
+        this.player.ballSkinId = BALL_SKINS[ballSkin] ? ballSkin : 'classic';
+        this.player.ballTrailId = COSMETIC_ALLOWLISTS.ballTrails.includes(ballTrail) ? ballTrail : 'none';
         this.game.ball.setSkin(ballSkin);
+        this.game.ball.setTrail(this.player.ballTrailId);
         const knifeId = this.store.get('equippedKnives')?.[this.player.team] || 'training';
         this.player.knifeId = knifeId;
-        this.player.setKnifeStyle?.(this._getKnifeStyle(knifeId));
+        this.player.setKnifeStyle?.(KNIVES[knifeId] || KNIVES.training);
         this.ui.updateBallSkin?.(ballSkin);
         // FOV
         const fov = this.store.get('settings').fov || 75;
@@ -617,7 +580,6 @@ class App {
 
     // Maç sonu reward: coins + xp, battlepass tier dolum, istatistik, achievement, daily.
     awardMatchRewards() {
-        if (!isTerminalRematchState(this.game.state)) return;
         if (this.game._rewardsClaimed) return;
         this.game._rewardsClaimed = true;
         if (this.game._practiceMode) {
@@ -626,12 +588,12 @@ class App {
         }
         const stats = this.game.scoreboard.getPlayerStats();
         const myStat = stats.find(s => s.name === this.game.playerName) || { score:0, deflections:0, hits:0 };
-        const winner = this.game._ffa ? this.game._finalWinner : this.game.scoreboard.getWinner();
+        const winner = this.game.scoreboard.getWinner();
         const myTeam = this.player.team;
-        const won = this.game._ffa ? winner === this.game.playerName : winner === myTeam.toUpperCase();
+        const won = winner === myTeam.toUpperCase();
         const draw = winner === 'DRAW';
         const ranked = this.store.recordRankedMatch({
-            matchId: this.game.matchId || createMatchId(),
+            matchId: `match-${Date.now()}`,
             opponentElo: this._rankedMatch?.opponentElo ?? this.store.getElo(),
             result: draw ? 'draw' : won ? 'win' : 'loss',
             playedAt: Date.now()
@@ -666,7 +628,7 @@ class App {
         const coins = won ? 5 : 1;
         const xp = this.store.boostedXp(50 + myStat.deflections * 3 + (won ? 100 : 30));
         const result = this.store.grant({ currency: coins, xp });
-        const matchId = this.game.matchId || globalThis.crypto?.randomUUID?.()
+        const matchId = globalThis.crypto?.randomUUID?.()
             || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
         this.store.grantMatchRemote({
             matchId,
@@ -778,8 +740,8 @@ class App {
             clearInterval(this._mpRefreshTimer);
             this.game.startSolo();
             this.ui.showScreen('lobby');
+            this.syncLobbyAuthorityUI();
         });
-        bind('btn-mp-quick', () => this._startQuickPlay());
         bind('btn-mp-back', () => {
             clearInterval(this._mpRefreshTimer);
             this.ui.showScreen('mainMenu');
@@ -787,15 +749,6 @@ class App {
         bind('btn-mp-refresh', () => {
             this._refreshLobbyList();
         });
-        document.addEventListener('keydown', event => {
-            if (event.key !== 'Escape') return;
-            const inspector = document.getElementById('case-inspector');
-            if (!inspector?.classList.contains('hidden')) inspector.classList.add('hidden');
-        });
-        ['mp-lobby-mode-filter', 'mp-lobby-map-filter', 'mp-lobby-queue-filter', 'mp-lobby-open-filter'].forEach(id => {
-            document.getElementById(id)?.addEventListener('change', () => this._refreshLobbyList());
-        });
-        document.getElementById('mp-lobby-map-filter')?.addEventListener('input', () => this._refreshLobbyList());
 
         bind('replay-toggle-pause', () => {
             Replay.togglePause();
@@ -832,6 +785,7 @@ class App {
                 await this.network.joinGame(code, name, password);
                 this.game.playerName = name;
                 this.ui.showScreen('lobby');
+                this.syncLobbyAuthorityUI();
             } catch (e) {
                 alert('Failed to join: ' + e.message);
             }
@@ -853,8 +807,6 @@ class App {
         bind('btn-shop', () => {
             this.ui.renderShop(this.store, 'chars');
             this.ui.showScreen('shop');
-            this._syncShopShowcase();
-            this.shopShowcase?.start();
         });
 
         bind('btn-battlepass', () => {
@@ -1007,21 +959,7 @@ class App {
         });
 
         bind('btn-practice', () => {
-            this.ui.showScreen('practiceMenu');
-        });
-        bind('btn-guided-deflect', () => this.startGuidedDeflectDrill());
-        bind('btn-free-practice', () => this.startPractice({ launch: true }));
-        bind('btn-practice-back', () => this.ui.showScreen('mainMenu'));
-        bind('btn-drill-retry', () => this.startGuidedDeflectDrill());
-        bind('btn-drill-free-lab', () => {
-            document.getElementById('guided-drill-result')?.classList.add('hidden');
-            this.startPractice({ launch: true });
-        });
-        bind('btn-drill-menu', () => {
-            this._exitPracticeSession();
-            this.game.setState(STATES.MENU);
-            this.player.unlock();
-            this.ui.showScreen('mainMenu');
+            this.startPractice();
         });
 
         bind('btn-achievements-back', () => {
@@ -1059,6 +997,7 @@ class App {
         });
 
         bind('btn-lobby-settings', () => {
+            if (!this.isLobbyHost()) return;
             this.openSettingsModal();
         });
 
@@ -1074,21 +1013,7 @@ class App {
         });
         bind('pause-exit', () => {
             document.getElementById('pause-menu')?.classList.add('hidden');
-            this._exitPracticeSession();
-            this.player.unlock();
-            this.ui.setPlayerTarget(false);
-            this.game.cancelPreGame?.();
-            this._stopHostCheckpointLifecycle();
-            this.network?.closeLobby();
-            this.game.bots.forEach(b => b.remove());
-            this.game.bots = [];
-            this.game.botCounter = 0;
-            this.game.ball.deactivate();
-            this.game.clearBlackHoles?.();
-            this.game.clearSplitBalls?.();
-            if (this.game.affixes) this.game.affixes.clearRound();
-            this.game.setState(STATES.MENU);
-            this.ui.showScreen('mainMenu');
+            this.closeHostedMatch();
             this.refreshMetaStats();
         });
 
@@ -1112,19 +1037,9 @@ class App {
         });
 
         bind('btn-shop-back', () => {
-            this.shopShowcase?.stop();
             this.ui.showScreen('mainMenu');
             this.refreshMetaStats();
         });
-        bind('btn-shop-practice', event => {
-            const skinId = event.currentTarget?.dataset.id || this.store.get('equippedAvatarSkin');
-            this._startCosmeticPractice(skinId);
-        });
-        bind('cosmetic-practice-prev', () => this._selectCosmeticPracticeSkin(-1));
-        bind('cosmetic-practice-next', () => this._selectCosmeticPracticeSkin(1));
-        bind('cosmetic-practice-buy', () => void this._purchaseCosmeticPracticeSkin());
-        bind('cosmetic-practice-equip', () => this._equipCosmeticPracticeSkin());
-        bind('cosmetic-practice-exit', () => this._exitCosmeticPractice());
 
         bind('btn-bp-back', () => {
             this.ui.showScreen('mainMenu');
@@ -1145,78 +1060,13 @@ class App {
             config.dimensions.length = Number(document.getElementById('map-editor-length')?.value) || config.dimensions.length;
             const safe = normalizeMapConfig(config);
             const id = 'custom-local';
-            const currentMaps = this.store.get('customMaps') || [];
-            const previous = currentMaps.find(map => map.id === id);
-            const maps = currentMaps.filter(map => map.id !== id);
-            maps.push({ id, config: safe, publishedId: previous?.publishedId || '' });
+            const maps = (this.store.get('customMaps') || []).filter(map => map.id !== id);
+            maps.push({ id, config: safe });
             this.store.set('customMaps', maps.slice(-10));
             registerCustomMap(id, safe);
             this.mapEditor.setConfig(safe);
             this.arena.rebuild(id);
             this.startPractice();
-        });
-
-        bind('btn-map-publish', async () => {
-            if (!this.mapEditor) return;
-            const button = document.getElementById('btn-map-publish');
-            const status = document.getElementById('map-publish-status');
-            const config = this.mapEditor.getConfig();
-            config.name = document.getElementById('map-editor-name')?.value || config.name;
-            config.dimensions.width = Number(document.getElementById('map-editor-width')?.value) || config.dimensions.width;
-            config.dimensions.length = Number(document.getElementById('map-editor-length')?.value) || config.dimensions.length;
-            const validation = validateMapConfig(config);
-            if (!validation.valid) {
-                if (status) status.textContent = validation.errors[0] || 'Map validation failed';
-                return;
-            }
-            if (button) button.disabled = true;
-            if (status) status.textContent = 'Submitting for review...';
-            if (!this.store.remoteReady) {
-                await this.store.connectRemote(this.store.get('playerName'));
-            }
-            const local = (this.store.get('customMaps') || []).find(map => map.id === 'custom-local');
-            const result = await this.store.publishMap(validation.config, local?.publishedId || '');
-            if (result.ok) {
-                const maps = (this.store.get('customMaps') || []).filter(map => map.id !== 'custom-local');
-                maps.push({ id: 'custom-local', config: validation.config, publishedId: result.map.id });
-                this.store.set('customMaps', maps.slice(-10));
-                if (status) status.textContent = `${result.map.name} - pending review (v${result.map.revision})`;
-                this.refreshWorkshop(true);
-            } else if (status) {
-                status.textContent = result.error;
-            }
-            if (button) button.disabled = false;
-        });
-
-        bind('btn-workshop-public', () => this.refreshWorkshop(false));
-        bind('btn-workshop-mine', () => this.refreshWorkshop(true));
-        document.getElementById('workshop-search')?.addEventListener('keydown', event => {
-            if (event.key === 'Enter') this.refreshWorkshop(this.workshopMine === true);
-        });
-        document.getElementById('workshop-sort')?.addEventListener('change', () => {
-            this.refreshWorkshop(this.workshopMine === true);
-        });
-        document.getElementById('map-workshop-grid')?.addEventListener('click', async event => {
-            const button = event.target.closest('button[data-workshop-action]');
-            if (!button) return;
-            button.disabled = true;
-            if (button.dataset.workshopAction === 'vote') {
-                if (!this.store.remoteReady) await this.store.connectRemote(this.store.get('playerName'));
-                const result = await this.store.votePublishedMap(
-                    button.dataset.mapId,
-                    Number(button.dataset.voteValue)
-                );
-                if (result.ok) await this.refreshWorkshop(this.workshopMine === true);
-                else document.getElementById('map-workshop-status').textContent = result.error;
-                button.disabled = false;
-                return;
-            }
-            await this.openWorkshopMap(
-                button.dataset.mapId,
-                button.dataset.mine === '1',
-                button.dataset.workshopAction === 'play'
-            );
-            button.disabled = false;
         });
 
         bind('btn-char-save', () => {
@@ -1258,145 +1108,6 @@ class App {
         this.ui.onPlayerSafety = player => this._handlePlayerSafety(player);
         this.ui.onPlayerInspect = player => this._inspectPlayerProfile(player);
 
-        this._updateRematchUI = (snapshot = null) => {
-            const buttons = [
-                document.getElementById('btn-play-again'),
-                document.getElementById('pg-play-again'),
-                document.getElementById('btn-match-result-rematch')
-            ].filter(Boolean);
-            const statuses = [
-                document.getElementById('rematch-status'),
-                document.getElementById('pg-rematch-status')
-            ].filter(Boolean);
-            const ready = Array.isArray(snapshot?.readyPlayerIds) ? snapshot.readyPlayerIds : [];
-            const required = Array.isArray(snapshot?.requiredPlayerIds) ? snapshot.requiredPlayerIds : [];
-            const localReady = ready.includes(this.network.playerId);
-            const label = this._rematchStarting
-                ? 'STARTING...'
-                : localReady
-                    ? required.length ? `READY ${ready.length}/${required.length}` : 'READY SENT'
-                    : 'REMATCH';
-            buttons.forEach(button => {
-                button.textContent = label;
-                button.disabled = this._rematchStarting || localReady;
-            });
-            const text = snapshot?.expired
-                ? 'Vote expired. Press Rematch to open a new vote.'
-                : this.network.connected && required.length
-                    ? `${ready.length}/${required.length} players ready - 30 second vote window`
-                    : this.network.connected ? 'Press Rematch when ready.' : 'Instant solo rematch.';
-            statuses.forEach(status => { status.textContent = text; });
-        };
-
-        this._activeRematchPlayerIds = () => connectedRematchParticipants(
-            this._completedMatchPlayerIds,
-            this.network.playerId,
-            this.network.playerConnections.keys()
-        );
-
-        this._publishRematchState = (extra = {}) => {
-            const snapshot = { ...this.rematchVote.snapshot(), ...extra };
-            this.network.broadcastRematchState(snapshot);
-            this._updateRematchUI(snapshot);
-            return snapshot;
-        };
-
-        this._startRematchMatch = (matchId, sourceMatchId = null) => {
-            const started = this.game.startGame(false, matchId);
-            if (started === false) return false;
-            clearTimeout(this._rematchTimer);
-            this._rematchTimer = null;
-            this.player.lock();
-            if (this.network.connected && this.network.isHost && sourceMatchId) {
-                this.network.broadcastRematchStart({
-                    sourceMatchId,
-                    ...this.game.snapshotState(),
-                    matchId: this.game.matchId
-                });
-            }
-            Replay.startRecording({
-                map: this.arena.mapId,
-                mode: this.game.mode?.id || 'classic',
-                players: this.game.getPlayerList().map(player => player.name),
-                matchId: this.game.matchId
-            });
-            this._lastRally = this.game.rallyCount;
-            return true;
-        };
-
-        this._launchRematch = sourceMatchId => {
-            if (this._rematchStarting || !this.network.isHost) return;
-            const rollback = this.rematchVote.snapshot();
-            const nextMatchId = createMatchId();
-            if (!this.rematchVote.markStarted(sourceMatchId, nextMatchId).accepted) return;
-            this._rematchStarting = true;
-            this._updateRematchUI(this.rematchVote.snapshot());
-            if (this._startRematchMatch(nextMatchId, sourceMatchId) !== false) return;
-            this.rematchVote.begin(sourceMatchId, rollback.requiredPlayerIds);
-            for (const playerId of rollback.readyPlayerIds) {
-                this.rematchVote.vote(sourceMatchId, playerId, true);
-            }
-            this._rematchStarting = false;
-            this._publishRematchState();
-        };
-
-        this._receiveRematchReady = ({ playerId, sourceMatchId, ready }) => {
-            if (!this.network.isHost || sourceMatchId !== this.game.matchId) return;
-            if (this.game.state !== STATES.CELEBRATION) return;
-            if (this.rematchVote.sourceMatchId !== sourceMatchId) {
-                if (!this.rematchVote.begin(sourceMatchId, this._activeRematchPlayerIds()).accepted) return;
-            } else {
-                this.rematchVote.setRequired(this._activeRematchPlayerIds());
-            }
-            const vote = this.rematchVote.vote(sourceMatchId, playerId, ready);
-            if (!vote.accepted || !vote.changed) return;
-            if (!this._rematchTimer) {
-                this._rematchTimer = setTimeout(() => {
-                    this._rematchTimer = null;
-                    this.rematchVote.begin(sourceMatchId, this._activeRematchPlayerIds());
-                    this._publishRematchState({ expired: true });
-                }, 30000);
-            }
-            const snapshot = this._publishRematchState();
-            if (snapshot.complete) this._launchRematch(sourceMatchId);
-        };
-
-        this._syncRematchRoster = () => {
-            if (!this.network.isHost || this.rematchVote.sourceMatchId !== this.game.matchId) return;
-            const snapshot = this.rematchVote.setRequired(this._activeRematchPlayerIds());
-            this._publishRematchState();
-            if (snapshot.complete) this._launchRematch(this.game.matchId);
-        };
-
-        this._requestRematch = () => {
-            if (!isTerminalRematchState(this.game.state)) return;
-            const sourceMatchId = this.game.matchId;
-            if (!isSafeMatchId(sourceMatchId) || this._rematchStarting) return;
-            if (!this.network.connected) {
-                this._startRematchMatch(createMatchId());
-                return;
-            }
-            this.network.sendRematchReady(sourceMatchId, true);
-            if (!this.network.isHost) {
-                this._updateRematchUI({
-                    sourceMatchId,
-                    requiredPlayerIds: [],
-                    readyPlayerIds: [this.network.playerId]
-                });
-            }
-        };
-
-        this.network.onRematchReady = payload => this._receiveRematchReady(payload);
-        this.network.onRematchState = data => {
-            if (data.sourceMatchId === this.game.matchId) this._updateRematchUI(data);
-        };
-        this.network.onRematchStart = data => {
-            if (data.sourceMatchId !== this.game.matchId || !isSafeMatchId(data.matchId)) return;
-            this._rematchStarting = true;
-            this._updateRematchUI(data);
-            this.game.startGameFromNetwork(data);
-        };
-
         bind('btn-start-game', async () => {
             if (this.network.connected && !this.isLobbyHost()) {
                 this.ui.showMessage?.('Only host can start', 1500);
@@ -1405,17 +1116,16 @@ class App {
             const startButton = document.getElementById('btn-start-game');
             if (startButton?.disabled) return;
             if (startButton) startButton.disabled = true;
+            this.network.allowLateJoin = this._allowLateJoin;
+            if (this._allowLateJoin) {
+                this._registerLobby(this._lobbyCode, this._lobbyName, this.network.connections.size + 1, this.arena.config?.name || 'Unknown', this.game.mode?.name || 'Classic', true, true);
+            } else if (this._lobbyCode) {
+                this._unregisterLobby(this._lobbyCode);
+            }
             this.audio.init();
             await this._showMatchLoading(950);
-            const started = this.game.startGame();
-            if (started === false) {
-                if (startButton) startButton.disabled = false;
-                return;
-            }
-            clearInterval(this._lobbyKeepAlive);
-            if (this._lobbyCode) this._unregisterLobby(this._lobbyCode);
-            this._lobbyCode = null;
             this.player.lock();
+            this.game.startGame();
             this.ui.updateContractTracker(Daily, this.store);
             if (this.network.connected && this.network.isHost) {
                 this.network.broadcast({ type: 'gameStart', ...this.game.snapshotState() });
@@ -1442,30 +1152,18 @@ class App {
             this.game.broadcastSystemMessage(`${this.game.playerName} is ${ready ? 'READY' : 'not ready'}`);
         });
 
-bind('btn-add-bot-red', () => {
-    if (!this.isLobbyHost()) {
-        this.ui.showMessage?.('Only the lobby host can manage bots.', 1400);
-        return;
-    }
-    this.game.addBot('red');
+        bind('btn-add-bot-red', () => {
+            this.game.addBot('red');
             this.broadcastLobbyState();
         });
 
-bind('btn-add-bot-blue', () => {
-    if (!this.isLobbyHost()) {
-        this.ui.showMessage?.('Only the lobby host can manage bots.', 1400);
-        return;
-    }
-    this.game.addBot('blue');
+        bind('btn-add-bot-blue', () => {
+            this.game.addBot('blue');
             this.broadcastLobbyState();
         });
 
-bind('btn-remove-bot', () => {
-    if (!this.isLobbyHost()) {
-        this.ui.showMessage?.('Only the lobby host can manage bots.', 1400);
-        return;
-    }
-    this.game.removeBot();
+        bind('btn-remove-bot', () => {
+            this.game.removeBot();
             this.broadcastLobbyState();
         });
 
@@ -1484,7 +1182,6 @@ bind('btn-remove-bot', () => {
         // Tab close / refresh while in a lobby → free the lobby immediately
         // instead of waiting for the 30s server TTL, and drop the P2P peer.
         window.addEventListener('beforeunload', () => {
-            this._stopHostCheckpointLifecycle();
             if (this.network?.isHost && this._lobbyCode) {
                 try {
                     // sendBeacon only supports POST → server'un POST /api/lobbies/:code
@@ -1493,39 +1190,32 @@ bind('btn-remove-bot', () => {
                     navigator.sendBeacon(url, '');
                 } catch (e) {}
             }
-            try { this.network?.disconnect?.(); } catch (e) {}
+            try {
+                if (this.network?.isHost) this.network.closeLobby(true);
+                else this.network?.disconnect?.();
+            } catch (e) {}
         });
 
         // Game over
         bind('btn-play-again', () => {
-            this._requestRematch();
+            this.awardMatchRewards();
+            this.game.startGame();
+            this.player.lock();
         });
-        bind('btn-match-result-rematch', () => this._requestRematch());
 
         bind('btn-main-menu', () => {
             this.awardMatchRewards();
-            this.game.cancelPreGame?.();
-            this._stopHostCheckpointLifecycle();
-            this.network?.closeLobby();
-            this.game.bots.forEach(b => b.remove());
-            this.game.bots = [];
-            this.game.botCounter = 0;
-            this.game.ball.deactivate();
-            this.game.clearBlackHoles?.();
-            this.game.clearSplitBalls?.();
-            if (this.game.affixes) this.game.affixes.clearRound();
-            this.ui.setPlayerTarget(false);
-            this.game.setState(STATES.MENU);
-            this.ui.showScreen('mainMenu');
+            this.closeHostedMatch();
             this.refreshMetaStats();
         });
 
         // Post-game screen actions
         window._postGameAction = (action) => {
             if (action === 'play_again') {
-                this._requestRematch();
+                this.awardMatchRewards();
+                this.game.startGame();
+                this.player.lock();
             } else if (action === 'lobby') {
-                clearTimeout(this._rematchTimer);
                 this.awardMatchRewards();
                 this.game.ball.deactivate();
                 if (this.game.affixes) this.game.affixes.clearRound();
@@ -1536,23 +1226,12 @@ bind('btn-remove-bot', () => {
                 this.ui.setPlayerTarget(false);
                 this.game.startSolo();
                 this.ui.showScreen('lobby');
+                this.syncLobbyAuthorityUI();
                 this.player.unlock();
                 this.refreshMetaStats();
             } else if (action === 'main_menu') {
-                clearTimeout(this._rematchTimer);
                 this.awardMatchRewards();
-                this._stopHostCheckpointLifecycle();
-                this.network?.closeLobby();
-                this.game.bots.forEach(b => b.remove());
-                this.game.bots = [];
-                this.game.botCounter = 0;
-                this.game.ball.deactivate();
-                this.game.clearBlackHoles?.();
-                this.game.clearSplitBalls?.();
-                if (this.game.affixes) this.game.affixes.clearRound();
-                this.ui.setPlayerTarget(false);
-                this.game.setState(STATES.MENU);
-                this.ui.showScreen('mainMenu');
+                this.closeHostedMatch();
                 this.refreshMetaStats();
             }
         };
@@ -1573,23 +1252,17 @@ bind('btn-remove-bot', () => {
         });
 
         // Carousel navigation
-bind('carousel-prev', () => {
-    if (!this.isLobbyHost()) {
-        this.ui.showMessage?.('Only the lobby host can change the map.', 1400);
-        return;
-    }
-    const keys = this.game.getSelectableMaps();
+        bind('carousel-prev', () => {
+            if (!this.isLobbyHost()) return;
+            const keys = Object.keys(Arena.MAPS);
             this.carouselIndex = (this.carouselIndex - 1 + keys.length) % keys.length;
             this.game.selectMap(keys[this.carouselIndex]);
             this.updateCarousel();
             updateCSLobbyInfo();
         });
-bind('carousel-next', () => {
-    if (!this.isLobbyHost()) {
-        this.ui.showMessage?.('Only the lobby host can change the map.', 1400);
-        return;
-    }
-    const keys = this.game.getSelectableMaps();
+        bind('carousel-next', () => {
+            if (!this.isLobbyHost()) return;
+            const keys = Object.keys(Arena.MAPS);
             this.carouselIndex = (this.carouselIndex + 1) % keys.length;
             this.game.selectMap(keys[this.carouselIndex]);
             this.updateCarousel();
@@ -1975,20 +1648,6 @@ bind('carousel-next', () => {
                 if (cb) cb.checked = e.target.checked;
             });
         }
-        const voiceToggle = document.getElementById('setting-voice-chat');
-        if (voiceToggle) {
-            voiceToggle.addEventListener('change', event => {
-                this.store.set('voiceChatEnabled', event.target.checked);
-                if (!event.target.checked) this.voice.disable();
-            });
-        }
-        const voiceMuteToggle = document.getElementById('setting-voice-mute');
-        if (voiceMuteToggle) {
-            voiceMuteToggle.addEventListener('change', event => {
-                this.store.set('voiceMuted', event.target.checked);
-                this.voice.setMuted(event.target.checked);
-            });
-        }
         const netcodeToggle = document.getElementById('setting-experimental-netcode');
         if (netcodeToggle) {
             netcodeToggle.addEventListener('change', event => {
@@ -1996,51 +1655,27 @@ bind('carousel-next', () => {
                     ...this.store.get('experimentalNetcode'),
                     enabled: event.target.checked
                 });
-                this.store.set('experimentalNetcode', config);
-                this.game.experimentalNetcode = config;
-                this.ui.showMessage?.(`Experimental netcode ${config.enabled ? 'enabled' : 'disabled'}.`, 1500);
+                const applied = this.game.setExperimentalNetcode(config);
+                this.store.set('experimentalNetcode', applied);
+                this.ui.showMessage?.(`Experimental netcode ${applied.enabled ? 'enabled' : 'disabled'}.`, 1500);
             });
         }
+        document.getElementById('setting-allow-late-join')?.addEventListener('change', event => {
+            this._setAllowLateJoin(event.target.checked);
+        });
 
-const updateCSLobbyInfo = () => {
+        const updateCSLobbyInfo = () => {
             const mapEl = document.getElementById('cs-lobby-map');
             const modeEl = document.getElementById('cs-lobby-mode');
-    const host = this.isLobbyHost();
-    document.getElementById('lobby-screen')?.classList.toggle('lobby-client', !host);
-    if (mapEl) mapEl.textContent = this.arena?.config?.name || 'Beach';
-    if (modeEl) modeEl.textContent = this.game?.mode?.name || 'Classic';
-    const modifierSelect = document.getElementById('match-modifier');
-    modifierSelect?.querySelectorAll('option[value^="ffa_"]').forEach(option => {
-        option.disabled = !this.game?._ffa;
-    });
-    if (modifierSelect) modifierSelect.value = this.game.matchModifier || 'none';
-    document.querySelectorAll('.mode-btn').forEach(button => {
-        const selected = button.dataset.mode === this.game?.mode?.id;
-        button.classList.toggle('selected', selected);
-        button.setAttribute('aria-pressed', String(selected));
-        button.disabled = !host;
-    });
-    const keys = this.game.getSelectableMaps();
-    const selectedMapIndex = keys.indexOf(this.arena?.mapId);
-    if (selectedMapIndex >= 0) this.carouselIndex = selectedMapIndex;
-    this.updateCarousel();
-    if (host && this._lobbyCode) {
-        this._registerLobby(
-            this._lobbyCode,
-            this._lobbyName || 'Lobby',
-            this.network?.connections.size + 1 || 1,
-            this.arena?.config?.name || 'Unknown',
-            this.game?.mode?.name || 'Classic'
-        );
-    }
-};
+            if (mapEl) mapEl.textContent = this.arena?.config?.name || 'Beach';
+            if (modeEl) modeEl.textContent = this.game?.mode?.name || 'Classic';
+            // Sync carousel with current map
+            this.updateCarousel();
+        };
 
-bind('btn-random-map', () => {
-    if (!this.isLobbyHost()) {
-        this.ui.showMessage?.('Only the lobby host can change the map.', 1400);
-        return;
-    }
-            const keys = this.game.getSelectableMaps();
+        bind('btn-random-map', () => {
+            if (!this.isLobbyHost()) return;
+            const keys = Object.keys(Arena.MAPS);
             const picked = this.game.pickRandomMap();
             this.carouselIndex = keys.indexOf(picked);
             if (this.carouselIndex < 0) this.carouselIndex = 0;
@@ -2070,27 +1705,20 @@ bind('btn-random-map', () => {
         });
 
         // Game mode selection buttons
-document.querySelectorAll('.mode-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-        if (!this.isLobbyHost()) {
-            this.ui.showMessage?.('Only the lobby host can change the mode.', 1400);
-            updateCSLobbyInfo();
-            return;
-        }
-        this.game.selectMode(btn.dataset.mode);
+        document.querySelectorAll('.mode-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                if (!this.isLobbyHost()) return;
+                document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('selected'));
+                btn.classList.add('selected');
+                this.game.selectMode(btn.dataset.mode);
                 updateCSLobbyInfo();
             });
-});
-document.getElementById('match-modifier')?.addEventListener('change', event => {
-    if (!this.isLobbyHost()) {
-        event.target.value = this.game.matchModifier || 'none';
-        return;
-    }
-    this.game.setMatchModifier(event.target.value);
-});
-this.game.onModeChange = updateCSLobbyInfo;
-this.game.onMapChange = updateCSLobbyInfo;
-updateCSLobbyInfo();
+        });
+        document.getElementById('match-modifier')?.addEventListener('change', event => {
+            if (!this.isLobbyHost()) return;
+            this.game.setMatchModifier(event.target.value);
+        });
+        updateCSLobbyInfo();
         this.initCarousel();
 
         // Karakter kart tıklama
@@ -2147,19 +1775,6 @@ updateCSLobbyInfo();
                 }
             }
             // Shop buy buttons
-            const liveOfferBtn = e.target.closest('.live-offer-buy');
-            if (liveOfferBtn) {
-                const ok = await this.store.purchaseLiveOffer(liveOfferBtn.dataset.offerId);
-                if (ok) {
-                    this.ui.showMessage?.('Live deal purchased!');
-                    await this.store.refreshLiveMarket();
-                    this.ui.renderShop(this.store, 'live');
-                    this.refreshMetaStats();
-                } else {
-                    this.ui.showMessage?.('Live deal is unavailable, owned, or you need more coins.');
-                }
-                return;
-            }
             const buyBtn = e.target.closest('.shop-buy');
             if (buyBtn) {
                 const type = buyBtn.dataset.type;
@@ -2182,16 +1797,6 @@ updateCSLobbyInfo();
                     this.ui.showMessage?.('Not enough coins or owned!');
                 }
             }
-            const skillEquip = e.target.closest('.skill-equip');
-            if (skillEquip) {
-                const skillId = skillEquip.dataset.id;
-                const loadout = { ...this.store.get('loadout'), skill: skillId };
-                const equipped = this.store.setLoadout(loadout);
-                if (equipped) this.player.loadout.skill = skillId;
-                this.ui.showMessage?.(equipped ? 'Skill equipped.' : 'Unlock this skill first.');
-                this.ui.renderShop(this.store, 'skills');
-                return;
-            }
             const trialBtn = e.target.closest('.shop-trial');
             if (trialBtn) {
                 const id = trialBtn.dataset.id;
@@ -2204,44 +1809,24 @@ updateCSLobbyInfo();
                     this.ui.showMessage?.('Trial unavailable or already active.');
                 }
             }
-            const cosmeticClear = e.target.closest('.cosmetic-clear');
-            if (cosmeticClear) {
-                this.store.clearCosmeticSlot(cosmeticClear.dataset.type);
-                await this._syncWearableLoadout();
-                this.ui.renderShop(this.store, 'wearables');
-                this.ui.showMessage?.('Cosmetic removed.');
-                return;
-            }
             // Equip ball from shop
             const equipBtn = e.target.closest('.shop-equip');
             if (equipBtn) {
                 const ballId = equipBtn.dataset.id;
-                if (equipBtn.dataset.type === 'cosmetic') {
-                    const ok = this.store.equipCosmetic(ballId);
-                    this.ui.showMessage?.(ok ? 'Cosmetic equipped!' : 'This cosmetic cannot be equipped.');
-                    if (ok) await this._syncWearableLoadout();
-                } else if (equipBtn.dataset.type === 'avatar') {
+                if (equipBtn.dataset.type === 'avatar') {
                     this.store.equipAvatarSkin(ballId);
                     this.initAvatarPainter();
                     this.avatarPainter?.applyPreset(ballId);
                     this.ui.showMessage?.(`🎨 Equipped: ${AVATAR_SKINS[ballId].name}!`);
                 } else {
                     this.store.set('equippedBall', ballId);
+                    this.player.ballSkinId = ballId;
                     this.game.ball.setSkin(ballId);
                     this.ui.showMessage?.(`🎾 Equipped: ${BALL_SKINS[ballId].name}!`);
                 }
                 const activeTab = document.querySelector('.shop-tab.selected')?.dataset.tab || 'chars';
                 this.ui.renderShop(this.store, activeTab);
                 this.refreshMetaStats();
-            }
-            const ballInspect = e.target.closest('.ball-inspect');
-            if (ballInspect) {
-                const card = ballInspect.closest('.ball-skin');
-                const inspecting = card?.classList.toggle('inspecting') === true;
-                ballInspect.setAttribute('aria-pressed', String(inspecting));
-                ballInspect.textContent = inspecting ? 'Stop preview' : 'Inspect trail';
-                const skin = BALL_SKINS[ballInspect.dataset.id];
-                this.ui.showMessage?.(inspecting ? `${skin?.name || 'Ball'} trail preview` : 'Preview stopped', 1100);
             }
             // Battlepass claim
             const claimBtn = e.target.closest('.bp-claim');
@@ -2329,61 +1914,35 @@ updateCSLobbyInfo();
                 document.querySelectorAll('.shop-tab').forEach(t => t.classList.remove('selected'));
                 tabBtn.classList.add('selected');
                 this.ui.renderShop(this.store, tabBtn.dataset.tab);
-                if (tabBtn.dataset.tab === 'live') {
-                    void this.store.refreshLiveMarket().then(() => this.ui.renderShop(this.store, 'live'));
-                }
+                this._renderCosmeticCustomizer(tabBtn.dataset.tab);
             }
-            const caseClose = e.target.closest('#case-inspector-close');
-            if (caseClose || (e.target.id === 'case-inspector')) {
-                document.getElementById('case-inspector')?.classList.add('hidden');
+            const cosmeticSave = e.target.closest('.cosmetic-customizer-save');
+            if (cosmeticSave) {
+                const current = migrateCosmeticLoadout(this.store.get('cosmeticLoadout'));
+                current.knife.nameTag = document.getElementById('cosmetic-name-tag')?.value || '';
+                current.knife.patternSeed = Number(document.getElementById('cosmetic-pattern-seed')?.value) || 0;
+                current.knife.wear = Number(document.getElementById('cosmetic-wear')?.value) || 0;
+                current.knife.charm = document.getElementById('cosmetic-charm')?.value || null;
+                current.knife.stickers = [0, 1, 2, 3].map(index =>
+                    document.getElementById(`cosmetic-sticker-${index}`)?.value || null
+                );
+                current.ballTrail = document.getElementById('cosmetic-ball-trail')?.value || 'none';
+                current.goalEffect = document.getElementById('cosmetic-goal-effect')?.value || 'none';
+                current.mvpEffect = document.getElementById('cosmetic-mvp-effect')?.value || 'none';
+                this.store.set('cosmeticLoadout', normalizeCosmeticLoadout(current));
+                this.applyLoadout();
+                this.ui.showMessage?.('Cosmetic loadout saved.', 1400);
                 return;
             }
-            const caseSelect = e.target.closest('.case-select');
-            if (caseSelect) {
-                const box = CASES[caseSelect.dataset.id];
-                if (!box) return;
+            const caseBtn = e.target.closest('.case-open');
+            if (caseBtn) {
+                const box = CASES[caseBtn.dataset.id];
                 const balance = Number(this.store.get('currency')) || 0;
-                const pity = this.store.getCasePityState(box.id);
-                const inspector = document.getElementById('case-inspector');
-                const art = document.getElementById('case-inspector-art');
-                const open = document.getElementById('case-inspector-open');
-                if (art) {
-                    art.src = box.art;
-                    art.alt = `${box.name} crate`;
-                }
-                document.getElementById('case-inspector-title').textContent = box.name;
-                document.getElementById('case-inspector-meta').textContent = 'Confirm to purchase, then the case reel starts.';
-                document.getElementById('case-inspector-balance').textContent = `${balance} credits`;
-                document.getElementById('case-inspector-pity').textContent = pity.nextGuaranteed
-                    ? 'Next open'
-                    : `${pity.count}/${pity.threshold}`;
-                if (open) {
-                    open.dataset.id = box.id;
-                    open.disabled = false;
-                    open.lastChild.textContent = `Open for ${box.price} credits`;
-                }
-                inspector?.classList.remove('hidden');
-                open?.focus();
-                return;
-            }
-            const caseOpen = e.target.closest('#case-inspector-open');
-            if (caseOpen) {
-                const box = CASES[caseOpen.dataset.id];
-                const balance = Number(this.store.get('currency')) || 0;
-                if (!box || caseOpen.disabled) return;
-                caseOpen.disabled = true;
-                caseOpen.classList.add('is-opening');
-                let result = await this.store.openCaseRemote(box.id);
-                if (!result && !this.store.remoteReady) result = this.store.openCase(box.id);
-                caseOpen.disabled = false;
-                caseOpen.classList.remove('is-opening');
+                const result = this.store.openCase(caseBtn.dataset.id);
                 this.ui.showMessage?.(result
                     ? `${result.duplicate ? `Duplicate +${result.refund} coins` : 'Unlocked'}: ${result.reward.name}`
-                    : `Need ${box.price} coins - Balance ${balance}`);
-                if (result) {
-                    document.getElementById('case-inspector')?.classList.add('hidden');
-                    this.ui.showCaseReel(box, result);
-                }
+                    : !box ? 'Case unavailable.' : `Need ${box.price} coins - Balance ${balance}`);
+                if (result) this.ui.showCaseReel(box, result);
                 this.ui.renderShop(this.store, 'cases');
                 this.refreshMetaStats();
                 return;
@@ -2392,11 +1951,8 @@ updateCSLobbyInfo();
             if (knifeBtn) {
                 const ok = this.store.equipKnife(knifeBtn.dataset.id, knifeBtn.dataset.team);
                 if (ok && knifeBtn.dataset.team === this.player.team) {
-                    const custom = migrateCosmeticLoadout(this.store.get('cosmeticLoadout'));
-                    custom.knife.id = knifeBtn.dataset.id;
-                    this.store.set('cosmeticLoadout', normalizeCosmeticLoadout(custom));
                     this.player.knifeId = knifeBtn.dataset.id;
-                    this.player.setKnifeStyle?.(this._getKnifeStyle(knifeBtn.dataset.id));
+                    this.player.setKnifeStyle?.(KNIVES[knifeBtn.dataset.id] || KNIVES.training);
                 }
                 this.ui.showMessage?.(ok ? `Equipped for ${knifeBtn.dataset.team.toUpperCase()}` : 'This knife cannot be equipped.');
                 this.ui.renderShop(this.store, 'inventory');
@@ -2406,7 +1962,7 @@ updateCSLobbyInfo();
             if (inspectBtn) {
                 const card = inspectBtn.closest('.inventory-card');
                 card?.classList.toggle('inspecting');
-                this._renderCosmeticPreview(card?.querySelector('.knife-preview'), this._getKnifeStyle(inspectBtn.dataset.id));
+                this._renderCosmeticPreview(card?.querySelector('.knife-preview'), KNIVES[inspectBtn.dataset.id]);
                 return;
             }
             const replayButton = e.target.closest('.replay-play, .replay-export, .replay-delete, .replay-highlight, .replay-highlight-copy');
@@ -2453,7 +2009,6 @@ updateCSLobbyInfo();
         gameContainer.addEventListener('click', () => {
             if ((this.game.state !== STATES.PLAYING
                 && this.game.state !== STATES.CELEBRATION
-                && this.game.state !== STATES.COSMETIC_PRACTICE
                 && this.game.state !== STATES.SOCIAL_HUB) || this.player.locked) return;
             if (this.chatOpen) return;
             const pauseEl = document.getElementById('pause-menu');
@@ -2631,7 +2186,7 @@ updateCSLobbyInfo();
         }
     }
 
-    _enterSocialLobby(mapId = this._socialHubMapId || 'estate', { autoLock = true } = {}) {
+    _enterSocialLobby(mapId = this._socialHubMapId || 'island') {
         if (this.socialLobby.active) return;
         this._longJumpTrack = null;
         const name = document.getElementById('player-name-input')?.value?.trim()
@@ -2672,7 +2227,7 @@ updateCSLobbyInfo();
             status.textContent = `${map.name} - public room active`;
         });
         this._appendSocialLobbyChat('WARRBALL', `Welcome to ${map.name}. Explore and chat with the room.`, true);
-        if (autoLock) this.player.lock();
+        this.player.lock();
     }
 
     _leaveSocialLobby() {
@@ -3130,136 +2685,6 @@ updateCSLobbyInfo();
         }
     }
 
-    async refreshWorkshop(mine = false) {
-        const grid = document.getElementById('map-workshop-grid');
-        const status = document.getElementById('map-workshop-status');
-        if (!grid) return;
-        this.workshopMine = mine;
-        grid.dataset.loaded = '1';
-        grid.replaceChildren();
-        if (status) status.textContent = mine ? 'Loading your submissions...' : 'Loading approved maps...';
-        if (mine && !this.store.remoteReady) {
-            await this.store.connectRemote(this.store.get('playerName'));
-        }
-        const query = document.getElementById('workshop-search')?.value || '';
-        const sort = document.getElementById('workshop-sort')?.value || 'trending';
-        const result = await this.store.listPublishedMaps({ mine, query, sort, limit: 24 });
-        if (result.error) {
-            if (status) status.textContent = result.error;
-            return;
-        }
-        document.getElementById('btn-workshop-public')?.setAttribute('aria-pressed', String(!mine));
-        document.getElementById('btn-workshop-mine')?.setAttribute('aria-pressed', String(mine));
-        if (!result.maps.length) {
-            if (status) status.textContent = mine
-                ? 'No submissions yet. Publish your first arena.'
-                : 'No approved maps match this search.';
-            return;
-        }
-        const fragment = document.createDocumentFragment();
-        for (const map of result.maps) {
-            const card = document.createElement('article');
-            card.className = 'workshop-card';
-            card.dataset.status = ['approved', 'pending', 'rejected'].includes(map.status)
-                ? map.status
-                : 'pending';
-
-            const top = document.createElement('div');
-            top.className = 'workshop-card-top';
-            const title = document.createElement('h3');
-            title.textContent = map.name;
-            const badge = document.createElement('span');
-            badge.className = 'workshop-status';
-            badge.textContent = map.status;
-            top.append(title, badge);
-
-            const creator = document.createElement('p');
-            creator.className = 'workshop-creator';
-            creator.textContent = `by ${map.creatorName} | v${map.revision} | ${map.propCount} props | score ${map.score || 0}`;
-            const description = document.createElement('p');
-            description.className = 'workshop-description';
-            description.textContent = map.description || 'Competitive arena prototype.';
-            card.append(top, creator, description);
-
-            if (mine && map.moderationNote) {
-                const note = document.createElement('p');
-                note.className = 'workshop-note';
-                note.textContent = `Review: ${map.moderationNote}`;
-                card.append(note);
-            }
-
-            const actions = document.createElement('div');
-            actions.className = 'workshop-actions';
-            if (!mine) {
-                const votes = document.createElement('div');
-                votes.className = 'workshop-votes';
-                for (const [value, label] of [[1, 'Upvote'], [-1, 'Downvote']]) {
-                    const vote = document.createElement('button');
-                    vote.type = 'button';
-                    vote.className = 'btn btn-secondary workshop-vote';
-                    vote.dataset.workshopAction = 'vote';
-                    vote.dataset.mapId = map.id;
-                    vote.dataset.voteValue = String(value);
-                    vote.setAttribute('aria-pressed', String(map.viewerVote === value));
-                    vote.textContent = value > 0 ? `+ ${map.upvotes || 0}` : `- ${map.downvotes || 0}`;
-                    vote.setAttribute('aria-label', `${label} ${map.name}`);
-                    votes.append(vote);
-                }
-                actions.append(votes);
-            }
-            for (const [action, label] of [['open', 'Open in Editor'], ['play', 'Play Solo']]) {
-                const button = document.createElement('button');
-                button.type = 'button';
-                button.className = action === 'play' ? 'btn btn-primary' : 'btn btn-secondary';
-                button.dataset.workshopAction = action;
-                button.dataset.mapId = map.id;
-                button.dataset.mine = mine ? '1' : '0';
-                button.textContent = label;
-                actions.append(button);
-            }
-            card.append(actions);
-            fragment.append(card);
-        }
-        grid.append(fragment);
-        if (status) status.textContent = `${result.maps.length} map loaded`;
-    }
-
-    async openWorkshopMap(mapId, mine = false, play = false) {
-        const status = document.getElementById('map-workshop-status');
-        if (status) status.textContent = 'Validating map package...';
-        const map = await this.store.getPublishedMap(mapId);
-        const validation = map ? validateMapConfig(map.config) : { valid: false, errors: ['Map unavailable'] };
-        if (!validation.valid) {
-            if (status) status.textContent = validation.errors[0] || 'Unsafe map package';
-            return;
-        }
-        const safe = normalizeMapConfig(validation.config);
-        if (play) {
-            const id = `workshop-${map.id}`;
-            registerCustomMap(id, safe);
-            this.arena.rebuild(id);
-            this.startPractice();
-            return;
-        }
-        const maps = (this.store.get('customMaps') || []).filter(entry => entry.id !== 'custom-local');
-        maps.push({
-            id: 'custom-local',
-            config: safe,
-            publishedId: mine ? map.id : ''
-        });
-        this.store.set('customMaps', maps.slice(-10));
-        registerCustomMap('custom-local', safe);
-        this.mapEditor?.setConfig(safe);
-        const name = document.getElementById('map-editor-name');
-        const width = document.getElementById('map-editor-width');
-        const length = document.getElementById('map-editor-length');
-        if (name) name.value = safe.name;
-        if (width) width.value = safe.dimensions.width;
-        if (length) length.value = safe.dimensions.length;
-        this.mapEditor?.render();
-        if (status) status.textContent = `${safe.name} downloaded to your local editor`;
-    }
-
     initMapEditor() {
         const canvas = document.getElementById('map-editor-canvas');
         if (!canvas) return;
@@ -3282,8 +2707,6 @@ updateCSLobbyInfo();
         if (length) length.value = config.dimensions.length;
         refresh(config);
         this.mapEditor.render();
-        const workshop = document.getElementById('map-workshop-grid');
-        if (workshop && workshop.dataset.loaded !== '1') this.refreshWorkshop(false);
     }
 
     async _startRankedQueue() {
@@ -3564,15 +2987,15 @@ updateCSLobbyInfo();
         });
     }
 
-initCarousel() {
-    const keys = this.game.getSelectableMaps();
+    initCarousel() {
+        const keys = Object.keys(Arena.MAPS);
         const idx = keys.indexOf(this.arena?.mapId);
         if (idx >= 0) this.carouselIndex = idx;
         this.updateCarousel();
     }
 
-updateCarousel() {
-    const keys = this.game.getSelectableMaps();
+    updateCarousel() {
+        const keys = Object.keys(Arena.MAPS);
         const mapId = keys[this.carouselIndex];
         const config = Arena.MAPS[mapId];
         if (!config) return;
@@ -3680,241 +3103,7 @@ updateCarousel() {
     }
 
     // Practice range — bot yok, sınırsız top, spawn/taşı.
-    _initShopShowcase() {
-        const canvas = document.getElementById('shop-showcase-canvas');
-        if (!canvas || this.shopShowcase) return;
-        try {
-            this.shopShowcase = new ShopShowcaseRenderer(canvas, {
-                characterId: this.store.get('selectedChar'),
-                skinId: this.store.get('equippedAvatarSkin'),
-                autoStart: false
-            });
-        } catch (error) {
-            const status = document.getElementById('shop-showcase-status');
-            if (status) status.textContent = '3D preview unavailable. Catalog controls remain active.';
-        }
-        window.addEventListener('warrball:shop-preview', event => {
-            const detail = event.detail;
-            if (detail?.type !== 'avatar' || !AVATAR_SKINS[detail.id]) return;
-            this._syncShopShowcase(detail.id);
-            if (detail.previewing && !this.cosmeticPractice.active) {
-                queueMicrotask(() => this._startCosmeticPractice(detail.id));
-            }
-        }, { signal: this._mainAbort.signal });
-    }
-
-    _syncShopShowcase(skinId = null) {
-        const selected = skinId
-            || document.getElementById('shop-showcase-stage')?.dataset.skinId
-            || this.store.get('equippedAvatarSkin');
-        this.shopShowcase?.sync({
-            characterId: this.store.get('selectedChar'),
-            skinId: AVATAR_SKINS[selected] ? selected : 'default'
-        });
-        this.shopShowcase?.resize();
-    }
-
-    _syncCosmeticPracticeCommerce() {
-        return this.cosmeticPractice.syncCommerce({
-            currency: this.store.get('currency'),
-            ownedSkinIds: this.store.get('ownedAvatarSkins'),
-            equippedSkinId: this.store.get('equippedAvatarSkin')
-        });
-    }
-
-    _startCosmeticPractice(skinId = this.store.get('equippedAvatarSkin')) {
-        if (!AVATAR_SKINS[skinId]) return false;
-        if (this.cosmeticPractice.active) {
-            this._renderCosmeticPractice(this.cosmeticPractice.selectSkin(skinId));
-            return true;
-        }
-        this._capturePracticeSession();
-        this._syncCosmeticPracticeCommerce();
-        const snapshot = this.cosmeticPractice.open(skinId, 'shop');
-        this.shopShowcase?.stop();
-        this.game.cancelGuidedDrill();
-        this.game.clearPowerUps?.();
-        this.game.affixes?.clearRound();
-        this.game.chaosManager?.clear();
-        this.game.state = STATES.LOBBY;
-        this.game.selectMode('classic');
-        this.game.selectMap(COSMETIC_PRACTICE_MAP_ID);
-        this.player.setTeam('red');
-        this.player.respawn();
-        this.player.position.set(0, this.player.height, 2);
-        this.player.velocity.set(0, 0, 0);
-        this.player.euler.set(0, 0, 0, 'YXZ');
-        this.player.camera.quaternion.setFromEuler(this.player.euler);
-        this.game.bots.forEach(bot => bot.remove());
-        this.game.bots = [];
-        this.game._practiceMode = true;
-        this.game._cosmeticPractice = true;
-        this.game.ball.active = false;
-        this.game.ball.velocity.set(0, 0, 0);
-        this.game.ball.mesh.visible = false;
-        this.game.setState(STATES.COSMETIC_PRACTICE);
-        this.ui.hideAll();
-        this.ui.hideHUD();
-        document.getElementById('practice-lab-hud')?.classList.add('hidden');
-        document.getElementById('cosmetic-practice-hud')?.classList.remove('hidden');
-        document.body.classList.add('cosmetic-practice-active');
-        this.player.setHandVisible(false);
-        this._cosmeticPracticeAvatar = createShowcaseAvatar({
-            characterId: this.store.get('selectedChar'),
-            skinId: snapshot.selectedSkinId
-        });
-        this._cosmeticPracticeAvatar.root.rotation.y = Math.PI;
-        this._cosmeticPracticeAvatar.root.scale.setScalar(1.35);
-        this.arena.cosmeticStudio?.previewAnchor?.add(this._cosmeticPracticeAvatar.root);
-        this._renderCosmeticPractice(snapshot);
-        return true;
-    }
-
-    _renderCosmeticPractice(snapshot = this.cosmeticPractice.snapshot()) {
-        if (!snapshot?.skin) return;
-        this._cosmeticPracticeAvatar?.sync({
-            characterId: this.store.get('selectedChar'),
-            skinId: snapshot.selectedSkinId
-        });
-        const eligibility = snapshot.eligibility;
-        const setText = (id, value) => {
-            const element = document.getElementById(id);
-            if (element) element.textContent = value;
-        };
-        setText('cosmetic-practice-name', snapshot.skin.name);
-        setText('cosmetic-practice-meta', `${snapshot.catalogIndex + 1}/${snapshot.catalogSize} - ${snapshot.skin.model === 'slim' ? 'Slim' : 'Classic'} model`);
-        setText('cosmetic-practice-balance', `${eligibility.balance} credits`);
-        setText('cosmetic-practice-status', eligibility.equipped
-            ? 'Equipped now.'
-            : eligibility.owned
-                ? 'Owned. Equip when ready.'
-                : `Previewing before purchase - ${eligibility.price} credits`);
-        const buy = document.getElementById('cosmetic-practice-buy');
-        if (buy) {
-            buy.disabled = !eligibility.canPurchase;
-            buy.textContent = eligibility.owned ? 'Owned' : eligibility.canPurchase ? `Buy - ${eligibility.price}` : `Need ${eligibility.price} credits`;
-        }
-        const equip = document.getElementById('cosmetic-practice-equip');
-        if (equip) {
-            equip.disabled = !eligibility.canEquip;
-            equip.textContent = eligibility.equipped ? 'Equipped' : 'Equip Skin';
-        }
-    }
-
-    _selectCosmeticPracticeSkin(direction) {
-        if (!this.cosmeticPractice.active) return;
-        const snapshot = direction < 0 ? this.cosmeticPractice.previous() : this.cosmeticPractice.next();
-        this._renderCosmeticPractice(snapshot);
-    }
-
-    async _purchaseCosmeticPracticeSkin() {
-        if (!this.cosmeticPractice.active) return false;
-        const snapshot = this.cosmeticPractice.snapshot();
-        if (!snapshot.eligibility.canPurchase) return false;
-        const button = document.getElementById('cosmetic-practice-buy');
-        if (button) {
-            button.disabled = true;
-            button.setAttribute('aria-busy', 'true');
-            button.textContent = 'Purchasing...';
-        }
-        const purchased = await this.store.purchase('avatar', snapshot.selectedSkinId);
-        button?.removeAttribute('aria-busy');
-        this._renderCosmeticPractice(this._syncCosmeticPracticeCommerce());
-        this.refreshMetaStats();
-        this.ui.showMessage?.(purchased ? `${snapshot.skin.name} purchased.` : 'Purchase failed or item already owned.', 1800);
-        return purchased;
-    }
-
-    _equipCosmeticPracticeSkin() {
-        if (!this.cosmeticPractice.active) return false;
-        const snapshot = this.cosmeticPractice.snapshot();
-        const equipped = this.store.equipAvatarSkin(snapshot.selectedSkinId);
-        if (!equipped) return false;
-        this.initAvatarPainter();
-        this.avatarPainter?.applyPreset(snapshot.selectedSkinId);
-        this._renderCosmeticPractice(this._syncCosmeticPracticeCommerce());
-        this._syncShopShowcase(snapshot.selectedSkinId);
-        this.refreshMetaStats();
-        this.ui.showMessage?.(`${snapshot.skin.name} equipped.`, 1600);
-        return true;
-    }
-
-    _exitCosmeticPractice() {
-        if (!this.cosmeticPractice.active) return false;
-        const returnScreen = this.cosmeticPractice.snapshot().returnScreen;
-        this.cosmeticPractice.close();
-        this._cosmeticPracticeAvatar?.dispose();
-        this._cosmeticPracticeAvatar = null;
-        this.game._cosmeticPractice = false;
-        this._exitPracticeSession();
-        this.game.setState(STATES.MENU);
-        document.getElementById('cosmetic-practice-hud')?.classList.add('hidden');
-        document.body.classList.remove('cosmetic-practice-active');
-        this.player.setHandVisible(true);
-        this.ui.renderShop(this.store, 'avatars');
-        this.ui.showScreen(returnScreen);
-        this._syncShopShowcase();
-        this.shopShowcase?.start();
-        this.player.unlock();
-        return true;
-    }
-
-    _capturePracticeSession() {
-        if (this._practiceSessionRestore) return;
-        this._practiceSessionRestore = {
-            mapId: this.arena.mapId,
-            modeId: this.game.mode?.id || 'classic',
-            team: this.player.team
-        };
-    }
-
-    _exitPracticeSession() {
-        if (!this.game._practiceMode
-            && !this._practiceSessionRestore
-            && !this.game.guidedDrill?.active
-            && !this.game._guidedDrillResultOpen) {
-            return false;
-        }
-        const restore = this._practiceSessionRestore;
-        this.game.cancelGuidedDrill();
-        this.game.clearPowerUps?.();
-        this.game.affixes?.clearRound();
-        this.game.chaosManager?.clear();
-        this.game._practiceMode = false;
-        document.getElementById('guided-drill-result')?.classList.add('hidden');
-        document.getElementById('practice-lab-hud')?.classList.add('hidden');
-        document.querySelectorAll('#btn-add-bot-red, #btn-add-bot-blue').forEach(button => {
-            button.disabled = false;
-        });
-        if (restore) {
-            this.game.state = STATES.LOBBY;
-            this.game.selectMode(restore.modeId);
-            this.game.selectMap(restore.mapId);
-            this.player.setTeam(restore.team === 'blue' ? 'blue' : 'red');
-            this.player.respawn();
-        }
-        this._practiceSessionRestore = null;
-        return true;
-    }
-
-    startGuidedDeflectDrill() {
-        this._capturePracticeSession();
-        document.getElementById('guided-drill-result')?.classList.add('hidden');
-        this.game.state = STATES.LOBBY;
-        this.game.selectMode('classic');
-        this.game.selectMap('esport_arena');
-        this.startPractice();
-        this.game.armGuidedDrill();
-        this.game.startGame(true);
-        this.player.lock();
-    }
-
-    startPractice({ launch = false } = {}) {
-        this._capturePracticeSession();
-        this.game.cancelGuidedDrill();
-        this.game.clearPowerUps?.();
-        this.game.affixes?.clearRound();
-        this.game.chaosManager?.clear();
+    startPractice() {
         this.game.state = STATES.LOBBY;
         this.player.setTeam('red');
         this.player.respawn();
@@ -3931,10 +3120,7 @@ updateCarousel() {
         this._updatePracticeLab(this.game.practiceMetrics.summary());
         document.getElementById('practice-lab-hud')?.classList.remove('hidden');
         this.ui.showScreen('lobby');
-        if (launch) {
-            this.game.startGame();
-            this.player.lock();
-        }
+        this.syncLobbyAuthorityUI();
         // Practice lobby'sinde farklı butonlar göster
         this.ui.showMessage?.('Practice Lab: R spawn, F reposition, T reset', 3000);
     }
@@ -3942,7 +3128,6 @@ updateCarousel() {
     _startMovementTrial(trialId) {
         const trial = MOVEMENT_TRIALS[trialId];
         if (!trial) return;
-        this._capturePracticeSession();
         this.game.selectMap(trial.map);
         this.startPractice();
         if (trial.character) {
@@ -4014,6 +3199,36 @@ updateCarousel() {
     // Lobby leader = host, or solo (not connected to any peer) → you lead.
     isLobbyHost() {
         return !this.network || !this.network.connected || this.network.isHost;
+    }
+
+    syncLobbyAuthorityUI() {
+        const show = this.isLobbyHost();
+        document.querySelectorAll('[data-host-only-control]').forEach(element => {
+            element.classList.toggle('hidden', !show);
+            element.setAttribute('aria-hidden', String(!show));
+        });
+        return show;
+    }
+
+    _setAllowLateJoin(enabled) {
+        this._allowLateJoin = enabled !== false;
+        this.network.allowLateJoin = this._allowLateJoin;
+        if (!this.network?.isHost || !this._lobbyCode) return;
+        this.broadcastLobbyState();
+        const active = this.game.shouldQueueLateJoin();
+        if (active && !this._allowLateJoin) {
+            this._unregisterLobby(this._lobbyCode);
+            return;
+        }
+        this._registerLobby(
+            this._lobbyCode,
+            this._lobbyName,
+            this.network.connections.size + 1,
+            this.arena.config?.name || 'Unknown',
+            this.game.mode?.name || 'Classic',
+            active,
+            this._allowLateJoin
+        );
     }
 
     _setupLobbyDragDrop() {
@@ -4089,77 +3304,13 @@ updateCarousel() {
         this._perfectDeflectTimer = setTimeout(() => hud.classList.add('hidden'), 850);
     }
 
-    _updateGuidedDrillHUD(snapshot = {}) {
-        const stage = snapshot.stage || {};
-        const displayStage = snapshot.phase === 'transition'
-            ? snapshot.nextStage || stage
-            : stage;
-        const stats = snapshot.stats || {};
-        const seconds = Math.ceil((snapshot.phaseRemainingMs || 0) / 1000);
-        const values = {
-            'practice-lab-mode': displayStage.name || 'GUIDED',
-            'drill-stage': snapshot.phase === 'countdown'
-                ? 'READY'
-                : snapshot.phase === 'transition'
-                    ? `NEXT ${Math.min((snapshot.stageIndex || 0) + 2, 3)}/3`
-                    : `STAGE ${Math.min((snapshot.stageIndex || 0) + 1, 3)}/3`,
-            'drill-timer': `00:${String(seconds).padStart(2, '0')}`,
-            'drill-speed': `${Number(snapshot.speedMultiplier || 0).toFixed(2)}x`,
-            'drill-hits': stats.hits || 0,
-            'drill-directed': stats.directed || 0,
-            'drill-perfect': stats.perfect || 0,
-            'practice-hint': snapshot.phase === 'countdown'
-                ? 'Get ready. First serve incoming.'
-                : snapshot.phase === 'transition'
-                    ? `Next: ${displayStage.instruction || ''}`
-                    : stage.instruction || ''
-        };
-        Object.entries(values).forEach(([id, value]) => {
-            const element = document.getElementById(id);
-            if (element) element.textContent = value;
-        });
-        const track = document.getElementById('drill-stage-progress');
-        if (track && stage.durationMs) {
-            track.style.width = `${Math.min(
-                100,
-                (snapshot.phaseElapsedMs || 0) / stage.durationMs * 100
-            )}%`;
-        }
-    }
-
-    _showGuidedDrillResult(result = {}) {
-        const overlay = document.getElementById('guided-drill-result');
-        if (!overlay) return;
-        const grade = document.getElementById('drill-result-grade');
-        const score = document.getElementById('drill-result-score');
-        if (grade) grade.textContent = result.grade || 'D';
-        if (score) score.textContent = String(result.score || 0);
-        const list = document.getElementById('drill-result-stages');
-        if (list) {
-            list.replaceChildren();
-            for (const stage of result.stages || []) {
-                const row = document.createElement('div');
-                const name = document.createElement('span');
-                const value = document.createElement('b');
-                name.textContent = stage.name;
-                value.textContent = `${stage.score} ${stage.passed ? 'PASS' : 'RETRY'}`;
-                row.dataset.passed = stage.passed ? '1' : '0';
-                row.append(name, value);
-                list.append(row);
-            }
-        }
-        overlay.classList.remove('hidden');
-        this.game._guidedDrillResultOpen = true;
-        this.player.unlock();
-    }
-
     _updatePracticeLab(summary = {}) {
-        const accuracy = Math.round(summary.accuracy || 0);
+        const accuracy = Math.round((summary.accuracy || 0) * 100);
         const values = {
             'practice-accuracy': `${accuracy}%`,
             'practice-perfects': summary.perfects || 0,
-            'practice-best': Number.isFinite(summary.best)
-                ? `${Math.round(summary.best)}ms`
+            'practice-best': Number.isFinite(summary.bestReactionMs)
+                ? `${Math.round(summary.bestReactionMs)}ms`
                 : '--'
         };
         Object.entries(values).forEach(([id, value]) => {
@@ -4171,9 +3322,9 @@ updateCarousel() {
     }
 
     _installMigratedHostHandlers(code) {
-        this.network.onPlayerJoin = (name, playerId, avatar, peerId) => {
+        this.network.onPlayerJoin = (name, playerId, avatar, peerId, cosmetics) => {
             const existing = this.game.remotePlayers.has(playerId);
-            this.game.addRemotePlayer(playerId, name, null, avatar, peerId);
+            this.game.addRemotePlayer(playerId, name, null, avatar, peerId, cosmetics);
             if (!existing && this.game.shouldQueueLateJoin()) this.game.queueRemoteForNextRound(playerId);
             this.broadcastLobbyState();
         };
@@ -4181,7 +3332,6 @@ updateCarousel() {
             this.game.removeRemotePlayer(playerId);
             this.network.broadcast({ type: 'peerLeft', playerId, peerId });
             this.broadcastLobbyState();
-            this._syncRematchRoster?.();
         };
         this.network.onTeamChange = (name, team) => {
             this.game.switchPlayerTeam?.(name, team);
@@ -4210,26 +3360,17 @@ updateCarousel() {
             settings: {
                 matchTime: parseInt(document.getElementById('setting-match-time')?.value || 300),
                 maxRounds: parseInt(document.getElementById('setting-max-rounds')?.value || 16),
-                botDifficulty: document.getElementById('setting-bot-difficulty')?.value || 'hard'
+                botDifficulty: document.getElementById('setting-bot-difficulty')?.value || 'hard',
+                allowLateJoin: this._allowLateJoin
             }
         });
-    }
-
-    async _syncWearableLoadout() {
-        const playerId = this.network?.playerId;
-        if (!playerId) return false;
-        const entitlement = await this.store.syncCosmeticLoadout(playerId);
-        if (!entitlement) return false;
-        if (this.network?.isHost) this.broadcastLobbyState();
-        else if (this.network?.connected) this.network.send({ type: 'cosmeticLoadout', entitlement });
-        return true;
     }
 
     // Wire the client-side network callbacks (used by every join path).
     _setupClientNetHandlers() {
         this._setupReconnectUI();
         this.network.onKicked = (reason) => {
-            this._exitToMenu(reason === 'password' ? 'Wrong lobby password.' : 'You were kicked from the lobby.');
+            this._exitToMenu(reason === 'password' ? '❌ Wrong lobby password' : '❌ Kicked from lobby');
         };
         this.network.onTeamChange = (pName, team) => {
             this.game.switchPlayerTeam?.(pName, team);
@@ -4247,11 +3388,11 @@ updateCarousel() {
                         const result = this.game.handleLateJoin?.(data);
                         if (result?.queued) this._enterLateJoinSpectator(result);
                     }
+                    this.syncLobbyAuthorityUI();
                 }
             }
             // Mesh: on welcome, connect to all existing peers directly (skip host relay)
             if (data?.type === 'welcome' && !this.network.isHost && data.players) {
-                void this._syncWearableLoadout();
                 const myId = this.network.playerId;
                 const myPeerId = this.network.peer?.id;
                 const hostId = this.network.hostConn?.peer;
@@ -4266,7 +3407,6 @@ updateCarousel() {
             this._exitToMenu('🚪 Host left — lobby closed');
         };
         this.network.onHostMigration = ({ candidate }) => {
-            this._stopHostCheckpointLifecycle();
             const banner = document.getElementById('host-migration-banner');
             const title = document.getElementById('host-migration-title');
             if (title) title.textContent = `${candidate?.name || 'Player'} is becoming host...`;
@@ -4285,13 +3425,12 @@ updateCarousel() {
                 this._installMigratedHostHandlers(roomCode);
                 this.game.ball._clientOnly = false;
                 this._startBgLoop();
-                this._startHostCheckpointLifecycle();
                 this.ui.setRoomCode(roomCode);
                 this.ui.showMessage?.('You are the new host. Match resumed.', 2600);
             } else {
-                this._stopHostCheckpointLifecycle();
                 this.ui.showMessage?.('Host migrated. Match resumed.', 2200);
             }
+            this.syncLobbyAuthorityUI();
         };
     }
 
@@ -4324,31 +3463,39 @@ updateCarousel() {
 
     // Leave the lobby cleanly. Host closes it for everyone; clients just drop.
     leaveLobby() {
-        this._stopHostCheckpointLifecycle();
+        this.closeHostedMatch();
+    }
+
+    closeHostedMatch(message) {
+        const wasHost = this.network?.isHost === true;
+        const code = this._lobbyCode;
         clearInterval(this._lobbyKeepAlive);
         this._stopBgLoop();
         this._cleanupListeners();
-        if (this.network?.isHost && this._lobbyCode) this._unregisterLobby(this._lobbyCode);
+        if (wasHost && code) this._unregisterLobby(code);
         this._lobbyCode = null;
-        this._exitPracticeSession();
         document.getElementById('practice-lab-hud')?.classList.add('hidden');
-        // Tell peers + tear down the P2P connection.
-        this.network?.closeLobby?.();
+        if (wasHost) this.network?.closeLobby?.(true);
+        else this.network?.disconnect?.();
         this.game.cancelPreGame?.();
-        this.game.ball.deactivate();
-        this.game.setState(STATES.MENU);
         this._cleanupLobbyEntities();
+        this.game.ball.deactivate();
+        this.game.clearBlackHoles?.();
+        this.game.clearSplitBalls?.();
+        if (this.game.affixes) this.game.affixes.clearRound();
+        this.player.unlock();
+        this.ui.setPlayerTarget(false);
+        this.game.setState(STATES.MENU);
         this.ui.showScreen('mainMenu');
+        if (message) this.ui.showMessage?.(message, 2500);
     }
 
     // Shared cleanup when returning to the menu from a lobby (host or client).
     _exitToMenu(message) {
-        this._stopHostCheckpointLifecycle();
         clearInterval(this._lobbyKeepAlive);
         this._stopBgLoop();
         this._cleanupListeners();
         this._lobbyCode = null;
-        this._exitPracticeSession();
         document.getElementById('practice-lab-hud')?.classList.add('hidden');
         this.network?.disconnect();
         this.game.cancelPreGame?.();
@@ -4379,7 +3526,12 @@ updateCarousel() {
         return fetch(path, opts).then(r => r.json()).catch(() => ({}));
     }
 
-    async _registerLobby(code, name, players, map, mode) {
+    async _registerLobby(code, name, players, map, mode, active = this.game.shouldQueueLateJoin(), allowLateJoin = this._allowLateJoin) {
+        if (!code) return;
+        if (active && !allowLateJoin) {
+            await this._unregisterLobby(code);
+            return;
+        }
         const ranked = this.game.mode?.id === 'competitive' || this._rankedHosting === true;
         await this._lobbyApi('/api/lobbies', {
             method: 'POST',
@@ -4388,7 +3540,9 @@ updateCarousel() {
                 code, name, hostName: this.game.playerName, players, map, mode,
                 ranked,
                 averageElo: ranked ? this.store.getElo() : undefined,
-                maxPlayers: 8
+                maxPlayers: 8,
+                active,
+                allowLateJoin
             })
         });
     }
@@ -4405,34 +3559,13 @@ updateCarousel() {
             container.innerHTML = '<div class="mp-lobby-empty">No open lobbies found. Create one or refresh.</div>';
             return;
         }
-        const modeFilter = document.getElementById('mp-lobby-mode-filter');
-        const mapFilter = document.getElementById('mp-lobby-map-filter');
-        const queueFilter = document.getElementById('mp-lobby-queue-filter');
-        const openFilter = document.getElementById('mp-lobby-open-filter');
-        if (modeFilter) {
-            const selected = modeFilter.value || 'all';
-            const modes = [...new Set(list.map(l => l.mode).filter(Boolean))].sort();
-            modeFilter.replaceChildren(new Option('All modes', 'all'), ...modes.map(mode => new Option(mode, mode)));
-            modeFilter.value = modes.includes(selected) ? selected : 'all';
-        }
-        const filtered = filterLobbies(list, {
-            mode: modeFilter?.value,
-            map: mapFilter?.value,
-            queue: queueFilter?.value,
-            openOnly: openFilter?.checked
-        });
-        if (!filtered.length) {
-            container.innerHTML = '<div class="mp-lobby-empty">No lobbies match these filters.</div>';
-            return;
-        }
-        container.innerHTML = filtered.map(l => `
+        container.innerHTML = list.map(l => `
             <div class="mp-lobby-card" data-code="${this._esc(l.code)}">
                 <div class="lobby-icon">🏐</div>
                 <div class="lobby-info">
                     <div class="lobby-name">${this._esc(l.name || 'Lobby')}</div>
-                    <div class="lobby-meta">${this._esc(l.hostName)} · ${this._esc(l.map)}</div>
+                    <div class="lobby-meta">${this._esc(l.hostName)} · ${this._esc(l.map)} · ${this._esc(l.mode)}</div>
                 </div>
-                <div class="lobby-mode-badge">MODE: ${this._esc(l.mode || 'Classic')}</div>
                 <div class="lobby-players">👤 ${l.players || 1}</div>
                 <button class="btn btn-primary btn-join btn-small">Join</button>
             </div>
@@ -4446,40 +3579,6 @@ updateCarousel() {
         });
     }
 
-    async _startQuickPlay() {
-        const button = document.getElementById('btn-mp-quick');
-        const queue = document.getElementById('quick-play-queue')?.value || 'casual';
-        const modeId = document.getElementById('quick-play-mode')?.value || 'all';
-        const mapId = document.getElementById('quick-play-map')?.value || 'all';
-        const mode = modeId === 'all' ? 'all' : GAME_MODES[modeId]?.name || modeId;
-        const map = mapId === 'all' ? '' : Arena.MAPS[mapId]?.name || mapId;
-        if (button) {
-            button.disabled = true;
-            button.setAttribute('aria-busy', 'true');
-        }
-        try {
-            const lobbies = await this._lobbyApi('/api/lobbies', { method: 'GET' });
-            const match = pickQuickLobby(lobbies, { queue, mode, map, openOnly: true });
-            if (match) {
-                await this._quickJoin(match.code);
-                return;
-            }
-            const hostedMode = queue === 'ranked' ? 'competitive' : modeId;
-            if (hostedMode !== 'all' && GAME_MODES[hostedMode]) this.game.selectMode(hostedMode);
-            if (mapId !== 'all' && Arena.MAPS[mapId] && !Arena.MAPS[mapId].hiddenFromRotation) {
-                this.game.selectMap(mapId);
-            }
-            this._rankedHosting = queue === 'ranked';
-            this.ui.showMessage?.(`No matching ${queue} lobby - creating one.`, 1800);
-            await this._doHostGame();
-        } finally {
-            if (button) {
-                button.disabled = false;
-                button.removeAttribute('aria-busy');
-            }
-        }
-    }
-
     _esc(s) { return String(s).replace(/[<>&"']/g, m => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[m])); }
 
     async _quickJoin(code) {
@@ -4491,6 +3590,7 @@ updateCarousel() {
             // ponytail: bg loop runs client-side interpolation + state handling throughout the game
             this._startBgLoop();
             this.ui.showScreen('lobby');
+            this.syncLobbyAuthorityUI();
             this.ui.showMessage?.('🔗 Joined lobby!', 2000);
         } catch (e) {
             alert('Failed to join: ' + e.message);
@@ -4509,9 +3609,9 @@ updateCarousel() {
             // ponytail: bg loop is the authoritative host sim — must run regardless of tab visibility
             this._startBgLoop();
             this.game.startSolo();
-            this._startHostCheckpointLifecycle();
             this.ui.setRoomCode(code);
             this.ui.showScreen('lobby');
+            this.syncLobbyAuthorityUI();
             const nameInput = document.getElementById('lobby-name-input');
             if (nameInput) { nameInput.disabled = false; nameInput.value = 'Lobby'; }
             this._lobbyName = 'Lobby';
@@ -4530,9 +3630,9 @@ updateCarousel() {
                 this._lobbyNameTimeout = setTimeout(onLobbyNameChange, 400);
             };
             if (nameInput) nameInput.addEventListener('input', onLobbyNameInput);
-            this.network.onPlayerJoin = (pName, playerId, avatar, peerId) => {
+            this.network.onPlayerJoin = (pName, playerId, avatar, peerId, cosmetics) => {
                 const existing = this.game.remotePlayers.has(playerId);
-                this.game.addRemotePlayer(playerId, pName, null, avatar, peerId);
+                this.game.addRemotePlayer(playerId, pName, null, avatar, peerId, cosmetics);
                 if (!existing && this.game.shouldQueueLateJoin()) {
                     this.game.queueRemoteForNextRound(playerId);
                     this.game.broadcastSystemMessage(`${pName} joined as spectator.`);
@@ -4554,7 +3654,6 @@ updateCarousel() {
                 // Mesh: tell remaining clients to drop P2P connection
                 this.network.broadcast({ type: 'peerLeft', playerId, peerId });
                 this.broadcastLobbyState();
-                this._syncRematchRoster?.();
                 this._registerLobby(code, this._lobbyName, this.network.connections.size, this.arena.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
             };
             // Host: client kendi takımını değiştirmek isterse uygula, sonra broadcast et.
@@ -4933,70 +4032,6 @@ updateCarousel() {
             if (this.audio?.ctx?.state === 'suspended') this.audio.ctx.resume();
         }
     }
-    _publishHostCheckpointIfChanged() {
-        const network = this.network;
-        if (!network?.connected || !network.isHost
-            || typeof network.publishHostCheckpoint !== 'function') return false;
-        let state;
-        let signature;
-        try {
-            state = this.game?.snapshotState?.();
-            if (!state || typeof state !== 'object' || Array.isArray(state)) return false;
-            signature = JSON.stringify(state);
-        } catch (_) {
-            return false;
-        }
-        if (!signature || signature.length > HOST_CHECKPOINT_SIGNATURE_MAX_CHARS) return false;
-        const epoch = Number.isSafeInteger(network.migrationEpoch) ? network.migrationEpoch : 0;
-        const versionedSignature = `${epoch}:${signature}`;
-        if (versionedSignature === this._lastHostCheckpointSignature) return false;
-        let checkpoint;
-        try {
-            checkpoint = network.publishHostCheckpoint(state);
-        } catch (_) {
-            return false;
-        }
-        if (!checkpoint
-            || !Number.isSafeInteger(checkpoint.epoch)
-            || !Number.isSafeInteger(checkpoint.sequence)) return false;
-        this._lastHostCheckpointSignature = versionedSignature;
-        this._lastHostCheckpointEpoch = checkpoint.epoch;
-        this._lastHostCheckpointSequence = checkpoint.sequence;
-        return true;
-    }
-
-    _startHostCheckpointLifecycle() {
-        this._stopHostCheckpointLifecycle();
-        if (!this.network?.connected || !this.network.isHost) return false;
-        const generation = this._hostCheckpointGeneration;
-        this._publishHostCheckpointIfChanged();
-        this._hostCheckpointInterval = setInterval(() => {
-            if (generation !== this._hostCheckpointGeneration
-                || !this.network?.connected
-                || !this.network.isHost) {
-                if (generation === this._hostCheckpointGeneration) {
-                    this._stopHostCheckpointLifecycle();
-                }
-                return;
-            }
-            this._publishHostCheckpointIfChanged();
-        }, HOST_CHECKPOINT_INTERVAL_MS);
-        return true;
-    }
-
-    _stopHostCheckpointLifecycle() {
-        if (this._hostCheckpointInterval !== null) {
-            clearInterval(this._hostCheckpointInterval);
-            this._hostCheckpointInterval = null;
-        }
-        this._hostCheckpointGeneration = Number.isSafeInteger(this._hostCheckpointGeneration)
-            ? this._hostCheckpointGeneration + 1
-            : 1;
-        this._lastHostCheckpointSignature = null;
-        this._lastHostCheckpointEpoch = null;
-        this._lastHostCheckpointSequence = null;
-    }
-
     _startBgLoop() {
         if (this._bgInterval) return;
         this._bgAccumulator = 0;
@@ -5046,13 +4081,6 @@ updateCarousel() {
         if (document.hidden) {
             this.game.invokeRemoteSnapshots(dt);
             this.game.invokeBallSmoothing?.(dt);
-            const advancesPlayer = this.game.state === STATES.PLAYING
-                || this.game.state === STATES.ROUND_END
-                || this.game.state === STATES.COUNTDOWN
-                || this.game.state === STATES.CELEBRATION;
-            if (advancesPlayer && !Spectator.active && !this.ui.isTeamPopupOpen?.()) {
-                this.player.update(dt);
-            }
         }
         // Process attack queue (bg tab hidden icin — main loop calismaz)
         this._bgProcessAttackQueue();
@@ -5106,26 +4134,24 @@ updateCarousel() {
             this.network.sendPosition(pos, p.euler.y, extra);
         }
     }
-    // Host slow-rate broadcasts: score 2Hz, powerUp 2Hz, ballState 15Hz
+    // Host slow-rate broadcasts: score 2Hz, powerUp 2Hz, ballState 30Hz
     _hostBgSlowBroadcast(dt) {
         if (!this.network?.isHost) return;
         this._bgBallTimer += dt;
-        // Ball state: 30Hz binary position/velocity; state/target only when changed.
+        // Ball state: 30Hz authoritative position, velocity, state, and target.
         if (this._bgBallTimer >= 1 / 30 && (this.game.ball.active || this.game.ball.state !== 'idle')) {
             this._bgBallTimer %= 1 / 30;
-            this._ballSeq = (this._ballSeq || 0) + 1;
-            const b = this.game.ball;
-            this.network.broadcastBallState(b, this._ballSeq);
+            this.network.broadcastBallState(this.game.ball);
         }
         // Score 2Hz
         this._bgScoreTimer += dt;
         if (this._bgScoreTimer >= 0.5) {
             this._bgScoreTimer = 0;
+            this.network.publishHostCheckpoint?.(this.game.snapshotState());
             this.network.broadcast({
                 type: 'scoreUpdate',
                 red: this.game.scoreboard.redScore, blue: this.game.scoreboard.blueScore,
                 time: this.game.scoreboard.timeRemaining, round: this.game.scoreboard.roundNum,
-                hotPotato: this.game.getHotPotatoSnapshot?.(),
                 players: this.game.scoreboard.getPlayerStats(),
                 killFeed: this.game.killFeed.slice(0, 5).map(k => ({
                     attacker: k.attacker, victim: k.victim, dmg: k.dmg, tag: k.tag
@@ -5167,62 +4193,23 @@ updateCarousel() {
         this.renderer.render(this.camera);
     }
 
-    _voiceTargets() {
-        if (!this.network?.peer || !this.network.connected) return [];
-        const localPosition = this.player.getPosition();
-        return [...this.game.remotePlayers.values()].filter(target => {
-            if (!target.alive || !target.peerId) return false;
-            if (!this.game._ffa) return target.team === this.player.team;
-            return target.position?.distanceTo?.(localPosition) <= 22;
-        }).map(target => ({
-            peerId: target.peerId,
-            muted: this._mutedPlayers.has(target.name) || this.socialProfile.muted?.includes(target.name)
-        }));
-    }
-
-    _syncVoiceChat() {
-        if (!this.voice?.enabled) return;
-        this.voice.syncTargets(this._voiceTargets());
-    }
-
-    async _startVoicePtt() {
-        if (this.store.get('voiceChatEnabled') === false) {
-            this.ui.showMessage?.('Voice chat is disabled in Settings.', 1600);
-            return;
-        }
-        if (!this.network?.peer || !this.network.connected) {
-            this.ui.showMessage?.('Voice chat requires an online lobby.', 1600);
-            return;
-        }
-        const wasEnabled = this.voice.enabled;
-        if (!await this.voice.enable()) {
-            this.ui.showMessage?.('Microphone permission is required for voice chat.', 2200);
-            return;
-        }
-        this.voice.setPushToTalk(true);
-        this.voice.setMuted(this.store.get('voiceMuted') === true);
-        this._syncVoiceChat();
-        this.voice.pttDown();
-        if (!wasEnabled) this.ui.showMessage?.(this.game._ffa ? 'Voice ready: FFA proximity.' : 'Voice ready: team channel.', 1800);
-    }
-
     loop() {
         requestAnimationFrame(() => this.loop());
         const dt = Math.min(this.clock.getDelta(), 0.05);
 
-        this._voiceSyncTimer = (this._voiceSyncTimer || 0) - dt;
-        if (this._voiceSyncTimer <= 0) {
-            this._voiceSyncTimer = 0.5;
-            this._syncVoiceChat();
-        }
-
         this._diagnosticsTimer = (this._diagnosticsTimer || 0) - dt;
         if (this._diagnosticsTimer <= 0) {
             this._diagnosticsTimer = 0.5;
+            const fps = Math.round(1 / Math.max(dt, 0.001));
+            const fpsCounter = document.getElementById('fps-counter');
+            if (fpsCounter) {
+                const showFps = [STATES.PLAYING, STATES.COUNTDOWN, STATES.ROUND_END, STATES.CELEBRATION, STATES.PAUSED].includes(this.game.state);
+                fpsCounter.classList.toggle('hidden', !showFps);
+                fpsCounter.textContent = `${fps} FPS`;
+            }
             const value = document.getElementById('network-diagnostics-value');
             if (value) {
                 const diag = this.network?.getDiagnostics?.();
-                const fps = Math.round(1 / Math.max(dt, 0.001));
                 const health = this.networkHealth.addSample({
                     expectedPackets: Math.max(1, diag?.received || 1),
                     receivedPackets: Math.max(1, diag?.received || 1),
@@ -5231,9 +4218,8 @@ updateCarousel() {
                 value.textContent = diag?.peers
                     ? `${fps} FPS | ${Math.round(diag.ping || 0)}ms | ${(health.packetLoss * 100).toFixed(0)}% LOSS | ${diag.peers}P`
                     : `${fps} FPS | LOCAL`;
-                value.parentElement?.classList.toggle('hidden', this.store.get('settings').publicDiagnostics === false);
-                const fpsCounter = document.getElementById('fps-counter');
-                if (fpsCounter && this.game._showFps) fpsCounter.textContent = `${fps} FPS`;
+                const showDiagnostics = this.store.get('settings')?.publicDiagnostics === true;
+                value.parentElement?.classList.toggle('hidden', !showDiagnostics);
             }
             const afk = this.afkMonitor.status();
             if (afk.warning && !this._afkWarned) {
@@ -5262,10 +4248,9 @@ updateCarousel() {
             || this.game.state === STATES.COUNTDOWN
             || this.game.state === STATES.ROUND_END
             || this.game.state === STATES.CELEBRATION
-            || this.game.state === STATES.COSMETIC_PRACTICE
             || this.game.state === STATES.SOCIAL_HUB)
             && !pauseOpen && !settingsOpen && !this.chatOpen && !socialChatFocused && !teamPopup;
-        if (canLock && this.game.state !== STATES.COSMETIC_PRACTICE && !document.pointerLockElement) {
+        if (canLock && !document.pointerLockElement) {
             if (!this._plRetry || performance.now() - this._plRetry > 500) {
                 this._plRetry = performance.now();
                 try { this.renderer.renderer.domElement.requestPointerLock()?.catch?.(() => {}); } catch (_) {}
@@ -5277,7 +4262,7 @@ updateCarousel() {
         // Hide friends sidebar during gameplay
         const sidebar = document.getElementById('friends-sidebar');
         if (sidebar) {
-            const inGame = this.game.state === STATES.LOBBY || this.game.state === STATES.PLAYING || this.game.state === STATES.COUNTDOWN || this.game.state === STATES.CELEBRATION || this.game.state === STATES.ROUND_END || this.game.state === STATES.GAME_OVER || this.game.state === STATES.COSMETIC_PRACTICE || this.game.state === STATES.SOCIAL_HUB;
+            const inGame = this.game.state === STATES.LOBBY || this.game.state === STATES.PLAYING || this.game.state === STATES.COUNTDOWN || this.game.state === STATES.CELEBRATION || this.game.state === STATES.ROUND_END || this.game.state === STATES.GAME_OVER || this.game.state === STATES.SOCIAL_HUB;
             sidebar.classList.toggle('hidden', inGame);
         }
 
@@ -5291,6 +4276,9 @@ updateCarousel() {
         if (this.network?.connected) {
             this.game.invokeRemoteSnapshots(dt);
             this.game.invokeBallSmoothing?.(dt);
+            if (!this.network.isHost && this.game.state === STATES.PAUSED) {
+                this.game.ball?._clientVisualUpdate?.(dt);
+            }
             if (this.network.isHost) this.game.ball.renderInterpolated?.((this._bgAccumulator || 0) * 60);
         }
 
@@ -5336,18 +4324,6 @@ updateCarousel() {
         }
 
         // Killcam camera — free camera orbit around death scene
-        if (this.cosmeticPractice.active && this._cosmeticPracticeAvatar) {
-            const reduceMotion = this.store.get('settings')?.reduceMotion === true
-                || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
-            this._cosmeticPracticeAvatar.setPoseTime(performance.now() / 1000, reduceMotion);
-        }
-
-        if (this.game.state === STATES.COSMETIC_PRACTICE) {
-            if (!Spectator.active && !teamPopup) this.player.update(dt);
-            if (!Spectator.active && !teamPopup) this._updateMovementPolish(false);
-            this.game.ball.deactivate();
-        }
-
         if (this.game._killcamActive) {
             this.game._killcamElapsed += dt;
             const t = this.game._killcamElapsed / this.game._killcamDuration;
@@ -5369,11 +4345,7 @@ updateCarousel() {
         }
 
         // Practice mode özel tuşlar
-        if (this.game._practiceMode
-            && !this.game._cosmeticPractice
-            && !this.game.guidedDrill.active
-            && !this.game._guidedDrillResultOpen
-            && this.game.state === STATES.PLAYING) {
+        if (this.game._practiceMode && this.game.state === STATES.PLAYING) {
             if (this.player.keys['KeyR']) {
                 this.player.keys['KeyR'] = false;
                 this.game.ball.spawn();
@@ -5381,16 +4353,12 @@ updateCarousel() {
             }
             if (this.player.keys['KeyF']) {
                 this.player.keys['KeyF'] = false;
-                this.game.ball.spawn();
                 const aim = this.player.getAimDirection();
                 const pos = this.player.getPosition();
                 this.game.ball.position.copy(pos).add(aim.multiplyScalar(5));
                 this.game.ball.position.y = Math.max(3, this.game.ball.position.y);
                 this.game.ball.velocity.set(0, -2, 0);
                 this.game.ball.active = true;
-                this.game.ball.state = 'falling';
-                this.game.ball.target = null;
-                this.game.ball._homingAge = 0;
                 this.game.ball.mesh.visible = true;
                 this.ui.showMessage?.('Ball moved', 800);
             }
@@ -5504,38 +4472,6 @@ updateCarousel() {
 
         // Host: authoritative state broadcast
         if (this.network?.isHost && this.game.state === STATES.PLAYING) {
-            // BallState: selective — skip if ball follows predicted path, send if deviation > threshold
-            // Reduces packet count ~50% on straight shots, client extrapolates between updates.
-            if (this.game.ball.active || this.game.ball.state !== 'idle') {
-                this._hostBallTimer = (this._hostBallTimer || 0) - dt;
-                if (this._hostBallTimer <= 0) {
-                    this._hostBallTimer = 1 / 60;
-                    const ball = this.game.ball;
-                    let shouldSend = true;
-                    if (this._lastSentBall) {
-                        const elapsed = (performance.now() - this._lastSentBall.time) / 1000;
-                        const px = this._lastSentBall.x + this._lastSentBall.vx * elapsed;
-                        const py = this._lastSentBall.y + this._lastSentBall.vy * elapsed;
-                        const pz = this._lastSentBall.z + this._lastSentBall.vz * elapsed;
-                        const dx = ball.position.x - px;
-                        const dy = ball.position.y - py;
-                        const dz = ball.position.z - pz;
-                        const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
-                        this._ballSendSkipCount = (this._ballSendSkipCount || 0) + 1;
-                        if (dist < 0.1 && this._ballSendSkipCount < 1) shouldSend = false;
-                        else this._ballSendSkipCount = 0;
-                    }
-                    if (shouldSend) {
-                        this._ballSeq = (this._ballSeq || 0) + 1;
-                        this._lastSentBall = {
-                            x: ball.position.x, y: ball.position.y, z: ball.position.z,
-                            vx: ball.velocity.x, vy: ball.velocity.y, vz: ball.velocity.z,
-                            time: performance.now()
-                        };
-                        this.network.broadcastBallState(ball, this._ballSeq);
-                    }
-                }
-            }
             // Score: 2Hz
             this._hostScoreTimer = (this._hostScoreTimer || 0) - dt;
             if (this._hostScoreTimer <= 0) {
@@ -5544,7 +4480,6 @@ updateCarousel() {
                     type: 'scoreUpdate',
                     red: this.game.scoreboard.redScore, blue: this.game.scoreboard.blueScore,
                     time: this.game.scoreboard.timeRemaining, round: this.game.scoreboard.roundNum,
-                    hotPotato: this.game.getHotPotatoSnapshot?.(),
                     players: this.game.scoreboard.getPlayerStats(),
                     killFeed: this.game.killFeed.slice(0, 5).map(k => ({
                         attacker: k.attacker, victim: k.victim, dmg: k.dmg, tag: k.tag
@@ -5625,9 +4560,7 @@ updateCarousel() {
                 }
                 const info = document.getElementById('spectator-info');
                 if (info) {
-                    info.textContent = this.game._ffa
-                        ? `FFA ${view.distance <= 1 ? 'POV' : 'TPS'}  ${t.name || 'PLAYER'}  CLICK switch  WHEEL zoom`
-                        : `TEAM ${view.distance <= 1 ? 'POV' : 'TPS'}  ${t.name || 'TEAMMATE'}  CLICK switch  WHEEL zoom`;
+                    info.textContent = `TEAM ${view.distance <= 1 ? 'POV' : 'TPS'}  ${t.name || 'TEAMMATE'}  CLICK switch  WHEEL zoom`;
                     info.classList.remove('hidden');
                 }
             } else if (this.player.alive) {

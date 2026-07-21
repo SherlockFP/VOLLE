@@ -34,6 +34,16 @@ export function sampleSnapshots(buffer, renderTime) {
     return { from, to, alpha: Math.min(1, Math.max(0, (renderTime - from.time) / span)) };
 }
 
+export function rebaseSnapshotBuffer(buffer, timeShift = 0, now = performance.now()) {
+    if (!Array.isArray(buffer)) return [];
+    const safeShift = Number.isFinite(timeShift) ? timeShift : 0;
+    const safeNow = Number.isFinite(now) ? now : 0;
+    return buffer
+        .filter(sample => sample && Number.isFinite(sample.time))
+        .slice(-12)
+        .map(sample => ({ ...sample, time: Math.min(safeNow, sample.time + safeShift) }));
+}
+
 export function predictPosition(position, velocity, milliseconds, strength = 1) {
     const dt = Math.max(0, milliseconds) / 1000 * Math.min(1, Math.max(0, strength));
     return {

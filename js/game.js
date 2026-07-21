@@ -1,7 +1,8 @@
 // game.js — Full game: chat, team switch, death fx, minimap, aim deflection,
 // damage ramp, skill system, map ban, damage meter, portal handling.
 import * as THREE from 'three';
-import { Ball, networkBallStep } from './ball.js';
+import { Ball, BALL_SKINS, BALL_TRAILS, networkBallStep } from './ball.js';
+import { createAvatarDataURL } from './avatar.js';
 import { Bot } from './bot.js';
 import { Scoreboard } from './scoreboard.js';
 import { calcDamage, missRampDamage } from './characters.js';
@@ -12,17 +13,8 @@ import { ChaosManager, CHAOS_MODES } from './chaos.js';
 import { EmoteSystem } from './emotes.js';
 import { AffixManager } from './affixes.js';
 import { SKILLS, useSkill, ULTIMATES } from './skills.js';
-import { outlineVertexShader } from './shaders/toon.vert.js';
-import { isNewerSequence } from './network.js';
+import { hasSimulationAuthority, isNewerSequence, normalizeCountdownState } from './network.js';
 import { resolveKillerName, segmentIntersectsSphere } from './combat.js';
-import {
-    applyHotPotatoSnapshot,
-    createHotPotatoState,
-    resetHotPotatoState,
-    snapshotHotPotato,
-    tickHotPotato,
-    transferHotPotato
-} from './hot-potato.js';
 import {
     createKnifeModel,
     createRocketLauncherModel,
@@ -30,26 +22,17 @@ import {
     disposeObject3D
 } from './weapon-models.js';
 import { KNIVES } from './cosmetics.js';
-import { normalizeWearableLoadout } from './cosmetic-catalog.js';
-import { applyEntityCosmetics, spawnImpactCosmetic, updateEntityCosmetics } from './cosmetic-models.js';
 import {
     activateQueuedEntity,
     isLiveJoinState,
     queueForNextRound,
     selectQueuedTeam
 } from './late-join.js';
-import { shouldEndOvertime, shouldStartOvertime } from './competitive-service.js';
-import { normalizeNetcode, predictPosition, rewindSnapshot, sampleSnapshots } from './experimental-netcode.js';
+import { hasModeWinner, shouldEndOvertime, shouldStartOvertime } from './competitive-service.js';
+import { normalizeNetcode, predictPosition, rebaseSnapshotBuffer, rewindSnapshot, sampleSnapshots } from './experimental-netcode.js';
 import { RuntimeLog } from './runtime-safety.js';
 import { PracticeLabMetrics, resolvePerfectDeflect } from './perfect-deflect.js';
-import { GuidedDeflectDrill } from './guided-deflect-drill.js';
 import { MatchAnalytics } from './match-analytics.js';
-import { applyCompetitiveRules } from './competitive-rules.js';
-import {
-    RALLY_DUEL_MAPS,
-    normalizeRallyDuelMap,
-    planRallyDuelRoster
-} from './rally-duel.js';
 
 const BASE_HIT_DAMAGE = 25;
 
@@ -73,8 +56,7 @@ const POWERUP_LIFETIME = 30;
 export const STATES = {
     MENU: 'MENU', LOBBY: 'LOBBY', COUNTDOWN: 'COUNTDOWN',
     PLAYING: 'PLAYING', ROUND_END: 'ROUND_END', GAME_OVER: 'GAME_OVER',
-    CELEBRATION: 'CELEBRATION', PAUSED: 'PAUSED', SOCIAL_HUB: 'SOCIAL_HUB',
-    COSMETIC_PRACTICE: 'COSMETIC_PRACTICE'
+    CELEBRATION: 'CELEBRATION', PAUSED: 'PAUSED', SOCIAL_HUB: 'SOCIAL_HUB'
 };
 
 export class Game {
@@ -95,29 +77,17 @@ export class Game {
         };
 
         this.state = STATES.MENU;
-        this.matchId = null;
         this.experimentalNetcode = normalizeNetcode();
         this.perfectDeflectChain = { count: 0, lastPerfectAt: null };
         this._remotePerfectChains = new Map();
         this.practiceMetrics = new PracticeLabMetrics();
-        this.guidedDrill = new GuidedDeflectDrill();
-        this._guidedDrillArmed = false;
-        this._guidedDrillTarget = null;
-        this._guidedDrillTargetPosition = new THREE.Vector3();
-        this._guidedDrillRestore = null;
-        this._guidedDrillCompleted = false;
         this.matchAnalytics = new MatchAnalytics();
         this.ball = new Ball(renderer, arena);
         this.scoreboard = new Scoreboard();
         this.bots = [];
         this.remotePlayers = new Map();
-        this.localCosmeticEntity = { group: new THREE.Group() };
-        this.localCosmeticEntity.group.name = 'local-cosmetics';
-        this.renderer.scene.add(this.localCosmeticEntity.group);
-        applyEntityCosmetics(this.localCosmeticEntity, null);
         this._pendingLethalHit = null;
         this._pendingLethalVictim = null;
-        this._predictedLocalDeath = false;
         this.rockets = [];
         this._remoteRocketCooldowns = new Map();
         // Player name → remote-Avatar Sprite cache, böylece aynı oyuncu için sprite bir kez oluşur.
@@ -129,8 +99,9 @@ export class Game {
         this.preGameTimer = 0;
         this.lastDeflector = null;
         this.lastDeflectorTeam = null;
-        this._resetHotPotato();
         this._openingOwner = null;
+        this.ball.setSkin('classic');
+        this.ball.setTrail('none');
         this.arena.pinballTargets?.forEach(target => {
             target.broken = false;
             target.mesh.visible = true;
@@ -198,7 +169,6 @@ export class Game {
         this._overtimeTimer = 0;
         this._overtimeMaxSpeed = 3.0;
         this._overtimeExtends = 0;
-        this._suddenDeathAnnounced = false;
 
         // Map voting
         this._mapVoteActive = false;
@@ -322,7 +292,6 @@ export class Game {
         const prev = this.state;
         RuntimeLog.auditTransition(prev, s);
         this.state = s;
-        if (s !== STATES.PLAYING) this.audio?.resetThreatAudio?.();
         if (s === STATES.ROUND_END && prev !== STATES.ROUND_END) this.onRoundEnd?.();
         if (s === STATES.LOBBY || s === STATES.MENU || s === STATES.SOCIAL_HUB) {
             if (prev !== STATES.LOBBY && prev !== STATES.MENU && prev !== STATES.SOCIAL_HUB) this._startMusic();
@@ -352,13 +321,10 @@ export class Game {
         this.updateLobbyUI();
     }
 
-addBot(team, { name: preferredName = null } = {}) {
-    if (this._practiceMode) return null;
-    this.botCounter++;
-    const name = typeof preferredName === 'string'
-        && /^[a-zA-Z0-9 _-]{1,24}$/.test(preferredName)
-        ? preferredName
-        : `Bot-${this.botCounter}`;
+    addBot(team) {
+        if (this._practiceMode) return null;
+        this.botCounter++;
+        const name = `Bot-${this.botCounter}`;
         const bot = new Bot(this.renderer, this.arena, name, team, this.botDifficulty);
         bot._gameRef = this;
         this.bots.push(bot);
@@ -495,10 +461,11 @@ addBot(team, { name: preferredName = null } = {}) {
         this._activeBlackHoles = [];
     }
 
-    spawnSplitBall(ball, life = 5) {
+    spawnSplitBall(ball) {
         const perp = new THREE.Vector3(-ball.velocity.z, 0.3, ball.velocity.x).normalize();
         const pos = ball.position.clone();
         const vel = perp.multiplyScalar(ball.currentSpeed * 0.5).add(new THREE.Vector3(0, 3, 0));
+        const life = 5;
         this._createSplitBallMesh(pos, vel, life);
         // ponytail: broadcast so clients render split ball at same pos/vel
         if (this.network?.isHost) this.network.broadcastSplitBallSpawn(pos.x, pos.y, pos.z, vel.x, vel.y, vel.z);
@@ -575,8 +542,10 @@ addBot(team, { name: preferredName = null } = {}) {
     }
 
     updateLobbyUI() {
-        if (this.competitiveRules) applyCompetitiveRules(this, this.competitiveRules);
-        const ownAvatar = window.__store?.get?.('customAvatar')?.dataURL || null;
+        const store = globalThis.window?.__store;
+        const ownAvatar = store?.get?.('customAvatar')?.dataURL
+            || createAvatarDataURL(store?.get?.('equippedAvatarSkin') || 'default')
+            || null;
         const players = [{
             name: this.playerName,
             team: this.player.team,
@@ -611,53 +580,15 @@ addBot(team, { name: preferredName = null } = {}) {
         this.ui.updateLobbyPlayers(players, isHost);
     }
 
-_prepareRallyDuel() {
-    const connectedClient = !!this.network?.connected && !this.network?.isHost;
-    const plan = planRallyDuelRoster({
-        remotePlayers: this.remotePlayers.values(),
-        allowFallbackBot: !connectedClient
-    });
-    if (!plan.accepted) {
-        this.ui.showMessage?.(
-            plan.reason === 'too-many-players'
-                ? 'Rally Duel supports exactly two active players.'
-                : 'Waiting for the duel opponent.',
-            2200
-        );
-        return false;
-    }
-    while (this.bots.length) this.removeBot();
-    const localTeam = connectedClient ? 'blue' : 'red';
-    const opponentTeam = localTeam === 'red' ? 'blue' : 'red';
-    this.player.setTeam(localTeam);
-    let opponent = plan.opponent;
-    if (plan.needsFallbackBot) {
-        this.addBot(opponentTeam, { name: 'Rally BOT' });
-        opponent = this.bots.at(-1);
-        if (opponent) opponent.isFallbackBot = true;
-    }
-    if (!opponent) return false;
-    opponent.setTeam?.(opponentTeam);
-    if (!opponent.setTeam) opponent.team = opponentTeam;
-    this.clearPowerUps();
-    return true;
-}
-
-startGame(skipPreGame = false, matchId = null) {
-    if (this._rallyDuel && !this._prepareRallyDuel()) return false;
-    this.matchId = typeof matchId === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(matchId)
-            ? matchId
-            : globalThis.crypto?.randomUUID?.()
-                || `match-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    startGame(skipPreGame = false, waitForRoundStart = false) {
         this.cancelPreGame();
         this._rewardsClaimed = false;
         this.perfectDeflectChain = { count: 0, lastPerfectAt: null };
         this._remotePerfectChains.clear();
         this.practiceMetrics.reset();
         this.matchAnalytics.reset();
-    this.onMatchStart?.();
-    this.applyMatchModifier();
-    if (this.competitiveRules) applyCompetitiveRules(this, this.competitiveRules);
+        this.onMatchStart?.();
+        this.applyMatchModifier();
         this.setState(STATES.COUNTDOWN);
         // Lobby'de gösterilen bot dummy'leri oyun başlamadan temizle
         for (const [peerId, p] of this.remotePlayers) {
@@ -705,6 +636,12 @@ startGame(skipPreGame = false, matchId = null) {
         this.audio.preloadSfx('sfx/');
         this.initMinimap();
 
+        if (waitForRoundStart) {
+            this._preGameActive = true;
+            this._showAuthoritativeCountdown(this._networkCountdown);
+            return;
+        }
+
         // Late-join: 10 saniyelik pre-game countdown'u atla, anında round'a gir. Host oyun sırasındayken
         // gelen client bu sayede top ve event'leri render eder.
         if (skipPreGame || this._skipPreGame) {
@@ -718,6 +655,8 @@ startGame(skipPreGame = false, matchId = null) {
         // Pre-game countdown (configurable, host can change)
         this.preGameTimer = this.preGameDuration;
         this._preGameActive = true;
+        this._countdownPhase = 'pre';
+        this._countdownDeadline = Date.now() + this.preGameDuration * 1000;
         // Show match intro overlay
         this.ui.showMatchIntro(this.arena.config?.name || 'Arena', this.mode?.name || 'Classic');
         setTimeout(() => this.ui.hideMatchIntro(), 3500);
@@ -730,7 +669,8 @@ startGame(skipPreGame = false, matchId = null) {
         let cancelled = false;
         const wrap = (fn) => () => { if (!cancelled) fn(); };
         this.ui.showCountdown(this.preGameDuration, wrap(() => {
-            this._preGameActive = false;
+            this._countdownPhase = 'final';
+            this._countdownDeadline = Date.now() + 3000;
             this.ui.showCountdown(3, wrap(() => {
                 this.audio.playGo();
                 this.startRound();
@@ -748,6 +688,31 @@ startGame(skipPreGame = false, matchId = null) {
         this.ball._warmup = false;
         this.ui.cancelCountdown?.();
         this.ui.hideMatchIntro?.();
+        this._countdownPhase = 'idle';
+        this._countdownDeadline = 0;
+    }
+
+    _countdownSnapshot(now = Date.now()) {
+        const phase = this.state === STATES.COUNTDOWN ? this._countdownPhase : 'idle';
+        return normalizeCountdownState({
+            phase,
+            remaining: phase === 'idle' ? 0 : (this._countdownDeadline - now) / 1000,
+            duration: phase === 'pre' ? this.preGameDuration : 3
+        });
+    }
+
+    _showAuthoritativeCountdown(value) {
+        const countdown = normalizeCountdownState(value);
+        this.ui.cancelCountdown?.();
+        if (countdown.phase === 'idle') return;
+        const remaining = Math.max(1, Math.ceil(countdown.remaining));
+        if (countdown.phase === 'pre') {
+            this.ui.showCountdown(remaining, () => {
+                if (this.state === STATES.COUNTDOWN) this.ui.showCountdown(3, () => {});
+            });
+        } else {
+            this.ui.showCountdown(remaining, () => {});
+        }
     }
 
     _applyBallAffix() {
@@ -760,158 +725,8 @@ startGame(skipPreGame = false, matchId = null) {
         }
     }
 
-    clearPowerUps() {
-        this._clearAllPowerUps();
-    }
-
-    armGuidedDrill() {
-        this.cancelGuidedDrill();
-        this._guidedDrillRestore = {
-            timeScale: this._timeScale,
-            currentSpeed: this.ball.currentSpeed,
-            homingStrength: this.ball.homingStrength,
-            maxPowerUps: this._maxPowerUps,
-            powerUpTimer: this._powerUpTimer
-        };
-        this._timeScale = 1;
-        this._maxPowerUps = 0;
-        this.clearPowerUps();
-        this.affixes?.clearRound();
-        this.chaosManager?.clear();
-        this._guidedDrillArmed = true;
-        this._guidedDrillCompleted = false;
-        this._guidedDrillResultOpen = false;
-        this.guidedDrill.arm();
-    }
-
-    cancelGuidedDrill() {
-        this.guidedDrill.cancel();
-        this._guidedDrillArmed = false;
-        this._guidedDrillCompleted = false;
-        this._guidedDrillResultOpen = false;
-        this.ball?.deactivate?.();
-        if (this._guidedDrillTarget) this._guidedDrillTarget.visible = false;
-        if (this._guidedDrillRestore) {
-            this._timeScale = this._guidedDrillRestore.timeScale;
-            this.ball.currentSpeed = this._guidedDrillRestore.currentSpeed;
-            this.ball.homingStrength = this._guidedDrillRestore.homingStrength;
-            this._maxPowerUps = this._guidedDrillRestore.maxPowerUps;
-            this._powerUpTimer = this._guidedDrillRestore.powerUpTimer;
-            this._guidedDrillRestore = null;
-        }
-    }
-
-    _beginGuidedDrill() {
-        this.ball.deactivate();
-        this._guidedDrillResultOpen = false;
-        this.guidedDrill.start();
-        this._ensureGuidedDrillTarget();
-        this.onGuidedDrillUpdate?.(this.guidedDrill.snapshot());
-    }
-
-    _ensureGuidedDrillTarget() {
-        if (this._guidedDrillTarget) return;
-        this._guidedDrillTarget = new THREE.Mesh(
-            new THREE.TorusGeometry(2.2, 0.16, 8, 32),
-            new THREE.MeshBasicMaterial({
-                color: 0x5de8dc,
-                transparent: true,
-                opacity: 0.9,
-                depthTest: false
-            })
-        );
-        this._guidedDrillTarget.renderOrder = 12;
-        this._guidedDrillTarget.visible = false;
-        this.renderer.scene.add(this._guidedDrillTarget);
-    }
-
-    _serveGuidedAttempt(snapshot) {
-        const currentSpeed = Number.isFinite(this.ball.currentSpeed) && this.ball.currentSpeed > 0
-            ? this.ball.currentSpeed
-            : 14;
-        const baseSpeed = Number.isFinite(this.ball.baseSpeed) && this.ball.baseSpeed > 0
-            ? this.ball.baseSpeed
-            : currentSpeed;
-        const multiplier = Number.isFinite(snapshot.speedMultiplier)
-            && snapshot.speedMultiplier > 0
-            ? Math.min(2, Math.max(0.5, snapshot.speedMultiplier))
-            : 1;
-        const speed = Math.max(6, baseSpeed * multiplier);
-        const sourcePosition = this.player.getPosition();
-        const playerPosition = this.ball.position.clone().set(
-            Number.isFinite(sourcePosition?.x) ? sourcePosition.x : 0,
-            Number.isFinite(sourcePosition?.y) ? sourcePosition.y : 2,
-            Number.isFinite(sourcePosition?.z)
-                ? sourcePosition.z
-                : (this.player.team === 'red' ? -12 : 12)
-        );
-        this.ball.spawn();
-        this.ball.position.set(0, Math.max(3, playerPosition.y + 1.2), 0);
-        this.ball.currentSpeed = speed;
-        this.ball.velocity.copy(playerPosition)
-            .sub(this.ball.position)
-            .normalize()
-            .multiplyScalar(speed);
-        this.ball.setTarget(this.player);
-        this.ball.state = 'homing';
-        this.ball._homingAge = 0;
-        const distance = this.ball.position.distanceTo(playerPosition);
-        const timeoutMs = Number.isFinite(distance) && Number.isFinite(speed)
-            ? distance / speed * 1000 + 1200
-            : 2200;
-        const attempt = this.guidedDrill.openAttempt({ timeoutMs });
-        if (!attempt.accepted) {
-            this.ball.deactivate();
-            return false;
-        }
-        this._guidedDrillTargetPosition.set(
-            attempt.lane * 10,
-            4,
-            this.player.team === 'red' ? 14 : -14
-        );
-        return true;
-    }
-
-    _updateGuidedDrill(dt) {
-        if (typeof document !== 'undefined' && document.hidden) return;
-        let remainingMs = Math.min(Math.max(dt * 1000, 0), 250);
-        let beforeAttempt = this.guidedDrill.openAttemptId;
-        let snapshot = this.guidedDrill.snapshot();
-        let guard = 0;
-        while (remainingMs > 0 && this.guidedDrill.active && guard++ < 8) {
-            const advanced = this.guidedDrill.advance(remainingMs);
-            remainingMs = advanced.remainingMs;
-            snapshot = advanced.snapshot;
-            if (beforeAttempt !== null && snapshot.openAttemptId === null) {
-                this.ball.deactivate();
-            }
-            let served = false;
-            if (snapshot.needsServe) {
-                served = this._serveGuidedAttempt(snapshot);
-                if (!served) break;
-                snapshot = this.guidedDrill.snapshot();
-            }
-            if (advanced.consumedMs <= 0 && !served) break;
-            beforeAttempt = snapshot.openAttemptId;
-        }
-        if (this._guidedDrillTarget) {
-            const visible = snapshot.phase === 'stage'
-                && snapshot.stage.id === 'direction'
-                && snapshot.openAttemptId !== null;
-            this._guidedDrillTarget.visible = visible;
-            if (visible) this._guidedDrillTarget.position.copy(this._guidedDrillTargetPosition);
-        }
-        this.onGuidedDrillUpdate?.(snapshot);
-        if (snapshot.complete && !this._guidedDrillCompleted) {
-            this._guidedDrillCompleted = true;
-            this._guidedDrillResultOpen = true;
-            this.ball.deactivate();
-            if (this._guidedDrillTarget) this._guidedDrillTarget.visible = false;
-            this.onGuidedDrillComplete?.(this.guidedDrill.result());
-        }
-    }
-
     startRound() {
+        this.cancelPreGame();
         this.clearBlackHoles();
         this.clearSplitBalls();
         this._clearRockets();
@@ -927,17 +742,17 @@ startGame(skipPreGame = false, matchId = null) {
             blue: this.scoreboard.blueScore
         });
         this.activateQueuedPlayers();
-        if (this.affixes && !this._guidedDrillArmed) this.affixes.startRound();
-        if (!this._guidedDrillArmed && this._chaosModeIds.has(this.mode?.id)) this.chaosManager.startRound();
+        if (this.affixes) this.affixes.startRound();
+        if (this._chaosModeIds.has(this.mode?.id)) this.chaosManager.startRound();
         if (this.ball._warmup) { this.ball.deactivate(); this.ball._warmup = false; }
-        if (this._guidedDrillArmed) this._beginGuidedDrill();
-        else this.ball.spawn();
-        if (this._ffaOpeningDouble && !this._guidedDrillArmed) this.spawnSplitBall(this.ball, 18);
+        this.ball.spawn();
         this.ball._pinballBounce = !!this.arena.config?.isPinball || !!this.mode?.mutators?.pinballBounce;
-        if (!this._guidedDrillArmed) this._applyBallAffix();
+        this._applyBallAffix();
         this.lastDeflector = null;
         this.lastDeflectorTeam = null;
         this._openingOwner = null;
+        this.ball.setSkin('classic');
+        this.ball.setTrail('none');
         this.arena.pinballTargets?.forEach(target => {
             target.broken = false;
             target.mesh.visible = true;
@@ -967,12 +782,12 @@ startGame(skipPreGame = false, matchId = null) {
         });
 
         // First target
-        const targets = this.guidedDrill.active ? [] : this.getAllTargets();
+        const targets = this.getAllTargets();
         if (targets.length) {
             const first = targets[Math.floor(Math.random() * targets.length)];
             setTimeout(() => {
         // ponytail: host-only hit detection — client plays effects from ball/playerHit broadcast
-        if (this.ball.active && this.network?.isHost) {
+        if (this.ball.active && hasSimulationAuthority(this.network)) {
                     this.ball.setTarget(first);
                     this.ball.state = 'homing';
                 }
@@ -986,18 +801,16 @@ startGame(skipPreGame = false, matchId = null) {
     }
 
     // Rebuild the arena as a different map (called from the lobby).
-selectMap(mapId) {
-    if (this.state !== STATES.LOBBY && this.state !== STATES.MENU) return;
-    if (this._rallyDuel) mapId = normalizeRallyDuelMap(mapId);
+    selectMap(mapId) {
+        if (this.state !== STATES.LOBBY && this.state !== STATES.MENU) return;
         if (this.arena.mapId === mapId) return;
         this.arena.rebuild(mapId);
         this.player.respawn();
         this.bots.forEach(b => b.respawn());
         this.ui.showMessage(`Arena: ${this.arena.config.name}`, 1400);
         if (this.network?.isHost) {
-        this.network.broadcast({ type: 'mapChange', mapId });
-    }
-    this.onMapChange?.(mapId);
+            this.network.broadcast({ type: 'mapChange', mapId });
+        }
     }
 
     // Map banlama (LoL tarzı). Lobby'de her takım banlar.
@@ -1012,30 +825,22 @@ selectMap(mapId) {
 
     // Banned olmayan map'lerden random seç (startGame sırasında).
     pickRandomMap() {
-        const all = Object.keys(Arena.MAPS || {}).filter(id => !Arena.MAPS[id]?.hiddenFromRotation);
+        const all = Object.keys(Arena.MAPS || {});
         const available = all.filter(id => !this.bannedMaps.has(id));
         if (!available.length) return this.arena.mapId;
         return available[Math.floor(Math.random() * available.length)];
     }
 
     // Oyun modu seç (lobby'den). Mutator'ları uygular.
-selectMode(modeId) {
+    selectMode(modeId) {
         if (this.state !== STATES.LOBBY && this.state !== STATES.MENU) return;
-    applyMode(this, modeId);
-    this.applyMatchModifier();
-    if (this._rallyDuel) this.selectMap(normalizeRallyDuelMap(this.arena.mapId));
+        applyMode(this, modeId);
+        this.applyMatchModifier();
         this.ui.showMessage?.(`Mode: ${this.mode.name}`, 1400);
         if (this.network?.isHost) {
-        this.network.broadcast({ type: 'modeChange', modeId: this.mode.id });
+            this.network.broadcast({ type: 'modeChange', modeId });
+        }
     }
-    this.onModeChange?.(this.mode.id);
-}
-
-getSelectableMaps() {
-    return this._rallyDuel
-        ? [...RALLY_DUEL_MAPS]
-        : Object.keys(Arena.MAPS).filter(id => !Arena.MAPS[id]?.hiddenFromRotation);
-}
 
     // Emote göster (player veya bot için).
     showEmote(entity, emoteId) {
@@ -1049,9 +854,7 @@ getSelectableMaps() {
 
     setMatchModifier(modifier = 'none') {
         if (this.state !== STATES.LOBBY && this.state !== STATES.MENU) return false;
-        const ffaModifier = ['ffa_sudden', 'ffa_double'].includes(modifier);
-        this.matchModifier = ['none', 'lowgrav', 'pinball', 'night', 'ffa_sudden', 'ffa_double'].includes(modifier)
-            && (!ffaModifier || this._ffa) ? modifier : 'none';
+        this.matchModifier = ['none', 'lowgrav', 'pinball', 'night'].includes(modifier) ? modifier : 'none';
         this.applyMatchModifier();
         this.ui.showMessage?.(`Modifier: ${this.matchModifier === 'none' ? 'Standard' : this.matchModifier}`, 1400);
         return true;
@@ -1059,8 +862,6 @@ getSelectableMaps() {
 
     applyMatchModifier() {
         const modifier = this.matchModifier || 'none';
-        this.ball._ffaSpeedMultiplier = modifier === 'ffa_sudden' && this._ffa ? 1.3 : 1;
-        this._ffaOpeningDouble = modifier === 'ffa_double' && this._ffa;
         if (modifier === 'lowgrav') { this.player.gravity = -7; this.player.jumpForce = 12; }
         if (modifier === 'pinball') this.ball._pinballBounce = true;
         if (modifier === 'night') this.renderer?.setClearColor?.(0x03101f, 1);
@@ -1073,6 +874,10 @@ getSelectableMaps() {
     _claimOpeningOwner(entity) {
         if (this._openingOwner || !entity) return false;
         this._openingOwner = entity;
+        const skinId = BALL_SKINS[entity.ballSkinId] ? entity.ballSkinId : 'classic';
+        const trailId = BALL_TRAILS[entity.ballTrailId] ? entity.ballTrailId : 'none';
+        this.ball.setSkin(skinId);
+        this.ball.setTrail(trailId);
         this.broadcastSystemMessage(`${entity.name || this.playerName} CLAIMED THE OPENING BALL`);
         return true;
     }
@@ -1132,30 +937,29 @@ getSelectableMaps() {
         if (this.network?.isHost) this.network.broadcast({ type: 'systemChat', text });
     }
 
-addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = playerId) {
+    addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = playerId, cosmetics = {}) {
         if (!playerId || playerId === this.network?.playerId || peerId === this.network?.peer?.id) return null;
         let p = this.remotePlayers.get(playerId);
         if (p) {
             p.peerId = peerId;
+            p.ballSkinId = BALL_SKINS[cosmetics.ballSkinId] ? cosmetics.ballSkinId : p.ballSkinId;
+            p.ballTrailId = BALL_TRAILS[cosmetics.ballTrailId] ? cosmetics.ballTrailId : p.ballTrailId;
             // Re-update avatar only if it changed (first sync may have emoji fallback only).
             if (avatarDataUrl && p.avatar !== avatarDataUrl) {
                 p.avatar = avatarDataUrl;
                 // Update Minecraft head texture
                 if (p.setAvatarTexture) p.setAvatarTexture(avatarDataUrl);
+            }
+            return p;
         }
-        return p;
-    }
-    if (this._rallyDuel) {
-        const activeHumans = [...this.remotePlayers.values()]
-            .filter(player => !player.queuedForNextRound && !player.isBotEntity);
-        if (activeHumans.length >= 1) return null;
-    }
-    const counts = { red: 0, blue: 0 };
+        const counts = { red: 0, blue: 0 };
         this.getPlayerList().forEach(pl => { counts[pl.team] = (counts[pl.team] || 0) + 1; });
         team = team || (counts.red <= counts.blue ? 'red' : 'blue');
         p = this._createRemotePlayer(playerId, name, team, avatarDataUrl);
         p.playerId = playerId;
         p.peerId = peerId;
+        p.ballSkinId = BALL_SKINS[cosmetics.ballSkinId] ? cosmetics.ballSkinId : 'classic';
+        p.ballTrailId = BALL_TRAILS[cosmetics.ballTrailId] ? cosmetics.ballTrailId : 'none';
         this.remotePlayers.set(playerId, p);
         this.scoreboard.addPlayer(name, team, { peerId });
         this.updateLobbyUI?.();
@@ -1166,11 +970,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         const p = this.remotePlayers.get(playerId);
         if (!p) return;
         Object.values(p._avatarPartTextures || {}).forEach(texture => texture.dispose?.());
-        if (p.cosmeticsRoot) {
-            p.group.remove(p.cosmeticsRoot);
-            disposeObject3D(p.cosmeticsRoot);
-            p.cosmeticsRoot = null;
-        }
+        disposeObject3D(p.targetOutline);
         this.renderer.scene.remove(p.group);
         this.scoreboard.removePlayer(p.name);
         this.remotePlayers.delete(playerId);
@@ -1253,25 +1053,11 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         group.add(labelSprite);
 
         // Target outline — bright red, pulses when this player is the ball's target
-        const outlineGeo = new THREE.BoxGeometry(0.9, 2.0, 0.7);
-        const outlineMat = new THREE.ShaderMaterial({
-            vertexShader: outlineVertexShader,
-            fragmentShader: `
-                uniform float uPulse;
-                void main() {
-                    float alpha = 0.3 + 0.3 * uPulse;
-                    gl_FragColor = vec4(1.0, 0.0, 0.0, alpha);
-                }
-            `,
-            uniforms: { outlineThickness: { value: 0.08 }, uPulse: { value: 0 } },
-            side: THREE.BackSide,
-            transparent: true,
-            depthWrite: false
-        });
-        const targetOutline = new THREE.Mesh(outlineGeo, outlineMat);
-        targetOutline.position.y = 1.25; // center of torso-head group
-        targetOutline.visible = false;
+        const targetOutline = this.renderer.createTargetOutline([
+            headMesh, bodyMesh, leftArm, rightArm, leftLeg, rightLeg
+        ]);
         group.add(targetOutline);
+        targetOutline.userData.sync?.();
 
         this.renderer.scene.add(group);
         const p = {
@@ -1283,6 +1069,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             _avatarBodyColors: null,
             setTargetOutline(show) {
                 if (this.targetOutline) this.targetOutline.visible = show;
+                if (show) this.targetOutline?.userData.sync?.();
                 this._outlineActive = show;
             },
             position: this.arena.getPlayerSpawn(team).clone(),
@@ -1295,6 +1082,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             runeBonuses: {}, deflectPower: 1, passive: 'none', totalDamageDealt: 0,
             attacking: false, attackTimer: 0, aimDir: new THREE.Vector3(0, 0, -1),
             labelSprite, avatar: avatarDataUrl || null,
+            ballSkinId: 'classic', ballTrailId: 'none',
             getPosition() { return this.position.clone(); },
             getAimDirection() { return this.aimDir.clone(); },
             isAttacking() { return this.attacking; },
@@ -1353,7 +1141,6 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 this.headMesh.material.needsUpdate = true;
             }
         };
-        applyEntityCosmetics(p, null);
         group.position.copy(p.position).add(new THREE.Vector3(0, -1.2, 0));
         return p;
     }
@@ -1513,28 +1300,6 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
     // Ölen takımın karşı tarafına puan verir. İki takım da ölürse draw.
     _checkTeamElimination() {
         const all = this.getAllTargets();
-        if (this._ffa) {
-            const alive = all.filter(p => p.alive);
-            if (alive.length > 1) return false;
-            const winnerName = alive[0]?.name || (alive[0] === this.player ? this.playerName : null);
-            const winner = winnerName ? 'ffa' : 'draw';
-            if (winnerName) {
-                this.scoreboard.recordPoint(winnerName, 1);
-                this.announce(`${winnerName} WINS THE ROUND!`, 'tf2_domination', 0.5, 2000);
-            } else {
-                this.ui.showMessage?.('DOUBLE KO - DRAW!', 2000);
-            }
-            if (this.network?.isHost) {
-                this.network.broadcastRoundEnd({
-                    winner,
-                    winnerName,
-                    red: this.scoreboard.redScore,
-                    blue: this.scoreboard.blueScore,
-                    round: this.scoreboard.roundNum
-                });
-            }
-            return true;
-        }
         const redAlive = all.filter(p => p.alive && p.team === 'red');
         const blueAlive = all.filter(p => p.alive && p.team === 'blue');
         let winner = null;
@@ -1575,7 +1340,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
 
     // Aim-directed target: the enemy whose direction best matches where the player
     // is aiming. Used for aimed (rocketdodge) shots so the ball goes where you look.
-    // Returns no target when the aim cone is empty.
+    // Falls back to closest enemy if nothing is roughly ahead.
     getAimedEnemy(fromPos, aimDir, team) {
         const enemies = this.getEnemyTargets(team);
         if (!enemies.length) return null;
@@ -1585,25 +1350,25 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             const dot = aimDir.dot(dir);
             if (dot > bestDot) { bestDot = dot; best = e; }
         });
-        return best;
+        if (best) return best;
+        return enemies.reduce((closest, enemy) => {
+            if (!closest) return enemy;
+            return fromPos.distanceTo(enemy.getPosition()) < fromPos.distanceTo(closest.getPosition())
+                ? enemy
+                : closest;
+        }, null);
     }
 
     // --- MAIN LOOP ---
 
     update(dt) {
-        const localCosmetics = this.localCosmeticEntity;
-        if (localCosmetics) {
-            applyEntityCosmetics(localCosmetics, window.__store?.get?.('equippedWearables'));
-            localCosmetics.group.position.copy(this.player.getPosition()).add(new THREE.Vector3(0, -1.2, 0));
-            localCosmetics.group.rotation.y = this.player.camera?.rotation?.y || 0;
-            localCosmetics.group.visible = this.player.alive !== false
-                && [STATES.COUNTDOWN, STATES.PLAYING, STATES.ROUND_END, STATES.CELEBRATION].includes(this.state);
-            updateEntityCosmetics(localCosmetics, performance.now() / 1000);
-        }
         // Juice: hit-stop/slow-mo/screen shake uygula, effective dt döndür
         const effectiveDt = this.juice.update(dt);
         if (effectiveDt === 0 && this.state !== STATES.CELEBRATION) return; // hit-stop: dünya donar (ama celebration'da değil)
         dt = effectiveDt || dt;
+
+        // Vignette — red overlay at low HP
+        this.juice.updateVignette(this.player.hp, this.player.maxHp);
 
         // Time scale (console: sv_timescale)
         if (this._timeScale && this._timeScale !== 1) dt *= this._timeScale;
@@ -1618,12 +1383,8 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         this.emotes.update(dt);
         if (this.state === STATES.PLAYING || this.state === STATES.CELEBRATION) this._updateRockets(dt);
 
-        if (this.state === STATES.PLAYING && !this._guidedDrillResultOpen) {
-            if (this.guidedDrill.active) this._updateGuidedDrill(dt);
-            const hiddenDrill = this.guidedDrill.active
-                && typeof document !== 'undefined'
-                && document.hidden;
-            if (!hiddenDrill && !this._guidedDrillResultOpen) this.updatePlaying(dt);
+        if (this.state === STATES.PLAYING) {
+            this.updatePlaying(dt);
         } else if (this.state === STATES.COUNTDOWN && this.ball._warmup) {
             if (!this.network?.connected || this.network?.isHost) {
                 this.ball.update(dt);
@@ -1709,7 +1470,11 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             }
             const isClient = this.network?.connected && !this.network?.isHost;
             if (!isClient && this.roundRestartTimer <= 0) {
-                if (this._overtimeExtends > 0 && shouldEndOvertime({
+                if (hasModeWinner(this.mode, this.scoreboard.redScore, this.scoreboard.blueScore)) {
+                    this.endGame();
+                } else if (this.mode?.mutators?.winTarget) {
+                    this.startRound();
+                } else if (this._overtimeExtends > 0 && shouldEndOvertime({
                     redScore: this.scoreboard.redScore,
                     blueScore: this.scoreboard.blueScore,
                     roundsExtended: this._overtimeExtends
@@ -1762,42 +1527,8 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         }
     }
 
-    getCompetitiveHUDState() {
-        const rules = this.competitiveRules;
-        const configuredMaxRounds = Number(this.mode?.mutators?.maxRounds);
-        return {
-            active: Boolean(rules),
-            mode: this.mode?.name || '',
-            round: this.scoreboard.roundNum,
-            maxRounds: Number.isFinite(configuredMaxRounds)
-                ? configuredMaxRounds
-                : this.scoreboard.maxRounds,
-            overtime: this._overtime || this._overtimeExtends > 0,
-            suddenDeath: this._suddenDeathAnnounced === true,
-            tiebreakRound: this._overtimeExtends,
-            abilities: rules?.abilities !== false,
-            runes: rules?.runes !== false,
-            passives: rules?.passives !== false,
-            powerUps: rules?.powerUps !== false
-        };
-    }
-
-    _applyOvertimeSnapshot(data = {}) {
-        if (Number.isSafeInteger(data.overtimeExtends)) {
-            this._overtimeExtends = Math.min(8, Math.max(0, data.overtimeExtends));
-        }
-        if (typeof data.overtime === 'boolean') this._overtime = data.overtime;
-        if (Number.isFinite(data.overtimeTimer)) {
-            this._overtimeTimer = Math.min(3600, Math.max(0, data.overtimeTimer));
-        }
-        if (typeof data.suddenDeathAnnounced === 'boolean') {
-            this._suddenDeathAnnounced = data.suddenDeathAnnounced;
-        }
-    }
-
     updatePlaying(dt) {
         this.scoreboard.updateTimer(dt);
-        if ((!this.network?.connected || this.network?.isHost) && this._updateHotPotato(dt)) return;
         if (this.scoreboard.isTimeUp()) {
             if (this.scoreboard.redScore === this.scoreboard.blueScore && !this._overtime) {
                 this._overtime = true;
@@ -1873,8 +1604,11 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             const isTarget = p === target && this.ball.active;
             p.setTargetOutline?.(isTarget);
         });
+        // Player target indicator — incoming!
+        this.ui.setPlayerTarget(target === this.player && this.ball.active);
+
         // Player skill tuşu (Q) — tap = skill, hold 2s = ultimate
-        if (!this._skillsDisabled && this.player.keys['KeyQ'] && this.player.ultimateCharge >= 100 && !this.player.ultimateActive) {
+        if (this.player.keys['KeyQ'] && this.player.ultimateCharge >= 100 && !this.player.ultimateActive) {
             this.player._qHoldTimer = (this.player._qHoldTimer || 0) + dt;
             if (this.player._qHoldTimer >= 2) {
                 this.player._qHoldTimer = 0;
@@ -1886,24 +1620,22 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         }
         if (this.player._skillQueued) {
             this.player._skillQueued = false;
-            if (!this._skillsDisabled) {
-                const ok = this.player.tryUseSkill({ ball: this.ball, target: this.ball.targetPlayer, game: this });
-                if (ok) {
-                    const skillId = this.player.loadout.skill;
-                    this.ui.showMessage(`${skillId.toUpperCase()}!`, 800);
-                    this.audio.playSfx('tf2_medic', 0.35);
-                    this.audio.playBeep(660);
-                    // ponytail: host spawns black hole; client receives broadcast
-                    if (skillId === 'blackhole' && (!this.network?.connected || this.network?.isHost)) this.spawnBlackHole();
-                    // Client: send skill intent to host for authoritative effects
-                    if (this.network?.connected && !this.network?.isHost) {
-                        const aim = this.player.getAimDirection();
-                        this.network.sendSkillUse({
-                            skill: skillId,
-                            ax: aim.x, ay: aim.y, az: aim.z,
-                            bx: this.ball.position.x, by: this.ball.position.y, bz: this.ball.position.z
-                        });
-                    }
+            const ok = this.player.tryUseSkill({ ball: this.ball, target: this.ball.targetPlayer, game: this });
+            if (ok) {
+                const skillId = this.player.loadout.skill;
+                this.ui.showMessage(`${skillId.toUpperCase()}!`, 800);
+                this.audio.playSfx('tf2_medic', 0.35);
+                this.audio.playBeep(660);
+                // ponytail: host spawns black hole; client receives broadcast
+                if (skillId === 'blackhole' && (!this.network?.connected || this.network?.isHost)) this.spawnBlackHole();
+                // Client: send skill intent to host for authoritative effects
+                if (this.network?.connected && !this.network?.isHost) {
+                    const aim = this.player.getAimDirection();
+                    this.network.sendSkillUse({
+                        skill: skillId,
+                        ax: aim.x, ay: aim.y, az: aim.z,
+                        bx: this.ball.position.x, by: this.ball.position.y, bz: this.ball.position.z
+                    });
                 }
             }
         }
@@ -1920,7 +1652,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         }
         if (this.player._rocketQueued) {
             this.player._rocketQueued = false;
-            if (!this._skillsDisabled && this.player.charId === 'soldier' && this.player.rocketCooldown <= 0) {
+            if (this.player.charId === 'soldier' && this.player.rocketCooldown <= 0) {
                 this.player.rocketCooldown = 0.82;
                 const aim = this.player.getAimDirection();
                 if (this.network?.connected && !this.network?.isHost) {
@@ -1951,6 +1683,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 this.player.attacking = false;
                 this.lastDeflector = this.player;
                 this.lastDeflectorTeam = this.player.team;
+                if (hasSimulationAuthority(this.network)) this._claimOpeningOwner(this.player);
                 this._pushDeflectHistory(this.playerName);
                 this.ball.lastShotBy = this.playerName;
                 this.rallyCount++;
@@ -1977,14 +1710,6 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         } else if (this._practiceMode && !practiceAttacking && this._practiceAttemptActive) {
             if (!this._practiceAttemptHit) {
                 this.practiceMetrics.recordAttempt({ hit: false });
-                if (this.guidedDrill.active && this.guidedDrill.openAttemptId !== null) {
-                    this.guidedDrill.resolveAttempt({
-                        attemptId: this.guidedDrill.openAttemptId,
-                        hit: false
-                    });
-                    this.ball.deactivate();
-                    this.onGuidedDrillUpdate?.(this.guidedDrill.snapshot());
-                }
                 this.onPracticeMetrics?.(this.practiceMetrics.summary());
             }
             this._practiceAttemptActive = false;
@@ -2020,7 +1745,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         // ponytail: ball physics runs on host only; client renders position from snapshot smoothing
         if (!this.network?.connected || this.network?.isHost) {
             const bounced = this.ball.update(dt);
-            if (this._practiceMode && !this.guidedDrill.active && bounced) {
+            if (this._practiceMode && bounced) {
                 this.ball.setTarget(this.player);
                 this.ball.state = 'homing';
                 this.ball._homingAge = 0;
@@ -2113,9 +1838,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             blueScore: this.scoreboard.blueScore,
             ballSpeed: this.ball.getSpeed(),
             round: this.scoreboard.roundNum,
-            deflections: this.rallyCount,
-            hotPotato: this.getHotPotatoSnapshot(),
-            competitive: this.getCompetitiveHUDState()
+            deflections: this.rallyCount
         });
         this.ui.updateBallAffix(this.currentBallAffix);
         this.ui.updateVitals(this.player.hp, this.player.maxHp, this.player.shield,
@@ -2131,7 +1854,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         this.killFeed = this.killFeed.filter(e => performance.now() - e.time < 5000);
 
         // Power-up spawn/pickup
-        if (!this._powerUpsDisabled) this.updatePowerUps(dt);
+        this.updatePowerUps(dt);
 
         this.updateMinimap();
     }
@@ -2182,7 +1905,6 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 ax: aimDir.x, ay: aimDir.y, az: aimDir.z,
                 bx: this.ball.position.x, by: this.ball.position.y, bz: this.ball.position.z,
                 ping: Math.min(250, Math.max(0, this.network?.getPing?.() || 0)),
-                action: this.player.knifeAttackType === 'stab' ? 'stab' : 'slash',
                 flick: { vertical: localFlick?.vertical || 0, horizontal: localFlick?.horizontal || 0, power: localFlick?.power || 0 }
             });
             // Effects
@@ -2266,27 +1988,6 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 reactionMs: Number.isFinite(timingErrorMs) ? timingErrorMs : null
             });
             this.onPracticeMetrics?.(this.practiceMetrics.summary());
-        }
-        if (this.guidedDrill.active && this.guidedDrill.openAttemptId !== null) {
-            let directionErrorDeg = null;
-            const drillSnapshot = this.guidedDrill.snapshot();
-            if (drillSnapshot.stage.id === 'direction') {
-                const outgoing = this.ball.velocity.clone().normalize();
-                const desired = this._guidedDrillTargetPosition.clone()
-                    .sub(this.ball.position)
-                    .normalize();
-                directionErrorDeg = Math.acos(
-                    THREE.MathUtils.clamp(outgoing.dot(desired), -1, 1)
-                ) * 180 / Math.PI;
-            }
-            this.guidedDrill.resolveAttempt({
-                attemptId: this.guidedDrill.openAttemptId,
-                hit: true,
-                tier: timingTier || 'normal',
-                directionErrorDeg
-            });
-            this.ball.deactivate();
-            this.onGuidedDrillUpdate?.(this.guidedDrill.snapshot());
         }
         this.onPerfectDeflect?.({
             tier: timingTier || 'normal',
@@ -2510,7 +2211,6 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 victim: analyticsVictim
             });
         }
-        if (isClient && lethal && hitTarget === this.player) this._predictedLocalDeath = true;
         if (lethal) this.killStreak++;
         // Ball affix on-hit effect (e.g. burn)
         if (this.ball?._affixOnHit) {
@@ -2554,10 +2254,6 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         }
 
         const hitPos = hitTarget.getPosition();
-        const impactId = attacker === this.player
-            ? window.__store?.get?.('equippedWearables')?.impact
-            : attacker?.wearableLoadout?.impact;
-        spawnImpactCosmetic(this.renderer.scene, impactId, hitPos);
         const isLethal = lethal || hitTarget.hp <= 0;
         if (attacker === this.player) {
             this.onReplayEvent?.({
@@ -2643,10 +2339,8 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 this.ui.flashHit();
                 this._killcamDeathPos = this.player.getPosition();
                 this._showKillcam(scorerName || (this.ball.lastShotBy || 'Unknown'));
-                const aliveTargets = this._ffa
-                    ? this.getAllTargets().filter(p => p !== this.player && p.alive)
-                    : this.bots.filter(b => b.alive && b.team === this.player.team);
-                if (aliveTargets.length > 0) this._spectateTarget = aliveTargets[0];
+                const aliveTeammates = this.bots.filter(b => b.alive && b.team === this.player.team);
+                if (aliveTeammates.length > 0) this._spectateTarget = aliveTeammates[0];
             }
         }
 
@@ -2665,10 +2359,8 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                     }
                     this._killcamDeathPos = this.player.getPosition();
                     this._showKillcam(scorerName || (this.ball.lastShotBy || 'Unknown'));
-                    const aliveTargets = this._ffa
-                        ? this.getAllTargets().filter(p => p !== this.player && p.alive)
-                        : this.bots.filter(b => b.alive && b.team === this.player.team);
-                    if (aliveTargets.length > 0) this._spectateTarget = aliveTargets[0];
+                    const aliveTeammates = this.bots.filter(b => b.alive && b.team === this.player.team);
+                    if (aliveTeammates.length > 0) this._spectateTarget = aliveTeammates[0];
                 } else {
                     hitTarget.alive = false;
                     if (hitTarget.group) hitTarget.group.visible = false;
@@ -3020,8 +2712,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
 
     // --- POWER-UPS ---
 
-updatePowerUps(dt) {
-    if (this._powerUpsDisabled) return;
+    updatePowerUps(dt) {
         const authoritative = !this.network?.connected || this.network.isHost;
         // Decrement buff timers
         for (const k of ['speed', 'damage', 'rapid', 'size']) {
@@ -3103,23 +2794,16 @@ updatePowerUps(dt) {
                 player._powerUpDamageMul = 1.5;
                 this._playerBuffs.damage = type.duration;
                 break;
-        case 'megaball':
-            if (!this._megaballActive) {
+            case 'megaball':
                 this.ball.mesh.scale.setScalar(2);
                 this.ball.radius *= 2;
-                this._megaballActive = true;
-            }
-            this._megaballToken = (this._megaballToken || 0) + 1;
-            {
-                const token = this._megaballToken;
-            setTimeout(() => {
-                    if (this._megaballToken !== token || !this._megaballActive) return;
-                this.ball.mesh.scale.setScalar(1);
-                    this.ball.radius = this.ball._baseRadius;
-                    this._megaballActive = false;
-            }, 5000);
-            }
-            break;
+                this.ball.currentSpeed *= 1.5;
+                setTimeout(() => {
+                    this.ball.mesh.scale.setScalar(1);
+                    this.ball.radius /= 2;
+                    this.ball.currentSpeed /= 1.5;
+                }, 5000);
+                break;
             case 'rapid':
                 player._rapidDeflect = true;
                 this._playerBuffs.rapid = type.duration;
@@ -3135,9 +2819,8 @@ updatePowerUps(dt) {
         }
     }
 
-handlePowerUpPickup(data, peerId) {
-    if (!this.network?.isHost) return false;
-    if (this._powerUpsDisabled) return false;
+    handlePowerUpPickup(data, peerId) {
+        if (!this.network?.isHost) return false;
         const playerId = this.network.peerToPlayerId?.get(peerId) || peerId;
         const player = this.remotePlayers.get(playerId);
         if (!player?.alive) return false;
@@ -3192,8 +2875,7 @@ handlePowerUpPickup(data, peerId) {
         }, type.duration * 1000);
     }
 
-applyPowerUpGrant(data) {
-    if (this._powerUpsDisabled) return false;
+    applyPowerUpGrant(data) {
         if (data?.playerId !== this.network?.playerId) return false;
         const type = POWERUP_TYPES.find(candidate => candidate.id === data.powerUpType);
         if (!type) return false;
@@ -3201,8 +2883,7 @@ applyPowerUpGrant(data) {
         return true;
     }
 
-spawnPowerUp() {
-    if (this._powerUpsDisabled) return;
+    spawnPowerUp() {
         if (this.powerUps.length >= this._maxPowerUps) return;
         const roll = Math.random() * POWERUP_TYPES.reduce((sum, candidate) => sum + candidate.weight, 0);
         let cursor = 0;
@@ -3246,26 +2927,18 @@ spawnPowerUp() {
     _clearAllPowerUps() {
         for (const pu of this.powerUps) {
             this.renderer.scene.remove(pu.mesh);
-            pu.mesh.traverse?.(part => {
-                part.geometry?.dispose();
-                if (Array.isArray(part.material)) {
-                    part.material.forEach(material => material?.dispose());
-                } else {
-                    part.material?.dispose();
-                }
-            });
+            pu.mesh.geometry?.dispose();
+            pu.mesh.material?.dispose();
         }
         this.powerUps = [];
         this._playerBuffs = {};
         this._damageMul = null;
-        this.player._powerUpDamageMul = null;
-        if (Number.isFinite(this.player._baseSpeed)) this.player.speed = this.player._baseSpeed;
+        this.player.speed = this.player._baseSpeed;
         this.player._rapidDeflect = false;
         this.player._sizeScale = 1;
         this.player.armGroup?.scale.setScalar(1);
-        this._megaballToken = (this._megaballToken || 0) + 1;
+        // Reset megaball if active
         if (this.ball) {
-            this._megaballActive = false;
             this.ball.mesh.scale.setScalar(1);
             this.ball.radius = this.ball._baseRadius;
         }
@@ -3339,11 +3012,8 @@ spawnPowerUp() {
     }
 
     endGame() {
+        const winner = this.scoreboard.getWinner();
         const stats = this.scoreboard.getPlayerStats();
-        const rankedFfa = [...stats].sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
-        const winner = this._ffa && rankedFfa[0] && rankedFfa[0].score !== rankedFfa[1]?.score
-            ? rankedFfa[0].name
-            : this.scoreboard.getWinner();
         this.clearBlackHoles();
         this.clearSplitBalls();
         this._clearRockets();
@@ -3357,7 +3027,7 @@ spawnPowerUp() {
         this.setState(STATES.CELEBRATION);
         this._celebrationTimer = 30;
         this._winningTeam = winner === 'RED' ? 'red' : winner === 'BLUE' ? 'blue' : null;
-        this._won = this._ffa ? winner === this.playerName : this._winningTeam !== null && this.player.team === this._winningTeam;
+        this._won = this._winningTeam !== null && this.player.team === this._winningTeam;
 
         // Winner/loser TF2 anouncer
         if (this._won) {
@@ -3372,7 +3042,7 @@ spawnPowerUp() {
         // ponytail: let everyone move/look, only winners shoot
         this.ball.deactivate();
         // Kaybedenler vuramaz
-        this.player._celebNoAttack = this._ffa ? !this._won : this.player.team !== this._winningTeam;
+        this.player._celebNoAttack = (this.player.team !== this._winningTeam);
         this.player.respawn();
         this.bots.forEach(bot => { if (!bot.alive) bot.respawn(); });
         this.ui.setPlayerTarget(false);
@@ -3388,6 +3058,11 @@ spawnPowerUp() {
             this._setCelebrationGloveColor(0xff8800);
             this._buildCelebWeapons();
             this._showCelebWeapon('rocket');
+        } else if (timingTier === 'great') {
+            this.juice.sparks(this.ball.position.clone(), 0x70ddff, 12);
+            this.juice.shockwave(this.ball.position.clone(), 0x70ddff);
+            this.juice.shake(0.18);
+            this.audio.playSfx('tf2_hit', 0.5);
         } else {
             this.player.setHandVisible?.(false);
         }
@@ -3530,8 +3205,8 @@ spawnPowerUp() {
         // Win pays ~5x a loss; losers still earn a small consolation.
         const xp = this._won ? 400 + kills * 30 : 80 + kills * 8;
         const winnerText = this._finalWinner === 'DRAW'
-            ? this._ffa ? 'DRAW: FFA tie' : `DRAW: Red ${this.scoreboard.redScore} - ${this.scoreboard.blueScore} Blue`
-            : this._ffa ? `${this._finalWinner} WINS FFA` : `${this._finalWinner} TEAM WINS: Red ${this.scoreboard.redScore} - ${this.scoreboard.blueScore} Blue`;
+            ? `DRAW: Red ${this.scoreboard.redScore} - ${this.scoreboard.blueScore} Blue`
+            : `${this._finalWinner} TEAM WINS: Red ${this.scoreboard.redScore} - ${this.scoreboard.blueScore} Blue`;
         const playerStats = this.scoreboard.getPlayerStats();
         this.onMatchComplete?.();
         const analytics = this.matchAnalytics.getReport({
@@ -3564,7 +3239,7 @@ spawnPowerUp() {
     // --- Map Voting ---
     _startMapVoting() {
         if (this._mapVoteActive) return;
-        const allMaps = Object.keys(Arena.MAPS || {}).filter(id => !Arena.MAPS[id]?.hiddenFromRotation);
+        const allMaps = Object.keys(Arena.MAPS || {});
         if (allMaps.length < 2) return;
         const current = this.arena?.mapId;
         const pool = allMaps.filter(m => m !== current);
@@ -3775,11 +3450,10 @@ spawnPowerUp() {
         this._killcamDeathPos = this._killcamDeathPos || this.player.getPosition();
     }
     _hideKillcam() {
-        const kc = globalThis.document?.getElementById?.('killcam');
-        if (kc) {
-            kc.classList.remove('visible');
-            kc.classList.add('hidden');
-        }
+        const kc = document.getElementById('killcam');
+        if (!kc) return;
+        kc.classList.remove('visible');
+        kc.classList.add('hidden');
         if (this._killcamTimer) { clearTimeout(this._killcamTimer); this._killcamTimer = null; }
         this._killcamActive = false;
         this.player.killcamLock = false;
@@ -3809,7 +3483,10 @@ spawnPowerUp() {
 
     getPlayerList() {
         // Lokaldeki kendi avatarımızı da paylaşıyoruz ki diğer oyuncular sprite'ımızı görsün.
-        const ownAvatar = window.__store?.get?.('customAvatar')?.dataURL || null;
+        const store = globalThis.window?.__store;
+        const ownAvatar = store?.get?.('customAvatar')?.dataURL
+            || createAvatarDataURL(store?.get?.('equippedAvatarSkin') || 'default')
+            || null;
         const list = [{
             name: this.playerName,
             team: this.player.team,
@@ -3818,12 +3495,16 @@ spawnPowerUp() {
             playerId: this.network?.playerId,
             charId: this.player.charId,
             avatar: ownAvatar,
-            cosmetics: normalizeWearableLoadout(window.__store?.get?.('equippedWearables')),
+            ballSkinId: this.player.ballSkinId || 'classic',
+            ballTrailId: this.player.ballTrailId || 'none',
             queuedForNextRound: !!this.player.queuedForNextRound,
             pendingTeam: this.player.pendingTeam || null,
             activateRound: this.player.activateRound || null
         }];
-        this.bots.forEach(b => list.push({ name: b.name, team: b.team, isBot: true, charId: b.charId }));
+        this.bots.forEach(b => list.push({
+            name: b.name, team: b.team, isBot: true, charId: b.charId,
+            ballSkinId: b.ballSkinId || 'classic', ballTrailId: b.ballTrailId || 'none'
+        }));
         this.remotePlayers.forEach((p, playerId) => list.push({
             name: p.name,
             team: p.team,
@@ -3832,7 +3513,8 @@ spawnPowerUp() {
             peerId: p.peerId || playerId,
             charId: p.charId || 'rally',
             avatar: p.avatar || null,
-            cosmetics: normalizeWearableLoadout(p.wearableLoadout),
+            ballSkinId: p.ballSkinId || 'classic',
+            ballTrailId: p.ballTrailId || 'none',
             queuedForNextRound: !!p.queuedForNextRound,
             pendingTeam: p.pendingTeam || null,
             activateRound: p.activateRound || null
@@ -3893,14 +3575,6 @@ spawnPowerUp() {
 
     // Her frame'de çağrılır — remote player'ların pozisyonlarını lerp ile
     // interpolate eder (30Hz snapshot aktarımı akıcı görülür).
-    setRemoteCosmetics(playerId, loadout) {
-        const player = this.remotePlayers.get(playerId);
-        if (!player) return null;
-        const safe = normalizeWearableLoadout(loadout);
-        applyEntityCosmetics(player, safe);
-        return safe;
-    }
-
     invokeRemoteSnapshots(dt) {
         if (!this.remotePlayers.size) return;
         const netcode = normalizeNetcode(this.experimentalNetcode);
@@ -3908,20 +3582,10 @@ spawnPowerUp() {
         const now = performance.now();
         const renderTime = now - interpDelay;
         for (const p of this.remotePlayers.values()) {
-            updateEntityCosmetics(p, now / 1000);
             p.attackTimer = Math.max(0, (p.attackTimer || 0) - dt);
             if (p.rightArm) {
-                const duration = p.attackType === 'stab' ? 0.42 : 0.34;
-                const progress = 1 - Math.min(1, p.attackTimer / duration);
-                const impact = p.attackTimer > 0 ? Math.sin(progress * Math.PI) : 0;
-                const targetSwing = p.attackTimer > 0
-                    ? (p.attackType === 'stab' ? -0.48 : -1.2) * impact
-                    : 0;
+                const targetSwing = p.attackTimer > 0 ? -1.2 : 0;
                 p.rightArm.rotation.x += (targetSwing - p.rightArm.rotation.x) * (1 - Math.exp(-18 * dt));
-                if (p.knifeGroup?.userData.weaponType === 'knife') {
-                    p.knifeGroup.rotation.z = -0.15 + (p.attackType === 'stab' ? 0.3 : 1.05) * impact;
-                    p.knifeGroup.position.z = -0.28 - (p.attackType === 'stab' ? 0.22 : 0.05) * impact;
-                }
             }
             const buf = p._posBuffer;
             if (!buf || buf.length < 2) {
@@ -3963,7 +3627,10 @@ spawnPowerUp() {
             // Target outline pulse
             if (p._outlineActive && p.targetOutline?.visible) {
                 const pulse = 0.5 + 0.5 * Math.sin(now / 300);
-                p.targetOutline.material.uniforms.uPulse.value = pulse;
+                p.targetOutline.userData.sync?.();
+                for (const material of p.targetOutline.userData.materials || []) {
+                    material.uniforms.uPulse.value = pulse;
+                }
             }
         }
     }
@@ -4010,15 +3677,7 @@ spawnPowerUp() {
         // ponytail: trust client range check; also accept if near authoritative ball pos
         // (client ball render lags via smoothing, so clientBallPos can desync from host ball)
         const hostBallDist = attackPos.distanceTo(this.ball.position);
-        const clientBallDist = attackPos.distanceTo(clientBallPos);
-        const reportedPing = Math.min(250, Math.max(0, Number(data.ping) || 0));
-        const latencyAllowance = Math.min(
-            10,
-            (reportedPing / 1000) * Math.max(15, this.ball.currentSpeed || 0)
-        );
-        const hostRange = this.ball.attackRange * 3.5 + latencyAllowance;
-        const predictionRange = this.ball.attackRange * 2.5 + latencyAllowance * 0.35;
-        if (hostBallDist <= hostRange || clientBallDist <= predictionRange) {
+        if (hostBallDist < this.ball.attackRange * 3.5 || attackPos.distanceTo(clientBallPos) < this.ball.attackRange * 2) {
             this._lastRemoteAttack[playerId] = now;
             if (this._pendingLethalHit) {
                 clearTimeout(this._pendingLethalHit);
@@ -4042,8 +3701,7 @@ spawnPowerUp() {
                 this.ball.state = 'rally';
             }
             p.attacking = true;
-            p.attackType = data.action === 'stab' ? 'stab' : 'slash';
-            p.attackTimer = p.attackType === 'stab' ? 0.42 : 0.34;
+            p.attackTimer = 0.3;
             this.ball.position.copy(clientBallPos);
             const target = this.getAimedEnemy(attackPos, p.aimDir, p.team);
             const remoteTimingMs = this.ball.getPerfectTimingErrorMs();
@@ -4082,7 +3740,6 @@ spawnPowerUp() {
                 peerId: p.peerId,
                 ax: p.aimDir.x, ay: p.aimDir.y, az: p.aimDir.z,
                 attacking: true,
-                action: p.attackType,
                 shot: result.shot,
                 pos: { x: attackPos.x, y: attackPos.y, z: attackPos.z },
                 perfect: isPerfect
@@ -4095,7 +3752,6 @@ spawnPowerUp() {
     // Topu/hedefi/oyuncuyu değiştirir, sonra efekti tüm client'lara yayınlar.
     handleSkillUse(playerId, data = {}) {
         if (!this.network?.isHost) return;
-        if (this._skillsDisabled) return;
         const p = this.remotePlayers.get(playerId);
         if (!p || p.queuedForNextRound || !data.skill) return;
         const skillId = data.skill;
@@ -4125,7 +3781,7 @@ spawnPowerUp() {
         }
     }
 
-    applyLobbyState(data, { deferLocalPlayer = false } = {}) {
+    applyLobbyState(data) {
         if (!data.players) return;
         // Lobby name
         if (data.lobbyName) {
@@ -4149,19 +3805,15 @@ spawnPowerUp() {
         const seen = new Set();
         for (const pl of data.players) {
             if ((pl.playerId && pl.playerId === myId) || (!pl.playerId && pl.peerId === myPeerId)) {
-                if (deferLocalPlayer) continue;
-                const revived = this.player.alive === false && pl.alive === true;
                 this.player.setTeam(pl.team);
                 this.player.queuedForNextRound = !!pl.queuedForNextRound;
                 this.player.pendingTeam = pl.pendingTeam || null;
                 this.player.activateRound = pl.activateRound || null;
+                this.player.ballSkinId = BALL_SKINS[pl.ballSkinId] ? pl.ballSkinId : this.player.ballSkinId;
+                this.player.ballTrailId = BALL_TRAILS[pl.ballTrailId] ? pl.ballTrailId : this.player.ballTrailId;
                 if (this.player.queuedForNextRound) {
                     this.player.alive = false;
                     this.player.setHandVisible?.(false);
-                } else if (revived) {
-                    this.player.alive = true;
-                    this.player.setHandVisible?.(true);
-                    this._spectateTarget = null;
                 }
                 continue;
             }
@@ -4173,6 +3825,8 @@ spawnPowerUp() {
                 if (!p) {
                     p = this._createRemotePlayer(botPeerId, pl.name, pl.team, pl.avatar || null);
                     p.isBotEntity = true;
+                    p.ballSkinId = BALL_SKINS[pl.ballSkinId] ? pl.ballSkinId : 'classic';
+                    p.ballTrailId = BALL_TRAILS[pl.ballTrailId] ? pl.ballTrailId : 'none';
                     this.remotePlayers.set(botPeerId, p);
                     this.scoreboard.addPlayer(pl.name, pl.team, { isBot: true, peerId: botPeerId });
                 } else {
@@ -4185,7 +3839,7 @@ spawnPowerUp() {
             const playerId = pl.playerId || pl.peerId;
             if (playerId && playerId !== myId) {
                 seen.add(playerId);
-                const p = this.addRemotePlayer(playerId, pl.name, pl.team, pl.avatar || null, pl.peerId || playerId);
+                const p = this.addRemotePlayer(playerId, pl.name, pl.team, pl.avatar || null, pl.peerId || playerId, pl);
                 if (p) {
                     p.team = pl.team || p.team;
                     p.queuedForNextRound = !!pl.queuedForNextRound;
@@ -4196,11 +3850,12 @@ spawnPowerUp() {
                         p.group.visible = false;
                     }
                     if (pl.charId) p.charId = pl.charId;
+                    p.ballSkinId = BALL_SKINS[pl.ballSkinId] ? pl.ballSkinId : p.ballSkinId;
+                    p.ballTrailId = BALL_TRAILS[pl.ballTrailId] ? pl.ballTrailId : p.ballTrailId;
                     if (pl.avatar && p.avatar !== pl.avatar) {
                         p.avatar = pl.avatar;
                         if (p.setAvatarTexture) p.setAvatarTexture(pl.avatar);
                     }
-                    applyEntityCosmetics(p, pl.cosmetics ? normalizeWearableLoadout(pl.cosmetics) : null);
                 }
             }
         }
@@ -4211,6 +3866,58 @@ spawnPowerUp() {
     }
     // Late-join: host oyun başlamışken yeni gelen oyuncu, aynı state'e
     // (mode/arena/round) otomatik başlar; top ve diğer eventler render'a gelir.
+    _ballTargetIdentity(target) {
+        if (!target) return null;
+        if (target === this.player) return this.network?.playerId || null;
+        return target.playerId || target.peerId || null;
+    }
+
+    _resolveBallTarget(data = {}) {
+        if (data.targetId === this.network?.playerId) return this.player;
+        let target = data.targetId ? this.remotePlayers.get(data.targetId) : null;
+        if (!target && data.targetId) target = this.bots.find(bot => bot.playerId === data.targetId || bot.peerId === data.targetId);
+        if (!target && data.targetName === this.playerName) target = this.player;
+        if (!target && data.targetName) target = this.bots.find(bot => bot.name === data.targetName) || null;
+        if (!target && data.targetName) target = [...this.remotePlayers.values()].find(player => player.name === data.targetName) || null;
+        return target || null;
+    }
+
+    _applyBallSnapshot(data = {}) {
+        if ([data.x, data.y, data.z, data.vx, data.vy, data.vz].every(Number.isFinite)) {
+            this.ball.position.set(data.x, data.y, data.z);
+            this.ball.velocity.set(data.vx, data.vy, data.vz);
+            this._ballTarget = { x: data.x, y: data.y, z: data.z, vx: data.vx, vy: data.vy, vz: data.vz };
+            this._ballTargetTime = performance.now();
+        }
+        if (Number.isFinite(data.speed)) this.ball.currentSpeed = data.speed;
+        if (BALL_SKINS[data.skinId]) this.ball.setSkin(data.skinId);
+        if (BALL_TRAILS[data.trailId]) this.ball.setTrail(data.trailId);
+        this.ball.active = !!data.active;
+        this.ball.mesh.visible = this.ball.active;
+        this._ballTargetActive = this.ball.active;
+        if (data.state) this.ball.state = data.state;
+        if (Object.hasOwn(data, 'targetId') || Object.hasOwn(data, 'targetName')) {
+            this.ball.setTarget(this._resolveBallTarget(data));
+        }
+    }
+
+    setExperimentalNetcode(config, now = performance.now()) {
+        const previous = normalizeNetcode(this.experimentalNetcode);
+        const next = normalizeNetcode(config);
+        const changed = JSON.stringify(previous) !== JSON.stringify(next);
+        if (changed) {
+            const oldDelay = previous.enabled ? previous.interpolationMs : 60;
+            const newDelay = next.enabled ? next.interpolationMs : 60;
+            const timeShift = oldDelay - newDelay;
+            for (const player of this.remotePlayers.values()) {
+                if (!Array.isArray(player._posBuffer)) continue;
+                player._posBuffer = rebaseSnapshotBuffer(player._posBuffer, timeShift, now);
+            }
+        }
+        this.experimentalNetcode = next;
+        return next;
+    }
+
     handleLateJoin(data = {}) {
         if (this.network?.isHost) return;
         if (data.state === STATES.SOCIAL_HUB) return;
@@ -4260,7 +3967,6 @@ spawnPowerUp() {
             this.scoreboard.blueScore = savedScore.blue;
             this.scoreboard.roundNum = savedScore.round;
             this.scoreboard.timeRemaining = savedScore.time;
-            this._applyOvertimeSnapshot(data.snapshot || data);
             this.rallyCount = 0;
             this.killStreak = 0;
             this._spectateTarget = null;
@@ -4281,16 +3987,8 @@ spawnPowerUp() {
             this.initMinimap();
             this._skipPreGame = true;
             // ponytail: apply host ball state immediately so late joiner starts synced
-            if (data.ball) {
-                this.ball.position.set(data.ball.x, data.ball.y, data.ball.z);
-                this.ball.velocity.set(data.ball.vx, data.ball.vy, data.ball.vz);
-                this.ball.currentSpeed = data.ball.speed || this.ball.currentSpeed;
-                this.ball.active = !!data.ball.active;
-                this.ball.mesh.visible = this.ball.active;
-                this._ballTarget = { x: data.ball.x, y: data.ball.y, z: data.ball.z, vx: data.ball.vx, vy: data.ball.vy, vz: data.ball.vz };
-                this._ballTargetTime = performance.now();
-                this._ballTargetActive = data.ball.active;
-            }
+            const ballState = data.snapshot?.ball || data.ball;
+            if (ballState) this._applyBallSnapshot(ballState);
             // Don't call startRound() — that spawns ball locally and desyncs from host.
             // Match host state; ball position comes from ballState broadcast.
             this.clearBlackHoles();
@@ -4300,7 +3998,7 @@ spawnPowerUp() {
             // ponytail: host in COUNTDOWN -> show countdown on client too, then go PLAYING
             if (data.state === STATES.COUNTDOWN) {
                 this.setState(STATES.COUNTDOWN);
-                this.ui.showCountdown(3, () => { this.setState(STATES.PLAYING); });
+                this._showAuthoritativeCountdown(data.countdown || data.snapshot?.countdown);
             } else {
                 this.setState(data.state || STATES.PLAYING);
             }
@@ -4320,9 +4018,8 @@ spawnPowerUp() {
             this.arena.rebuild(data.map);
         }
         // ponytail: client skips warmup/countdown — host already playing
-        this._skipPreGame = true;
-        const started = this.startGame(false, data.matchId);
-        if (started !== false) this._applyOvertimeSnapshot(data);
+        this._networkCountdown = normalizeCountdownState(data.countdown || data.snapshot?.countdown);
+        this.startGame(false, true);
     }
 
     applyPlayerHit(data = {}) {
@@ -4415,13 +4112,22 @@ spawnPowerUp() {
         // Reconcile: host is authoritative
         const hostAlive = data.alive !== false;
         if (hostAlive) {
-            this._reconcileHostRevive(target, data.hp);
+            // Host says alive — undo our local prediction if we killed
+            target.hp = data.hp ?? target.maxHp;
+            if (!target.alive) {
+                target.alive = true;
+                if (target === this.player) {
+                    this.player.revive();
+                    this.player.respawn();
+                } else if (target.group) {
+                    target.group.visible = true;
+                }
+            }
         } else {
             // Host says dead
             target.hp = 0;
             target.alive = false;
             if (target === this.player) {
-                this._predictedLocalDeath = false;
                 if (this.player.alive) {
                     // We missed the hit locally — die now
                     this.player.die();
@@ -4435,171 +4141,10 @@ spawnPowerUp() {
         }
     }
 
-    _reconcileHostRevive(target, hp, authoritative = false, deferPresentation = false) {
-        if (!target) return false;
-        const localDeath = target === this.player && target.alive === false;
-        const clearDeathPresentation = localDeath
-            && (authoritative || this._predictedLocalDeath === true);
-        const captureVector = vector => vector ? {
-            x: vector.x,
-            y: vector.y,
-            z: vector.z
-        } : null;
-        const restoreVector = (vector, snapshot) => {
-            if (!vector || !snapshot) return;
-            try {
-                if (typeof vector.set === 'function') {
-                    vector.set(snapshot.x, snapshot.y, snapshot.z);
-                    return;
-                }
-            } catch (_) {}
-            try {
-                vector.x = snapshot.x;
-                vector.y = snapshot.y;
-                vector.z = snapshot.z;
-            } catch (_) {}
-        };
-        const previous = {
-            alive: target.alive,
-            hp: target.hp,
-            position: captureVector(target.position),
-            velocity: captureVector(target.velocity),
-            euler: captureVector(target.euler),
-            groupPosition: captureVector(target.group?.position),
-            groupVisible: target.group?.visible
-        };
-        if (localDeath
-            && (typeof this.player.revive !== 'function'
-                || typeof this.player.respawn !== 'function')) return false;
-        try {
-            if (!target.alive) {
-                if (target === this.player) {
-                    this.player.revive();
-                    this.player.respawn();
-                } else if (target.group) {
-                    target.group.visible = true;
-                }
-                target.alive = true;
-            }
-            target.hp = hp ?? target.maxHp;
-        } catch (_) {
-            target.alive = previous.alive;
-            target.hp = previous.hp;
-            restoreVector(target.position, previous.position);
-            restoreVector(target.velocity, previous.velocity);
-            restoreVector(target.euler, previous.euler);
-            restoreVector(target.group?.position, previous.groupPosition);
-            if (target.group && previous.groupVisible !== undefined) {
-                target.group.visible = previous.groupVisible;
-            }
-            return false;
-        }
-        if (!clearDeathPresentation) return false;
-        if (deferPresentation) return true;
-        this._predictedLocalDeath = false;
-        this._spectateTarget = null;
-        try { this._hideKillcam?.(); } catch (_) {}
-        this._killcamActive = false;
-        this._killcamTimer = null;
-        this._killcamKillerPos = null;
-        this._killcamDeathPos = null;
-        this._killcamKillerName = '';
-        this.player.killcamLock = false;
-        if (this.ui) this.ui.spectating = false;
-        try { this.ui?.setPlayerTarget?.(false); } catch (_) {}
-        try {
-            globalThis.document?.getElementById?.('spectator-info')?.classList.add('hidden');
-        } catch (_) {}
-        return true;
-    }
-
-    _resetHotPotato() {
-        const enabled = this.mode?.id === 'hotpotato';
-        const duration = this._ballExplodeTimer || 5;
-        this._hotPotato = resetHotPotatoState(
-            this._hotPotato || createHotPotatoState(duration),
-            duration,
-            enabled
-        );
-        this.ui?.updateHotPotato?.(this.getHotPotatoSnapshot());
-    }
-
-    _hotPotatoEntityId(entity) {
-        return String(
-            entity?.playerId
-            || entity?.peerId
-            || entity?._networkId
-            || entity?.name
-            || ''
-        ).slice(0, 128);
-    }
-
-    _updateHotPotato(dt) {
-        if (this.mode?.id !== 'hotpotato' || this.state !== STATES.PLAYING) return false;
-        if (!this._hotPotato) this._resetHotPotato();
-        const target = this.ball.active ? this.ball.targetPlayer : null;
-        const targetId = this._hotPotatoEntityId(target);
-        if (target?.alive !== false && targetId && targetId !== this._hotPotato.holderId) {
-            transferHotPotato(this._hotPotato, {
-                id: targetId,
-                name: target.name || this.playerName,
-                team: target.team,
-                entity: target
-            }, this._ballExplodeTimer || 5);
-        }
-        if (!tickHotPotato(this._hotPotato, dt)) return false;
-
-        const holder = this._hotPotato.holder;
-        if (!holder || !['red', 'blue'].includes(holder.team)) return false;
-        const position = holder.getPosition();
-        holder.die?.();
-        holder.hp = 0;
-        holder.alive = false;
-        if (holder !== this.player && holder.group) holder.group.visible = false;
-        this.ball.deactivate();
-        this.scoreboard.recordDeath(holder.name || this.playerName);
-        this.spawnDeathExplosion(position, holder.team);
-
-        const winner = holder.team === 'red' ? 'blue' : 'red';
-        this.scoreboard.recordRoundWin(winner);
-        this.announce(`HOT POTATO: ${holder.name || 'Player'} EXPLODED!`, 'tf2_explosion', 0.6, 2000);
-        this.setState(STATES.ROUND_END);
-        this.roundRestartTimer = this.roundRestartDelay;
-        this.ui?.updateHotPotato?.(this.getHotPotatoSnapshot());
-        if (this.network?.isHost) {
-            this.network.broadcastRoundEnd({
-                winner,
-                red: this.scoreboard.redScore,
-                blue: this.scoreboard.blueScore,
-                round: this.scoreboard.roundNum
-            });
-        }
-        return true;
-    }
-
-    getHotPotatoSnapshot() {
-        const state = snapshotHotPotato(this._hotPotato);
-        if (this.network?.connected && !this.network?.isHost && state.active && this._hotPotato?.receivedAt) {
-            const elapsed = Math.max(0, (performance.now() - this._hotPotato.receivedAt) / 1000);
-            state.remaining = Math.max(0, state.remaining - elapsed);
-        }
-        return state;
-    }
-
-    applyHotPotatoState(data) {
-        this._hotPotato = applyHotPotatoSnapshot(
-            this._hotPotato || createHotPotatoState(data?.duration),
-            data,
-            performance.now()
-        );
-        this.ui?.updateHotPotato?.(this.getHotPotatoSnapshot());
-    }
-
     snapshotState() {
         // ponytail: include ball state so late joiner doesn't see a spawn pop
         const b = this.ball;
         return {
-            matchId: this.matchId,
             players: this.getPlayerList(),
             state: this.state,
             mode: this.mode?.id,
@@ -4610,441 +4155,38 @@ spawnPowerUp() {
             red: this.scoreboard.redScore,
             blue: this.scoreboard.blueScore,
             time: this.scoreboard.timeRemaining,
-            overtimeExtends: this._overtimeExtends,
-            overtime: this._overtime,
-            overtimeTimer: this._overtimeTimer,
-            suddenDeathAnnounced: this._suddenDeathAnnounced,
-            hotPotato: this.getHotPotatoSnapshot(),
+            countdown: this._countdownSnapshot(),
             ball: b ? {
                 x: b.position.x, y: b.position.y, z: b.position.z,
                 vx: b.velocity.x, vy: b.velocity.y, vz: b.velocity.z,
-                speed: b.currentSpeed, active: b.active
+                speed: b.currentSpeed, active: b.active, state: b.state,
+                skinId: b.skinId, trailId: b.trailId,
+                targetId: this._ballTargetIdentity(b.targetPlayer),
+                targetName: b.targetPlayer?.name || null
             } : null
         };
     }
 
     applyHostMigrationCheckpoint(state, becomingHost = false) {
-        let localPlayer = null;
-        let remotePlayers = null;
-        let previousPlayers = null;
+        if (!state || typeof state !== 'object') return false;
+        if (Array.isArray(state.players)) this.applyLobbyState({ players: state.players });
+        if (state.map && this.arena?.mapId !== state.map) this.selectMap(state.map);
+        if (state.mode && this.mode?.id !== state.mode) this.selectMode(state.mode);
         const score = this.scoreboard;
-        const rollbacks = [];
-        const captureVector = vector => vector ? {
-            x: vector.x,
-            y: vector.y,
-            z: vector.z
-        } : null;
-        const restoreVector = (vector, snapshot) => {
-            if (!vector || !snapshot) return;
-            try {
-                if (typeof vector.set === 'function') {
-                    vector.set(snapshot.x, snapshot.y, snapshot.z);
-                    return;
-                }
-            } catch (_) {}
-            try {
-                vector.x = snapshot.x;
-                vector.y = snapshot.y;
-                vector.z = snapshot.z;
-            } catch (_) {}
-        };
-        const capturePlayer = player => player ? {
-            alive: player.alive,
-            hp: player.hp,
-            team: player.team,
-            queuedForNextRound: player.queuedForNextRound,
-            pendingTeam: player.pendingTeam,
-            activateRound: player.activateRound,
-            killcamLock: player.killcamLock,
-            position: captureVector(player.position),
-            velocity: captureVector(player.velocity),
-            euler: captureVector(player.euler),
-            groupPosition: captureVector(player.group?.position),
-            groupVisible: player.group?.visible,
-            armVisible: player.armGroup?.visible,
-            handVisible: player.handMesh?.visible,
-            gloveVisible: player.gloveMesh?.visible,
-            knifeVisible: player.knifeGroup?.visible
-        } : null;
-        const restorePlayer = (player, snapshot) => {
-            if (!player || !snapshot) return;
-            try {
-                if (typeof player.setTeam === 'function') player.setTeam(snapshot.team);
-            } catch (_) {}
-            try { player.team = snapshot.team; } catch (_) {}
-            try {
-                player.alive = snapshot.alive;
-                player.hp = snapshot.hp;
-                player.queuedForNextRound = snapshot.queuedForNextRound;
-                player.pendingTeam = snapshot.pendingTeam;
-                player.activateRound = snapshot.activateRound;
-                player.killcamLock = snapshot.killcamLock;
-            } catch (_) {}
-            restoreVector(player.position, snapshot.position);
-            restoreVector(player.velocity, snapshot.velocity);
-            restoreVector(player.euler, snapshot.euler);
-            restoreVector(player.group?.position, snapshot.groupPosition);
-            try {
-                if (player.group && snapshot.groupVisible !== undefined) {
-                    player.group.visible = snapshot.groupVisible;
-                }
-                if (player.armGroup && snapshot.armVisible !== undefined) {
-                    player.armGroup.visible = snapshot.armVisible;
-                }
-                if (player.handMesh && snapshot.handVisible !== undefined) {
-                    player.handMesh.visible = snapshot.handVisible;
-                }
-                if (player.gloveMesh && snapshot.gloveVisible !== undefined) {
-                    player.gloveMesh.visible = snapshot.gloveVisible;
-                }
-                if (player.knifeGroup && snapshot.knifeVisible !== undefined) {
-                    player.knifeGroup.visible = snapshot.knifeVisible;
-                }
-            } catch (_) {}
-        };
-        const rollback = () => {
-            for (let index = rollbacks.length - 1; index >= 0; index--) {
-                try { rollbacks[index](); } catch (_) {}
-            }
-        };
-        let playerBefore = null;
-        let scoreBefore = null;
-        let ballBefore = null;
-        let overtimeBefore = null;
-        let presentationBefore = null;
-        let modeBefore = null;
-        let mapBefore = null;
-        let stateBefore;
-        let revivedLocal = false;
-        let updateHandVisibility = false;
-        try {
-            if (!this._validateHostMigrationCheckpointState(state)) return false;
-            localPlayer = state.players?.find(player =>
-                player.playerId === this.network?.playerId
-                || (!player.playerId && player.peerId === this.network?.peer?.id)
-            ) || null;
-            remotePlayers = state.players?.filter(player => player !== localPlayer) || null;
-            if (state.players && typeof this.applyLobbyState !== 'function') return false;
-            if (state.mode && this.mode?.id !== state.mode && typeof this.selectMode !== 'function') return false;
-            if (state.map && this.arena?.mapId !== state.map && typeof this.selectMap !== 'function') return false;
-            if (score && state.maxRounds !== undefined && typeof score.setMaxRounds !== 'function') return false;
-            if (score && state.timeLimit !== undefined && typeof score.setTimeLimit !== 'function') return false;
-            if (typeof this._applyOvertimeSnapshot !== 'function'
-                || typeof this._restoreHostMigrationState !== 'function') return false;
-            if (state.ball && this.ball
-                && (typeof this.ball.position?.set !== 'function'
-                    || typeof this.ball.velocity?.set !== 'function')) return false;
-            if (localPlayer?.alive === true && this.player?.alive === false
-                && (typeof this.player.revive !== 'function'
-                    || typeof this.player.respawn !== 'function')) return false;
-            if (state.players && typeof this.snapshotState === 'function') {
-                const previous = this.snapshotState();
-                if (!previous || !Array.isArray(previous.players)) return false;
-                previousPlayers = previous.players.map(player => ({ ...player }));
-            }
-            stateBefore = this.state;
-            modeBefore = { ref: this.mode, id: this.mode?.id };
-            mapBefore = { arena: this.arena, id: this.arena?.mapId };
-            playerBefore = capturePlayer(this.player);
-            scoreBefore = score ? {
-                maxRounds: score.maxRounds,
-                timeLimit: score.timeLimit,
-                roundNum: score.roundNum,
-                redScore: score.redScore,
-                blueScore: score.blueScore,
-                timeRemaining: score.timeRemaining
-            } : null;
-            overtimeBefore = {
-                overtime: this._overtime,
-                overtimeTimer: this._overtimeTimer,
-                overtimeExtends: this._overtimeExtends,
-                suddenDeathAnnounced: this._suddenDeathAnnounced
-            };
-            ballBefore = this.ball ? {
-                position: captureVector(this.ball.position),
-                velocity: captureVector(this.ball.velocity),
-                meshPosition: captureVector(this.ball.mesh?.position),
-                currentSpeed: this.ball.currentSpeed,
-                active: this.ball.active,
-                clientOnly: this.ball._clientOnly,
-                target: this.ball.target,
-                state: this.ball.state,
-                meshVisible: this.ball.mesh?.visible,
-                ballTarget: this._ballTarget,
-                ballTargetTime: this._ballTargetTime
-            } : null;
-            presentationBefore = {
-                predictedLocalDeath: this._predictedLocalDeath,
-                spectateTarget: this._spectateTarget,
-                killcamActive: this._killcamActive,
-                killcamTimer: this._killcamTimer,
-                killcamKillerPos: this._killcamKillerPos,
-                killcamDeathPos: this._killcamDeathPos,
-                killcamKillerName: this._killcamKillerName,
-                uiSpectating: this.ui?.spectating
-            };
-        } catch (_) {
-            return false;
+        if (score) {
+            if (Number.isFinite(state.maxRounds)) score.setMaxRounds(state.maxRounds);
+            if (Number.isFinite(state.timeLimit)) score.setTimeLimit(state.timeLimit);
+            if (Number.isFinite(state.round)) score.roundNum = Math.max(0, state.round | 0);
+            if (Number.isFinite(state.red)) score.redScore = Math.max(0, state.red | 0);
+            if (Number.isFinite(state.blue)) score.blueScore = Math.max(0, state.blue | 0);
+            if (Number.isFinite(state.time)) score.timeRemaining = Math.max(0, state.time);
         }
-
-        try {
-            if (state.players) {
-                rollbacks.push(() => {
-                    if (!previousPlayers) return;
-                    const previousLocal = previousPlayers.find(player =>
-                        player.playerId === this.network?.playerId
-                        || (!player.playerId && player.peerId === this.network?.peer?.id)
-                    );
-                    const previousRemote = previousPlayers.filter(player => player !== previousLocal);
-                    this.applyLobbyState(
-                        { players: previousRemote },
-                        { deferLocalPlayer: true }
-                    );
-                });
-                this.applyLobbyState(
-                    { players: remotePlayers },
-                    { deferLocalPlayer: true }
-                );
-            }
-            if (state.mode && this.mode?.id !== state.mode) {
-                rollbacks.push(() => {
-                    try {
-                        if (modeBefore.id !== undefined) this.selectMode(modeBefore.id);
-                    } catch (_) {}
-                    if (this.mode?.id !== modeBefore.id) this.mode = modeBefore.ref;
-                });
-                if (this.selectMode(state.mode) === false) {
-                    throw new Error('host checkpoint mode restore failed');
-                }
-            }
-            if (state.map && this.arena?.mapId !== state.map) {
-                rollbacks.push(() => {
-                    try {
-                        if (mapBefore.id !== undefined) this.selectMap(mapBefore.id);
-                    } catch (_) {}
-                    if (this.arena?.mapId !== mapBefore.id) {
-                        if (mapBefore.arena) mapBefore.arena.mapId = mapBefore.id;
-                        this.arena = mapBefore.arena;
-                    }
-                });
-                if (this.selectMap(state.map) === false) {
-                    throw new Error('host checkpoint map restore failed');
-                }
-            }
-            if (score) {
-                rollbacks.push(() => {
-                    try {
-                        if (typeof score.setMaxRounds === 'function') {
-                            score.setMaxRounds(scoreBefore.maxRounds);
-                        }
-                    } catch (_) {}
-                    try {
-                        if (typeof score.setTimeLimit === 'function') {
-                            score.setTimeLimit(scoreBefore.timeLimit);
-                        }
-                    } catch (_) {}
-                    try {
-                        score.maxRounds = scoreBefore.maxRounds;
-                        score.timeLimit = scoreBefore.timeLimit;
-                        score.roundNum = scoreBefore.roundNum;
-                        score.redScore = scoreBefore.redScore;
-                        score.blueScore = scoreBefore.blueScore;
-                        score.timeRemaining = scoreBefore.timeRemaining;
-                    } catch (_) {}
-                });
-                if (state.maxRounds !== undefined) score.setMaxRounds(state.maxRounds);
-                if (state.timeLimit !== undefined) score.setTimeLimit(state.timeLimit);
-                if (state.round !== undefined) score.roundNum = state.round;
-                if (state.red !== undefined) score.redScore = state.red;
-                if (state.blue !== undefined) score.blueScore = state.blue;
-                if (state.time !== undefined) score.timeRemaining = state.time;
-            }
-            rollbacks.push(() => {
-                this._overtime = overtimeBefore.overtime;
-                this._overtimeTimer = overtimeBefore.overtimeTimer;
-                this._overtimeExtends = overtimeBefore.overtimeExtends;
-                this._suddenDeathAnnounced = overtimeBefore.suddenDeathAnnounced;
-            });
-            this._applyOvertimeSnapshot(state);
-            if (state.ball && this.ball) {
-                rollbacks.push(() => {
-                    restoreVector(this.ball?.position, ballBefore.position);
-                    restoreVector(this.ball?.velocity, ballBefore.velocity);
-                    restoreVector(this.ball?.mesh?.position, ballBefore.meshPosition);
-                    try {
-                        this.ball.currentSpeed = ballBefore.currentSpeed;
-                        this.ball.active = ballBefore.active;
-                        this.ball._clientOnly = ballBefore.clientOnly;
-                        this.ball.target = ballBefore.target;
-                        this.ball.state = ballBefore.state;
-                        if (this.ball.mesh && ballBefore.meshVisible !== undefined) {
-                            this.ball.mesh.visible = ballBefore.meshVisible;
-                        }
-                        this._ballTarget = ballBefore.ballTarget;
-                        this._ballTargetTime = ballBefore.ballTargetTime;
-                    } catch (_) {}
-                });
-                const b = state.ball;
-                this.ball.position.set(b.x, b.y, b.z);
-                this.ball.velocity.set(b.vx, b.vy, b.vz);
-                this.ball.mesh?.position.copy(this.ball.position);
-                this.ball.currentSpeed = b.speed;
-                this.ball.active = b.active;
-            }
-            if (this.ball) this.ball._clientOnly = !becomingHost;
-            this._ballTarget = null;
-            this._ballTargetTime = 0;
-            if (localPlayer && this.player) {
-                rollbacks.push(() => {
-                    restorePlayer(this.player, playerBefore);
-                    this._predictedLocalDeath = presentationBefore.predictedLocalDeath;
-                    this._spectateTarget = presentationBefore.spectateTarget;
-                    this._killcamActive = presentationBefore.killcamActive;
-                    this._killcamTimer = presentationBefore.killcamTimer;
-                    this._killcamKillerPos = presentationBefore.killcamKillerPos;
-                    this._killcamDeathPos = presentationBefore.killcamDeathPos;
-                    this._killcamKillerName = presentationBefore.killcamKillerName;
-                    if (this.ui && presentationBefore.uiSpectating !== undefined) {
-                        this.ui.spectating = presentationBefore.uiSpectating;
-                    }
-                });
-                if (typeof this.player.setTeam === 'function') {
-                    if (this.player.setTeam(localPlayer.team) === false) {
-                        throw new Error('host checkpoint team restore failed');
-                    }
-                } else {
-                    this.player.team = localPlayer.team;
-                }
-                this.player.queuedForNextRound = !!localPlayer.queuedForNextRound;
-                this.player.pendingTeam = localPlayer.pendingTeam || null;
-                this.player.activateRound = localPlayer.activateRound || null;
-                if ([localPlayer.x, localPlayer.y, localPlayer.z].every(Number.isFinite)) {
-                    if (typeof this.player.position?.set !== 'function') {
-                        throw new Error('host checkpoint player position unavailable');
-                    }
-                    this.player.position.set(localPlayer.x, localPlayer.y, localPlayer.z);
-                }
-                if (this.player.queuedForNextRound) {
-                    this.player.alive = false;
-                    updateHandVisibility = true;
-                } else if (localPlayer.alive === true && this.player.alive === false) {
-                    if (!this._reconcileHostRevive(this.player, localPlayer.hp, true, true)) {
-                        throw new Error('host checkpoint revive failed');
-                    }
-                    revivedLocal = true;
-                    updateHandVisibility = true;
-                } else {
-                    this.player.alive = localPlayer.alive !== false;
-                    if (localPlayer.hp !== undefined) this.player.hp = localPlayer.hp;
-                    if (localPlayer.alive === false) updateHandVisibility = true;
-                }
-            }
-            rollbacks.push(() => { this.state = stateBefore; });
-            if (!this._restoreHostMigrationState(state.state)) {
-                throw new Error('host checkpoint state restore failed');
-            }
-        } catch (_) {
-            rollback();
-            return false;
-        }
-
-        if (revivedLocal) {
-            this._predictedLocalDeath = false;
-            this._spectateTarget = null;
-            try { this._hideKillcam?.(); } catch (_) {}
-            this._killcamActive = false;
-            this._killcamTimer = null;
-            this._killcamKillerPos = null;
-            this._killcamDeathPos = null;
-            this._killcamKillerName = '';
-            this.player.killcamLock = false;
-            if (this.ui) this.ui.spectating = false;
-            try { this.ui?.setPlayerTarget?.(false); } catch (_) {}
-            try {
-                globalThis.document?.getElementById?.('spectator-info')?.classList.add('hidden');
-            } catch (_) {}
-        }
-        if (updateHandVisibility) {
-            try {
-                this.player?.setHandVisible?.(
-                    !this.player.queuedForNextRound && this.player.alive !== false
-                );
-            } catch (_) {}
-        }
-        try { this.ui?.updateScores?.(score); } catch (_) {}
-        return true;
-    }
-
-    _validateHostMigrationCheckpointState(state) {
-        if (!state || typeof state !== 'object' || Array.isArray(state)
-            || !Object.values(STATES).includes(state.state)) return false;
-        const bounded = (value, min, max, integer = false) =>
-            Number.isFinite(value)
-            && value >= min
-            && value <= max
-            && (!integer || Number.isSafeInteger(value));
-        const safeText = (value, max) =>
-            typeof value === 'string' && value.length > 0 && value.length <= max;
-        const validCoordinate = value => bounded(value, -512, 512);
-
-        if (state.players !== undefined) {
-            if (!Array.isArray(state.players) || state.players.length > 64) return false;
-            const identities = new Set();
-            for (const player of state.players) {
-                if (!player || typeof player !== 'object' || Array.isArray(player)
-                    || !safeText(player.name, 32)
-                    || !['red', 'blue'].includes(player.team)
-                    || (player.alive !== undefined && typeof player.alive !== 'boolean')
-                    || (player.hp !== undefined && !bounded(player.hp, 0, 10000))
-                    || ['x', 'y', 'z'].some(key =>
-                        player[key] !== undefined && !validCoordinate(player[key]))) return false;
-                const identity = player.playerId || player.peerId
-                    || (player.isBot === true ? `bot:${player.name}` : null);
-                if (!safeText(identity, 128) || identities.has(identity)) return false;
-                identities.add(identity);
-            }
-        }
-
-        for (const [key, max] of [
-            ['maxRounds', 1024],
-            ['round', 1000000],
-            ['red', 1000000],
-            ['blue', 1000000]
-        ]) {
-            if (state[key] !== undefined && !bounded(state[key], 0, max, true)) return false;
-        }
-        for (const [key, max] of [['timeLimit', 86400], ['time', 86400]]) {
-            if (state[key] !== undefined && !bounded(state[key], 0, max)) return false;
-        }
-        if (state.mode !== undefined && !safeText(state.mode, 64)) return false;
-        if (state.map !== undefined && !safeText(state.map, 64)) return false;
-        if (state.overtime !== undefined && typeof state.overtime !== 'boolean') return false;
-        if (state.overtimeExtends !== undefined
-            && !bounded(state.overtimeExtends, 0, 8, true)) return false;
-        if (state.overtimeTimer !== undefined
-            && !bounded(state.overtimeTimer, 0, 3600)) return false;
-        if (state.suddenDeathAnnounced !== undefined
-            && typeof state.suddenDeathAnnounced !== 'boolean') return false;
-
-        if (state.ball !== undefined && state.ball !== null) {
-            const ball = state.ball;
-            if (!ball || typeof ball !== 'object' || Array.isArray(ball)
-                || ![ball.x, ball.y, ball.z].every(validCoordinate)
-                || ![ball.vx, ball.vy, ball.vz].every(value => bounded(value, -512, 512))
-                || !bounded(ball.speed, 0, 512)
-                || typeof ball.active !== 'boolean') return false;
-        }
-        return true;
-    }
-
-    _restoreHostMigrationState(state) {
-        if (!Object.values(STATES).includes(state)) return false;
-        try {
-            this.state = state;
-        } catch (_) {
-            return false;
-        }
-        try { this.audio?.resetThreatAudio?.(); } catch (_) {}
+        if (state.ball && this.ball) this._applyBallSnapshot(state.ball);
+        if (Object.values(STATES).includes(state.state)) this.state = state.state;
+        this.ball._clientOnly = !becomingHost;
+        this._ballTarget = null;
+        this._ballTargetTime = 0;
+        this.ui?.updateScores?.(score);
         return true;
     }
 
@@ -5063,6 +4205,8 @@ spawnPowerUp() {
         this._ballTargetActive = data.active;
         // ponytail: sync currentSpeed from host — prevents client scalar drift
         if (data.speed !== undefined) this.ball.currentSpeed = data.speed;
+        if (BALL_SKINS[data.skinId] && data.skinId !== this.ball.skinId) this.ball.setSkin(data.skinId);
+        if (BALL_TRAILS[data.trailId] && data.trailId !== this.ball.trailId) this.ball.setTrail(data.trailId);
         // ponytail: client keeps ball active until host sends explicit respawn (state='idle' or new spawn).
         // This prevents "ball became inactive before client could deflect" race.
         if (data.active && data.state !== 'idle') {
@@ -5074,26 +4218,8 @@ spawnPowerUp() {
             this.ball.active = false;
             this.ball.mesh.visible = false;
         }
-        if (Object.hasOwn(data, 'targetPlayerId')
-            || Object.hasOwn(data, 'targetPeerId')
-            || Object.hasOwn(data, 'targetName')) {
-            const stableTarget = data.targetPlayerId || data.targetPeerId;
-            let target = data.targetPlayerId === this.network?.playerId
-                || data.targetPeerId === this.network?.peer?.id
-                ? this.player
-                : null;
-            if (!target && data.targetPlayerId) target = this.remotePlayers.get(data.targetPlayerId) || null;
-            if (!target && data.targetPeerId) {
-                target = this.remotePlayers.get(data.targetPeerId)
-                    || [...this.remotePlayers.values()].find(player => player.peerId === data.targetPeerId)
-                    || null;
-            }
-            if (!target && !stableTarget) {
-                target = data.targetName === this.playerName ? this.player : null;
-                if (!target) target = this.bots.find(bot => bot.name === data.targetName) || null;
-                if (!target) target = [...this.remotePlayers.values()].find(player => player.name === data.targetName) || null;
-            }
-            this.ball.setTarget(target);
+        if (Object.hasOwn(data, 'targetId') || Object.hasOwn(data, 'targetName')) {
+            this.ball.setTarget(this._resolveBallTarget(data));
         }
         this.ball.state = data.state || this.ball.state;
         // Sync ball affix from host
@@ -5115,13 +4241,16 @@ spawnPowerUp() {
         this.ball._prevPosition ??= this.ball.position.clone();
         this.ball._prevPosition.copy(this.ball.position);
         const elapsed = (performance.now() - this._ballTargetTime) / 1000;
+        const netcode = normalizeNetcode(this.experimentalNetcode);
         // ponytail: extrapolate target forward by velocity × elapsed since snapshot
         const next = networkBallStep(
             this.ball.position,
             { x: this._ballTarget.vx, y: this._ballTarget.vy, z: this._ballTarget.vz },
             this._ballTarget,
             dt,
-            elapsed
+            elapsed,
+            (netcode.enabled ? netcode.maxExtrapolationMs : 80) / 1000,
+            netcode.enabled ? netcode.predictionStrength : 1
         );
         this.ball.position.set(next.x, next.y, next.z);
         this.ball.velocity.set(this._ballTarget.vx, this._ballTarget.vy, this._ballTarget.vz);
@@ -5133,7 +4262,6 @@ spawnPowerUp() {
             this.scoreboard.blueScore = data.blue;
             this.scoreboard.timeRemaining = data.time;
             this.scoreboard.roundNum = data.round;
-            if (data.hotPotato) this.applyHotPotatoState(data.hotPotato);
             // Kill feed sync
             if (data.killFeed) {
                 this.killFeed = data.killFeed;
@@ -5152,7 +4280,6 @@ spawnPowerUp() {
         this.chaosManager?.clear();
         if (data?.winner === 'red') this.ui.showMessage?.('🔴 RED TEAM WINS THE ROUND!', 2000);
         else if (data?.winner === 'blue') this.ui.showMessage?.('🔵 BLUE TEAM WINS THE ROUND!', 2000);
-        else if (data?.winner === 'ffa' && data.winnerName) this.ui.showMessage?.(`${data.winnerName} WINS THE ROUND!`, 2000);
         else if (data?.winner === 'draw') this.ui.showMessage?.('⚔️ DOUBLE KO — DRAW!', 2000);
     }
     startRoundFromNetwork(data = {}) {
@@ -5169,7 +4296,11 @@ spawnPowerUp() {
             this.player.setTeam(own.team);
         }
         this.startRound();
-        this._applyOvertimeSnapshot(data);
+        if (Number.isFinite(data.red)) this.scoreboard.redScore = data.red;
+        if (Number.isFinite(data.blue)) this.scoreboard.blueScore = data.blue;
+        if (Number.isFinite(data.round)) this.scoreboard.roundNum = data.round;
+        if (Number.isFinite(data.time)) this.scoreboard.timeRemaining = data.time;
+        if (data.ball) this._applyBallSnapshot(data.ball);
         if (wasQueued && !this.player.queuedForNextRound) {
             this.onLateJoinActivated?.(this.player.team);
         }
@@ -5237,8 +4368,7 @@ spawnPowerUp() {
         const p = isLocal ? this.player : this.remotePlayers.get(playerId);
         if (!p) return;
         p.attacking = true;
-        p.attackType = data.action === 'stab' ? 'stab' : 'slash';
-        p.attackTimer = p.attackType === 'stab' ? 0.42 : 0.34;
+        p.attackTimer = 0.3;
         if (data.ax !== undefined) p.aimDir.set(data.ax, data.ay, data.az).normalize();
         // Track deflector so hit detection candidates work on client
         this.lastDeflector = p;
@@ -5267,8 +4397,7 @@ spawnPowerUp() {
     }
 
     // Client: host'tan gelen skill efektini oynat (ses + mesaj + görsel).
-handleSkillEffect(data = {}) {
-    if (this._skillsDisabled) return false;
+    handleSkillEffect(data = {}) {
         if (!data || this.network?.isHost) return;
         if (data.skill === 'soldier_rocket' && data.pos) {
             const aim = new THREE.Vector3(data.pos.ax, data.pos.ay, data.pos.az);
@@ -5329,31 +4458,28 @@ handleSkillEffect(data = {}) {
 
     // --- P2P SYNC HANDLERS ---
 
-applyMapChange(data) {
-    if (!data?.mapId || this.network?.isHost) return;
-    const mapId = this._rallyDuel ? normalizeRallyDuelMap(data.mapId) : data.mapId;
-    if (this.arena.mapId === mapId) return;
-    this.arena.rebuild(mapId);
-    this.ui.showMessage?.(`Arena: ${this.arena.config?.name || mapId}`, 1400);
+    applyMapChange(data) {
+        if (!data?.mapId || this.network?.isHost) return;
+        if (this.arena.mapId === data.mapId) return;
+        this.arena.rebuild(data.mapId);
+        this.ui.showMessage?.(`Arena: ${this.arena.config?.name || data.mapId}`, 1400);
         // Oyuncuları yeni haritada spawn et
         this.player.respawn();
         this.bots.forEach(b => b.respawn());
-    this.remotePlayers.forEach(p => {
+        this.remotePlayers.forEach(p => {
             if (p.position && !p.isBotEntity) {
                 p.position.copy(this.arena.getPlayerSpawn(p.team));
                 p.group.position.copy(p.position).add(new THREE.Vector3(0, -1.2, 0));
-        }
-    });
-    this.onMapChange?.(mapId);
-}
+            }
+        });
+    }
 
     applyModeChange(data) {
         if (!data?.modeId || this.network?.isHost) return;
         this.selectMode(data.modeId);
     }
 
-applyPowerUpState(data) {
-    if (this._powerUpsDisabled) return false;
+    applyPowerUpState(data) {
         if (!data?.powerUps || this.network?.isHost) return;
         // ponytail: keep existing meshes/timers when powerups are unchanged (avoid 2Hz churn).
         // Key by position so we don't recreate geometry every sync.

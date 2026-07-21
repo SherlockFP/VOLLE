@@ -43,6 +43,11 @@ export function shouldStartOvertime({ redScore, blueScore, timeUp, maxRounds }) 
     return Boolean((timeUp || maxRounds) && Number(redScore) === Number(blueScore));
 }
 
+export function hasModeWinner(mode, redScore, blueScore) {
+    const target = Number(mode?.mutators?.winTarget) || 0;
+    return target > 0 && (redScore >= target || blueScore >= target);
+}
+
 export function shouldEndOvertime({ redScore, blueScore, roundsExtended = 0, maxExtensions = 8 }) {
     return Math.abs(Number(redScore) - Number(blueScore)) >= 2 || roundsExtended >= maxExtensions;
 }

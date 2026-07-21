@@ -10,42 +10,8 @@ import { MatchHistory } from './matchhistory.js';
 import { getRank, getRankProgress } from './ranked.js';
 import { Leaderboard } from './leaderboard.js';
 import { Arena } from './arena.js';
-import { COSMETICS, COSMETIC_TYPES, cosmeticsByType } from './cosmetic-catalog.js';
 
 const CHARACTER_ATLAS = 'assets/generated/characters/character-atlas.png';
-const BALL_BASE_SPEED = 17;
-
-export function getBallHeat(ballSpeed, baseSpeed = BALL_BASE_SPEED) {
-    const speed = Number.isFinite(ballSpeed) ? Math.max(0, ballSpeed) : 0;
-    const base = Number.isFinite(baseSpeed) && baseSpeed > 0 ? baseSpeed : BALL_BASE_SPEED;
-    const ratio = speed / base;
-    const level = ratio >= 3.5 ? 'critical' : ratio >= 2.25 ? 'danger' : ratio >= 1.35 ? 'warm' : 'track';
-    return {
-        speed,
-        ratio,
-        percent: Math.round(ratio * 100),
-        level,
-        label: level === 'critical' ? 'CRITICAL' : level === 'danger' ? 'DANGER' : level === 'warm' ? 'WARM' : 'BALL'
-    };
-}
-
-export function getBallThreat(isTarget, ballSpeed, distance) {
-    if (!isTarget) return { active: false, level: 'track', eta: Infinity, label: '' };
-    const heat = getBallHeat(ballSpeed);
-    const safeDistance = Number.isFinite(distance) ? Math.max(0, distance) : Infinity;
-    const eta = heat.speed > 0 ? safeDistance / heat.speed : Infinity;
-    const level = eta <= 0.45 || heat.level === 'critical'
-        ? 'critical'
-        : eta <= 0.85 || heat.level === 'danger'
-            ? 'danger'
-            : 'alert';
-    return {
-        active: true,
-        level,
-        eta,
-        label: Number.isFinite(eta) ? `INCOMING ${eta.toFixed(1)}S` : 'INCOMING'
-    };
-}
 
 function characterPortrait(index) {
     const x = (index % 4) * (100 / 3);
@@ -79,15 +45,6 @@ export class UI {
             tournament: document.getElementById('tournament-screen'),
             profile: document.getElementById('screen-profile')
         };
-        this.competitiveHUD = {
-            root: document.getElementById('hud-competitive-status'),
-            mode: document.getElementById('hud-competitive-mode'),
-            round: document.getElementById('hud-competitive-round'),
-            phase: document.getElementById('hud-competitive-phase'),
-            rules: document.getElementById('hud-competitive-rules')
-        };
-        this._competitiveHUDKey = '';
-        this._shopPreviewAvatar = null;
         this.initSettings();
     }
 
@@ -146,53 +103,43 @@ export class UI {
         Object.values(this.screens).forEach(s => { if (s) s.classList.add('hidden'); });
     }
 
-    showHUD() {
-        this.updateCompetitiveHUD();
-        if (this.screens.hud) this.screens.hud.classList.remove('hidden');
-    }
+    showHUD() { if (this.screens.hud) this.screens.hud.classList.remove('hidden'); }
     hideHUD() { if (this.screens.hud) this.screens.hud.classList.add('hidden'); }
 
     updateHUD(data) {
-        const { time, redScore, blueScore, ballSpeed, hotPotato, competitive } = data;
+        const { time, redScore, blueScore, ballSpeed } = data;
         const el = id => document.getElementById(id);
 
         if (el('hud-round-timer')) el('hud-round-timer').textContent = time;
         if (el('hud-score-red')) el('hud-score-red').textContent = redScore;
         if (el('hud-score-blue')) el('hud-score-blue').textContent = blueScore;
         if (el('hud-speed')) {
-            const heat = getBallHeat(ballSpeed);
-            el('hud-speed').textContent = `${heat.label} ${heat.percent}%`;
-            el('hud-speed').dataset.heat = heat.level;
+            const pct = Math.round((ballSpeed / 17) * 100);
+            el('hud-speed').textContent = `🏐 ${pct}%`;
+            if (pct > 250) el('hud-speed').style.color = '#ff00ff';
+            else if (pct > 160) el('hud-speed').style.color = '#ff5555';
+            else if (pct > 120) el('hud-speed').style.color = '#ffaa33';
+            else el('hud-speed').style.color = '#55ff88';
+            // ponytail: danger pulse when ball is very fast
+            if (pct > 200) {
+                el('hud-speed').style.textShadow = `0 0 ${Math.min(20, (pct - 200) * 0.2)}px #ff4444`;
+            } else {
+                el('hud-speed').style.textShadow = 'none';
+            }
         }
         // Ball speed indicator (bottom-right)
         const speedEl = document.getElementById('speed-val');
         if (speedEl && ballSpeed !== undefined) {
-            const heat = getBallHeat(ballSpeed);
-            speedEl.textContent = Math.round(heat.speed);
-            speedEl.parentElement.dataset.heat = heat.level;
+            speedEl.textContent = Math.round(ballSpeed);
+            const ratio = ballSpeed / 17;
+            speedEl.style.color = ratio > 3 ? '#ff4444' : ratio > 2 ? '#ffaa22' : 'var(--accent)';
+            // ponytail: glow effect at high speed
+            if (ratio > 2) {
+                speedEl.style.textShadow = `0 0 ${Math.min(15, (ratio - 2) * 5)}px ${ratio > 3 ? '#ff0000' : '#ffaa00'}`;
+            } else {
+                speedEl.style.textShadow = 'none';
+            }
         }
-        this.updateHotPotato(hotPotato);
-        this.updateCompetitiveHUD(competitive);
-    }
-
-    updateCompetitiveHUD(state) {
-        const hud = this.competitiveHUD;
-        if (!hud?.root) return;
-        const view = getCompetitiveHUDView(state);
-        hud.root.classList.toggle('hidden', !view.active);
-        hud.root.setAttribute('aria-hidden', String(!view.active));
-        if (!view.active) {
-            this._competitiveHUDKey = '';
-            return;
-        }
-        if (view.key === this._competitiveHUDKey) return;
-        this._competitiveHUDKey = view.key;
-        if (hud.mode) hud.mode.textContent = view.mode;
-        if (hud.round) hud.round.textContent = view.roundLabel;
-        if (hud.phase) hud.phase.textContent = view.phase;
-        if (hud.rules) hud.rules.textContent = view.rulesLabel;
-        hud.root.dataset.phase = view.phase.toLowerCase().replaceAll(' ', '-');
-        hud.root.setAttribute('aria-label', view.ariaLabel);
     }
 
     updateMovementHUD(speed = 0, state = 'MOVE', social = false) {
@@ -229,13 +176,11 @@ export class UI {
         }
     }
 
-    updateScoreboard(stats, ffa = false) {
-        this.updateScoreboardTable('scoreboard-body', stats, ffa);
-        const heading = document.querySelector('#scoreboard-overlay th:nth-child(2)');
-        if (heading) heading.textContent = ffa ? 'Mode' : 'Team';
+    updateScoreboard(stats) {
+        this.updateScoreboardTable('scoreboard-body', stats);
     }
 
-    updateScoreboardTable(tbodyId, stats, ffa = false) {
+    updateScoreboardTable(tbodyId, stats) {
         const tbody = document.getElementById(tbodyId);
         if (!tbody) return;
         tbody.innerHTML = '';
@@ -247,7 +192,7 @@ export class UI {
             const level = p.level || (p.isBot ? Math.min(20, i + 1) : (store?.get?.('level') || 1));
             const values = [
                 `${p.name}${p.isYou ? ' (YOU)' : ''}`,
-                ffa ? 'SOLO' : String(p.team || '').toUpperCase(),
+                String(p.team || '').toUpperCase(),
                 String(rank),
                 String(level),
                 String(p.score ?? 0),
@@ -298,42 +243,10 @@ export class UI {
         if (dm) dm.style.display = 'none';
     }
 
-    // Incoming indicator with speed and time-to-impact readability.
-    setPlayerTarget(isTarget, ballSpeed = 0, distance = Infinity) {
+    // Incoming indicator — red edge glow when ball is coming at you
+    setPlayerTarget(isTarget) {
         const el = document.getElementById('incoming-indicator');
-        if (!el) return;
-        const threat = getBallThreat(isTarget, ballSpeed, distance);
-        const previousLevel = el.dataset.threat;
-        el.classList.toggle('active', threat.active);
-        el.classList.toggle('hidden', !threat.active);
-        el.dataset.threat = threat.level;
-        el.dataset.label = threat.label;
-        el.setAttribute('aria-hidden', String(!threat.active));
-        if (threat.active && previousLevel !== threat.level) {
-            el.setAttribute('role', 'status');
-            el.setAttribute('aria-label', threat.label);
-        }
-    }
-
-    updateHotPotato(state) {
-        const root = document.getElementById('hot-potato-hud');
-        if (!root) return;
-        const enabled = state?.enabled === true;
-        root.classList.toggle('hidden', !enabled);
-        if (!enabled) return;
-        const time = document.getElementById('hot-potato-time');
-        const holder = document.getElementById('hot-potato-holder');
-        const remaining = Math.max(0, Number(state.remaining) || 0);
-        const ratio = remaining / Math.max(1, Number(state.duration) || 5);
-        root.dataset.urgency = ratio <= 0.25 ? 'critical' : ratio <= 0.55 ? 'danger' : 'armed';
-        if (time) time.textContent = state.active ? remaining.toFixed(1) : '--';
-        if (holder) {
-            holder.textContent = state.active
-                ? `${state.holderName || 'PLAYER'} - ${String(state.holderTeam || '').toUpperCase()}`
-                : state.holderName
-                    ? `${state.holderName} EXPLODED`
-                    : 'WAITING FOR TARGET';
-        }
+        if (el) el.classList.toggle('active', isTarget);
     }
 
     // Team switch popup (M)
@@ -410,17 +323,15 @@ export class UI {
         }
     }
 
-    showGameOver(winner, stats, ffa = false) {
+    showGameOver(winner, stats) {
         this.showScreen('gameOver');
         const el = document.getElementById('winner-text');
         if (el) {
-            el.textContent = winner === 'DRAW' ? "It's a Draw!" : ffa ? `${winner} Wins!` : `${winner} Team Wins!`;
+            el.textContent = winner === 'DRAW' ? "It's a Draw!" : `${winner} Team Wins!`;
             el.className = `winner-${winner.toLowerCase()}`;
         }
-        this.updateScoreboard(stats, ffa);
-        this.updateScoreboardTable('scoreboard-body-final', stats, ffa);
-        const heading = document.querySelector('#game-over .scoreboard-table th:nth-child(2)');
-        if (heading) heading.textContent = ffa ? 'Mode' : 'Team';
+        this.updateScoreboard(stats);
+        this.updateScoreboardTable('scoreboard-body-final', stats);
     }
 
     showCountdown(num, callback, token = ++this._countdownToken) {
@@ -519,18 +430,9 @@ export class UI {
             }, delay);
             delay += 150;
         }
-        const playAgain = document.getElementById('pg-play-again');
-        const lobby = document.getElementById('pg-lobby');
-        const mainMenu = document.getElementById('pg-main-menu');
-        if (playAgain) playAgain.onclick = () => window._postGameAction?.('play_again');
-        if (lobby) lobby.onclick = () => {
-            el.classList.add('hidden');
-            window._postGameAction?.('lobby');
-        };
-        if (mainMenu) mainMenu.onclick = () => {
-            el.classList.add('hidden');
-            window._postGameAction?.('main_menu');
-        };
+        document.getElementById('pg-play-again')?.addEventListener('click', () => { el.classList.add('hidden'); window._postGameAction?.('play_again'); });
+        document.getElementById('pg-lobby')?.addEventListener('click', () => { el.classList.add('hidden'); window._postGameAction?.('lobby'); });
+        document.getElementById('pg-main-menu')?.addEventListener('click', () => { el.classList.add('hidden'); window._postGameAction?.('main_menu'); });
     }
 
     renderMatchAnalysis(report, initialTab = 'overview') {
@@ -767,7 +669,7 @@ export class UI {
             }
             const card = document.createElement('div');
             card.className = `cs-player-card team-${p.team}${p.isYou ? ' you' : ''}${p.isBot ? ' bot' : ''}`;
-            card.draggable = !!isHost && !p.isYou;
+            card.draggable = !!isHost && !p.isBot;
             card.dataset.playerName = p.name;
             card.dataset.playerTeam = p.team;
             const char = CHARACTERS[p.charId] || CHARACTERS.rally;
@@ -777,7 +679,7 @@ export class UI {
                 ? (ownAvatarOnly?.dataURL ? `<img src="${ownAvatarOnly.dataURL}">` : emoji)
                 : (p.avatar ? `<img src="${p.avatar}">` : emoji);
             const kickBtn = (isHost && !p.isYou)
-                ? `<button class="cs-btn-kick" type="button" data-kick-name="${this.escapeHTML(p.name)}" data-kick-peer="${this.escapeHTML(p.peerId || '')}" data-kick-bot="${p.isBot?1:0}" aria-label="Kick ${this.escapeHTML(p.name)}" title="Kick player">X</button>`
+                ? `<button class="cs-btn-kick" data-kick-name="${this.escapeHTML(p.name)}" data-kick-peer="${this.escapeHTML(p.peerId || '')}" data-kick-bot="${p.isBot?1:0}" title="Kick">✕</button>`
                 : '';
             const hostBadge = p.isHost ? '<span class="cs-badge cs-badge-host">HOST</span>' : '';
             const botBadge = p.isBot ? '<span class="cs-badge cs-badge-bot">BOT</span>' : '';
@@ -1058,19 +960,8 @@ export class UI {
         grid.innerHTML = '';
         const owned = store.get('unlockedChars');
         const selected = store.get('selectedChar');
-        const selectedCharacter = CHARACTERS[selected] || CHARACTERS.rally;
-        const selectedLoadout = store.get('loadout') || {};
-        const selectedSkill = SKILLS[selectedLoadout.skill] || SKILLS.slow;
-        const selectedRune = RUNES[(selectedLoadout.runes || [])[0]] || RUNES.deflect_power;
-        const heroName = document.getElementById('hero-selected-name');
-        const heroSkill = document.getElementById('hero-selected-skill');
-        const heroRune = document.getElementById('hero-selected-rune');
-        if (heroName) heroName.textContent = selectedCharacter.name;
-        if (heroSkill) heroSkill.textContent = selectedSkill.name;
-        if (heroRune) heroRune.textContent = selectedRune.name;
         Object.values(CHARACTERS).forEach((c, index) => {
-            const card = document.createElement('button');
-            card.type = 'button';
+            const card = document.createElement('div');
             const isOwned = owned.includes(c.id);
             const isSelected = selected === c.id;
             const mastery = store.getCharacterProgress(c.id);
@@ -1097,8 +988,7 @@ export class UI {
             const ownedSkills = store.get('ownedSkills');
             const currentSkill = store.get('loadout').skill;
             Object.values(SKILLS).forEach((s, index) => {
-                const card = document.createElement('button');
-                card.type = 'button';
+                const card = document.createElement('div');
                 const owned = ownedSkills.includes(s.id);
                 card.className = `skill-card ${currentSkill === s.id ? 'selected' : ''} ${!owned ? 'locked' : ''}`;
                 card.dataset.skill = s.id;
@@ -1114,8 +1004,7 @@ export class UI {
             const ownedRunes = store.get('ownedItems');
             const currentRunes = store.get('loadout').runes || [];
             Object.values(RUNES).forEach((r, index) => {
-                const card = document.createElement('button');
-                card.type = 'button';
+                const card = document.createElement('div');
                 const owned = ownedRunes.includes(r.id);
                 const equipped = currentRunes.includes(r.id);
                 card.className = `rune-card ${equipped ? 'selected' : ''} ${!owned ? 'locked' : ''}`;
@@ -1126,134 +1015,21 @@ export class UI {
         }
     }
 
-    _syncShopTabs(tab) {
-        const labels = {
-            chars: 'Characters', live: 'Live Deals', balls: 'Balls', avatars: 'Character Skins',
-            wearables: 'Wearables', cases: 'Cases', inventory: 'Inventory', skills: 'Skills', boosts: 'Boosts'
-        };
-        document.querySelectorAll('#shop-tabs .shop-tab').forEach(button => {
-            const selected = button.dataset.tab === tab;
-            button.classList.toggle('selected', selected);
-            button.setAttribute('aria-selected', String(selected));
-            button.tabIndex = selected ? 0 : -1;
-        });
-        const grid = document.getElementById('shop-grid');
-        const selectedTab = document.querySelector(`#shop-tabs .shop-tab[data-tab="${tab}"]`);
-        if (grid && selectedTab?.id) grid.setAttribute('aria-labelledby', selectedTab.id);
-        const title = document.getElementById('shop-catalog-title');
-        if (title) title.textContent = labels[tab] || 'Collection';
-        const screen = document.getElementById('shop-screen');
-        if (screen) screen.dataset.shopTab = tab;
-    }
-
-    _setShopShowcase(store, skin, previewing = false, announce = false) {
-        const selected = skin || AVATAR_SKINS.default;
-        const equippedId = store.get('equippedAvatarSkin') || 'default';
-        const equipped = selected.id === equippedId;
-        const owned = selected.price === 0 || store.hasAvatarAccess(selected.id);
-        const stage = document.getElementById('shop-showcase-stage');
-        const canvas = document.getElementById('shop-showcase-canvas');
-        const fallback = stage?.querySelector('.shop-showcase-fallback');
-        const name = document.getElementById('shop-selected-name');
-        const meta = document.getElementById('shop-selected-meta');
-        const status = document.getElementById('shop-showcase-status');
-        const practice = document.getElementById('btn-shop-practice');
-
-        if (stage) {
-            stage.dataset.skinId = selected.id;
-            stage.style.setProperty('--showcase-head', selected.head);
-            stage.style.setProperty('--showcase-body', selected.body);
-            stage.style.setProperty('--showcase-arms', selected.arms);
-            stage.style.setProperty('--showcase-legs', selected.legs);
-        }
-        if (canvas) canvas.dataset.skinId = selected.id;
-        if (fallback) fallback.dataset.model = selected.model || 'classic';
-        if (name) name.textContent = selected.name;
-        if (meta) {
-            const state = equipped ? 'Equipped' : owned ? 'Owned' : `${selected.price} credits`;
-            meta.textContent = `${selected.model === 'slim' ? 'Slim' : 'Classic'} model · ${state}`;
-        }
-        if (status) {
-            status.textContent = equipped
-                ? `${selected.name} is equipped.`
-                : owned
-                    ? `${selected.name} is owned and ready to equip.`
-                    : `Previewing ${selected.name}. Purchase keeps it permanently.`;
-        }
-        if (practice) practice.dataset.id = selected.id;
-
-        document.querySelectorAll('[data-shop-preview="avatar"]').forEach(control => {
-            const selectedControl = control.dataset.id === selected.id;
-            control.classList.toggle('is-previewing', selectedControl);
-            if (control.matches('button')) control.setAttribute('aria-pressed', String(selectedControl));
-        });
-
-        const detail = Object.freeze({ type: 'avatar', id: selected.id, skin: selected, equipped, owned, previewing });
-        if (stage?.dispatchEvent && typeof CustomEvent !== 'undefined') {
-            stage.dispatchEvent(new CustomEvent('shop-preview-change', { bubbles: true, detail }));
-        }
-        if (typeof window !== 'undefined' && window.dispatchEvent && typeof CustomEvent !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('warrball:shop-preview', { detail }));
-        }
-        if (announce && status) status.focus?.({ preventScroll: true });
-    }
-
-    _finalizeShopCatalog(grid) {
-        const count = grid.querySelectorAll?.('.shop-card').length || 0;
-        const countEl = document.getElementById('shop-catalog-count');
-        if (countEl) countEl.textContent = `${count} ${count === 1 ? 'item' : 'items'}`;
-        grid.setAttribute?.('aria-busy', 'false');
-    }
-
     // ===== SHOP EKRANI =====
     renderShop(store, tab = 'chars') {
         const grid = document.getElementById('shop-grid');
         const coinsEl = document.getElementById('shop-coins');
         if (coinsEl) coinsEl.textContent = store.get('currency');
         if (!grid) return;
-        this._syncShopTabs(tab);
-        grid.setAttribute?.('aria-busy', 'true');
-        if (typeof grid.replaceChildren === 'function') grid.replaceChildren();
-        else grid.innerHTML = '';
+        grid.innerHTML = '';
 
-        const equippedSkin = AVATAR_SKINS[store.get('equippedAvatarSkin')] || AVATAR_SKINS.default;
-        this._setShopShowcase(store, equippedSkin);
-
-        if (tab === 'live') {
-            const market = store.getLiveMarket?.() || { offers: [] };
-            const until = Number.isFinite(market.expiresAt)
-                ? new Date(market.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                : '';
-            if (!market.offers?.length) {
-                grid.innerHTML = '<p class="shop-empty">Loading today\'s deals...</p>';
-                const countEl = document.getElementById('shop-catalog-count');
-                if (countEl) countEl.textContent = 'Updating offers';
-                grid.setAttribute?.('aria-busy', 'true');
-                return;
-            }
-            market.offers.forEach(offer => {
-                const item = offer.kind === 'cosmetic' ? COSMETICS[offer.itemId] : BALL_SKINS[offer.itemId];
-                if (!item) return;
-                const owned = offer.kind === 'cosmetic'
-                    ? store.ownsCosmetic(offer.itemId)
-                    : store.ownsBall(offer.itemId);
-                const card = document.createElement('div');
-                card.className = `shop-card live-deal rarity-${item.rarity || 'common'} ${owned ? 'owned' : ''}`;
-                const visual = offer.kind === 'cosmetic'
-                    ? `<div class="cosmetic-preview cosmetic-preview-${item.type}" style="--cosmetic-primary:${item.colors[0]};--cosmetic-secondary:${item.colors[1]}"></div>`
-                    : '<div class="ball-inspect-stage"><div class="ball-preview"></div><span class="ball-inspect-trail" aria-hidden="true"></span></div>';
-                card.innerHTML = `<div class="live-deal-badge">-${offer.discount}% TODAY</div>${visual}<div class="char-name">${item.name}</div><div class="char-desc">Rotates at ${until || 'midnight'}.</div>${owned ? '<div class="shop-owned">Owned</div>' : `<button class="btn btn-primary btn-small live-offer-buy" data-offer-id="${offer.id}"><s>${offer.basePrice}</s> COINS ${offer.price}</button>`}`;
-                const preview = card.querySelector('.ball-preview');
-                if (preview) preview.dataset.effect = item.effect || 'core';
-                grid.appendChild(card);
-            });
-        } else if (tab === 'chars') {
+        if (tab === 'chars') {
             Object.values(CHARACTERS).forEach((c, index) => {
                 if (!c.price) return;
                 const owned = store.ownsCharacter(c.id);
                 const card = document.createElement('div');
                 card.className = `shop-card char-${c.id} ${owned ? 'owned' : ''}`;
-                card.innerHTML = `<div class="char-emoji">${c.emoji}</div><div class="char-name">${c.name}</div><div class="char-desc">${c.desc}</div>${owned ? '<div class="shop-owned">Owned</div>' : `<button class="btn btn-primary btn-small shop-buy" data-type="char" data-id="${c.id}">COINS ${c.price}</button>`}`;
+                card.innerHTML = `<div class="char-emoji">${c.emoji}</div><div class="char-name">${c.name}</div><div class="char-desc">${c.desc}</div>${owned ? '<div class="shop-owned">Owned</div>' : `<button class="btn btn-primary btn-small shop-buy" data-type="char" data-id="${c.id}">🪙 ${c.price}</button>`}`;
                 grid.appendChild(card);
             });
         } else if (tab === 'balls') {
@@ -1261,144 +1037,37 @@ export class UI {
                 if (id === 'classic') return;
                 const owned = store.ownsBall(id);
                 const card = document.createElement('div');
-                card.className = `shop-card ball-skin rarity-${b.rarity || 'common'} ${owned ? 'owned' : ''}`;
+                card.className = `shop-card ${owned ? 'owned' : ''}`;
                 const equipped = store.get('equippedBall') === id;
-                card.innerHTML = `<div class="ball-inspect-stage"><div class="ball-preview" style="background:${'#'+b.color.toString(16).padStart(6,'0')}"></div><span class="ball-inspect-trail" aria-hidden="true"></span></div><div class="char-name">${b.name}</div><button class="btn btn-small ball-inspect" data-id="${id}" aria-pressed="false">Inspect trail</button>${owned ? (equipped ? '<div class="shop-owned">Equipped</div>' : `<button class="btn btn-small shop-equip" data-type="ball" data-id="${id}">Equip</button>`) : `<button class="btn btn-primary btn-small shop-buy" data-type="ball" data-id="${id}">COINS 150</button>`}`;
-                const preview = card.querySelector('.ball-preview');
-                if (preview) {
-                    preview.style.background = '';
-                    preview.dataset.effect = b.effect || 'core';
-                    preview.style.setProperty('--ball-color', `#${b.color.toString(16).padStart(6, '0')}`);
-                    preview.style.setProperty('--ball-glow', `#${b.glow.toString(16).padStart(6, '0')}`);
-                }
-                if (b.rarity) {
-                    const rarity = document.createElement('div');
-                    rarity.className = 'ball-rarity';
-                    rarity.textContent = b.rarity;
-                    card.querySelector('.char-name')?.after(rarity);
-                }
-                const buy = card.querySelector('.shop-buy');
-                if (buy) buy.textContent = `COINS ${b.price || 150}`;
+                card.innerHTML = `<div class="ball-preview" style="background:${'#'+b.color.toString(16).padStart(6,'0')}"></div><div class="char-name">${b.name}</div>${owned ? (equipped ? '<div class="shop-owned">✔ Equipped</div>' : `<button class="btn btn-small shop-equip" data-type="ball" data-id="${id}">🎯 Equip</button>`) : `<button class="btn btn-primary btn-small shop-buy" data-type="ball" data-id="${id}">🪙 150</button>`}`;
                 grid.appendChild(card);
             });
         } else if (tab === 'skills') {
-            const roles = {
-                slow: 'Control', freeze: 'Control', teleport: 'Control', blackhole: 'Control',
-                burn: 'Offense', smash: 'Offense', shield: 'Defense', heal: 'Support'
-            };
-            const activeSkill = store.get('loadout')?.skill;
             Object.values(SKILLS).forEach(s => {
                 const owned = store.ownsSkill(s.id);
-                const equipped = activeSkill === s.id;
-                const role = roles[s.id] || 'Utility';
-                const card = document.createElement('article');
-                card.className = `shop-card shop-skill-card role-${role.toLowerCase()} ${owned ? 'owned' : ''} ${equipped ? 'equipped' : ''}`;
-                card.innerHTML = `
-                    <div class="shop-skill-top"><div class="shop-item-icon" aria-hidden="true"><svg class="ui-icon"><use href="#i-target"></use></svg></div><span class="skill-role">${role}</span></div>
-                    <div class="char-name">${s.name}</div>
-                    <div class="char-desc">${s.desc}</div>
-                    <div class="skill-cooldown"><span>Cooldown</span><strong>${s.cooldown}s</strong><i style="--cooldown:${Math.min(100, Math.round(s.cooldown / 105 * 100))}%"></i></div>
-                    ${equipped ? '<div class="shop-owned">Equipped</div>' : owned ? `<button class="btn btn-secondary btn-small skill-equip" data-id="${s.id}">Equip skill</button>` : `<button class="btn btn-primary btn-small shop-buy" data-type="skill" data-id="${s.id}">COINS 100</button>`}`;
+                const card = document.createElement('div');
+                card.className = `shop-card ${owned ? 'owned' : ''}`;
+                card.innerHTML = `<div class="skill-emoji">${s.emoji}</div><div class="char-name">${s.name}</div><div class="char-desc">${s.desc}</div>${owned ? '<div class="shop-owned">Owned</div>' : `<button class="btn btn-primary btn-small shop-buy" data-type="skill" data-id="${s.id}">🪙 100</button>`}`;
                 grid.appendChild(card);
             });
         } else if (tab === 'avatars') {
-            const visibleSkins = Object.values(AVATAR_SKINS).filter(s => s.id !== 'default');
-            const previewId = AVATAR_SKINS[this._shopPreviewAvatar]?.id || equippedSkin.id;
-            visibleSkins.forEach(s => {
+            Object.values(AVATAR_SKINS).forEach(s => {
+                if (s.id === 'default') return;
                 const owned = s.price === 0 || store.hasAvatarAccess(s.id);
                 const equipped = store.get('equippedAvatarSkin') === s.id;
-                const card = document.createElement('article');
-                card.className = `shop-card avatar-skin-card ${owned ? 'owned' : ''} ${equipped ? 'equipped' : ''}`;
-                card.dataset.shopPreview = 'avatar';
-                card.dataset.id = s.id;
-
-                const select = document.createElement('button');
-                select.type = 'button';
-                select.className = 'shop-preview-select';
-                select.dataset.shopPreview = 'avatar';
-                select.dataset.id = s.id;
-                select.setAttribute('aria-label', `Preview ${s.name}`);
-                select.setAttribute('aria-pressed', String(previewId === s.id));
-                select.innerHTML = `<span class="skin-preview" style="--skin-head:${s.head};--skin-body:${s.body};--skin-arms:${s.arms};--skin-legs:${s.legs}" aria-hidden="true"></span><span class="shop-card-copy"><span class="char-name">${s.name}</span><span class="char-desc">${s.model === 'slim' ? 'Slim' : 'Classic'} player model</span></span><span class="shop-preview-label">Preview</span>`;
-                select.addEventListener('click', () => {
-                    this._shopPreviewAvatar = s.id;
-                    this._setShopShowcase(store, s, true, true);
-                });
-                card.appendChild(select);
-
-                const actions = document.createElement('div');
-                actions.className = 'shop-card-actions';
-                if (equipped) {
-                    const state = document.createElement('div');
-                    state.className = 'shop-owned';
-                    state.textContent = 'Equipped';
-                    actions.appendChild(state);
-                } else {
-                    const action = document.createElement('button');
-                    action.type = 'button';
-                    action.className = owned ? 'btn btn-small shop-equip' : 'btn btn-primary btn-small shop-buy';
-                    action.dataset.type = 'avatar';
-                    action.dataset.id = s.id;
-                    action.textContent = owned ? 'Equip' : `COINS ${s.price}`;
-                    actions.appendChild(action);
-                }
-                if (!owned) {
-                    const trial = document.createElement('button');
-                    trial.type = 'button';
-                    trial.className = 'btn btn-secondary btn-small shop-trial';
-                    trial.dataset.id = s.id;
-                    trial.textContent = '15m Trial';
-                    actions.appendChild(trial);
-                }
-                card.appendChild(actions);
+                const card = document.createElement('div');
+                card.className = `shop-card ${owned ? 'owned' : ''}`;
+                card.innerHTML = `<div class="char-emoji">🎨</div><div class="char-name">${s.name}</div><div class="skin-preview" style="--skin-head:${s.head};--skin-body:${s.body};--skin-arms:${s.arms};--skin-legs:${s.legs}"></div>${owned ? (equipped ? '<div class="shop-owned">✔ Equipped</div>' : `<button class="btn btn-small shop-equip" data-type="avatar" data-id="${s.id}">Equip</button>`) : `<button class="btn btn-primary btn-small shop-buy" data-type="avatar" data-id="${s.id}">🪙 ${s.price}</button>`}`;
                 grid.appendChild(card);
             });
-            const selectedSkin = AVATAR_SKINS[previewId] || equippedSkin;
-            this._shopPreviewAvatar = selectedSkin.id;
-            this._setShopShowcase(store, selectedSkin, false);
-        } else if (tab === 'wearables') {
-            const equipped = store.get('equippedWearables') || {};
-            Object.entries(COSMETIC_TYPES).forEach(([type, label]) => {
-                const heading = document.createElement('h3');
-                heading.className = 'cosmetic-category-title';
-                heading.textContent = label;
-                if (equipped[type] && equipped[type] !== 'none') {
-                    const clear = document.createElement('button');
-                    clear.className = 'btn btn-small cosmetic-clear';
-                    clear.dataset.type = type;
-                    clear.textContent = `Remove ${label}`;
-                    heading.appendChild(clear);
-                }
-                grid.appendChild(heading);
-                cosmeticsByType(type).forEach(item => {
-                    const owned = store.ownsCosmetic(item.id);
-                    const active = equipped[type] === item.id;
-                    const card = document.createElement('article');
-                    card.className = `shop-card cosmetic-card rarity-${item.rarity} ${owned ? 'owned' : ''} ${active ? 'equipped' : ''}`;
-                    card.style.setProperty('--cosmetic-primary', item.colors[0]);
-                    card.style.setProperty('--cosmetic-secondary', item.colors[1]);
-                    const preview = document.createElement('div');
-                    preview.className = `cosmetic-preview cosmetic-preview-${type}`;
-                    preview.dataset.style = item.style;
-                    preview.setAttribute('aria-hidden', 'true');
-                    const name = document.createElement('div');
-                    name.className = 'char-name';
-                    name.textContent = item.name;
-                    const rarity = document.createElement('span');
-                    rarity.className = `skin-rarity rarity-${item.rarity}`;
-                    rarity.textContent = item.rarity;
-                    const description = document.createElement('div');
-                    description.className = 'char-desc';
-                    description.textContent = item.description;
-                    const action = document.createElement('button');
-                    action.className = owned ? 'btn btn-small shop-equip' : 'btn btn-primary btn-small shop-buy';
-                    action.dataset.type = 'cosmetic';
-                    action.dataset.id = item.id;
-                    action.textContent = active ? 'Equipped' : owned ? 'Equip' : `COINS ${item.price}`;
-                    action.disabled = active;
-                    card.append(preview, name, rarity, description, action);
-                    grid.appendChild(card);
-                });
+            grid.querySelectorAll('.shop-card').forEach((card, index) => {
+                const skin = Object.values(AVATAR_SKINS).filter(item => item.id !== 'default')[index];
+                if (!skin || store.hasAvatarAccess(skin.id)) return;
+                const trial = document.createElement('button');
+                trial.className = 'btn btn-secondary btn-small shop-trial';
+                trial.dataset.id = skin.id;
+                trial.textContent = '15m Trial';
+                card.appendChild(trial);
             });
         } else if (tab === 'boosts') {
             const card = document.createElement('div');
@@ -1407,33 +1076,25 @@ export class UI {
             grid.appendChild(card);
         } else if (tab === 'cases') {
             Object.values(CASES).forEach(box => {
-                const card = document.createElement('article');
+                const card = document.createElement('div');
                 card.className = `shop-card case-card case-${box.id}`;
-                const pity = store.getCasePityState(box.id);
                 card.innerHTML = `
-                    <div class="case-art"><img src="${box.art}" width="512" height="512" loading="lazy" alt="${box.name} crate"></div>
-                    <div class="case-card-head"><div><span class="case-series">ARENA DROP</span><div class="char-name">${box.name}</div></div><strong>${box.price}</strong></div>
-                    <div class="case-balance">Balance: ${store.get('currency')} credits</div>
-                    <div class="case-pity ${pity.nextGuaranteed ? 'ready' : ''}">
-                        Epic+ guarantee: ${pity.nextGuaranteed ? 'NEXT OPEN' : `${pity.count}/${pity.threshold}`}
-                    </div>
-                    <button class="btn btn-primary btn-small case-select" type="button" data-id="${box.id}" aria-label="Inspect ${box.name}">Inspect and open</button>`;
+                    <img class="case-art" src="assets/generated/volle-kickoff-case.webp" width="1280" height="720" loading="lazy" alt="Knife case preview">
+                    <data class="case-price" value="${box.price}">${box.price} coins</data>
+                    <button class="btn btn-primary btn-small case-open" data-id="${box.id}" aria-label="Buy case for ${box.price} coins">Buy</button>`;
                 grid.appendChild(card);
             });
         } else if (tab === 'inventory') {
             const owned = new Set(store.get('ownedKnives') || []);
             const equipped = store.get('equippedKnives') || {};
-            const inventory = Object.values(KNIVES).filter(knife => owned.has(knife.id));
-            inventory.forEach(knife => {
-                const card = document.createElement('article');
+            Object.values(KNIVES).filter(knife => owned.has(knife.id)).forEach(knife => {
+                const card = document.createElement('div');
                 card.className = `shop-card inventory-card rarity-${knife.rarity}`;
                 const kills = Number(store.get('knifeStats')?.[knife.id]) || 0;
-                card.innerHTML = `<div class="knife-preview knife-preview-3d model-${knife.model}" style="--knife-color:${knife.color};--knife-accent:${knife.accent}" aria-hidden="true"></div><div class="inventory-card-copy"><span class="skin-rarity rarity-${knife.rarity}">${knife.rarity}</span><div class="char-name">${knife.name}</div><div class="char-desc">${knife.model.toUpperCase()} / ${(knife.finish || 'satin').toUpperCase()}</div></div><div class="stat-track"><span>STATTRACK</span><b>${String(kills).padStart(6, '0')}</b></div><button class="btn btn-small knife-inspect" data-id="${knife.id}">3D Inspect</button><div class="inventory-actions">${knife.teams.map(team => equipped[team] === knife.id ? `<span class="shop-owned">${team.toUpperCase()} equipped</span>` : `<button class="btn btn-small knife-equip" data-id="${knife.id}" data-team="${team}">Equip ${team}</button>`).join('')}</div>`;
+                card.innerHTML = `<div class="knife-preview knife-preview-3d model-${knife.model}" style="--knife-color:${knife.color};--knife-accent:${knife.accent}" aria-hidden="true"></div><div class="char-name">${knife.name}</div><div class="char-desc">${knife.rarity.toUpperCase()} / ${knife.teams.map(t => t.toUpperCase()).join(' + ')}</div><div class="stat-track"><span>STATTRACK</span><b>${String(kills).padStart(6, '0')}</b></div><button class="btn btn-small knife-inspect" data-id="${knife.id}">3D Inspect</button><div class="inventory-actions">${knife.teams.map(team => equipped[team] === knife.id ? `<span class="shop-owned">${team.toUpperCase()} equipped</span>` : `<button class="btn btn-small knife-equip" data-id="${knife.id}" data-team="${team}">Equip ${team}</button>`).join('')}</div>`;
                 grid.appendChild(card);
             });
-            if (!inventory.length) grid.innerHTML = '<p class="shop-empty">Your inventory is empty. Open a case to add your first item.</p>';
         }
-        this._finalizeShopCatalog(grid);
     }
 
     updateContractTracker(daily, store) {
@@ -1468,12 +1129,7 @@ export class UI {
         items[targetIndex] = result.reward;
         track.className = 'case-reel-track';
         track.innerHTML = items.map(item => {
-            const type = item.type === 'avatar' ? 'CHARACTER SKIN'
-                : item.type === 'ball' ? 'BALL SKIN'
-                : item.type === 'cosmetic' ? String(item.preview?.type || 'COSMETIC').toUpperCase()
-                : item.model === 'butterfly' ? 'BUTTERFLY KNIFE'
-                : item.model === 'karambit' ? 'KARAMBIT'
-                : 'KNIFE';
+            const type = item.type === 'avatar' ? 'CHARACTER SKIN' : item.model === 'butterfly' ? 'BUTTERFLY KNIFE' : item.model === 'karambit' ? 'KARAMBIT' : 'KNIFE';
             return `<div class="case-reel-item rarity-${item.rarity || result.reward.rarity}"><span class="case-reel-orb ${item.type === 'avatar' ? 'avatar' : ''}" aria-hidden="true"></span><small>${type}</small><b>${item.name || item.id}</b></div>`;
         }).join('');
         resultEl.textContent = '';
@@ -1503,8 +1159,7 @@ export class UI {
             const stop = overlay.querySelector('.case-reel-window').clientWidth / 2
                 - (selected.offsetLeft + selected.offsetWidth / 2);
             track.style.setProperty('--case-reel-stop', `${Math.round(stop)}px`);
-            track.getBoundingClientRect();
-            requestAnimationFrame(() => track.classList.add('spin'));
+            track.classList.add('spin');
         });
         const timer = setTimeout(finish, 3700);
         document.getElementById('case-reel-skip')?.addEventListener('click', () => { clearTimeout(timer); finish(); }, { once: true });
@@ -1547,23 +1202,16 @@ export class UI {
         if (!grid) return;
         grid.innerHTML = '';
         const unlocked = store.get('unlockedAchievements') || [];
-        const achievements = Object.values(ACHIEVEMENTS);
-        const unlockedAchievements = achievements.filter(a => unlocked.includes(a.id));
-        const earned = unlockedAchievements.reduce((total, a) => total + (Number(a.reward) || 0), 0);
-        const unlockedCount = document.getElementById('achievement-unlocked-count');
-        const totalCount = document.getElementById('achievement-total-count');
-        const rewardTotal = document.getElementById('achievement-reward-total');
-        if (unlockedCount) unlockedCount.textContent = String(unlockedAchievements.length);
-        if (totalCount) totalCount.textContent = String(achievements.length);
-        if (rewardTotal) rewardTotal.textContent = String(earned);
-        achievements.forEach((a, index) => {
+        Object.values(ACHIEVEMENTS).forEach(a => {
             const isUnlocked = unlocked.includes(a.id);
-            const card = document.createElement('article');
+            const card = document.createElement('div');
             card.className = `achievement-card ${isUnlocked ? 'unlocked' : 'locked'}`;
             card.innerHTML = `
-                <div class="achievement-mark" aria-hidden="true"><svg class="ui-icon"><use href="#i-trophy"></use></svg><span>${String(index + 1).padStart(2, '0')}</span></div>
-                <div class="achievement-copy"><span class="achievement-state">${isUnlocked ? 'UNLOCKED' : 'LOCKED'}</span><div class="ach-name">${a.name}</div><div class="ach-desc">${a.desc}</div></div>
-                <div class="ach-reward"><svg class="ui-icon" aria-hidden="true"><use href="#i-coins"></use></svg>${a.reward}</div>
+                <div class="ach-emoji">${a.emoji}</div>
+                <div class="ach-name">${a.name}</div>
+                <div class="ach-desc">${a.desc}</div>
+                <div class="ach-reward">🪙 ${a.reward}</div>
+                ${isUnlocked ? '<div class="ach-check">✅</div>' : '<div class="ach-lock">🔒</div>'}
             `;
             grid.appendChild(card);
         });
@@ -1579,7 +1227,7 @@ export class UI {
             const login = document.createElement('div');
             login.className = `daily-card daily-login-card ${state.loginClaimed ? 'claimed' : 'ready'}`;
             login.innerHTML = `
-                <div class="daily-symbol">LOGIN</div>
+                <div class="daily-emoji">7D</div>
                 <div class="daily-name">Daily Login</div>
                 <div class="daily-count">Day ${state.streak}/7 - ${state.loginCoins} coins</div>
                 <button class="btn btn-primary btn-small daily-login-claim" ${state.loginClaimed ? 'disabled' : ''}>
@@ -1592,7 +1240,7 @@ export class UI {
             const dailyRates = getCaseDropRates('kickoff', dailyPity.nextGuaranteed ? { minimumRarity: 'epic' } : {});
             freeCase.className = `daily-card daily-case-card ${state.freeCaseClaimed ? 'claimed' : 'ready'}`;
             freeCase.innerHTML = `
-                <div class="daily-symbol">CASE</div>
+                <div class="daily-emoji">CASE</div>
                 <div class="daily-name">Daily Kickoff Case</div>
                 <div class="daily-count">One free opening every day</div>
                 <div class="case-pity ${dailyPity.nextGuaranteed ? 'ready' : ''}">
@@ -1607,25 +1255,19 @@ export class UI {
             grid.appendChild(freeCase);
         }
         const challenges = daily.getChallenges();
-        const completed = challenges.filter(c => c.progress >= c.target).length;
-        const readyRewards = challenges.filter(c => c.progress >= c.target && !c.claimed).reduce((total, c) => total + (Number(c.reward) || 0), 0);
-        const completeCount = document.getElementById('challenge-complete-count');
-        const rewardTotal = document.getElementById('challenge-reward-total');
-        if (completeCount) completeCount.textContent = String(completed);
-        if (rewardTotal) rewardTotal.textContent = String(readyRewards);
         challenges.forEach(c => {
             const pct = Math.min(100, (c.progress / c.target) * 100);
             const done = c.progress >= c.target;
             const card = document.createElement('div');
             card.className = `daily-card ${c.claimed ? 'claimed' : ''} ${done && !c.claimed ? 'ready' : ''}`;
             card.innerHTML = `
-                <div class="daily-symbol">GOAL</div>
+                <div class="daily-emoji">${c.emoji}</div>
                 <div class="daily-name">${c.name}</div>
                 <div class="daily-progress-bar"><div class="daily-progress-fill" style="width:${pct}%"></div></div>
                 <div class="daily-count">${c.progress}/${c.target}</div>
-                <div class="ach-reward"><svg class="ui-icon" aria-hidden="true"><use href="#i-coins"></use></svg>${c.reward}</div>
+                <div class="ach-reward">🪙 ${c.reward}</div>
                 ${done && !c.claimed ? `<button class="btn btn-primary btn-small daily-claim" data-id="${c.id}">Claim</button>` : ''}
-                ${c.claimed ? '<div class="daily-complete">COMPLETED</div>' : ''}
+                ${c.claimed ? '<div class="ach-check">✅</div>' : ''}
             `;
             grid.appendChild(card);
         });
@@ -1903,4 +1545,3 @@ export class UI {
         requestAnimationFrame(() => el.classList.add('show'));
     }
 }
-import { getCompetitiveHUDView } from './competitive-hud.js';

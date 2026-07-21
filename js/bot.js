@@ -3,8 +3,7 @@ import * as THREE from 'three';
 
 import { applyCharacter, CHARACTERS } from './characters.js';
 import { applyRunes, tickSkillCooldowns, useSkill } from './skills.js';
-import { outlineVertexShader } from './shaders/toon.vert.js';
-import { createKnifeModel } from './weapon-models.js';
+import { createKnifeModel, disposeObject3D } from './weapon-models.js';
 import { KNIVES } from './cosmetics.js';
 
 // ponytail: depthTest:true — sprites hide behind walls, no punch-through
@@ -109,20 +108,20 @@ export class Bot {
         const torsoGeo = new THREE.BoxGeometry(0.7, 0.9, 0.4);
         const torsoMat = this.renderer.createToonMaterial(teamColor);
         this._teamMats.push(torsoMat);
-        const torso = new THREE.Mesh(torsoGeo, torsoMat);
-        torso.position.y = 1.15;
-        torso.castShadow = true;
-        this.group.add(torso);
+        this.torso = new THREE.Mesh(torsoGeo, torsoMat);
+        this.torso.position.y = 1.15;
+        this.torso.castShadow = true;
+        this.group.add(this.torso);
         this.group.add(this.renderer.createOutlineMesh(torsoGeo));
-        this.group.children[this.group.children.length - 1].position.copy(torso.position);
+        this.group.children[this.group.children.length - 1].position.copy(this.torso.position);
 
         // Head
-        const headGeo = new THREE.SphereGeometry(0.25, 10, 10);
+        const headGeo = new THREE.BoxGeometry(0.42, 0.48, 0.4);
         const headMat = this.renderer.createToonMaterial(skinColor);
-        const head = new THREE.Mesh(headGeo, headMat);
-        head.position.y = 1.85;
-        head.castShadow = true;
-        this.group.add(head);
+        this.head = new THREE.Mesh(headGeo, headMat);
+        this.head.position.y = 1.85;
+        this.head.castShadow = true;
+        this.group.add(this.head);
 
         // Eyes
         const eyeGeo = new THREE.SphereGeometry(0.04, 6, 6);
@@ -137,14 +136,14 @@ export class Bot {
         // Legs
         const legGeo = new THREE.BoxGeometry(0.22, 0.7, 0.25);
         const legMat = this.renderer.createToonMaterial(0x444444);
-        const leftLeg = new THREE.Mesh(legGeo, legMat);
-        leftLeg.position.set(-0.18, 0.35, 0);
-        leftLeg.castShadow = true;
-        this.group.add(leftLeg);
-        const rightLeg = new THREE.Mesh(legGeo, legMat);
-        rightLeg.position.set(0.18, 0.35, 0);
-        rightLeg.castShadow = true;
-        this.group.add(rightLeg);
+        this.leftLeg = new THREE.Mesh(legGeo, legMat);
+        this.leftLeg.position.set(-0.18, 0.35, 0);
+        this.leftLeg.castShadow = true;
+        this.group.add(this.leftLeg);
+        this.rightLeg = new THREE.Mesh(legGeo, legMat);
+        this.rightLeg.position.set(0.18, 0.35, 0);
+        this.rightLeg.castShadow = true;
+        this.group.add(this.rightLeg);
 
         // Arms
         const armGeo = new THREE.BoxGeometry(0.18, 0.65, 0.2);
@@ -160,14 +159,14 @@ export class Bot {
         this.group.add(this.rightArm);
 
         // Hands (skin)
-        const handGeo = new THREE.SphereGeometry(0.1, 6, 6);
+        const handGeo = new THREE.BoxGeometry(0.16, 0.18, 0.16);
         const handMat = this.renderer.createToonMaterial(skinColor);
-        const leftHand = new THREE.Mesh(handGeo, handMat);
-        leftHand.position.set(0, -0.35, 0);
-        this.leftArm.add(leftHand);
-        const rightHand = new THREE.Mesh(handGeo, handMat);
-        rightHand.position.set(0, -0.35, 0);
-        this.rightArm.add(rightHand);
+        this.leftHand = new THREE.Mesh(handGeo, handMat);
+        this.leftHand.position.set(0, -0.35, 0);
+        this.leftArm.add(this.leftHand);
+        this.rightHand = new THREE.Mesh(handGeo, handMat);
+        this.rightHand.position.set(0, -0.35, 0);
+        this.rightArm.add(this.rightHand);
         this.knifeId = 'training';
         this.knifeGroup = createKnifeModel(KNIVES.training);
         this.knifeGroup.scale.setScalar(0.68);
@@ -229,29 +228,18 @@ export class Bot {
 
     // Target outline — bright red, pulses when this bot is the ball's target.
     buildTargetOutline() {
-        const geo = new THREE.BoxGeometry(0.9, 1.8, 0.7);
-        const mat = new THREE.ShaderMaterial({
-            vertexShader: outlineVertexShader,
-            fragmentShader: `
-                uniform float uPulse;
-                void main() {
-                    float alpha = 0.3 + 0.3 * uPulse;
-                    gl_FragColor = vec4(1.0, 0.0, 0.0, alpha);
-                }
-            `,
-            uniforms: { outlineThickness: { value: 0.08 }, uPulse: { value: 0 } },
-            side: THREE.BackSide,
-            transparent: true,
-            depthWrite: false
-        });
-        this.targetOutline = new THREE.Mesh(geo, mat);
-        this.targetOutline.position.y = 0.85;
-        this.targetOutline.visible = false;
+        const parts = [
+            this.torso, this.head, this.leftLeg, this.rightLeg,
+            this.leftArm, this.rightArm, this.leftHand, this.rightHand
+        ];
+        this.targetOutline = this.renderer.createTargetOutline(parts);
         this.group.add(this.targetOutline);
+        this.targetOutline.userData.sync?.();
     }
 
     setTargetOutline(show) {
         if (this.targetOutline) this.targetOutline.visible = show;
+        if (show) this.targetOutline?.userData.sync?.();
         this._outlineActive = show;
     }
 
@@ -328,7 +316,10 @@ export class Bot {
         // Target outline pulse
         if (this._outlineActive && this.targetOutline?.visible) {
             const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 300);
-            this.targetOutline.material.uniforms.uPulse.value = pulse;
+            this.targetOutline.userData.sync?.();
+            for (const material of this.targetOutline.userData.materials || []) {
+                material.uniforms.uPulse.value = pulse;
+            }
         }
 
         // Skill cooldown tick
@@ -441,6 +432,7 @@ export class Bot {
         if (this.attacking && this.rightArm) {
             this.rightArm.rotation.x = -1.2;
         }
+        this.targetOutline?.userData.sync?.();
     }
 
     tryDeflect(ball, dt = 0.016) {
@@ -528,6 +520,7 @@ export class Bot {
     }
 
     remove() {
+        disposeObject3D(this.targetOutline);
         this.scene.remove(this.group);
     }
 }

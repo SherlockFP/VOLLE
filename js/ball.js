@@ -12,15 +12,15 @@ const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
 export function steeringTurnAlpha(dt, deflections = 0) {
     if (!Number.isFinite(dt) || dt <= 0) return 0;
-    const tickTurn = clamp(0.09 + Math.max(0, deflections) * 0.006, 0, 0.26);
+    const tickTurn = clamp(0.30 + Math.max(0, deflections) * 0.018, 0, 0.9);
     return 1 - Math.pow(1 - tickTurn, dt / STEERING_TICK);
 }
 
 export function proximityHomingTurnRate(distance, homingAge = 0) {
     const safeDistance = Math.max(0, Number.isFinite(distance) ? distance : 9);
     const proximity = 1 - clamp(safeDistance / 9, 0, 1);
-    const ageBonus = clamp(Number.isFinite(homingAge) ? homingAge * 0.08 : 0, 0, 0.6);
-    return clamp(2 + proximity * 2.2 + ageBonus, 2, 4.8);
+    const ageBonus = clamp(Number.isFinite(homingAge) ? homingAge * 0.12 : 0, 0, 0.85);
+    return clamp(3.5 + proximity * 3.4 + ageBonus, 3.5, 7.5);
 }
 
 export function createAimRouteOffset(origin, target, aimDirection) {
@@ -31,8 +31,9 @@ export function createAimRouteOffset(origin, target, aimDirection) {
     const dz = target.z - origin.z;
     const aimLength = Math.hypot(aimDirection.x, aimDirection.z);
     const targetLength = Math.hypot(dx, dz);
-    if (aimLength < 0.001 || targetLength < 0.001) return { x: 0, y: clamp(aimDirection.y * 0.75, -0.5, 0.75), z: 0 };
-
+    if (aimLength < 0.001 || targetLength < 0.001) {
+        return { x: 0, y: clamp(aimDirection.y * 0.75, -0.5, 0.75), z: 0 };
+    }
     const direct = { x: dx / targetLength, z: dz / targetLength };
     const aim = { x: aimDirection.x / aimLength, z: aimDirection.z / aimLength };
     const cross = direct.x * aim.z - direct.z * aim.x;
@@ -113,12 +114,13 @@ export function smoothSampledVelocity(previous, sampled, dt, response = 12) {
     };
 }
 
-export function networkBallStep(position, velocity, target, dt, packetAge) {
+export function networkBallStep(position, velocity, target, dt, packetAge, maxPacketAge = 0.08, predictionStrength = 1) {
     if (!finitePoint(position) || !finitePoint(velocity) || !finitePoint(target)) {
         return finitePoint(position) ? { ...position } : { x: 0, y: 0, z: 0 };
     }
     const safeDt = clamp(Number.isFinite(dt) ? dt : 0, 0, 0.05);
-    const age = clamp(Number.isFinite(packetAge) ? packetAge : 0, 0, 0.08);
+    const age = clamp(Number.isFinite(packetAge) ? packetAge : 0, 0, Math.max(0, maxPacketAge));
+    const prediction = clamp(Number.isFinite(predictionStrength) ? predictionStrength : 1, 0, 2);
     const speed = Math.hypot(velocity.x, velocity.y, velocity.z);
     const predicted = {
         x: position.x + velocity.x * safeDt,
@@ -126,9 +128,9 @@ export function networkBallStep(position, velocity, target, dt, packetAge) {
         z: position.z + velocity.z * safeDt
     };
     const host = {
-        x: target.x + velocity.x * age,
-        y: target.y + velocity.y * age,
-        z: target.z + velocity.z * age
+        x: target.x + velocity.x * age * prediction,
+        y: target.y + velocity.y * age * prediction,
+        z: target.z + velocity.z * age * prediction
     };
     const dx = host.x - predicted.x;
     const dy = host.y - predicted.y;
@@ -191,38 +193,35 @@ export function hasCrossedTargetPlane(position, target, planeNormal) {
 // ponytail: top skin'leri — görsel + küçük efekt. Store ile eşle.
 export const BALL_SKINS = {
     classic:   { name: 'Classic Volleyball', color: 0xff8844, glow: 0xff8844, trail: 0xff8844, starColor: 0xffee44 },
-    fire:      { name: 'Fireball',           price: 150, rarity: 'rare', effect: 'flame', color: 0xff3322, glow: 0xff5500, trail: 0xff6600, starColor: 0xffaa00, trailStyle: 'ember' },
-    ice:       { name: 'Ice Sphere',         price: 150, rarity: 'rare', effect: 'frost', color: 0x88ccff, glow: 0xaaeeff, trail: 0xaaddff, starColor: 0xffffff, frostTrail: true, trailStyle: 'frost' },
-    lightning: { name: 'Lightning Orb',      price: 150, rarity: 'rare', effect: 'spark', color: 0xffee44, glow: 0xffff88, trail: 0xffff66, starColor: 0xffffff, trailStyle: 'spark' },
-    bomb:      { name: 'Bomb Ball',          price: 150, rarity: 'rare', effect: 'flame', color: 0x222222, glow: 0xff4400, trail: 0xff6600, starColor: 0xff4400, burstTrail: true, trailStyle: 'ember' },
-    star:      { name: 'Star Core',          price: 150, rarity: 'rare', effect: 'spark', color: 0xffdd44, glow: 0xffffaa, trail: 0xffee88, starColor: 0xffffff, trailStyle: 'spark' },
-    rainbow:   { name: 'Rainbow',            price: 150, rarity: 'rare', effect: 'prism', color: 0xff00ff, glow: 0xffffff, trail: 0xff00ff, starColor: 0xffffff, rainbow: true, trailStyle: 'prism' },
-    plasma:    { name: 'Plasma Pulse',       price: 180, rarity: 'epic', effect: 'glitch', color: 0x52ddff, glow: 0x72f2ff, trail: 0x39a9ff, starColor: 0xffffff, burstTrail: true, trailStyle: 'plasma' },
-    abyss:     { name: 'Abyss Core',         price: 180, rarity: 'epic', effect: 'void', color: 0x23113f, glow: 0x9c5cff, trail: 0x673ab7, starColor: 0xd7b8ff, burstTrail: true, trailStyle: 'void' },
-    melon:     { name: 'Melon Pop',          price: 180, rarity: 'epic', effect: 'toxic', color: 0x55d66b, glow: 0xff6b8b, trail: 0x6ee787, starColor: 0xffd6df },
-    inferno:   { name: 'Inferno Engine',      price: 220, rarity: 'rare',      effect: 'flame', color: 0x54120b, glow: 0xff5426, trail: 0xff7b28, starColor: 0xffdd71, burstTrail: true, trailStyle: 'ember' },
-    frostbite: { name: 'Frostbite',           price: 220, rarity: 'rare',      effect: 'frost', color: 0x9eeeff, glow: 0xe8ffff, trail: 0x8de7ff, starColor: 0xffffff, frostTrail: true, trailStyle: 'frost' },
-    voltstorm: { name: 'Voltstorm',           price: 260, rarity: 'epic',      effect: 'spark', color: 0x25345f, glow: 0xffec58, trail: 0xffd92e, starColor: 0xffffd0, trailStyle: 'spark' },
-    nebula:    { name: 'Nebula Bloom',        price: 280, rarity: 'epic',      effect: 'void',  color: 0x34194f, glow: 0xd76dff, trail: 0x7f52ff, starColor: 0xffd4ff, burstTrail: true, trailStyle: 'void' },
-    creeper:   { name: 'Pixel Creeper',       price: 300, rarity: 'epic',      effect: 'pixel', color: 0x2f8e45, glow: 0x84ff5c, trail: 0x56d84c, starColor: 0x182719, trailStyle: 'comet' },
-    happy:     { name: 'Happy Orb',           price: 300, rarity: 'epic',      effect: 'smile', color: 0xffcf2d, glow: 0xffff92, trail: 0xffc928, starColor: 0x4d3212, trailStyle: 'spark' },
-    glitch:    { name: 'Glitch Core',         price: 340, rarity: 'legendary', effect: 'glitch', color: 0x241a48, glow: 0xff49e5, trail: 0x45dfff, starColor: 0xffedff, burstTrail: true, trailStyle: 'plasma' },
-    void_eye:  { name: 'Void Eye',            price: 340, rarity: 'legendary', effect: 'void',   color: 0x120a25, glow: 0x994dff, trail: 0x5d2bb6, starColor: 0xf6d0ff, burstTrail: true, trailStyle: 'void' },
-    candy:     { name: 'Candy Swirl',         price: 260, rarity: 'epic',      effect: 'candy', color: 0xff4c9f, glow: 0xffe1f1, trail: 0xff78bc, starColor: 0xffffff, trailStyle: 'prism' },
-    solar:     { name: 'Solar Flare',         price: 360, rarity: 'legendary', effect: 'flame',   color: 0xf06a12, glow: 0xfff0aa, trail: 0xff9d24, starColor: 0xffffff, burstTrail: true, trailStyle: 'ember' },
-    toxic:     { name: 'Toxic Slime',         price: 240, rarity: 'rare',      effect: 'toxic',  color: 0x396712, glow: 0xc4ff46, trail: 0x9bdf25, starColor: 0xf2ffac, trailStyle: 'comet' },
-    disco:     { name: 'Disco Cube',          price: 320, rarity: 'epic',      effect: 'prism',  color: 0x3b51db, glow: 0xffffff, trail: 0x68f6ff, starColor: 0xfff35a, rainbow: true, trailStyle: 'prism' },
-    magma:     { name: 'Magma Planet',        price: 380, rarity: 'legendary', effect: 'flame',  color: 0x3a0903, glow: 0xffb21f, trail: 0xff4d13, starColor: 0xfff0a8, burstTrail: true, trailStyle: 'ember' },
-    ocean:     { name: 'Ocean Heart',         price: 300, rarity: 'epic',      effect: 'frost',  color: 0x075985, glow: 0x67e8f9, trail: 0x38bdf8, starColor: 0xe0faff, frostTrail: true, trailStyle: 'frost' },
-    honey:     { name: 'Honey Hive',          price: 280, rarity: 'epic',      effect: 'pixel',  color: 0xf5b82e, glow: 0xfff078, trail: 0xe89619, starColor: 0x3b2605, trailStyle: 'comet' },
-    dragon:    { name: 'Dragon Eye',          price: 420, rarity: 'legendary', effect: 'void',   color: 0x4a0808, glow: 0xff4b28, trail: 0x8b1020, starColor: 0xffd46a, burstTrail: true, trailStyle: 'void' },
-    portal:    { name: 'Portal Core',         price: 400, rarity: 'legendary', effect: 'glitch', color: 0x14285b, glow: 0x4bf4ff, trail: 0xff58d8, starColor: 0xffffff, rainbow: true, trailStyle: 'plasma' },
-    moon:      { name: 'Moon Dust',           price: 260, rarity: 'rare',      effect: 'spark',  color: 0x8b93a7, glow: 0xf4f7ff, trail: 0xc6d0e5, starColor: 0xffffff, trailStyle: 'spark' },
-    pumpkin:   { name: 'Grinning Pumpkin',   price: 300, rarity: 'epic',      effect: 'smile',  color: 0xd85d0b, glow: 0xffbd3d, trail: 0xf57c18, starColor: 0x291208, trailStyle: 'ember' },
-    matrix:    { name: 'Matrix Code',         price: 340, rarity: 'epic',      effect: 'pixel',  color: 0x071d0e, glow: 0x55ff7c, trail: 0x1fca59, starColor: 0xd3ffdb, burstTrail: true, trailStyle: 'comet' },
-    sakura:    { name: 'Sakura Spirit',       price: 320, rarity: 'epic',      effect: 'candy',  color: 0xff8fbd, glow: 0xffe3ef, trail: 0xffafd0, starColor: 0xffffff, trailStyle: 'prism' },
-    blackhole: { name: 'Event Horizon',       price: 460, rarity: 'legendary', effect: 'void',   color: 0x030207, glow: 0x8f5cff, trail: 0x311766, starColor: 0xe9d7ff, burstTrail: true, trailStyle: 'void' }
+    fire:      { name: 'Fireball',           color: 0xff3322, glow: 0xff5500, trail: 0xff6600, starColor: 0xffaa00 },
+    ice:       { name: 'Ice Sphere',         color: 0x88ccff, glow: 0xaaeeff, trail: 0xaaddff, starColor: 0xffffff, frostTrail: true },
+    lightning: { name: 'Lightning Orb',      color: 0xffee44, glow: 0xffff88, trail: 0xffff66, starColor: 0xffffff },
+    bomb:      { name: 'Bomb Ball',          color: 0x222222, glow: 0xff4400, trail: 0xff6600, starColor: 0xff4400, burstTrail: true },
+    star:      { name: 'Star Core',          color: 0xffdd44, glow: 0xffffaa, trail: 0xffee88, starColor: 0xffffff },
+    rainbow:   { name: 'Rainbow',            color: 0xff00ff, glow: 0xffffff, trail: 0xff00ff, starColor: 0xffffff, rainbow: true },
+    plasma:    { name: 'Plasma Pulse',        color: 0x52ddff, glow: 0x72f2ff, trail: 0x39a9ff, starColor: 0xffffff, burstTrail: true },
+    abyss:     { name: 'Abyss Core',          color: 0x23113f, glow: 0x9c5cff, trail: 0x673ab7, starColor: 0xd7b8ff, burstTrail: true },
+    melon:     { name: 'Melon Pop',           color: 0x55d66b, glow: 0xff6b8b, trail: 0x6ee787, starColor: 0xffd6df },
+    basketball:{ name: 'Basketball',          color: 0xd96b18, glow: 0xff9a3d, trail: 0xf07b24, starColor: 0x2a1408, pattern: 'basketball' },
+    football:  { name: 'Football',            color: 0xf3f3ed, glow: 0xffffff, trail: 0xd8efe5, starColor: 0x171717, pattern: 'football' },
+    volleyball:{ name: 'Volleyball',          color: 0xf7f5df, glow: 0x8acbff, trail: 0xffdd55, starColor: 0x2369d8, pattern: 'volleyball' },
+    space:     { name: 'Space Core',           color: 0x08051c, glow: 0x845cff, trail: 0x8d62ff, starColor: 0xffffff, pattern: 'space', burstTrail: true }
 };
+
+export const BALL_TRAILS = Object.freeze({
+    none: Object.freeze({ name: 'Skin Trail', size: 1, life: 1 }),
+    comet: Object.freeze({ name: 'Comet', color: 0xffffff, size: 1.7, life: 1.45 }),
+    electric: Object.freeze({ name: 'Electric', color: 0x66ddff, size: 1.15, life: 0.75, jitter: 0.11 }),
+    rainbow: Object.freeze({ name: 'Rainbow', rainbow: true, size: 1.3, life: 1.15 })
+});
+
+export function shouldForceTargetContact(distance, elapsed, hitRange, speed) {
+    if (![distance, elapsed, hitRange, speed].every(Number.isFinite)) return false;
+    const immediateRange = Math.max(hitRange, Math.min(1.15, hitRange + speed * 0.003));
+    const lingerRange = 1.5 + Math.min(Math.max(0, speed) * 0.002, 1.5);
+    const lingerTime = speed > 100 ? 0.2 : 0.4;
+    return distance <= immediateRange || (distance <= lingerRange && elapsed >= lingerTime);
+}
 
 export class Ball {
     constructor(renderer, arena) {
@@ -241,7 +240,6 @@ export class Ball {
         this.deflections = 0;
         this.radius = 0.47;
         this._baseRadius = this.radius;
-        this.visualRadius = 0.43;
         this.attackRange = 2.0;
         this.catchRange = 2.0;
         this.hitRange = 0.7;
@@ -249,10 +247,10 @@ export class Ball {
         this.targetPlayer = null;
         this.state = 'idle';
         this.skinId = 'classic';
+        this.trailId = 'none';
 
         this.trail = [];
         this.trailTimer = 0;
-        this._trailLastPosition = null;
         this._trailGeometry = new THREE.SphereGeometry(1, 4, 4);
         this._trailPool = new ObjectPool(
             () => new THREE.Mesh(this._trailGeometry, new THREE.MeshBasicMaterial({ transparent: true })),
@@ -297,10 +295,11 @@ export class Ball {
 
         this._resetSteering();
         this.buildMesh();
+        this.setSkin('classic');
     }
 
     buildMesh() {
-        const geo = new THREE.SphereGeometry(this.visualRadius, 20, 20);
+        const geo = new THREE.SphereGeometry(this.radius, 20, 20);
         this.mat = this.renderer.createToonMaterial(0xff8844);
         this.mesh = new THREE.Mesh(geo, this.mat);
         this.mesh.castShadow = true;
@@ -312,32 +311,23 @@ export class Ball {
         this.starGeo = new THREE.CircleGeometry(0.12, 5);
         this.starMat = new THREE.MeshBasicMaterial({ color: 0xffee44, side: THREE.DoubleSide });
         this.star = new THREE.Mesh(this.starGeo, this.starMat);
-        this.star.position.z = this.visualRadius + 0.01;
+        this.star.position.z = this.radius + 0.01;
         this.mesh.add(this.star);
         this.star2 = this.star.clone();
-        this.star2.position.z = -(this.visualRadius + 0.01);
+        this.star2.position.z = -(this.radius + 0.01);
         this.star2.rotation.y = Math.PI;
         this.mesh.add(this.star2);
 
+        this.skinDetails = new THREE.Group();
+        this.mesh.add(this.skinDetails);
+
         // Glow — small, doesn't bleed through walls
-        const glowGeo = new THREE.SphereGeometry(this.visualRadius * 1.15, 16, 16);
+        const glowGeo = new THREE.SphereGeometry(this.radius * 1.15, 16, 16);
         this.glowMat = new THREE.MeshBasicMaterial({
             color: 0xff8844, transparent: true, opacity: 0.06, depthWrite: true, depthTest: true
         });
         this.glow = new THREE.Mesh(glowGeo, this.glowMat);
         this.mesh.add(this.glow);
-
-        this.heatMat = new THREE.MeshBasicMaterial({
-            color: 0xffd447,
-            transparent: true,
-            opacity: 0,
-            blending: THREE.AdditiveBlending,
-            depthWrite: false,
-            depthTest: true
-        });
-        this.heatShell = new THREE.Mesh(glowGeo, this.heatMat);
-        this.heatShell.scale.setScalar(1.08);
-        this.mesh.add(this.heatShell);
 
         this.mesh.visible = false;
         this.scene.add(this.mesh);
@@ -346,18 +336,86 @@ export class Ball {
     // Skin değiştir — store'dan equippedBall ile eşle.
     setSkin(skinId) {
         const skin = BALL_SKINS[skinId] || BALL_SKINS.classic;
-        this.skinId = skinId;
+        this.skinId = BALL_SKINS[skinId] ? skinId : 'classic';
+        this.mesh.material = skin.pattern === 'space' ? this._getSpaceMaterial() : this.mat;
         this.mat.uniforms.uColor.value.setHex(skin.color);
         this.glowMat.color.setHex(skin.glow);
         this.starMat.color.setHex(skin.starColor);
+        this.star.visible = !skin.pattern;
+        this.star2.visible = !skin.pattern;
         this.skinConfig = skin;
+        this._buildSkinDetails(skin.pattern);
+    }
+
+    setTrail(trailId = 'none') {
+        this.trailId = BALL_TRAILS[trailId] ? trailId : 'none';
+        this.clearTrail();
+    }
+
+    _getSpaceMaterial() {
+        if (this._spaceMat) return this._spaceMat;
+        this._spaceMat = new THREE.ShaderMaterial({
+            uniforms: { uTime: { value: 0 } },
+            vertexShader: `varying vec3 vPos; void main(){ vPos = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+            fragmentShader: `
+                varying vec3 vPos;
+                uniform float uTime;
+                float hash(vec3 p){ return fract(sin(dot(p, vec3(12.9898, 78.233, 39.425))) * 43758.5453); }
+                void main(){
+                    float nebula = 0.5 + 0.5 * sin(vPos.x * 9.0 + vPos.y * 13.0 + uTime * 0.8);
+                    float stars = step(0.965, hash(floor((vPos + uTime * 0.003) * 42.0)));
+                    vec3 deep = vec3(0.015, 0.005, 0.08);
+                    vec3 cloud = vec3(0.32, 0.06, 0.72) * nebula + vec3(0.02, 0.18, 0.38) * (1.0 - nebula);
+                    gl_FragColor = vec4(deep + cloud + vec3(stars), 1.0);
+                }`
+        });
+        return this._spaceMat;
+    }
+
+    _clearSkinDetails() {
+        if (!this.skinDetails) return;
+        while (this.skinDetails.children.length) {
+            const child = this.skinDetails.children.pop();
+            child.geometry?.dispose?.();
+            child.material?.dispose?.();
+        }
+    }
+
+    _buildSkinDetails(pattern) {
+        this._clearSkinDetails();
+        if (!pattern || pattern === 'space') return;
+        const add = (geometry, color, position, rotation) => {
+            const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide }));
+            if (position) mesh.position.set(...position);
+            if (rotation) mesh.rotation.set(...rotation);
+            this.skinDetails.add(mesh);
+        };
+        if (pattern === 'basketball') {
+            for (const rotation of [[0, 0, 0], [Math.PI / 2, 0, 0], [0, Math.PI / 2, 0]]) {
+                add(new THREE.TorusGeometry(this.radius * 1.005, 0.012, 5, 40), 0x241006, null, rotation);
+            }
+        } else if (pattern === 'football') {
+            const r = this.radius + 0.012;
+            const patches = [
+                [[0, 0, r], [0, 0, 0]], [[0, 0, -r], [0, Math.PI, 0]],
+                [[r, 0, 0], [0, Math.PI / 2, 0]], [[-r, 0, 0], [0, -Math.PI / 2, 0]],
+                [[0, r, 0], [-Math.PI / 2, 0, 0]], [[0, -r, 0], [Math.PI / 2, 0, 0]]
+            ];
+            patches.forEach(([position, rotation]) => add(new THREE.CircleGeometry(0.13, 5), 0x151515, position, rotation));
+        } else if (pattern === 'volleyball') {
+            const colors = [0x246bd6, 0xffd23f, 0xffffff];
+            const rotations = [[0, 0, 0], [Math.PI / 2, 0, 1.8], [0, Math.PI / 2, 3.6]];
+            rotations.forEach((rotation, index) => {
+                add(new THREE.TorusGeometry(this.radius * 1.005, 0.026, 6, 30, Math.PI * 1.15), colors[index], null, rotation);
+            });
+        }
     }
 
     spawn() {
         const sp = this.arena.getSpawnPoint();
         this.position.copy(sp);
         this.velocity.set(0, -2, 0);
-        this.currentSpeed = this.baseSpeed * (this.skinConfig?.speedBonus || 1) * (this._ffaSpeedMultiplier || 1);
+        this.currentSpeed = this.baseSpeed * (this.skinConfig?.speedBonus || 1);
         this.deflections = 0;
         this.bounceCount = 0;
         this.active = true;
@@ -527,9 +585,7 @@ export class Ball {
                         : 1;
                     this._homingAge = (this._homingAge || 0) + dt;
                     // ponytail: softer steer at close range — prevents aggressive snap
-                    const steer = 1 - Math.exp(
-                        -proximityHomingTurnRate(dist, this._homingAge) * speedFactor * dt
-                    );
+                    const steer = Math.min(proximityHomingTurnRate(dist, this._homingAge) * speedFactor * dt, 1);
                     const newDir = velDir.lerp(desired, steer).normalize();
                     this.velocity.copy(newDir.multiplyScalar(this.currentSpeed));
                 }
@@ -566,9 +622,7 @@ export class Ball {
                         ? 1 + (this.currentSpeed - 500) / 400
                         : 1;
                     this._homingAge = (this._homingAge || 0) + dt;
-                    const steer = 1 - Math.exp(
-                        -proximityHomingTurnRate(dist, this._homingAge) * speedFactor * dt
-                    );
+                    const steer = Math.min(proximityHomingTurnRate(dist, this._homingAge) * speedFactor * dt, 1);
                     const newDir = velDir.lerp(desired, steer).normalize();
                     this.velocity.copy(newDir.multiplyScalar(this.currentSpeed));
                 }
@@ -611,23 +665,15 @@ export class Ball {
         if ((this.state === 'rally' || this.state === 'homing') && this.targetPlayer) {
             const tPos = this._getTargetPos();
             const proxDist = this.position.distanceTo(tPos);
-            const toTarget = new THREE.Vector3().subVectors(tPos, this.position);
-            const approachDot = this.velocity.lengthSq() > 0.001 && toTarget.lengthSq() > 0.001
-                ? this.velocity.clone().normalize().dot(toTarget.normalize())
-                : 0;
             // Wider proximity range for fast balls — prevents orbiting at high speed
             const effectiveProxRange = this._proximityRange + Math.min(this.currentSpeed * 0.002, 1.5);
-            if (proxDist < effectiveProxRange && proxDist > this.hitRange) {
+            if (proxDist <= effectiveProxRange) {
                 this._proximityTimer += dt;
                 // Faster trigger at high speed — 0.2s instead of 0.4s
-                const threshold = clamp(0.42 - this.currentSpeed * 0.0024, 0.18, 0.38);
-                if (this._proximityTimer >= threshold && approachDot > -0.15) {
+                if (shouldForceTargetContact(proxDist, this._proximityTimer, this.hitRange, this.currentSpeed)) {
                     this._forceHit = true;
                     this._proximityTimer = 0;
                 }
-            } else if (proxDist <= this.hitRange && this.currentSpeed > 80 && approachDot > -0.15) {
-                // Ball is within hit range and moving fast → force hit immediately (tunneling fix)
-                this._forceHit = true;
             } else {
                 this._proximityTimer = 0;
             }
@@ -842,12 +888,12 @@ export class Ball {
         const spinGlow = Math.min(0.15, Math.abs(this.spin) * 0.02);
         this.glowMat.opacity = Math.min(0.5, 0.06 + srGlow * 0.035 + spinGlow);
         this.glow.scale.setScalar(Math.min(1.5, 1 + srGlow * 0.05 + spinGlow * 0.5));
-        this._updateHeatVisual();
 
         // Trail — denser when moving fast for a smooth comet streak.
         this._emitTrail(dt);
         this.updateTrail(dt);
 
+        this._updateSkinShader();
         return bounced;
     }
 
@@ -859,7 +905,7 @@ export class Ball {
         legs:    { y: -1.35, label: 'LEGS' }
     };
 
-    _getTargetPos(includeRouteOffset = true) {
+    _getTargetPos() {
         if (!this.targetPlayer) return this.position.clone();
         const base = typeof this.targetPlayer.getPosition === 'function'
             ? this.targetPlayer.getPosition()
@@ -872,7 +918,7 @@ export class Ball {
         if (usesGroundPosition) basePos.y += 0.65;
         const zone = Ball.BODY_ZONES[this.bodyZone] || Ball.BODY_ZONES.chest;
         basePos.y = Math.max(0.35, basePos.y + zone.y);
-        if (includeRouteOffset && this._targetRouteOffset) {
+        if (this._targetRouteOffset) {
             basePos.x += this._targetRouteOffset.x;
             basePos.y += this._targetRouteOffset.y;
             basePos.z += this._targetRouteOffset.z;
@@ -924,20 +970,17 @@ export class Ball {
         const oldAge = this._steeringAge;
         const steeringDt = steeringActiveDt(oldAge, dt);
         this._steeringAge += Number.isFinite(dt) && dt > 0 ? dt : 0;
-        if (this._steeringPhase === 'waypoint'
-            && hasCrossedTargetPlane(this.position, targetPos, this._steeringPlaneNormal)) {
-            this._steeringPhase = 'torso';
-            this._steeringWaypoint = null;
-            this._steeringPlaneNormal = null;
-            this._targetRouteOffset = { x: 0, y: 0, z: 0 };
-            targetPos = this._getTargetPos(false);
-        }
         const sampledVelocity = sampleBoundedVelocity(this._steeringTargetSample, targetPos, dt);
         const filteredVelocity = smoothSampledVelocity(this._steeringTargetVelocity, sampledVelocity, dt);
         this._steeringTargetVelocity = filteredVelocity;
         this._steeringTargetSample.copy(targetPos);
         if (steeringDt <= 0) return 0;
 
+        if (this._steeringPhase === 'waypoint'
+            && hasCrossedTargetPlane(this.position, targetPos, this._steeringPlaneNormal)) {
+            this._steeringPhase = 'torso';
+            this._steeringWaypoint = null;
+        }
         const target = this._steeringPhase === 'waypoint'
             ? this._steeringWaypoint
             : predictLeadTarget(targetPos, this._steeringTargetVelocity, this.position, this.currentSpeed);
@@ -949,33 +992,17 @@ export class Ball {
         const current = velocityLength > 0.001
             ? this.velocity.clone().multiplyScalar(1 / velocityLength)
             : this._steeringInitialDir.clone();
-        const torsoPos = this._getTargetPos(false);
-        const toTorso = new THREE.Vector3().subVectors(torsoPos, this.position);
-        const torsoDistance = toTorso.length();
-        const torsoDirection = torsoDistance > 0.001 ? toTorso.normalize() : desired;
         const hasOverstayed = this._steeringAge > 1.15;
-        const rescueRange = clamp(this.currentSpeed * 0.055, 3.5, 6);
-        const isCircling = torsoDistance < rescueRange && current.dot(torsoDirection) < 0.15;
+        const isCircling = targetDistance < 7 && current.dot(desired.clone().normalize()) < 0.2;
         if (hasOverstayed || isCircling) {
             this._steeringPhase = 'torso';
             this._steeringWaypoint = null;
-            this._steeringPlaneNormal = null;
-            this._targetRouteOffset = { x: 0, y: 0, z: 0 };
         }
         const direct = hasOverstayed || isCircling
-            ? torsoDirection
-            : desired;
-        const proximityTurn = 1 - Math.exp(
-            -proximityHomingTurnRate(torsoDistance, this._steeringAge) * steeringDt
-        );
-        const rescueTurn = hasOverstayed || isCircling
-            ? 1 - Math.exp(-7 * steeringDt)
-            : 0;
-        const turn = Math.max(
-            steeringTurnAlpha(steeringDt, this.deflections),
-            proximityTurn,
-            rescueTurn
-        );
+            ? new THREE.Vector3().subVectors(targetPos, this.position).normalize()
+            : desired.normalize();
+        const proximityTurn = 1 - Math.exp(-Math.min(8, proximityHomingTurnRate(this.position.distanceTo(targetPos), this._steeringAge)) * steeringDt);
+        const turn = Math.max(steeringTurnAlpha(steeringDt, this.deflections), proximityTurn, (hasOverstayed || isCircling) ? 0.18 : 0);
         const next = current.lerp(direct, turn);
         if (finitePoint(next) && next.lengthSq() > 0.000001) {
             this.velocity.copy(next.normalize().multiplyScalar(this.currentSpeed));
@@ -1013,16 +1040,12 @@ export class Ball {
         return this.baseSpeed * this.getRallyMultiplier() * (this.skinConfig?.speedBonus || 1);
     }
 
-    _updateHeatVisual() {
-        const ratio = this.baseSpeed > 0 ? this.currentSpeed / this.baseSpeed : 1;
-        const heat = clamp((ratio - 1) / 3, 0, 1);
-        const color = ratio >= 3.5 ? 0xfff4dc : ratio >= 2.25 ? 0xff4d35 : 0xffd447;
-        this.heatMat.color.setHex(color);
-        this.heatMat.opacity = heat * 0.3;
-        this.heatShell.scale.setScalar(1.08 + heat * 0.16);
-    }
-
     updateColor() {
+        if (this.skinConfig?.pattern) {
+            this.mat.uniforms.uColor.value.setHex(this.skinConfig.color);
+            this.glowMat.color.setHex(this.skinConfig.glow);
+            return;
+        }
         const sr = this.currentSpeed / this.baseSpeed;
         // ponytail: orange → pink → red → white as speed increases
         const hue = Math.max(0, 0.08 - (sr - 1) * 0.012);
@@ -1222,51 +1245,28 @@ export class Ball {
         return { shot: charge > 0.7 ? 'spike' : 'flat', speed: this.currentSpeed };
     }
 
-    _emitTrail(dt) {
-        const speed = this.velocity.length();
-        const trailGap = Math.max(0.006, 0.042 - speed * 0.002);
-        this.trailTimer += dt;
-        if (this.trailTimer < trailGap) return;
-        this.trailTimer %= trailGap;
-
-        const previous = this._trailLastPosition;
-        const distance = previous ? previous.distanceTo(this.position) : 0;
-        const spacing = clamp(0.25 - speed * 0.0012, 0.1, 0.25);
-        const samples = previous ? clamp(Math.ceil(distance / spacing), 1, 5) : 1;
-        for (let i = 1; i <= samples; i++) {
-            const point = previous
-                ? previous.clone().lerp(this.position, i / samples)
-                : this.position;
-            this.addTrailDot(point);
-        }
-        this._trailLastPosition = this.position.clone();
-    }
-
     addTrailDot(position = this.position) {
         const sr = Math.min(4, this.currentSpeed / this.baseSpeed);
         const spinFactor = Math.min(1, Math.abs(this.spin) * 0.3);
+        const trailStyle = BALL_TRAILS[this.trailId] || BALL_TRAILS.none;
         // ponytail: bigger trail dots at high speed for dramatic streak
-        const style = this.skinConfig?.trailStyle
-            || (this.skinConfig?.frostTrail ? 'frost'
-                : this.skinConfig?.burstTrail ? 'ember'
-                    : this.skinId === 'lightning' || this.skinId === 'star' ? 'spark'
-                        : this.skinId === 'rainbow' ? 'prism'
-                            : this.skinId === 'abyss' ? 'void' : 'comet');
-        const skinTrailMul = this.skinConfig?.burstTrail ? 1.7 : this.skinConfig?.frostTrail ? 1.35 : style === 'spark' ? 1.18 : 1;
-        const r = Math.min(0.3, 0.055 * skinTrailMul * (1 + sr * 0.58 + spinFactor * 0.35));
-        const trailColor = this._affixTrailColor ?? (this.skinConfig?.trail || 0xff2222);
+        const skinTrailMul = this.skinConfig?.burstTrail ? 1.7 : this.skinConfig?.frostTrail ? 1.35 : 1;
+        const r = Math.min(0.4, 0.052 * skinTrailMul * trailStyle.size * (1 + sr * 0.55 + spinFactor * 0.35));
+        const rainbowColor = new THREE.Color().setHSL((performance.now() / 900) % 1, 0.9, 0.62).getHex();
+        const trailColor = this._affixTrailColor
+            ?? (trailStyle.rainbow ? rainbowColor : trailStyle.color)
+            ?? (this.skinConfig?.trail || 0xff2222);
         const dot = this._trailPool.acquire();
         dot.visible = true;
         dot.material.color.setHex(trailColor);
-        dot.material.blending = ['ember', 'spark', 'plasma', 'prism'].includes(style)
-            ? THREE.AdditiveBlending
-            : THREE.NormalBlending;
-        dot.material.depthWrite = false;
-        dot.material.depthTest = true;
-        const opacity = Math.min(0.94, 0.58 + sr * 0.08 + (this.skinConfig?.frostTrail ? 0.12 : 0));
-        dot.material.opacity = opacity;
+        dot.material.opacity = Math.min(0.9, 0.56 + sr * 0.08 + (this.skinConfig?.frostTrail ? 0.12 : 0));
         dot.scale.setScalar(r);
         dot.position.copy(position);
+        if (trailStyle.jitter) {
+            dot.position.x += (Math.random() - 0.5) * trailStyle.jitter;
+            dot.position.y += (Math.random() - 0.5) * trailStyle.jitter;
+            dot.position.z += (Math.random() - 0.5) * trailStyle.jitter;
+        }
         // Spin offset — trail spreads slightly in curve direction
         if (Math.abs(this.spin) > 1) {
             const offset = 0.08 * Math.sign(this.spin);
@@ -1275,9 +1275,9 @@ export class Ball {
         }
         this.scene.add(dot);
         // Faster ball = longer trail life
-        const maxLife = (0.42 + sr * 0.24) * (style === 'frost' ? 1.15 : style === 'void' ? 1.08 : 1);
-        this.trail.push({ mesh: dot, life: maxLife, maxLife, radius: r, opacity });
-        const maxTrail = 44 + Math.round(sr * 24);
+        const maxLife = (0.38 + sr * 0.23) * trailStyle.life;
+        this.trail.push({ mesh: dot, life: maxLife, maxLife, radius: r });
+        const maxTrail = 38 + Math.round(sr * 22);
         if (this.trail.length > maxTrail) {
             const old = this.trail.shift();
             this._trailPool.release(old.mesh);
@@ -1289,8 +1289,8 @@ export class Ball {
             const t = this.trail[i];
             t.life -= dt;
             const ratio = Math.max(0, t.life / t.maxLife);
-            t.mesh.material.opacity = t.opacity * Math.pow(ratio, 0.72);
-            t.mesh.scale.setScalar(Math.max(0.01, t.radius * (0.32 + ratio * 0.68)));
+            t.mesh.material.opacity = ratio * 0.8;
+            t.mesh.scale.setScalar(Math.max(0.01, t.radius * ratio));
             if (t.life <= 0) {
                 this._trailPool.release(t.mesh);
                 this.trail.splice(i, 1);
@@ -1303,8 +1303,30 @@ export class Ball {
             this._trailPool.release(t.mesh);
         });
         this.trail = [];
-        this.trailTimer = 0;
         this._trailLastPosition = null;
+        this.trailTimer = 0;
+    }
+
+    _emitTrail(dt) {
+        const safeDt = Math.min(Math.max(Number.isFinite(dt) ? dt : 0, 0), 0.1);
+        const speed = this.velocity.length();
+        const gap = Math.max(0.006, 0.042 - speed * 0.002);
+        this.trailTimer += safeDt;
+        const previous = this._trailLastPosition || this.position;
+        if (this.trailTimer < gap) {
+            this._trailLastPosition = this.position.clone();
+            return;
+        }
+        const count = Math.min(5, Math.max(1, Math.floor(this.trailTimer / gap)));
+        for (let i = 1; i <= count; i++) {
+            this.addTrailDot(new THREE.Vector3().lerpVectors(previous, this.position, i / count));
+        }
+        this.trailTimer %= gap;
+        this._trailLastPosition = this.position.clone();
+    }
+
+    _updateSkinShader() {
+        if (this._spaceMat) this._spaceMat.uniforms.uTime.value = performance.now() / 1000;
     }
 
     // Client-side: visual-only update when lerping from network
@@ -1341,10 +1363,10 @@ export class Ball {
         const spinGlow = Math.min(0.15, Math.abs(this.spin) * 0.02);
         this.glowMat.opacity = Math.min(0.5, 0.06 + srGlow * 0.035 + spinGlow);
         this.glow.scale.setScalar(Math.min(1.5, 1 + srGlow * 0.05 + spinGlow * 0.5));
-        this._updateHeatVisual();
 
         // Trail
         this._emitTrail(dt);
         this.updateTrail(dt);
+        this._updateSkinShader();
     }
 }

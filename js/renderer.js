@@ -152,6 +152,66 @@ export class Renderer {
         return mesh;
     }
 
+    createTargetOutline(parts) {
+        const sources = (Array.isArray(parts) ? parts : []).filter(part => part?.isMesh && part.geometry);
+        const group = new THREE.Group();
+        const materials = [];
+        const pairs = [];
+        const ancestors = source => {
+            const result = [];
+            for (let node = source.parent; node; node = node.parent) result.push(node);
+            return result;
+        };
+        const root = sources.length
+            ? ancestors(sources[0]).find(node => sources.every(source => ancestors(source).includes(node))) || null
+            : null;
+        const rootInverse = new THREE.Matrix4();
+        const localMatrix = new THREE.Matrix4();
+
+        for (const source of sources) {
+            const material = new THREE.ShaderMaterial({
+                vertexShader: outlineVertexShader,
+                fragmentShader: `
+                    uniform vec3 uColor;
+                    uniform float uPulse;
+                    void main() {
+                        gl_FragColor = vec4(uColor, 0.45 + 0.45 * uPulse);
+                    }
+                `,
+                uniforms: {
+                    outlineThickness: { value: 0.065 },
+                    uColor: { value: new THREE.Color(0xff202d) },
+                    uPulse: { value: 0 }
+                },
+                side: THREE.BackSide,
+                transparent: true,
+                depthWrite: false
+            });
+            const outline = new THREE.Mesh(source.geometry.clone(), material);
+            outline.renderOrder = 3;
+            materials.push(material);
+            pairs.push({ source, outline });
+            group.add(outline);
+        }
+
+        const sync = () => {
+            root?.updateWorldMatrix(true, false);
+            if (root) rootInverse.copy(root.matrixWorld).invert();
+            for (const { source, outline } of pairs) {
+                source.updateWorldMatrix(true, false);
+                localMatrix.copy(source.matrixWorld);
+                if (root) localMatrix.premultiply(rootInverse);
+                localMatrix.decompose(outline.position, outline.quaternion, outline.scale);
+            }
+        };
+        group.userData.materials = materials;
+        group.userData.sync = sync;
+        group.userData.root = root;
+        group.visible = false;
+        sync();
+        return group;
+    }
+
     render(camera) {
         this._initComposer(camera);
         this._composer.render();

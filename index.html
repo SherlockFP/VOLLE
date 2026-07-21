@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Warrball - Competitive Ball Combat</title>
     <meta name="description" content="Warrball is a fast, competitive first-person ball combat game. Master movement, classes, and the arena.">
-    <link rel="icon" type="image/png" href="assets/generated/warrball-logo-transparent-v1.png">
+    <link rel="icon" type="image/png" href="assets/generated/warrball-logo.png">
     <link rel="stylesheet" href="css/style.css?v=1.74">
     <link rel="stylesheet" href="css/ui-tokens.css?v=1">
     <link rel="stylesheet" href="css/ui-shell.css?v=1">
@@ -39,7 +39,6 @@
         <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
         <symbol id="i-replay" viewBox="0 0 24 24"><path d="M5 8V3L2 6l3 2Z"/><path d="M5 6a9 9 0 1 1-1 10"/></symbol>
         <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="m14 6-6 6 6 6M8 12h12"/></symbol>
-        <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="m10 6 6 6-6 6M16 12H4"/></symbol>
         <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
         <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
         <symbol id="i-access" viewBox="0 0 24 24"><circle cx="12" cy="4" r="2"/><path d="M5 8h14M12 6v15M8 11l4 4 4-4M8 21l4-6 4 6"/></symbol>
@@ -49,7 +48,7 @@
     <!-- Loading Screen -->
     <div id="loading-screen">
         <div class="loading-content">
-            <img class="brand-mark brand-mark-loading" src="assets/generated/warrball-logo-transparent-v1.png" alt="">
+            <img class="brand-mark brand-mark-loading" src="assets/generated/warrball-logo.png" alt="">
             <div class="loading-logo">WARRBALL</div>
             <div class="loading-bar-track"><div class="loading-bar-fill"></div></div>
             <div class="loading-status">Loading assets...</div>
@@ -62,7 +61,7 @@
                 <span></span><i></i><b></b>
             </div>
             <div class="match-loading-copy">
-                <img class="brand-mark brand-mark-match" src="assets/generated/warrball-logo-transparent-v1.png" alt="">
+                <img class="brand-mark brand-mark-match" src="assets/generated/warrball-logo.png" alt="">
                 <span id="match-loading-mode">CLASSIC</span>
                 <h2 id="match-loading-map">BEACH OPEN</h2>
                 <p id="match-loading-tip">Tip: move after every throw.</p>
@@ -143,7 +142,7 @@
                 </div>
                 <div class="ow-splash">
                     <span class="ow-kicker">WELCOME TO THE ARENA</span>
-                    <img class="brand-mark brand-mark-menu" src="assets/generated/warrball-logo-transparent-v1.png" alt="Warrball emblem">
+                    <img class="brand-mark brand-mark-menu" src="assets/generated/warrball-logo.png" alt="Warrball emblem">
                     <div class="ow-logo">WARRBALL</div>
                     <div class="ow-tagline">FIRST PERSON DODGEBALL</div>
                     <div class="ow-mode-chip" id="menu-mode-status"><span>QUICK PLAY</span><b>Create or join a lobby</b></div>
@@ -159,7 +158,7 @@
                 <div class="ow-world-grid">
                     <button id="btn-social-lobby" class="ow-social-lobby">
                         <svg class="ui-icon" aria-hidden="true"><use href="#i-globe"></use></svg>
-                        <span><em>LIVE 3D</em><b>ENTER SOCIAL HUB</b><small>Enter the Grand Estate, explore, swim, and chat together</small></span>
+                        <span><em>LIVE 3D</em><b>ENTER SOCIAL HUB</b><small>Join the Island room, explore, swim, and chat together</small></span>
                         <svg class="ui-icon ow-social-lobby-arrow" aria-hidden="true"><use href="#i-play"></use></svg>
                     </button>
                     <button id="btn-map-editor" class="ow-social-lobby ow-create-map">
@@ -179,7 +178,6 @@
                     <button id="btn-replays" class="ow-link"><svg class="ui-icon" aria-hidden="true"><use href="#i-replay"></use></svg>Replays</button>
                     <button id="btn-achievements" class="ow-link"><svg class="ui-icon" aria-hidden="true"><use href="#i-trophy"></use></svg>Achievements</button>
                     <button id="btn-leaderboard" class="ow-link"><svg class="ui-icon" aria-hidden="true"><use href="#i-chart"></use></svg>Leaderboard</button>
-                    <button id="btn-social-center" class="ow-link"><svg class="ui-icon" aria-hidden="true"><use href="#i-user"></use></svg>Community</button>
                     <button id="btn-patchnotes" class="ow-link"><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg>Patch Notes</button>
                 </div>
                 <span class="ow-hint">WASD move / L-Click deflect / Q skill / Tab scores / Y chat</span>
@@ -248,7 +246,7 @@
             <div class="social-lobby-heading">
                 <span class="social-lobby-kicker">WARRBALL WORLD</span>
                 <strong>SOCIAL HUB</strong>
-                <span id="social-lobby-status">Exploring Grand Estate</span>
+                <span id="social-lobby-status">Exploring Island</span>
             </div>
             <div class="social-lobby-online-pill" title="Players in this lobby">
                 <span class="social-lobby-online-dot" aria-hidden="true"></span>
@@ -258,8 +256,8 @@
 
         <section class="social-lobby-map-card" aria-label="Social Hub map">
             <div class="social-lobby-map-heading">
-                <span id="social-lobby-map-title"><svg class="ui-icon" aria-hidden="true"><use href="#i-map"></use></svg> GRAND ESTATE MAP</span>
-                <small id="social-lobby-map-credit">Warrball Grand Estate - original procedural environment</small>
+                <span id="social-lobby-map-title"><svg class="ui-icon" aria-hidden="true"><use href="#i-map"></use></svg> ISLAND MAP</span>
+                <small id="social-lobby-map-credit">Olann Island - local OBJ conversion</small>
             </div>
             <canvas id="social-lobby-map" width="260" height="180"></canvas>
             <div class="social-lobby-map-legend">
@@ -315,37 +313,22 @@
     <!-- ===== MULTIPLAYER MENU (Create / Join + Lobby Browser) ===== -->
     <div id="multiplayer-menu" class="screen hidden">
         <div class="mp-layout">
+            <!-- LEFT: Actions -->
             <div class="mp-left">
-                <header class="mp-command-header">
-                    <span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-globe"></use></svg></span>
-                    <div><span class="shell-kicker">MATCH COMMAND</span><h1 class="mp-title">Multiplayer</h1><p class="mp-subtitle">Build a route, then enter the arena.</p></div>
-                </header>
-                <section class="quick-play-builder" aria-labelledby="quick-play-title">
-                    <div class="quick-play-heading"><div><span class="shell-kicker">FAST DEPLOY</span><h2 id="quick-play-title">Quick Play</h2></div><span class="quick-play-status">LIVE</span></div>
-                    <div class="quick-play-fields">
-                        <label for="quick-play-queue"><span>Queue</span><select id="quick-play-queue"><option value="casual">Casual</option><option value="ranked">Ranked</option></select></label>
-                        <label for="quick-play-mode"><span>Mode</span><select id="quick-play-mode"><option value="all">Any mode</option><option value="classic">Classic</option><option value="speedball">Speedball</option><option value="rally_duel">1V1 Rally Duel</option><option value="competitive">Competitive</option></select></label>
-                        <label for="quick-play-map"><span>Map</span><select id="quick-play-map"><option value="all">Any map</option><option value="beach">Beach Arena</option><option value="industrial">Factory</option><option value="neon">Neon City</option><option value="circuit_dome">Circuit Dome</option></select></label>
-                    </div>
-                    <button id="btn-mp-quick" class="btn btn-primary mp-btn"><svg class="ui-icon" aria-hidden="true"><use href="#i-play"></use></svg>Find Match</button>
-                </section>
-                <div class="mp-secondary-actions">
-                    <button id="btn-mp-create" class="btn btn-secondary mp-btn"><svg class="ui-icon" aria-hidden="true"><use href="#i-monitor"></use></svg>Create Lobby</button>
-                    <button id="btn-mp-join" class="btn btn-secondary mp-btn"><svg class="ui-icon" aria-hidden="true"><use href="#i-link"></use></svg>Join by Code</button>
-                    <button id="btn-mp-solo" class="btn btn-secondary mp-btn"><svg class="ui-icon" aria-hidden="true"><use href="#i-user"></use></svg>Solo vs Bots</button>
-                </div>
-                <button id="btn-mp-back" class="btn btn-secondary mp-btn mp-back"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back to Menu</button>
+                <h1 class="mp-title">🌐 Multiplayer</h1>
+                <p class="mp-subtitle">Play with friends — P2P</p>
+                <button id="btn-mp-create" class="btn btn-primary mp-btn">🖥️ Create Lobby</button>
+                <p class="mp-hint">You host the room. Share the code with friends.</p>
+                <button id="btn-mp-join" class="btn btn-secondary mp-btn">🔗 Join by Code</button>
+                <p class="mp-hint">Enter a friend's room code to connect.</p>
+                <button id="btn-mp-solo" class="btn btn-secondary mp-btn">🤖 Solo vs Bots</button>
+                <button id="btn-mp-back" class="btn btn-secondary mp-btn">← Back to Menu</button>
             </div>
+            <!-- RIGHT: Lobby Browser -->
             <div class="mp-right">
                 <div class="mp-lobby-header">
-                    <div><span class="shell-kicker">SERVER BOARD</span><h2>Open Lobbies</h2></div>
-                    <button id="btn-mp-refresh" class="btn btn-small" type="button" aria-label="Refresh lobby list"><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg></button>
-                </div>
-                <div class="mp-lobby-filters" aria-label="Lobby filters">
-                    <label>Mode <select id="mp-lobby-mode-filter"><option value="all">All modes</option></select></label>
-                    <label>Map <input id="mp-lobby-map-filter" type="search" maxlength="40" placeholder="Any map"></label>
-                    <label>Queue <select id="mp-lobby-queue-filter"><option value="all">All</option><option value="casual">Casual</option><option value="ranked">Ranked</option></select></label>
-                    <label class="mp-lobby-open"><input id="mp-lobby-open-filter" type="checkbox" checked> Open slots</label>
+                    <h2>🖥️ Open Lobbies</h2>
+                    <button id="btn-mp-refresh" class="btn btn-small" title="Refresh">↻</button>
                 </div>
                 <div class="mp-lobby-list" id="mp-lobby-list">
                     <div class="mp-lobby-empty">Loading...</div>
@@ -373,7 +356,7 @@
     <div id="lobby-screen" class="screen hidden">
         <!-- Top bar -->
         <div class="cs-topbar">
-            <div class="cs-roomcode"><img class="brand-mark brand-mark-room" src="assets/generated/warrball-logo-transparent-v1.png" alt=""> Room: <span id="room-code">LOCAL</span></div>
+            <div class="cs-roomcode"><img class="brand-mark brand-mark-room" src="assets/generated/warrball-logo.png" alt=""> Room: <span id="room-code">LOCAL</span></div>
             <div class="cs-lobby-name">
                 <input id="lobby-name-input" class="cs-lobby-name-input" type="text" maxlength="32" placeholder="Lobby Name" value="Lobby" spellcheck="false">
             </div>
@@ -385,7 +368,7 @@
         <div class="cs-body">
             <!-- RED TEAM -->
             <div class="cs-team-col red">
-                <div class="cs-team-header red">RED TEAM</div>
+                <div class="cs-team-header red">🔴 RED</div>
                 <div class="cs-team-players" id="cs-team-red"></div>
                 <div class="cs-team-actions">
                     <button id="btn-team-red" class="cs-btn-team red">Join Red</button>
@@ -396,10 +379,10 @@
             <!-- CENTER: Map/Mode/Settings -->
             <div class="cs-center">
                 <!-- Map Selection Carousel -->
-                <div class="cs-section cs-lobby-host-controls">
+                <div class="cs-section" data-host-only-control>
                     <div class="cs-section-title">MAP</div>
                     <div class="map-carousel">
-                        <button class="carousel-btn carousel-prev" id="carousel-prev" type="button" aria-label="Previous map"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg></button>
+                        <button class="carousel-btn carousel-prev" id="carousel-prev">◀</button>
                         <div class="carousel-card" id="carousel-card">
                             <div class="carousel-gradient" id="carousel-gradient"></div>
                             <canvas id="lobby-map-canvas" width="520" height="240" aria-label="Selected map preview"></canvas>
@@ -411,32 +394,30 @@
                                 </div>
                             </div>
                         </div>
-                        <button class="carousel-btn carousel-next" id="carousel-next" type="button" aria-label="Next map"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-right"></use></svg></button>
+                        <button class="carousel-btn carousel-next" id="carousel-next">▶</button>
                     </div>
                 </div>
 
                 <!-- Mode select -->
-                <div class="cs-section cs-lobby-host-controls">
+                <div class="cs-section" data-host-only-control>
                     <div class="cs-section-title">MODE</div>
-    <div class="cs-mode-row" id="mode-select" role="group" aria-label="Game mode">
-        <button type="button" class="cs-mode-btn mode-btn selected" data-mode="classic" aria-pressed="true">Classic</button>
-        <button type="button" class="cs-mode-btn mode-btn" data-mode="speedball" aria-pressed="false">Speed</button>
-        <button type="button" class="cs-mode-btn mode-btn" data-mode="lowgrav" aria-pressed="false">Low G</button>
-        <button type="button" class="cs-mode-btn mode-btn" data-mode="instagib" aria-pressed="false">Insta</button>
-        <button type="button" class="cs-mode-btn mode-btn" data-mode="tanky" aria-pressed="false">Tanky</button>
-        <button type="button" class="cs-mode-btn mode-btn" data-mode="multiball" aria-pressed="false">Multi</button>
-        <button type="button" class="cs-mode-btn mode-btn" data-mode="freeze" aria-pressed="false">Freeze</button>
-        <button type="button" class="cs-mode-btn mode-btn" data-mode="hotpotato" aria-pressed="false">Potato</button>
-        <button type="button" class="cs-mode-btn mode-btn" data-mode="competitive" aria-pressed="false">Competitive</button>
-        <button type="button" class="cs-mode-btn mode-btn rally-duel-mode" data-mode="rally_duel" aria-pressed="false" title="1V1 - normalized stats - no powers">1V1 Rally Duel</button>
-        <button type="button" class="cs-mode-btn mode-btn" data-mode="pinball" aria-pressed="false">PB Pinball</button>
+                    <div class="cs-mode-row" id="mode-select">
+                        <button class="cs-mode-btn mode-btn selected" data-mode="classic">Classic</button>
+                        <button class="cs-mode-btn mode-btn" data-mode="speedball">Speed</button>
+                        <button class="cs-mode-btn mode-btn" data-mode="lowgrav">Low G</button>
+                        <button class="cs-mode-btn mode-btn" data-mode="instagib">Insta Death</button>
+                        <button class="cs-mode-btn mode-btn" data-mode="competitive">Competitive</button>
                     </div>
-                    <label class="match-modifier" for="match-modifier"><span>MAP MODIFIER</span><select id="match-modifier"><option value="none">Standard rules</option><option value="lowgrav">Low gravity</option><option value="pinball">Pinball bounce</option><option value="night">Night lights</option><option value="ffa_sudden" disabled>FFA sudden speed</option><option value="ffa_double" disabled>FFA double ball opening</option></select></label>
+                    <label class="match-modifier" for="match-modifier"><span>MAP MODIFIER</span><select id="match-modifier"><option value="none">Standard rules</option><option value="lowgrav">Low gravity</option><option value="night">Night lights</option></select></label>
                 </div>
 
                 <!-- Settings button (opens unified modal) -->
-                <div class="cs-section cs-section-settings cs-lobby-host-controls">
-                    <button id="btn-lobby-settings" class="cs-lobby-settings-btn"><svg class="ui-icon" aria-hidden="true"><use href="#i-settings"></use></svg>Settings</button>
+                <div class="cs-section cs-section-settings" data-host-only-control>
+                    <label class="lobby-late-join-toggle" for="setting-allow-late-join">
+                        <span>Allow players to join after match starts</span>
+                        <input id="setting-allow-late-join" type="checkbox" checked>
+                    </label>
+                    <button id="btn-lobby-settings" class="cs-lobby-settings-btn">⚙ Settings</button>
                 </div>
 
                 <!-- Chat (always visible in lobby) -->
@@ -445,7 +426,7 @@
                     <div class="lobby-chat-log" id="lobby-chat-log"></div>
                     <div class="lobby-chat-input-row">
                         <input type="text" id="lobby-chat-input" maxlength="80" placeholder="Type a message…" autocomplete="off">
-                        <button id="lobby-chat-send" class="cs-btn-chat-send" type="button" aria-label="Send lobby message"><svg class="ui-icon" aria-hidden="true"><use href="#i-play"></use></svg></button>
+                        <button id="lobby-chat-send" class="cs-btn-chat-send">➤</button>
                     </div>
                 </div>
 
@@ -453,7 +434,7 @@
 
             <!-- BLUE TEAM -->
             <div class="cs-team-col blue">
-                <div class="cs-team-header blue">BLUE TEAM</div>
+                <div class="cs-team-header blue">🔵 BLUE</div>
                 <div class="cs-team-players" id="cs-team-blue"></div>
                 <div class="cs-team-actions">
                     <button id="btn-team-blue" class="cs-btn-team blue">Join Blue</button>
@@ -465,11 +446,11 @@
         <!-- Bottom actions bar -->
         <div class="cs-bottom">
             <div class="cs-bottom-left">
-                <button id="btn-remove-bot" class="cs-btn-action" title="Remove Bot">- BOT</button>
-                <button id="btn-random-map" class="cs-btn-action" title="Random Map"><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg></button>
-                <button id="btn-lobby-lock" class="cs-btn-action" title="Set lobby password (host)">LOCK</button>
+                <button id="btn-remove-bot" class="cs-btn-action" title="Remove Bot">−🤖</button>
+                <button id="btn-random-map" class="cs-btn-action" title="Random Map">🎲</button>
+                <button id="btn-lobby-lock" class="cs-btn-action" title="Set lobby password (host)">🔓</button>
             </div>
-            <button id="btn-start-game" class="cs-btn-start"><svg class="ui-icon" aria-hidden="true"><use href="#i-play"></use></svg>START GAME</button>
+            <button id="btn-start-game" class="cs-btn-start">▶ START GAME</button>
             <div class="cs-bottom-right">
                 <button id="btn-party-ready" class="cs-btn-ready" type="button" aria-pressed="false">READY</button>
                 <span class="cs-bot-count" id="cs-bot-count">Bots: 4</span>
@@ -641,14 +622,6 @@
                         </label>
                     </div>
                     <div class="settings-row settings-row-toggle">
-                        <label>Voice Chat <span class="settings-hint">V hold: team voice / FFA proximity</span></label>
-                        <label class="toggle-switch"><input type="checkbox" id="setting-voice-chat" checked><span class="toggle-slider"></span></label>
-                    </div>
-                    <div class="settings-row settings-row-toggle">
-                        <label>Mute Microphone</label>
-                        <label class="toggle-switch"><input type="checkbox" id="setting-voice-mute"><span class="toggle-slider"></span></label>
-                    </div>
-                    <div class="settings-row settings-row-toggle">
                         <label>Experimental Netcode <span class="settings-hint">Interpolation + prediction + lag compensation</span></label>
                         <label class="toggle-switch">
                             <input type="checkbox" id="setting-experimental-netcode">
@@ -690,21 +663,18 @@
 
     <!-- ===== CHARACTER SELECT ===== -->
     <div id="character-screen" class="screen hidden">
-        <div class="panel wide-panel shell-panel hero-shell">
-            <header class="shell-header">
-                <div class="shell-title"><span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-user"></use></svg></span><div><span class="shell-kicker">HERO BAY</span><h1>Heroes</h1><p>Build a readable role, ability, and rune package.</p></div></div>
-                <div class="hero-loadout-summary" aria-label="Current loadout">
-                    <span><small>Hero</small><strong id="hero-selected-name">Rally</strong></span>
-                    <span><small>Ability</small><strong id="hero-selected-skill">Slow Ball</strong></span>
-                    <span><small>Rune</small><strong id="hero-selected-rune">Deflect Power</strong></span>
-                </div>
-            </header>
-            <section class="loadout-section hero-roster"><header><span class="shell-kicker">ROSTER</span><h2>Choose Your Hero</h2><p>Compare health, speed, deflect power, and mastery at a glance.</p></header><div class="char-grid" id="char-grid"></div></section>
-            <section class="loadout-section"><header><span class="shell-kicker">Q ABILITY</span><h2>Active Skill</h2><p>One decisive move. Cooldowns are tuned for fair rallies.</p></header><div class="skill-grid" id="skill-grid"></div></section>
-            <section class="loadout-section"><header><span class="shell-kicker">ONE SLOT</span><h2>Rune</h2><p>Choose one passive perk for a clear playstyle.</p></header><div class="rune-grid" id="rune-grid"></div></section>
-            <div class="hero-actions">
-                <button id="btn-char-back" class="btn btn-secondary"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back</button>
+        <div class="panel wide-panel">
+            <h1>🦸 Character & Loadout</h1>
+            <h2>Pick your fighter, skill, and runes</h2>
+
+            <div class="char-grid" id="char-grid"></div>
+
+            <section class="loadout-section"><header><span class="shell-kicker">Q ABILITY</span><h3>Active Skill</h3><p>One decisive move. Cooldowns are tuned for fair rallies.</p></header><div class="skill-grid" id="skill-grid"></div></section>
+            <section class="loadout-section"><header><span class="shell-kicker">ONE SLOT</span><h3>Rune</h3><p>Choose one passive perk for a clear playstyle.</p></header><div class="rune-grid" id="rune-grid"></div></section>
+
+            <div class="btn-row">
                 <button id="btn-char-save" class="btn btn-primary">Save Loadout</button>
+                <button id="btn-char-back" class="btn btn-secondary">← Back</button>
             </div>
         </div>
     </div>
@@ -712,51 +682,29 @@
     <!-- ===== SHOP ===== -->
     <div id="shop-screen" class="screen hidden">
         <div class="panel wide-panel shell-panel shop-shell">
-            <header class="shell-header shop-header">
-                <div class="shell-title"><span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-shop"></use></svg></span><div><span class="shell-kicker">WARRBALL COLLECTION</span><h1>Arena Shop</h1><p>Preview every look in 3D before it enters your loadout.</p></div></div>
-                <div class="meta-stats"><span class="meta-stat" aria-label="Current credit balance"><svg class="ui-icon" aria-hidden="true"><use href="#i-coins"></use></svg><strong id="shop-coins">0</strong><small>credits</small></span></div>
+            <header class="shell-header">
+                <div class="shell-title"><span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-shop"></use></svg></span><div><span class="shell-kicker">GEAR UP</span><h1>Arena Shop</h1><p>Unlock original competitors, equipment, and styles.</p></div></div>
+                <div class="meta-stats"><span class="meta-stat"><svg class="ui-icon" aria-hidden="true"><use href="#i-coins"></use></svg><span id="shop-coins">0</span><small>credits</small></span></div>
             </header>
             <div class="shop-toolbar">
-                <div class="shop-tabs" id="shop-tabs" role="tablist" aria-label="Shop categories">
-                    <button id="shop-tab-chars" class="shop-tab selected" role="tab" aria-selected="true" aria-controls="shop-grid" data-tab="chars"><svg class="ui-icon" aria-hidden="true"><use href="#i-user"></use></svg><span>Characters</span></button>
-                    <button id="shop-tab-live" class="shop-tab" role="tab" aria-selected="false" aria-controls="shop-grid" data-tab="live"><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg><span>Live Deals</span></button>
-                    <button id="shop-tab-balls" class="shop-tab" role="tab" aria-selected="false" aria-controls="shop-grid" data-tab="balls"><svg class="ui-icon" aria-hidden="true"><use href="#i-ball"></use></svg><span>Balls</span></button>
-                    <button id="shop-tab-avatars" class="shop-tab" role="tab" aria-selected="false" aria-controls="shop-grid" data-tab="avatars"><svg class="ui-icon" aria-hidden="true"><use href="#i-access"></use></svg><span>Skins</span></button>
-                    <button id="shop-tab-wearables" class="shop-tab" role="tab" aria-selected="false" aria-controls="shop-grid" data-tab="wearables"><svg class="ui-icon" aria-hidden="true"><use href="#i-ticket"></use></svg><span>Wearables</span></button>
-                    <button id="shop-tab-cases" class="shop-tab" role="tab" aria-selected="false" aria-controls="shop-grid" data-tab="cases"><svg class="ui-icon" aria-hidden="true"><use href="#i-shop"></use></svg><span>Cases</span></button>
-                    <button id="shop-tab-inventory" class="shop-tab" role="tab" aria-selected="false" aria-controls="shop-grid" data-tab="inventory"><svg class="ui-icon" aria-hidden="true"><use href="#i-chart"></use></svg><span>Inventory</span></button>
-                    <button id="shop-tab-skills" class="shop-tab" role="tab" aria-selected="false" aria-controls="shop-grid" data-tab="skills"><svg class="ui-icon" aria-hidden="true"><use href="#i-target"></use></svg><span>Skills</span></button>
-                    <button id="shop-tab-boosts" class="shop-tab" role="tab" aria-selected="false" aria-controls="shop-grid" data-tab="boosts"><svg class="ui-icon" aria-hidden="true"><use href="#i-play"></use></svg><span>Boosts</span></button>
+                <div class="shop-tabs" id="shop-tabs" aria-label="Shop categories">
+                    <button class="shop-tab selected" data-tab="chars">Characters</button>
+                    <button class="shop-tab" data-tab="balls">Balls</button>
+                    <button class="shop-tab" data-tab="avatars">Character Skins</button>
+                    <button class="shop-tab" data-tab="cases">Cases</button>
+                    <button class="shop-tab" data-tab="inventory">Inventory</button>
+                    <button class="shop-tab" data-tab="skills">Skills</button>
+                    <button class="shop-tab" data-tab="boosts">Boosts</button>
                 </div>
+                <span class="shop-note">Owned items can be equipped instantly.</span>
             </div>
-            <main class="shop-showcase-layout">
-                <section class="shop-showcase" aria-labelledby="shop-selected-name">
-                    <div id="shop-showcase-stage" class="shop-showcase-stage" data-skin-id="default">
-                        <canvas id="shop-showcase-canvas" role="img" aria-label="Live 3D character skin preview"></canvas>
-                        <div class="shop-showcase-fallback" aria-hidden="true"><i></i><b></b><span></span></div>
-                        <span class="shop-live-badge"><i aria-hidden="true"></i>Live 3D</span>
-                        <span class="shop-rotate-hint">Drag to rotate</span>
-                    </div>
-                    <div class="shop-selected-detail">
-                        <span class="shell-kicker">CURRENT LOOK</span>
-                        <h2 id="shop-selected-name">Custom Canvas</h2>
-                        <p id="shop-selected-meta">Classic model · Equipped</p>
-                        <p id="shop-showcase-status" class="shop-showcase-status" role="status" aria-live="polite">Your equipped skin is ready.</p>
-                        <button id="btn-shop-practice" class="btn btn-primary shop-practice-cta" type="button" data-shop-practice="avatar" data-id="default"><svg class="ui-icon" aria-hidden="true"><use href="#i-target"></use></svg><span>Try in Practice Range</span></button>
-                    </div>
-                </section>
-                <section class="shop-catalog" aria-labelledby="shop-catalog-title">
-                    <header class="shop-catalog-header">
-                        <div><span class="shell-kicker">CURATED LOADOUTS</span><h2 id="shop-catalog-title">Characters</h2></div>
-                        <span id="shop-catalog-count" class="shop-catalog-count" role="status" aria-live="polite">Loading items</span>
-                    </header>
-                    <div class="shop-grid" id="shop-grid" role="tabpanel" aria-labelledby="shop-tab-chars" tabindex="0"></div>
-                </section>
-            </main>
-            <footer class="shop-footer">
-                <button id="btn-shop-back" class="btn btn-secondary shell-back"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back to menu</button>
-                <span class="shop-note">Select any skin to preview. Owned items equip instantly.</span>
-            </footer>
+            <div class="shop-banner">
+                <img src="assets/generated/volle-shop-roster.webp" alt="Warrball arena character roster">
+                <div><span class="shell-kicker">ORIGINAL ROSTER</span><strong>Find your movement style</strong><p>Every class changes health, speed, stamina and deflect power.</p></div>
+            </div>
+            <div class="shop-grid" id="shop-grid"></div>
+            <section id="cosmetic-customizer" class="cosmetic-customizer hidden" aria-live="polite"></section>
+            <button id="btn-shop-back" class="btn btn-secondary shell-back"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back to menu</button>
         </div>
     </div>
 
@@ -823,7 +771,7 @@
                 <span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-map"></use></svg></span>
                 <div><span class="shell-kicker">LOCAL MAP LAB</span><h1>Map Editor</h1><p>Build with safe primitives, save locally, then launch directly into Practice.</p></div>
             </div>
-            <div class="map-editor-scope"><b>Available now:</b> create, playtest, publish, review status, browse approved maps, and download safely. <b>Next:</b> voting and playlists.</div>
+            <div class="map-editor-scope"><b>Available now:</b> local creation and playtesting. <b>Not connected yet:</b> online Workshop upload, voting, download.</div>
             <div class="map-editor-layout">
                 <canvas id="map-editor-canvas" width="760" height="520"></canvas>
                 <div class="map-editor-tools">
@@ -848,51 +796,19 @@
                     <div id="map-editor-status" aria-live="polite">0 / 64 props</div>
                     <button id="btn-map-delete" class="btn btn-secondary">Delete selected</button>
                     <button id="btn-map-save" class="btn btn-primary">Save & Play Solo</button>
-                    <button id="btn-map-publish" class="btn btn-secondary">Publish to Workshop</button>
-                    <div id="map-publish-status" role="status" aria-live="polite"></div>
-                    <button id="btn-map-editor-back" class="btn btn-secondary">Back</button>
+                    <button id="btn-map-editor-back" class="btn btn-secondary">← Back</button>
                 </div>
             </div>
-            <section class="map-workshop" aria-labelledby="map-workshop-title">
-                <div class="map-workshop-head">
-                    <div>
-                        <span class="shell-kicker">COMMUNITY CIRCUIT</span>
-                        <h2 id="map-workshop-title">Workshop Feed</h2>
-                    </div>
-                    <div class="map-workshop-controls">
-                        <label class="workshop-search">Find arena
-                            <input id="workshop-search" maxlength="48" placeholder="Name or creator">
-                        </label>
-                        <label class="workshop-sort">Sort
-                            <select id="workshop-sort" aria-label="Workshop map sorting">
-                                <option value="trending">Trending</option>
-                                <option value="newest">Newest</option>
-                                <option value="name">Name</option>
-                            </select>
-                        </label>
-                        <button id="btn-workshop-public" class="btn btn-secondary" aria-pressed="true">Approved</button>
-                        <button id="btn-workshop-mine" class="btn btn-secondary" aria-pressed="false">My Maps</button>
-                    </div>
-                </div>
-                <div id="map-workshop-status" role="status" aria-live="polite">Open the editor to load Workshop maps.</div>
-                <div id="map-workshop-grid" class="map-workshop-grid"></div>
-            </section>
         </div>
     </div>
 
     <!-- ===== ACHIEVEMENTS ===== -->
     <div id="achievements-screen" class="screen hidden">
-        <div class="panel wide-panel shell-panel progression-shell achievement-shell">
-            <header class="shell-header">
-                <div class="shell-title"><span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-trophy"></use></svg></span><div><span class="shell-kicker">LEGACY BOARD</span><h1>Achievements</h1><p>Permanent milestones earned across every arena.</p></div></div>
-                <div class="achievement-summary" aria-label="Achievement progress">
-                    <span><strong id="achievement-unlocked-count">0</strong><small>unlocked</small></span>
-                    <span><strong id="achievement-total-count">0</strong><small>total</small></span>
-                    <span><strong id="achievement-reward-total">0</strong><small>credits earned</small></span>
-                </div>
-            </header>
+        <div class="panel wide-panel">
+            <h1>🏅 Achievements</h1>
+            <h2>Unlock rewards by playing</h2>
             <div class="achievement-grid" id="achievement-grid"></div>
-            <button id="btn-achievements-back" class="btn btn-secondary shell-back"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back to menu</button>
+            <button id="btn-achievements-back" class="btn btn-secondary" style="margin-top: 20px;">← Back</button>
         </div>
     </div>
 
@@ -901,7 +817,7 @@
         <div class="panel wide-panel shell-panel progression-shell">
             <header class="shell-header">
                 <div class="shell-title"><span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-target"></use></svg></span><div><span class="shell-kicker">DAILY CONTRACTS</span><h1>Challenges</h1><p>Three focused goals. New set every 24 hours.</p></div></div>
-                <div class="challenge-summary"><span><strong id="challenge-complete-count">0</strong><small>complete</small></span><span><strong id="challenge-reward-total">0</strong><small>credits ready</small></span><span class="challenge-reset">LOCAL RESET</span></div>
+                <span class="challenge-reset">LOCAL RESET</span>
             </header>
             <div class="daily-grid" id="daily-grid"></div>
             <button id="btn-daily-back" class="btn btn-secondary shell-back"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back to menu</button>
@@ -1060,27 +976,6 @@
         </div>
     </div>
 
-    <div id="practice-menu-screen" class="screen hidden">
-        <div class="panel wide-panel practice-menu-panel">
-            <span class="shell-kicker">SKILL CIRCUIT</span>
-            <h1>Practice Protocol</h1>
-            <p>Build reliable contact before entering competitive queues.</p>
-            <div class="practice-mode-grid">
-                <button id="btn-guided-deflect" class="practice-mode-card">
-                    <span>73 SEC / 3 STAGES</span>
-                    <b>Guided Deflect</b>
-                    <small>Control, direction, perfect timing, local grade.</small>
-                </button>
-                <button id="btn-free-practice" class="practice-mode-card">
-                    <span>UNRESTRICTED</span>
-                    <b>Free Lab</b>
-                    <small>Manual spawn, reposition, and open-ended reps.</small>
-                </button>
-            </div>
-            <button id="btn-practice-back" class="btn btn-secondary">Back</button>
-        </div>
-    </div>
-
     <div id="tournament-screen" class="screen hidden">
         <div class="panel wide-panel">
             <h1>🥇 Tournament</h1>
@@ -1117,24 +1012,7 @@
                 <div class="hud-timer" id="hud-round-timer">5:00</div>
                 <div class="hud-team-score blue" id="hud-score-blue">0</div>
             </div>
-            <div id="hud-competitive-status"
-                class="hud-competitive-status hidden"
-                role="status"
-                aria-live="polite"
-                aria-atomic="true"
-                aria-hidden="true">
-                <span id="hud-competitive-mode">COMPETITIVE</span>
-                <b id="hud-competitive-round">ROUND 1/5</b>
-                <span id="hud-competitive-phase">LIVE</span>
-                <small id="hud-competitive-rules">NORMALIZED RULES</small>
-            </div>
         </div>
-
-        <aside id="hot-potato-hud" class="hot-potato-hud hidden" aria-live="polite">
-            <span>HOT POTATO</span>
-            <b id="hot-potato-time">--</b>
-            <small id="hot-potato-holder">WAITING FOR TARGET</small>
-        </aside>
 
         <!-- Ball speed — clean top-right text -->
         <div id="hud-speed" class="hud-speed-text"></div>
@@ -1202,7 +1080,7 @@
         <aside id="contract-tracker" class="contract-tracker hidden" aria-live="polite"></aside>
 
         <!-- Controls hint -->
-        <div id="controls-hint">WASD move | Space jump | L-Click slash/deflect | R-Click stab | I inspect | flick up lob / down spike | Y chat | M teams | Tab scores | B ball skin</div>
+        <div id="controls-hint">WASD move · Space jump · L-Click deflect · flick ↑ lob / ↓ spike · Y chat · M teams · Tab scores · B ball skin</div>
     </div>
 
     <!-- Chat log + input (global, outside HUD so available in lobby too) -->
@@ -1292,19 +1170,6 @@
             </label>
         </div>
     </div>
-    <div id="case-inspector" class="case-inspector hidden" role="dialog" aria-modal="true" aria-labelledby="case-inspector-title">
-        <div class="case-inspector-card">
-            <button id="case-inspector-close" class="case-inspector-close" type="button" aria-label="Close case preview"><svg class="ui-icon" aria-hidden="true"><use href="#i-close"></use></svg></button>
-            <div class="case-inspector-visual"><img id="case-inspector-art" src="assets/generated/cases/kickoff-case.webp" alt=""></div>
-            <div class="case-inspector-copy">
-                <span class="shell-kicker">CASE SIMULATOR</span>
-                <h2 id="case-inspector-title">Kickoff Case</h2>
-                <p id="case-inspector-meta">Purchase starts only when you confirm.</p>
-                <div class="case-inspector-stats"><span><small>Balance</small><strong id="case-inspector-balance">0 credits</strong></span><span><small>Epic+ protection</small><strong id="case-inspector-pity">0/10</strong></span></div>
-                <button id="case-inspector-open" class="btn btn-primary" type="button" data-id="kickoff"><svg class="ui-icon" aria-hidden="true"><use href="#i-play"></use></svg>Open for 120 credits</button>
-            </div>
-        </div>
-    </div>
     <div id="case-reel" class="case-reel hidden" role="dialog" aria-modal="true" aria-label="Case opening"><div class="case-reel-card"><div class="case-reel-top"><span>WARRBALL CASE OPENING</span><button id="case-reel-skip" type="button">SKIP</button></div><div class="case-reel-window"><div id="case-reel-track" class="case-reel-track"></div></div><div id="case-reel-result" class="case-reel-result" aria-live="polite"></div><div id="case-reward-preview" class="case-reward-preview" aria-label="3D reward preview"><i></i></div></div></div>
 
     <!-- ===== TEAM SWITCH OVERLAY (M) ===== -->
@@ -1366,9 +1231,10 @@
         </div>
     </div>
 
-    <aside id="network-diagnostics" class="network-diagnostics" aria-live="polite">
+    <aside id="network-diagnostics" class="network-diagnostics hidden" aria-live="polite">
         <span>NETWORK</span><b id="network-diagnostics-value">OFFLINE</b>
     </aside>
+    <div id="fps-counter" class="fps-counter hidden">0 FPS</div>
     <div id="host-migration-banner" class="host-migration-banner hidden" role="status" aria-live="assertive">
         <span>MATCH PAUSED</span><strong id="host-migration-title">Selecting a new host...</strong>
         <div class="host-migration-track"><i id="host-migration-progress"></i></div>
@@ -1377,51 +1243,12 @@
         <span id="perfect-deflect-tier">PERFECT</span><b id="perfect-deflect-chain">x1</b>
         <small id="perfect-deflect-timing">0 ms</small>
     </aside>
-    <aside id="cosmetic-practice-hud" class="cosmetic-practice-hud hidden" aria-labelledby="cosmetic-practice-name">
-        <header>
-            <span>TRY BEFORE YOU BUY</span>
-            <strong id="cosmetic-practice-balance">0 credits</strong>
-        </header>
-        <div class="cosmetic-practice-copy">
-            <h2 id="cosmetic-practice-name">Custom Canvas</h2>
-            <p id="cosmetic-practice-meta">1/1 - Classic model</p>
-            <p id="cosmetic-practice-status" role="status" aria-live="polite">Preview ready.</p>
-        </div>
-        <div class="cosmetic-practice-cycle" aria-label="Compare character skins">
-            <button id="cosmetic-practice-prev" type="button" aria-label="Previous skin"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg><span>Previous</span></button>
-            <button id="cosmetic-practice-next" type="button"><span>Next</span><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-right"></use></svg></button>
-        </div>
-        <div class="cosmetic-practice-actions">
-            <button id="cosmetic-practice-buy" class="btn btn-primary" type="button">Buy</button>
-            <button id="cosmetic-practice-equip" class="btn btn-secondary" type="button">Equip Skin</button>
-            <button id="cosmetic-practice-exit" class="btn btn-secondary" type="button">Back to Shop</button>
-        </div>
-        <small>Walk the studio to inspect lighting and silhouette. Esc returns to Shop.</small>
-    </aside>
-
     <aside id="practice-lab-hud" class="practice-lab-hud hidden" aria-live="polite">
         <header><span>PRACTICE LAB</span><b id="practice-lab-mode">DEFLECT</b></header>
-        <div class="guided-drill-head"><b id="drill-stage">FREE LAB</b><b id="drill-timer">--:--</b><b id="drill-speed">--</b></div>
-        <div><span>Accuracy <b id="practice-accuracy">0%</b></span><span>Perfect <b id="practice-perfects">0</b></span><span>Best Timing <b id="practice-best">--</b></span></div>
+        <div><span>Accuracy <b id="practice-accuracy">0%</b></span><span>Perfect <b id="practice-perfects">0</b></span><span>Best <b id="practice-best">--</b></span></div>
         <div class="practice-lab-track"><i id="practice-lab-progress"></i></div>
-        <div class="guided-drill-metrics"><span>Hits <b id="drill-hits">0</b></span><span>Directed <b id="drill-directed">0</b></span><span>Perfect <b id="drill-perfect">0</b></span></div>
-        <div class="practice-lab-track drill-stage-track"><i id="drill-stage-progress"></i></div>
-        <small id="practice-hint">R spawn / F reposition / T reset metrics</small>
+        <small>R spawn / F reposition / T reset metrics</small>
     </aside>
-
-    <div id="guided-drill-result" class="guided-drill-result hidden">
-        <div class="guided-drill-result-card">
-            <span class="shell-kicker">SESSION COMPLETE</span>
-            <div class="drill-grade">GRADE <b id="drill-result-grade">D</b></div>
-            <div class="drill-score"><b id="drill-result-score">0</b><span>SCORE</span></div>
-            <div id="drill-result-stages" class="drill-result-stages"></div>
-            <div class="drill-result-actions">
-                <button id="btn-drill-retry" class="btn btn-primary">Retry</button>
-                <button id="btn-drill-free-lab" class="btn btn-secondary">Free Lab</button>
-                <button id="btn-drill-menu" class="btn btn-secondary">Main Menu</button>
-            </div>
-        </div>
-    </div>
 
     <!-- ===== GAME OVER ===== -->
     <div id="game-over-screen" class="screen hidden">
@@ -1448,8 +1275,7 @@
             </div>
 
             <div class="game-over-actions">
-                <div id="rematch-status" class="rematch-status" role="status" aria-live="polite">Instant solo rematch.</div>
-                <button id="btn-play-again" class="btn btn-primary"><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg>Rematch</button>
+                <button id="btn-play-again" class="btn btn-primary"><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg>Play Again</button>
                 <button id="btn-main-menu" class="btn btn-secondary"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Main Menu</button>
             </div>
         </div>
@@ -1478,7 +1304,7 @@
             <div class="stat-card"><div class="stat-value" id="mr-damage">0</div><div class="stat-label">DAMAGE</div></div>
         </div>
         <div class="result-buttons">
-            <button id="btn-match-result-rematch" class="btn btn-primary">REMATCH</button>
+            <button class="btn btn-primary" onclick="location.reload()">PLAY AGAIN</button>
         </div>
     </div>
 
@@ -1517,9 +1343,8 @@
                     </div>
                 </div>
                 <div class="pg-buttons">
-                    <div id="pg-rematch-status" class="rematch-status" role="status" aria-live="polite">Instant solo rematch.</div>
-                    <button id="pg-play-again" class="btn btn-primary"><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg>Rematch</button>
-                    <button id="pg-lobby" class="btn btn-secondary"><svg class="ui-icon" aria-hidden="true"><use href="#i-globe"></use></svg>Return to Lobby</button>
+                    <button id="pg-play-again" class="btn btn-primary"><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg>Play Again</button>
+                    <button id="pg-lobby" class="btn btn-secondary"><svg class="ui-icon" aria-hidden="true"><use href="#i-globe"></use></svg>Lobby</button>
                     <button id="pg-main-menu" class="btn btn-secondary"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Main Menu</button>
                 </div>
             </div>

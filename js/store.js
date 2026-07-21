@@ -113,16 +113,16 @@ const DEFAULTS = {
     movementTrials: { best: {}, rewarded: [] },
     customMaps: [],
     crosshairSettings: {
-        style: 'cross',
-        color: '#36d8ca',
+        style: 'dot',
+        color: '#00ff88',
         size: 12,
         gap: 6,
         thickness: 2,
         dot: true,
-        outline: true,
+        outline: false,
         outlineThickness: 1,
         opacity: 1,
-        dynamicGap: 6
+        dynamicGap: 0
     },
     mouseSensitivity: 2,
     rankedState: createRankedState(),
@@ -131,7 +131,7 @@ const DEFAULTS = {
     experimentalNetcode: { ...DEFAULT_NETCODE },
     settings: {
         sensitivity: 2, volume: 50, musicVolume: 2, soundVolume: 50, botDifficulty: 'hard', fov: 75,
-        quality: 'medium', autoQuality: true, publicDiagnostics: true, reduceMotion: false, screenShake: true,
+        quality: 'medium', autoQuality: true, publicDiagnostics: false, reduceMotion: false, screenShake: true,
         screenFlash: true, highContrast: false, colorBlind: 'none', keybinds: {}
     },
     stats: { gamesPlayed: 0, totalWins: 0, totalDeflects: 0, totalHits: 0, bestRally: 0, totalSpent: 0, winStreak: 0, rankedElo: 1000, rankedGames: 0 },

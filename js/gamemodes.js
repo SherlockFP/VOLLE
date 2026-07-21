@@ -65,8 +65,8 @@ export const GAME_MODES = {
     },
     competitive: {
         id: 'competitive', name: 'Competitive', emoji: '🏆',
-        desc: 'First to 3 rounds, overtime if tied.',
-        mutators: { maxRounds: 5, overtime: true }
+        desc: 'First team to 7 round wins takes the match.',
+        mutators: { winTarget: 7 }
     },
     rally_duel: {
         id: RALLY_DUEL_MODE_ID, name: 'Rally Duel', emoji: '1V1',
