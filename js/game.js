@@ -2185,6 +2185,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 ax: aimDir.x, ay: aimDir.y, az: aimDir.z,
                 bx: this.ball.position.x, by: this.ball.position.y, bz: this.ball.position.z,
                 ping: Math.min(250, Math.max(0, this.network?.getPing?.() || 0)),
+                action: this.player.knifeAttackType === 'stab' ? 'stab' : 'slash',
                 flick: { vertical: localFlick?.vertical || 0, horizontal: localFlick?.horizontal || 0, power: localFlick?.power || 0 }
             });
             // Effects
@@ -3913,8 +3914,17 @@ spawnPowerUp() {
             updateEntityCosmetics(p, now / 1000);
             p.attackTimer = Math.max(0, (p.attackTimer || 0) - dt);
             if (p.rightArm) {
-                const targetSwing = p.attackTimer > 0 ? -1.2 : 0;
+                const duration = p.attackType === 'stab' ? 0.42 : 0.34;
+                const progress = 1 - Math.min(1, p.attackTimer / duration);
+                const impact = p.attackTimer > 0 ? Math.sin(progress * Math.PI) : 0;
+                const targetSwing = p.attackTimer > 0
+                    ? (p.attackType === 'stab' ? -0.48 : -1.2) * impact
+                    : 0;
                 p.rightArm.rotation.x += (targetSwing - p.rightArm.rotation.x) * (1 - Math.exp(-18 * dt));
+                if (p.knifeGroup?.userData.weaponType === 'knife') {
+                    p.knifeGroup.rotation.z = -0.15 + (p.attackType === 'stab' ? 0.3 : 1.05) * impact;
+                    p.knifeGroup.position.z = -0.28 - (p.attackType === 'stab' ? 0.22 : 0.05) * impact;
+                }
             }
             const buf = p._posBuffer;
             if (!buf || buf.length < 2) {
@@ -4035,7 +4045,8 @@ spawnPowerUp() {
                 this.ball.state = 'rally';
             }
             p.attacking = true;
-            p.attackTimer = 0.3;
+            p.attackType = data.action === 'stab' ? 'stab' : 'slash';
+            p.attackTimer = p.attackType === 'stab' ? 0.42 : 0.34;
             this.ball.position.copy(clientBallPos);
             const target = this.getAimedEnemy(attackPos, p.aimDir, p.team);
             const remoteTimingMs = this.ball.getPerfectTimingErrorMs();
@@ -4074,6 +4085,7 @@ spawnPowerUp() {
                 peerId: p.peerId,
                 ax: p.aimDir.x, ay: p.aimDir.y, az: p.aimDir.z,
                 attacking: true,
+                action: p.attackType,
                 shot: result.shot,
                 pos: { x: attackPos.x, y: attackPos.y, z: attackPos.z },
                 perfect: isPerfect
@@ -5228,7 +5240,8 @@ spawnPowerUp() {
         const p = isLocal ? this.player : this.remotePlayers.get(playerId);
         if (!p) return;
         p.attacking = true;
-        p.attackTimer = 0.3;
+        p.attackType = data.action === 'stab' ? 'stab' : 'slash';
+        p.attackTimer = p.attackType === 'stab' ? 0.42 : 0.34;
         if (data.ax !== undefined) p.aimDir.set(data.ax, data.ay, data.az).normalize();
         // Track deflector so hit detection candidates work on client
         this.lastDeflector = p;

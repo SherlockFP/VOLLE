@@ -502,6 +502,14 @@ class App {
         </div><button class="btn btn-primary cosmetic-customizer-save">Save loadout</button>`;
     }
 
+    _getKnifeStyle(id) {
+        const base = KNIVES[id] || KNIVES.training;
+        const custom = migrateCosmeticLoadout(this.store.get('cosmeticLoadout')).knife;
+        return custom.id === base.id
+            ? { ...base, patternSeed: custom.patternSeed, wear: custom.wear }
+            : base;
+    }
+
     // Store'dan loadout uygula (karakter + rune + ball skin).
     applyLoadout() {
         const loadout = this.store.get('loadout') || DEFAULT_LOADOUT;
@@ -513,7 +521,7 @@ class App {
         this.game.ball.setSkin(ballSkin);
         const knifeId = this.store.get('equippedKnives')?.[this.player.team] || 'training';
         this.player.knifeId = knifeId;
-        this.player.setKnifeStyle?.(KNIVES[knifeId] || KNIVES.training);
+        this.player.setKnifeStyle?.(this._getKnifeStyle(knifeId));
         this.ui.updateBallSkin?.(ballSkin);
         // FOV
         const fov = this.store.get('settings').fov || 75;
@@ -2317,7 +2325,9 @@ updateCSLobbyInfo();
                 current.ballTrail = document.getElementById('cosmetic-ball-trail')?.value || 'none';
                 current.goalEffect = document.getElementById('cosmetic-goal-effect')?.value || 'none';
                 current.mvpEffect = document.getElementById('cosmetic-mvp-effect')?.value || 'none';
-                this.store.set('cosmeticLoadout', normalizeCosmeticLoadout(current));
+                const saved = normalizeCosmeticLoadout(current);
+                this.store.set('cosmeticLoadout', saved);
+                if (saved.knife.id === this.player.knifeId) this.player.setKnifeStyle?.(this._getKnifeStyle(saved.knife.id));
                 this.ui.showMessage?.('Cosmetic loadout saved.', 1400);
                 return;
             }
@@ -2339,8 +2349,11 @@ updateCSLobbyInfo();
             if (knifeBtn) {
                 const ok = this.store.equipKnife(knifeBtn.dataset.id, knifeBtn.dataset.team);
                 if (ok && knifeBtn.dataset.team === this.player.team) {
+                    const custom = migrateCosmeticLoadout(this.store.get('cosmeticLoadout'));
+                    custom.knife.id = knifeBtn.dataset.id;
+                    this.store.set('cosmeticLoadout', normalizeCosmeticLoadout(custom));
                     this.player.knifeId = knifeBtn.dataset.id;
-                    this.player.setKnifeStyle?.(KNIVES[knifeBtn.dataset.id] || KNIVES.training);
+                    this.player.setKnifeStyle?.(this._getKnifeStyle(knifeBtn.dataset.id));
                 }
                 this.ui.showMessage?.(ok ? `Equipped for ${knifeBtn.dataset.team.toUpperCase()}` : 'This knife cannot be equipped.');
                 this.ui.renderShop(this.store, 'inventory');
@@ -2350,7 +2363,7 @@ updateCSLobbyInfo();
             if (inspectBtn) {
                 const card = inspectBtn.closest('.inventory-card');
                 card?.classList.toggle('inspecting');
-                this._renderCosmeticPreview(card?.querySelector('.knife-preview'), KNIVES[inspectBtn.dataset.id]);
+                this._renderCosmeticPreview(card?.querySelector('.knife-preview'), this._getKnifeStyle(inspectBtn.dataset.id));
                 return;
             }
             const replayButton = e.target.closest('.replay-play, .replay-export, .replay-delete, .replay-highlight, .replay-highlight-copy');

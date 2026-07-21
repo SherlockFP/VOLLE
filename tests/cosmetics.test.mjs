@@ -40,6 +40,9 @@ test('premium cases expose local butterfly and karambit finishes', () => {
     assert.equal(KNIVES.doppler.model, 'butterfly');
     assert.equal(KNIVES.fade.model, 'karambit');
     assert.equal(KNIVES.crimson_web.rarity, 'epic');
+    assert.equal(KNIVES.training.finish, 'satin');
+    assert.equal(KNIVES.tide.model, 'bayonet');
+    assert.ok(Object.values(KNIVES).every(knife => typeof knife.finish === 'string'));
     assert.equal(rollCase('arsenal', () => 0.99).id, 'royal');
 });
 

@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { applyCharacter } from './characters.js';
 import { applyRunes, tickSkillCooldowns, useSkill, DEFAULT_LOADOUT, ULTIMATES } from './skills.js';
 import { createKnifeModel, createRocketLauncherModel, disposeObject3D } from './weapon-models.js';
+import { createKnifeAnimationState, resolveKnifePose, startKnifeAnimation, stepKnifeAnimation } from './knife-animation.js';
 
 const STAMINA_PER_DEFLECT = 7;
 const RAPID_DEFLECT_COST_STEP = 2;
@@ -340,9 +341,11 @@ export class Player {
         this.attackCooldown = 0;
         this.attackDuration = ATTACK_COOLDOWN;
         this.canAttack = true;
-        this.swingAnim = 0;
-        this.knifeInspectTimer = 0;
-        this._lastKnifeTap = -Infinity;
+        this.knifeAnimation = createKnifeAnimationState('classic');
+        this.knifeAttackType = 'slash';
+        this._viewSwayX = 0;
+        this._viewSwayY = 0;
+        this._viewTime = 0;
         this.rocketCooldown = 0;
         this._rocketQueued = false;
         this.stamina = 100;          // ponytail: stamina gate blocks mouse-1 spam
@@ -447,15 +450,26 @@ export class Player {
         this.handMesh.position.set(0, 0, -0.28);
         this.armGroup.add(this.handMesh);
 
-        const gloveGeo = new THREE.SphereGeometry(0.09, 8, 8);
+        const gloveGeo = new THREE.CapsuleGeometry(0.07, 0.09, 4, 8);
         this.gloveMat = this.renderer.createToonMaterial(
             this.team === 'red' ? 0xee5555 : 0x5577dd,
         );
         this.gloveMesh = new THREE.Mesh(gloveGeo, this.gloveMat);
+        this.gloveMesh.rotation.x = Math.PI / 2;
         this.gloveMesh.position.set(0, 0, -0.36);
         this.armGroup.add(this.gloveMesh);
 
-        this.knifeStyle = { id: 'training', color: '#d7f3ff' };
+        this.fingerGroup = new THREE.Group();
+        for (let index = 0; index < 4; index++) {
+            const finger = new THREE.Mesh(new THREE.CapsuleGeometry(0.014, 0.055, 2, 5), this.gloveMat);
+            finger.rotation.x = Math.PI / 2;
+            finger.rotation.z = -0.22;
+            finger.position.set((index - 1.5) * 0.031, -0.045, -0.4);
+            this.fingerGroup.add(finger);
+        }
+        this.armGroup.add(this.fingerGroup);
+
+        this.knifeStyle = { id: 'training', model: 'classic', finish: 'satin', color: '#d7f3ff', accent: '#4e7d99' };
         this.knifeGroup = createKnifeModel(this.knifeStyle);
         this.knifeGroup.position.set(0.08, -0.08, -0.5);
         this.knifeGroup.rotation.set(-0.08, 0.18, -0.34);
@@ -468,7 +482,11 @@ export class Player {
     }
 
     setHandVisible(on) {
+        const wasVisible = this.armGroup.visible;
         this.armGroup.visible = on;
+        if (on && !wasVisible && this.knifeGroup?.userData.weaponType === 'knife') {
+            startKnifeAnimation(this.knifeAnimation, 'draw');
+        }
     }
 
     setKnifeStyle(style = {}) {
@@ -489,6 +507,7 @@ export class Player {
             this.knifeGroup = createKnifeModel(this.knifeStyle);
             this.knifeGroup.position.set(0.08, -0.08, -0.5);
             this.knifeGroup.rotation.set(-0.08, 0.18, -0.34);
+            this.knifeAnimation = createKnifeAnimationState(this.knifeGroup.userData.model);
         }
         this.knifeGroup.visible = visible;
         this.armGroup.add(this.knifeGroup);
@@ -530,31 +549,34 @@ export class Player {
             // Accumulate flick energy (raw pixel motion this frame)
             this.flickX += e.movementX;
             this.flickY += e.movementY; // +down, -up on screen
+            this._viewSwayX = Math.max(-1, Math.min(1, this._viewSwayX + e.movementX * 0.008));
+            this._viewSwayY = Math.max(-1, Math.min(1, this._viewSwayY + e.movementY * 0.008));
         }, { signal });
         document.addEventListener('mousedown', e => {
+            if (isEditableTarget(e.target)) return;
             // ponytail: pointer lock re-activation removed — causes mouse bug during pause
             const state = this.game?.state;
             if (e.button === 0 && this.alive && !this.game?.ui?.spectating && (state === 'PLAYING' || state === 'CELEBRATION')) {
-                this.tryAttack();
+                this.tryAttack('slash');
             }
-            if (e.button === 2 && this.alive && state === 'PLAYING' && this.charId === 'soldier'
-                && this.rocketCooldown <= 0) {
+            if (e.button === 2 && this.alive && state === 'PLAYING' && this.charId === 'soldier' && this.rocketCooldown <= 0) {
                 e.preventDefault();
                 this._rocketQueued = true;
+            } else if (e.button === 2 && this.alive && state === 'PLAYING' && !this.game?.ui?.spectating) {
+                e.preventDefault();
+                this.tryAttack('stab');
             }
         }, { signal });
         document.addEventListener('contextmenu', e => {
-            if (this.game?.state === 'PLAYING' && this.charId === 'soldier') e.preventDefault();
+            if (this.game?.state === 'PLAYING') e.preventDefault();
         }, { signal });
         // ponytail: Q tuşu aktif skill (sadece oyun sırasında)
         document.addEventListener('keydown', e => {
             if (isEditableTarget(e.target)) return;
             if (e.code === 'KeyQ' && this.alive && this.game?.state === 'PLAYING') {
-                const now = performance.now();
-                if (now - this._lastKnifeTap < 300) this.inspectKnife();
-                this._lastKnifeTap = now;
                 this._skillQueued = true;
             }
+            if (e.code === 'KeyI' && this.alive && this.game?.state === 'PLAYING') this.inspectKnife();
         }, { signal });
         document.addEventListener('pointerlockchange', () => {
             this.locked = document.pointerLockElement === this.renderer.domElement;
@@ -566,9 +588,32 @@ export class Player {
     }
 
     inspectKnife() {
-        if (this.charId === 'soldier' || !this.knifeGroup || this.knifeGroup.userData.weaponType !== 'knife') return false;
-        this.knifeInspectTimer = 1;
+        if (this.attackCooldown > 0 || this.charId === 'soldier' || !this.knifeGroup || this.knifeGroup.userData.weaponType !== 'knife') return false;
+        startKnifeAnimation(this.knifeAnimation, 'inspect');
+        this.game?.audio?.playKnife?.('inspect');
         return true;
+    }
+
+    _updateKnifeViewmodel(dt) {
+        stepKnifeAnimation(this.knifeAnimation, dt);
+        const pose = resolveKnifePose(this.knifeAnimation, {
+            time: this._viewTime,
+            speed: this.horizontalSpeed,
+            swayX: this._viewSwayX,
+            swayY: this._viewSwayY
+        });
+        this.armGroup.position.set(...pose.armPosition);
+        this.armGroup.rotation.set(...pose.armRotation);
+        this.knifeGroup.position.set(...pose.knifePosition);
+        this.knifeGroup.rotation.set(...pose.knifeRotation);
+        (this.knifeGroup.userData.inspectParts || []).forEach((part, index) => {
+            const base = part.userData.inspectBase || { x: 0, y: 0, z: 0 };
+            part.rotation.set(base.x, base.y, base.z + (pose.parts[index] || 0));
+        });
+        const grip = pose.action === 'stab' || pose.action === 'slash' ? Math.sin(pose.progress * Math.PI) : 0;
+        this.fingerGroup?.children.forEach((finger, index) => {
+            finger.rotation.z = -0.22 - grip * (0.18 + index * 0.015);
+        });
     }
 
     cleanupInput() {
@@ -589,7 +634,7 @@ export class Player {
     lock() { try { this.renderer.domElement.requestPointerLock(); } catch (_) {} }
     unlock() { if (document.pointerLockElement) document.exitPointerLock(); }
 
-    tryAttack() {
+    tryAttack(action = 'slash') {
         // SPAM PROTECTION: stamina yetersizse veya cooldown varsa attack yok.
         // Mouse-1 spam ile sınırsız top atılamaz.
         if (this._celebNoAttack) return false; // celebration'da loser'lar vuramaz
@@ -610,7 +655,11 @@ export class Player {
         this.attacking = true;
         this.attackCooldown = this.attackDuration;
         this.canAttack = false;
-        this.swingAnim = 1.0;
+        this.knifeAttackType = action === 'stab' ? 'stab' : 'slash';
+        if (this.knifeGroup?.userData.weaponType === 'knife') {
+            startKnifeAnimation(this.knifeAnimation, this.knifeAttackType);
+            this.game?.audio?.playKnife?.(this.knifeAttackType);
+        }
         this._p2pAttackQueued = true; // main.js P2P attack intent yollar
         return true;
     }
@@ -709,10 +758,13 @@ export class Player {
         const decay = Math.exp(-this.flickDecay * dt);
         this.flickX *= decay;
         this.flickY *= decay;
+        const swayDecay = Math.exp(-9 * dt);
+        this._viewSwayX *= swayDecay;
+        this._viewSwayY *= swayDecay;
+        this._viewTime += Math.min(0.1, Math.max(0, dt));
 
         // Attack cooldown
         this.rocketCooldown = Math.max(0, this.rocketCooldown - dt);
-        this.knifeInspectTimer = Math.max(0, this.knifeInspectTimer - dt);
         if (this.attackCooldown > 0) {
             this.attackCooldown -= dt;
             if (this.attackCooldown <= 0) {
@@ -721,35 +773,11 @@ export class Player {
             }
         }
 
-        // Q Q inspect takes priority over the normal swing pose.
-        if (this.knifeInspectTimer > 0 && this.knifeGroup?.userData.weaponType === 'knife') {
-            const progress = 1 - this.knifeInspectTimer;
-            const spin = Math.sin(progress * Math.PI) * Math.PI * 2;
-            this.armGroup.rotation.x = -0.16;
-            this.armGroup.position.set(0.015, -0.28, -0.15);
-            this.knifeGroup.rotation.set(0.28 + spin * 0.18, 0.28 + spin, -0.2 + spin * 0.42);
-            const parts = this.knifeGroup.userData.inspectParts || [];
-            parts.forEach((part, index) => { part.rotation.z = (index ? -1 : 1) * Math.sin(progress * Math.PI * 3) * 0.78; });
-        // Swing anim
-        } else if (this.swingAnim > 0) {
-            this.swingAnim -= dt * 6;
-            if (this.swingAnim < 0) this.swingAnim = 0;
-            const swing = Math.sin(this.swingAnim * Math.PI) * 0.7;
-            this.armGroup.rotation.x = -swing;
-            this.armGroup.position.z = -0.3 - swing * 0.3;
-            if (this.knifeGroup?.userData.weaponType === 'knife') {
-                this.knifeGroup.rotation.z = -0.34 + swing * 1.25;
-                this.knifeGroup.rotation.x = -0.08 - swing * 0.4;
-            }
+        if (this.knifeGroup?.userData.weaponType === 'knife') {
+            this._updateKnifeViewmodel(dt);
         } else {
-            const bob = Math.sin(performance.now() / 600) * 0.008;
-            this.armGroup.position.y = -0.3 + bob;
-            this.armGroup.rotation.x = 0;
-            this.armGroup.position.z = -0.3;
-            if (this.knifeGroup?.userData.weaponType === 'knife') {
-                this.knifeGroup.rotation.set(-0.08, 0.18, -0.34);
-                (this.knifeGroup.userData.inspectParts || []).forEach(part => { part.rotation.z = 0; });
-            }
+            this.armGroup.position.set(0.25, -0.3, -0.3);
+            this.armGroup.rotation.set(0, 0, 0);
         }
 
         // Movement (chill yavaşlatması uygulanır)

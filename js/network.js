@@ -1872,6 +1872,7 @@ export class Network {
                 return typeof data.name === 'string'
                     && typeof data.x === 'number'
                     && typeof data.y === 'number'
+                    && (data.action === undefined || data.action === 'slash' || data.action === 'stab')
                     && (data.ping === undefined || (Number.isFinite(data.ping) && data.ping >= 0 && data.ping <= 250));
             case 'position':
                 return isValidPositionPacket(data);

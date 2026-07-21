@@ -688,6 +688,15 @@ test('host ignores gameplay packets until transport completes admission', () => 
     assert.equal(attacks, 0);
 });
 
+test('attack packets only accept supported knife actions', () => {
+    const network = new Network({});
+    const base = { type: 'attack', name: 'A', x: 0, y: 0 };
+    assert.equal(network._validateMsg({ ...base, action: 'slash' }), true);
+    assert.equal(network._validateMsg({ ...base, action: 'stab' }), true);
+    assert.equal(network._validateMsg({ ...base, action: 'inspect' }), false);
+    assert.equal(network._validateMsg({ ...base, action: { value: 'stab' } }), false);
+});
+
 test('host rejects mesh connections and client requires host-announced identity', () => {
     const host = new Network({});
     host.isHost = true;

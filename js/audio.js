@@ -216,6 +216,23 @@ export class Audio {
     }
 
     // Soft, rounded "pock" on deflect — varies by shot type, never harsh.
+    playKnife(action = 'slash') {
+        if (!this.ctx || !this.masterGain) return;
+        const t = this.ctx.currentTime;
+        const duration = action === 'inspect' ? 0.12 : action === 'stab' ? 0.16 : 0.2;
+        const oscillator = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        oscillator.type = action === 'inspect' ? 'sine' : 'triangle';
+        oscillator.frequency.setValueAtTime(action === 'inspect' ? 1450 : 620, t);
+        oscillator.frequency.exponentialRampToValueAtTime(action === 'stab' ? 260 : 190, t + duration);
+        gain.gain.setValueAtTime(action === 'inspect' ? 0.035 : 0.055, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
+        oscillator.connect(gain);
+        gain.connect(this.masterGain);
+        oscillator.start(t);
+        oscillator.stop(t + duration + 0.01);
+    }
+
     playDeflect(shot = 'flat') {
         if (!this.ctx) return;
         const t = this.ctx.currentTime;

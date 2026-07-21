@@ -10,20 +10,20 @@ const CASE_BALLS = Object.freeze({
 });
 
 export const KNIVES = Object.freeze({
-    training: Object.freeze({ id: 'training', name: 'Training Edge', rarity: 'common', model: 'classic', color: '#d7f3ff', accent: '#4e7d99', teams: ['red', 'blue'] }),
-    tide: Object.freeze({ id: 'tide', name: 'Tidal Fang', rarity: 'rare', model: 'classic', color: '#36d8ca', accent: '#1673a3', teams: ['blue'] }),
-    flare: Object.freeze({ id: 'flare', name: 'Solar Talon', rarity: 'rare', model: 'classic', color: '#ff6b5f', accent: '#ffad52', teams: ['red'] }),
-    prism: Object.freeze({ id: 'prism', name: 'Prism Breaker', rarity: 'epic', model: 'butterfly', color: '#b77dff', accent: '#5a2f9d', teams: ['red', 'blue'] }),
-    sherlock: Object.freeze({ id: 'sherlock', name: 'Sherlock Signature', rarity: 'legendary', model: 'karambit', color: '#ffd36b', accent: '#7b4c11', teams: ['red', 'blue'] }),
-    doppler: Object.freeze({ id: 'doppler', name: 'Butterfly | Emerald Doppler', rarity: 'legendary', model: 'butterfly', color: '#28e092', accent: '#075f4d', teams: ['red', 'blue'] }),
-    fade: Object.freeze({ id: 'fade', name: 'Karambit | Fade', rarity: 'legendary', model: 'karambit', color: '#ffbd56', accent: '#f05ca8', teams: ['red', 'blue'] }),
-    crimson_web: Object.freeze({ id: 'crimson_web', name: 'Karambit | Crimson Web', rarity: 'epic', model: 'karambit', color: '#d92f4d', accent: '#4a0918', teams: ['red', 'blue'] }),
-    obsidian: Object.freeze({ id: 'obsidian', name: 'Obsidian Rift', rarity: 'epic', model: 'karambit', color: '#181124', accent: '#9b5cff', teams: ['red', 'blue'] }),
-    aurora: Object.freeze({ id: 'aurora', name: 'Aurora Butterfly', rarity: 'legendary', model: 'butterfly', color: '#58f2d5', accent: '#ef72ff', teams: ['red', 'blue'] }),
-    pixel_edge: Object.freeze({ id: 'pixel_edge', name: 'Pixel Edge', rarity: 'rare', model: 'classic', color: '#59e5df', accent: '#166a78', teams: ['red', 'blue'] }),
-    icefang: Object.freeze({ id: 'icefang', name: 'Frost Fang', rarity: 'epic', model: 'karambit', color: '#dffbff', accent: '#398bd1', teams: ['blue'] }),
-    dragonclaw: Object.freeze({ id: 'dragonclaw', name: 'Dragon Claw', rarity: 'legendary', model: 'karambit', color: '#ff7d32', accent: '#5c0909', teams: ['red'] }),
-    reactor: Object.freeze({ id: 'reactor', name: 'Reactor Butterfly', rarity: 'legendary', model: 'butterfly', color: '#b5ff42', accent: '#174d1d', teams: ['red', 'blue'] })
+    training: Object.freeze({ id: 'training', name: 'Arena Standard', rarity: 'common', model: 'classic', finish: 'satin', color: '#d7f3ff', accent: '#4e7d99', teams: ['red', 'blue'] }),
+    tide: Object.freeze({ id: 'tide', name: 'Tidal Fang', rarity: 'rare', model: 'bayonet', finish: 'tide', color: '#36d8ca', accent: '#1673a3', teams: ['blue'] }),
+    flare: Object.freeze({ id: 'flare', name: 'Solar Talon', rarity: 'rare', model: 'bayonet', finish: 'ember', color: '#ff6b5f', accent: '#ffad52', teams: ['red'] }),
+    prism: Object.freeze({ id: 'prism', name: 'Prism Breaker', rarity: 'epic', model: 'butterfly', finish: 'prism', color: '#b77dff', accent: '#5a2f9d', teams: ['red', 'blue'] }),
+    sherlock: Object.freeze({ id: 'sherlock', name: 'Clockwork Signature', rarity: 'legendary', model: 'karambit', finish: 'brass', color: '#ffd36b', accent: '#7b4c11', teams: ['red', 'blue'] }),
+    doppler: Object.freeze({ id: 'doppler', name: 'Emerald Flux', rarity: 'legendary', model: 'butterfly', finish: 'aurora', color: '#28e092', accent: '#075f4d', teams: ['red', 'blue'] }),
+    fade: Object.freeze({ id: 'fade', name: 'Sunset Arc', rarity: 'legendary', model: 'karambit', finish: 'sunset', color: '#ffbd56', accent: '#f05ca8', teams: ['red', 'blue'] }),
+    crimson_web: Object.freeze({ id: 'crimson_web', name: 'Crimson Circuit', rarity: 'epic', model: 'karambit', finish: 'circuit', color: '#d92f4d', accent: '#4a0918', teams: ['red', 'blue'] }),
+    obsidian: Object.freeze({ id: 'obsidian', name: 'Obsidian Rift', rarity: 'epic', model: 'karambit', finish: 'void', color: '#181124', accent: '#9b5cff', teams: ['red', 'blue'] }),
+    aurora: Object.freeze({ id: 'aurora', name: 'Aurora Wings', rarity: 'legendary', model: 'butterfly', finish: 'aurora', color: '#58f2d5', accent: '#ef72ff', teams: ['red', 'blue'] }),
+    pixel_edge: Object.freeze({ id: 'pixel_edge', name: 'Pixel Edge', rarity: 'rare', model: 'bayonet', finish: 'pixel', color: '#59e5df', accent: '#166a78', teams: ['red', 'blue'] }),
+    icefang: Object.freeze({ id: 'icefang', name: 'Frost Fang', rarity: 'epic', model: 'karambit', finish: 'frost', color: '#dffbff', accent: '#398bd1', teams: ['blue'] }),
+    dragonclaw: Object.freeze({ id: 'dragonclaw', name: 'Dragon Claw', rarity: 'legendary', model: 'karambit', finish: 'ember', color: '#ff7d32', accent: '#5c0909', teams: ['red'] }),
+    reactor: Object.freeze({ id: 'reactor', name: 'Reactor Wings', rarity: 'legendary', model: 'butterfly', finish: 'reactor', color: '#b5ff42', accent: '#174d1d', teams: ['red', 'blue'] })
 });
 
 export const CASES = Object.freeze({

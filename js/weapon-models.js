@@ -4,69 +4,181 @@ function mat(color, metalness = 0.2, roughness = 0.55, emissive = 0x000000) {
     return new THREE.MeshStandardMaterial({ color, metalness, roughness, emissive });
 }
 
-export function createKnifeModel(style = {}) {
-    const group = new THREE.Group();
+function finishMaterials(style) {
     const color = new THREE.Color(style.color || '#d7f3ff');
     const accentColor = new THREE.Color(style.accent || style.color || '#4e7d99');
-    const bladeMat = mat(color, 0.88, 0.2, color.clone().multiplyScalar(0.06));
-    const dark = mat(0x101820, 0.6, 0.32);
-    const accent = mat(accentColor, 0.72, 0.24, accentColor.clone().multiplyScalar(0.04));
-    const model = style.model || 'classic';
-
-    const addClassicBlade = (parent, scale = 1) => {
-        const blade = new THREE.Mesh(new THREE.BoxGeometry(0.11 * scale, 0.028 * scale, 0.38 * scale), bladeMat);
-        blade.position.z = -0.2 * scale;
-        const edge = new THREE.Mesh(new THREE.BoxGeometry(0.118 * scale, 0.01 * scale, 0.32 * scale), accent);
-        edge.position.set(0, -0.018 * scale, -0.24 * scale);
-        const tip = new THREE.Mesh(new THREE.ConeGeometry(0.062 * scale, 0.16 * scale, 4), bladeMat);
-        tip.rotation.x = -Math.PI / 2;
-        tip.rotation.z = Math.PI / 4;
-        tip.position.z = -0.47 * scale;
-        parent.add(blade, edge, tip);
+    const finish = style.finish || 'satin';
+    const wear = Math.max(0, Math.min(1, Number(style.wear) || 0));
+    const energetic = ['ember', 'frost', 'reactor', 'aurora'].includes(finish);
+    const spectral = ['prism', 'aurora', 'sunset'].includes(finish);
+    const blade = new THREE.MeshPhysicalMaterial({
+        color,
+        metalness: Math.max(0.58, 0.94 - wear * 0.28),
+        roughness: Math.min(0.72, 0.16 + wear * 0.45),
+        clearcoat: 0.72,
+        clearcoatRoughness: 0.12 + wear * 0.3,
+        iridescence: spectral ? 0.85 : 0,
+        iridescenceIOR: 1.7,
+        emissive: energetic ? color.clone().multiplyScalar(0.11) : color.clone().multiplyScalar(0.025),
+        emissiveIntensity: energetic ? 1.35 : 0.55
+    });
+    const edge = new THREE.MeshPhysicalMaterial({
+        color: accentColor,
+        metalness: 0.9,
+        roughness: Math.min(0.62, 0.12 + wear * 0.42),
+        clearcoat: 0.9,
+        emissive: energetic ? accentColor.clone().multiplyScalar(0.15) : accentColor.clone().multiplyScalar(0.035),
+        emissiveIntensity: energetic ? 1.5 : 0.6
+    });
+    return {
+        blade,
+        edge,
+        dark: mat(0x111820, 0.66, 0.3 + wear * 0.2),
+        grip: mat(style.grip || 0x202a32, 0.38, 0.64),
+        finish,
+        accentColor
     };
+}
 
-    if (model === 'karambit') {
-        const arc = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.033, 6, 20, Math.PI * 1.35), bladeMat);
-        arc.rotation.set(Math.PI / 2, 0.18, -0.54);
-        arc.position.set(0.015, 0.01, -0.2);
-        const edge = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.009, 5, 20, Math.PI * 1.16), accent);
-        edge.rotation.copy(arc.rotation);
-        edge.position.set(0.015, -0.025, -0.2);
-        const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.27, 8), dark);
-        grip.rotation.x = Math.PI / 2;
-        grip.position.z = 0.13;
-        const ring = new THREE.Mesh(new THREE.TorusGeometry(0.065, 0.017, 6, 12), accent);
-        ring.rotation.x = Math.PI / 2;
-        ring.position.z = 0.29;
-        group.add(arc, edge, grip, ring);
-    } else if (model === 'butterfly') {
-        const bladeRoot = new THREE.Group();
-        addClassicBlade(bladeRoot, 0.9);
-        bladeRoot.position.z = -0.04;
-        const left = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.055, 0.34), dark);
-        const right = left.clone();
-        left.position.set(-0.075, -0.01, 0.13);
-        right.position.set(0.075, -0.01, 0.13);
-        left.rotation.z = -0.16;
-        right.rotation.z = 0.16;
-        const latch = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.035, 0.08), accent);
-        latch.position.z = 0.31;
-        group.add(bladeRoot, left, right, latch);
-        group.userData.inspectParts = [left, right, bladeRoot];
-    } else {
-        addClassicBlade(group);
-        const guard = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.05, 0.065), accent);
-        guard.position.z = 0.01;
-        const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.07, 0.24, 8), dark);
-        handle.rotation.x = Math.PI / 2;
-        handle.position.z = 0.15;
-        const pommel = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.05, 8), accent);
-        pommel.rotation.x = Math.PI / 2;
-        pommel.position.z = 0.28;
-        group.add(guard, handle, pommel);
+function bladeGeometry(length, width, profile = 'drop') {
+    const shape = new THREE.Shape();
+    const shoulder = profile === 'bayonet' ? 0.42 : 0.22;
+    const tipBack = profile === 'bayonet' ? 0.9 : 0.76;
+    shape.moveTo(-width * 0.5, 0);
+    shape.lineTo(-width * 0.48, length * shoulder);
+    shape.lineTo(-width * 0.24, length * tipBack);
+    shape.lineTo(0, length);
+    shape.lineTo(width * 0.48, length * (profile === 'bayonet' ? 0.78 : 0.66));
+    shape.lineTo(width * 0.52, 0);
+    shape.closePath();
+    const geometry = new THREE.ExtrudeGeometry(shape, { depth: 0.028, bevelEnabled: true, bevelSize: 0.008, bevelThickness: 0.006, bevelSegments: 2 });
+    geometry.translate(0, 0, -0.014);
+    geometry.rotateX(-Math.PI / 2);
+    geometry.computeVertexNormals();
+    return geometry;
+}
+
+function addBlade(parent, materials, { length = 0.52, width = 0.14, profile = 'drop', z = 0 } = {}) {
+    const blade = new THREE.Mesh(bladeGeometry(length, width, profile), materials.blade);
+    blade.position.z = z;
+    const edge = new THREE.Mesh(new THREE.BoxGeometry(width * 0.72, 0.009, length * 0.62), materials.edge);
+    edge.position.set(width * 0.09, -0.019, z - length * 0.43);
+    edge.rotation.y = profile === 'bayonet' ? -0.045 : -0.08;
+    const fuller = new THREE.Mesh(new THREE.BoxGeometry(width * 0.32, 0.008, length * 0.5), materials.dark);
+    fuller.position.set(-width * 0.12, 0.019, z - length * 0.38);
+    fuller.rotation.y = 0.035;
+    parent.add(blade, edge, fuller);
+    return blade;
+}
+
+function addGripRibs(parent, material, z, count = 5, spread = 0.24) {
+    for (let index = 0; index < count; index++) {
+        const rib = new THREE.Mesh(new THREE.TorusGeometry(0.061, 0.009, 5, 10), material);
+        rib.rotation.x = Math.PI / 2;
+        rib.position.z = z + (index / Math.max(1, count - 1) - 0.5) * spread;
+        parent.add(rib);
+    }
+}
+
+function saveInspectBase(part) {
+    part.userData.inspectBase = {
+        x: part.rotation.x,
+        y: part.rotation.y,
+        z: part.rotation.z
+    };
+    return part;
+}
+
+function addCombatKnife(group, materials, bayonet = false) {
+    addBlade(group, materials, { length: bayonet ? 0.62 : 0.54, width: bayonet ? 0.125 : 0.16, profile: bayonet ? 'bayonet' : 'drop', z: 0.015 });
+    const guard = new THREE.Mesh(new THREE.BoxGeometry(bayonet ? 0.22 : 0.24, 0.055, 0.07), materials.edge);
+    guard.position.z = 0.04;
+    const handle = new THREE.Mesh(new THREE.CapsuleGeometry(0.065, 0.25, 4, 10), materials.grip);
+    handle.rotation.x = Math.PI / 2;
+    handle.position.z = 0.22;
+    const pommel = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.06, 0.065, 10), materials.dark);
+    pommel.rotation.x = Math.PI / 2;
+    pommel.position.z = 0.39;
+    group.add(guard, handle, pommel);
+    addGripRibs(group, materials.edge, 0.22, bayonet ? 6 : 5, 0.23);
+    if (bayonet) {
+        const guardRing = new THREE.Mesh(new THREE.TorusGeometry(0.055, 0.012, 6, 14), materials.edge);
+        guardRing.rotation.x = Math.PI / 2;
+        guardRing.position.set(-0.1, 0, 0.035);
+        group.add(guardRing);
+    }
+}
+
+function addKarambit(group, materials) {
+    const claw = new THREE.Group();
+    const outer = new THREE.Mesh(new THREE.TorusGeometry(0.205, 0.046, 8, 32, Math.PI * 1.24), materials.blade);
+    outer.rotation.set(Math.PI / 2, 0.1, -0.62);
+    const edge = new THREE.Mesh(new THREE.TorusGeometry(0.205, 0.012, 5, 32, Math.PI * 1.12), materials.edge);
+    edge.rotation.copy(outer.rotation);
+    edge.position.y = -0.042;
+    const point = new THREE.Mesh(new THREE.ConeGeometry(0.047, 0.17, 8), materials.blade);
+    point.rotation.set(-Math.PI / 2, 0, -0.7);
+    point.position.set(-0.17, 0, -0.24);
+    claw.add(outer, edge, point);
+    claw.position.set(0.02, 0, -0.22);
+    const handle = new THREE.Mesh(new THREE.CapsuleGeometry(0.072, 0.23, 4, 10), materials.grip);
+    handle.rotation.x = Math.PI / 2;
+    handle.position.z = 0.16;
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.078, 0.02, 8, 18), materials.edge);
+    ring.rotation.x = Math.PI / 2;
+    ring.position.z = 0.36;
+    group.add(saveInspectBase(claw), handle, ring);
+    addGripRibs(group, materials.dark, 0.16, 5, 0.21);
+    group.userData.inspectParts = [claw];
+}
+
+function addButterfly(group, materials) {
+    const bladeRoot = new THREE.Group();
+    addBlade(bladeRoot, materials, { length: 0.5, width: 0.13, profile: 'bayonet', z: 0.01 });
+    const left = new THREE.Group();
+    const right = new THREE.Group();
+    for (const [side, holder] of [[-1, left], [1, right]]) {
+        const rail = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.35), materials.grip);
+        rail.position.set(side * 0.075, 0, 0.2);
+        holder.add(rail);
+        for (let index = 0; index < 3; index++) {
+            const cutout = new THREE.Mesh(new THREE.TorusGeometry(0.021, 0.008, 5, 10), materials.edge);
+            cutout.rotation.x = Math.PI / 2;
+            cutout.position.set(side * 0.075, -0.034, 0.09 + index * 0.1);
+            holder.add(cutout);
+        }
+    }
+    left.rotation.z = -0.08;
+    right.rotation.z = 0.08;
+    const pivot = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.18, 12), materials.edge);
+    pivot.rotation.z = Math.PI / 2;
+    pivot.position.z = 0.035;
+    const latch = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.038, 0.07), materials.dark);
+    latch.position.z = 0.39;
+    group.add(saveInspectBase(bladeRoot), saveInspectBase(left), saveInspectBase(right), pivot, latch);
+    group.userData.inspectParts = [left, right, bladeRoot];
+}
+
+export function createKnifeModel(style = {}) {
+    const group = new THREE.Group();
+    const materials = finishMaterials(style);
+    const model = ['classic', 'bayonet', 'karambit', 'butterfly'].includes(style.model) ? style.model : 'classic';
+    if (model === 'karambit') addKarambit(group, materials);
+    else if (model === 'butterfly') addButterfly(group, materials);
+    else addCombatKnife(group, materials, model === 'bayonet');
+
+    const seed = Math.abs(Math.trunc(Number(style.patternSeed) || 0));
+    if (materials.finish !== 'satin') {
+        for (let index = 0; index < 3; index++) {
+            const band = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.008, 0.2), index % 2 ? materials.edge : materials.blade);
+            band.position.set(((seed + index * 7) % 11 - 5) * 0.008, 0.026, -0.11 - index * 0.1);
+            band.rotation.y = ((seed + index * 13) % 17 - 8) * 0.025;
+            group.add(band);
+        }
     }
     group.userData.weaponType = 'knife';
     group.userData.model = model;
+    group.userData.finish = materials.finish;
     return group;
 }
 
