@@ -392,14 +392,14 @@ const server = http.createServer(async (req, res) => {
         if (!allowRequest(req, res, 'lobbyWrite')) return;
         const b = await readBody(req);
         const mapId = String(b.mapId || '').toLowerCase();
-        if (!b.code || mapId !== 'island') {
+        if (!b.code || mapId !== 'estate') {
             sendJson(res, { error: 'valid code and mapId required' }, 400);
             return;
         }
         socialHubs.set(b.code, {
             code: b.code,
             mapId,
-            mapName: 'Island',
+            mapName: 'Grand Estate',
             hostName: String(b.hostName || 'Host').slice(0, 32),
             players: Math.max(1, Math.min(32, Number(b.players) || 1)),
             updatedAt: Date.now()

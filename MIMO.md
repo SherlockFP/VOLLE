@@ -1,7 +1,7 @@
 # MIMO.md — 2BALL Project Current State
 
-> **Last updated:** 2026-07-19
-> **Status:** Active development. Phase 1 (7/7) complete, Phase 2-4 pending.
+> **Last updated:** 2026-07-21
+> **Status:** Active development. Phase 1 plus Showcase Shop, Cosmetic Studio, and Grand Estate complete; remaining Phase 2-4 backlog pending.
 > **Tech Stack:** Three.js + PeerJS + vanilla JS (ES modules), browser-based 3D dodgeball.
 
 ---
@@ -89,13 +89,13 @@ Key files: `js/ui-theme.js`, `js/settings-controller.js`, `css/ui-tokens.css`, `
 | 11 | Cloud Map (low gravity) | `js/arena.js`, `js/player.js` | Medium |
 | 12 | Jungle Map (water hazard) | `js/arena.js`, `js/game.js` | Medium |
 
-### Phase 3 — UI/Meta (Not Started)
+### Phase 3 — UI/Meta (In Progress)
 
 | # | Feature | Target File | Complexity |
 |---|---------|-------------|------------|
 | 13 | Battlepass System (50 tiers) | `js/store.js`, `js/ui.js` | High |
-| 14 | Enhanced Shop UI (tabs) | `js/ui.js` | Medium |
-| 15 | Practice Range Mode | `js/game.js`, `js/gamemodes.js` | Medium |
+| 14 | Enhanced Shop UI (tabs + live 3D showcase) — Complete | `js/ui.js`, `js/shop-showcase.js` | Medium |
+| 15 | Cosmetic Practice Range Mode — Complete | `js/main.js`, `js/cosmetic-practice.js`, `js/arena.js` | Medium |
 | 16 | Map Ban UI Enhancement | `js/ui.js` | Low |
 
 ### Phase 4 — Optional (Not Started)
@@ -209,7 +209,7 @@ dodgb/
 - Added Source-style bunnyhop feedback, Ctrl+Space+W longjump, speed HUD, landing distance notifications, and crosshair share codes.
 - Added lobby map previews, expanded progression/career presentation, generated shop roster artwork, and `By Sherlock` patch notes.
 - Reduced authoritative background simulation from 128Hz to 60Hz; ball sync is 30Hz and bot sync is 10Hz.
-- Replacement Social Hub map remains pending the user-provided source link.
+- Social Hub now auto-loads into the single original Grand Estate map; the retired island runtime/assets are removed.
 - Public launch still needs production signaling/TURN configuration and multi-peer soak testing.
 
 ## Competitive Rules Pass
@@ -241,6 +241,13 @@ dodgb/
 - Added 10 Hz personal-best ghost paths and an in-game trial HUD.
 - Added automatic replay highlight clips for rallies, eliminations, and rocket jumps.
 - Added a transparent case pity counter with an Epic+ guarantee on the tenth opening.
+
+## Showcase Shop and Cosmetic Studio
+
+- Rebuilt Shop as a wide premium showcase: live Three.js character on the left, scrollable catalog and commerce controls on the right.
+- Avatar preview selection auto-loads `cosmetic_studio`, a hidden no-combat/no-bot practice map with instant skin comparison, purchase, equip, and return-to-Shop controls.
+- Added reusable `js/shop-showcase.js` renderer/rig and pure `js/cosmetic-practice.js` session state.
+- Replaced the retired island Social Hub with one procedural Grand Estate containing walk-through mansions, pools, plaza, statues, local props, collisions, and procedural textures.
 
 ---
 

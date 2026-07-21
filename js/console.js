@@ -78,7 +78,8 @@ export const COMMANDS = {
         args: '<mapid>',
         run: (game, args, log) => {
             const id = args[0];
-            if (!MAPS[id]) { log(`Unknown map: ${id}. Try: ${Object.keys(MAPS).join(', ')}`); return false; }
+            const visibleMaps = Object.keys(MAPS).filter(mapId => !MAPS[mapId]?.hiddenFromRotation);
+            if (!MAPS[id] || MAPS[id].hiddenFromRotation) { log(`Unknown map: ${id}. Try: ${visibleMaps.join(', ')}`); return false; }
             game.selectMap(id);
             log(`Map changed → ${MAPS[id].name}`);
             return true;

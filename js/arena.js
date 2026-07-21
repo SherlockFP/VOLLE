@@ -269,6 +269,32 @@ export const MAPS = {
         gameplay: { mechanics: ['pinball-bounce', 'breakable-glass-chain', 'mega-arena'], fallDeathY: -20 },
         sky: { horizonColor: 0x16485a, sun: false, cloudAmount: 0 }
     },
+    cosmetic_studio: {
+        name: '✨ Cosmetic Studio',
+        courtWidth: 84, courtLength: 104, wallHeight: 24, ceilingHeight: 34,
+        floorRed: 0xeaf7ff, floorBlue: 0xd7edf7, wallColor: 0x72d8dd,
+        skyTop: 0x82cde8, skyBottom: 0xf5fbff, fogColor: 0xe8f7fb,
+        hasOcean: false, hasGlass: true, isCosmeticStudio: true, size: 'medium',
+        weather: 'indoor', openSides: false,
+        practiceOnly: true, hiddenFromRotation: true, noCombat: true, noBots: true,
+        spectator: {
+            bounds: { minX: -42, maxX: 42, minY: 0, maxY: 34, minZ: -52, maxZ: 52 },
+            stands: []
+        },
+        gameplay: {
+            mechanics: ['cosmetic-preview', 'instant-skin-swap', 'comparison-pads', 'no-combat'],
+            combatEnabled: false,
+            botsEnabled: false,
+            ballEnabled: false,
+            playerSpawnZ: 35,
+            fallDeathY: -8
+        },
+        practice: {
+            displayStage: [0, 1.15, -20],
+            comparisonPads: [[-20, 0.06, 17], [0, 0.06, 17], [20, 0.06, 17]]
+        },
+        sky: { horizonColor: 0xffffff, sun: true, sunColor: 0xfff4cf, cloudAmount: 0.08 }
+    },
     temple_sym: {
         name: '🏛️ Temple',
         courtWidth: 62, courtLength: 39, wallHeight: 17, ceilingHeight: 24,
@@ -383,6 +409,7 @@ export const MAP_THEMES = {
     space:        { '--ui-primary': '#d04080', '--ui-secondary': '#4080d0', '--ui-bg': '#0a0a1e', '--ui-accent': '#ff66aa' },
     neon:         { '--ui-primary': '#ff3d81', '--ui-secondary': '#2de2e6', '--ui-bg': '#1a0e2e', '--ui-accent': '#ff44cc' },
     circuit_dome: { '--ui-primary': '#b7ff43', '--ui-secondary': '#35d9cc', '--ui-bg': '#061a2d', '--ui-accent': '#e9ff9a' },
+    cosmetic_studio: { '--ui-primary': '#38c7cf', '--ui-secondary': '#8adff2', '--ui-bg': '#102f42', '--ui-accent': '#f4c95d' },
     dojo:         { '--ui-primary': '#cc9933', '--ui-secondary': '#996633', '--ui-bg': '#1a1410', '--ui-accent': '#ffaa44' },
     garden:       { '--ui-primary': '#44aa66', '--ui-secondary': '#88cc44', '--ui-bg': '#0e1a14', '--ui-accent': '#66ff99' },
     sunset:       { '--ui-primary': '#ff7744', '--ui-secondary': '#ffaa44', '--ui-bg': '#2e1810', '--ui-accent': '#ffaa66' },
@@ -496,7 +523,7 @@ export class Arena {
         this.buildFloor();
         this.buildBoundaryGuides();
         this.buildWalls();
-        this.buildNet();
+        if (!this.config.isCosmeticStudio) this.buildNet();
         if (!this.config.openAir) this.buildCeiling();
         this.buildSkybox();
         this.buildProps();
@@ -524,7 +551,8 @@ export class Arena {
         if (this.config.isVerticalDrop) this.buildVerticalDropProps();
         if (this.config.isStadium) this.buildStadiumProps();
         if (this.config.isPinball) this.buildPinballComplex();
-        this.buildSpectatorStands();
+        if (this.config.isCosmeticStudio) this.buildCosmeticStudio();
+        if (!this.config.isCosmeticStudio) this.buildSpectatorStands();
         this.buildHazardVisuals();
         // Generic open-world env for open-sided maps without specific theming
         if (this.config.openSides && !this.config.isCloud && !this.config.isSpace &&
@@ -548,9 +576,97 @@ export class Arena {
             : (this.config.isJungle || this.config.isBeachOpen) ? 'leaf'
             : (this.config.weather === 'snow') ? 'snow'
             : (this.config.weather === 'rain') ? 'rain'
-            : (this.config.isSpace || this.config.isNeon) ? 'spark'
+            : (this.config.isSpace || this.config.isNeon || this.config.isCosmeticStudio) ? 'spark'
             : 'dust';
         this.addAmbientParticles(particleType);
+    }
+
+    buildCosmeticStudio() {
+        const stageMat = new THREE.MeshPhysicalMaterial({
+            color: 0xf5fbff, roughness: 0.18, metalness: 0.28,
+            clearcoat: 0.9, clearcoatRoughness: 0.12
+        });
+        const cyanGlow = new THREE.MeshBasicMaterial({ color: 0x4fe5ea, transparent: true, opacity: 0.78 });
+        const goldGlow = new THREE.MeshBasicMaterial({ color: 0xffd36a, transparent: true, opacity: 0.8 });
+        const stage = new THREE.Mesh(new THREE.CylinderGeometry(7.5, 8.2, 1, 48), stageMat);
+        stage.position.set(0, 0.5, -20);
+        stage.receiveShadow = true;
+        stage.userData.cosmeticDisplayStage = true;
+        this.add(stage);
+
+        for (const [radius, y, material] of [[8.45, 0.12, cyanGlow], [6.8, 1.03, goldGlow]]) {
+            const ring = new THREE.Mesh(new THREE.TorusGeometry(radius, 0.12, 8, 64), material);
+            ring.rotation.x = Math.PI / 2;
+            ring.position.set(0, y, -20);
+            this.add(ring);
+        }
+
+        const backdropMat = new THREE.MeshPhysicalMaterial({
+            color: 0xbfeef4, emissive: 0x174f62, emissiveIntensity: 0.18,
+            transparent: true, opacity: 0.82, roughness: 0.24, metalness: 0.12,
+            clearcoat: 0.7, side: THREE.DoubleSide
+        });
+        [-12, 0, 12].forEach((x, index) => {
+            const panel = new THREE.Mesh(new THREE.BoxGeometry(10.5, 13, 0.45), backdropMat.clone());
+            panel.position.set(x, 7.2, -35.5 + Math.abs(index - 1) * 1.1);
+            panel.rotation.y = (index - 1) * -0.12;
+            panel.castShadow = true;
+            this.add(panel);
+        });
+
+        const practice = this.config.practice;
+        const previewAnchor = new THREE.Group();
+        previewAnchor.name = 'cosmetic-preview-anchor';
+        previewAnchor.position.fromArray(practice.displayStage);
+        previewAnchor.userData.cosmeticPreviewAnchor = true;
+        this.add(previewAnchor);
+
+        const comparisonAnchors = practice.comparisonPads.map((position, index) => {
+            const pad = new THREE.Mesh(
+                new THREE.CylinderGeometry(4.2, 4.4, 0.22, 40),
+                new THREE.MeshPhysicalMaterial({
+                    color: index === 1 ? 0xf7d779 : 0xa8e9ef,
+                    emissive: index === 1 ? 0x6a4a08 : 0x0b5963,
+                    emissiveIntensity: 0.28, roughness: 0.25, metalness: 0.32, clearcoat: 0.75
+                })
+            );
+            pad.position.fromArray(position);
+            pad.userData.cosmeticPracticePad = index;
+            this.add(pad);
+
+            const ring = new THREE.Mesh(new THREE.TorusGeometry(3.55, 0.09, 8, 48), index === 1 ? goldGlow : cyanGlow);
+            ring.rotation.x = Math.PI / 2;
+            ring.position.set(position[0], position[1] + 0.15, position[2]);
+            this.add(ring);
+
+            const anchor = new THREE.Group();
+            anchor.name = `cosmetic-comparison-anchor-${index}`;
+            anchor.position.set(position[0], position[1] + 0.12, position[2]);
+            anchor.userData.cosmeticComparisonOffset = index - 1;
+            this.add(anchor);
+            return anchor;
+        });
+
+        const galleryMat = new THREE.MeshPhysicalMaterial({
+            color: 0x163c54, emissive: 0x0d5364, emissiveIntensity: 0.2,
+            roughness: 0.34, metalness: 0.42, clearcoat: 0.55
+        });
+        for (const side of [-1, 1]) {
+            for (const z of [-27, -9, 9, 29]) {
+                const frame = new THREE.Mesh(new THREE.BoxGeometry(0.7, 8, 10), galleryMat);
+                frame.position.set(side * 37.5, 5.2, z);
+                frame.castShadow = true;
+                this.add(frame);
+            }
+        }
+
+        const keyLight = new THREE.SpotLight(0xffffff, 2.2, 80, Math.PI / 6, 0.35, 1.2);
+        keyLight.position.set(0, 24, -7);
+        keyLight.target.position.copy(previewAnchor.position);
+        this.add(keyLight);
+        this.add(keyLight.target);
+
+        this.cosmeticStudio = { previewAnchor, comparisonAnchors, stage };
     }
 
     buildPinballComplex() {
@@ -2688,6 +2804,7 @@ export class Arena {
         this._embers = null;
         this._sceneParticles = null;
         this.jumpPads = null;
+        this.cosmeticStudio = null;
         if (this.weather) { this.weather.clear(); this.weather = null; }
     }
 

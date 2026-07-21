@@ -73,7 +73,8 @@ const POWERUP_LIFETIME = 30;
 export const STATES = {
     MENU: 'MENU', LOBBY: 'LOBBY', COUNTDOWN: 'COUNTDOWN',
     PLAYING: 'PLAYING', ROUND_END: 'ROUND_END', GAME_OVER: 'GAME_OVER',
-    CELEBRATION: 'CELEBRATION', PAUSED: 'PAUSED', SOCIAL_HUB: 'SOCIAL_HUB'
+    CELEBRATION: 'CELEBRATION', PAUSED: 'PAUSED', SOCIAL_HUB: 'SOCIAL_HUB',
+    COSMETIC_PRACTICE: 'COSMETIC_PRACTICE'
 };
 
 export class Game {
@@ -1011,7 +1012,7 @@ selectMap(mapId) {
 
     // Banned olmayan map'lerden random seç (startGame sırasında).
     pickRandomMap() {
-        const all = Object.keys(Arena.MAPS || {});
+        const all = Object.keys(Arena.MAPS || {}).filter(id => !Arena.MAPS[id]?.hiddenFromRotation);
         const available = all.filter(id => !this.bannedMaps.has(id));
         if (!available.length) return this.arena.mapId;
         return available[Math.floor(Math.random() * available.length)];
@@ -1031,7 +1032,9 @@ selectMode(modeId) {
 }
 
 getSelectableMaps() {
-    return this._rallyDuel ? [...RALLY_DUEL_MAPS] : Object.keys(Arena.MAPS);
+    return this._rallyDuel
+        ? [...RALLY_DUEL_MAPS]
+        : Object.keys(Arena.MAPS).filter(id => !Arena.MAPS[id]?.hiddenFromRotation);
 }
 
     // Emote göster (player veya bot için).
@@ -3567,7 +3570,7 @@ spawnPowerUp() {
     // --- Map Voting ---
     _startMapVoting() {
         if (this._mapVoteActive) return;
-        const allMaps = Object.keys(Arena.MAPS || {});
+        const allMaps = Object.keys(Arena.MAPS || {}).filter(id => !Arena.MAPS[id]?.hiddenFromRotation);
         if (allMaps.length < 2) return;
         const current = this.arena?.mapId;
         const pool = allMaps.filter(m => m !== current);

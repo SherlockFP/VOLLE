@@ -20,6 +20,8 @@ import { VoiceChat } from './voice.js';
 import { Store } from './store.js';
 import { DEFAULT_LOADOUT } from './skills.js';
 import { AvatarPainter, AVATAR_SKINS } from './avatar.js';
+import { createShowcaseAvatar, ShopShowcaseRenderer } from './shop-showcase.js';
+import { COSMETIC_PRACTICE_MAP_ID, CosmeticPracticeSession } from './cosmetic-practice.js';
 import { CASES, KNIVES } from './cosmetics.js';
 import { createKnifeModel, disposeObject3D } from './weapon-models.js';
 import { MapEditorController } from './map-editor.js';
@@ -113,6 +115,13 @@ class App {
         const voiceMuteToggle = document.getElementById('setting-voice-mute');
         if (voiceMuteToggle) voiceMuteToggle.checked = this.store.get('voiceMuted') === true;
         this.avatarPainter = null;
+        this.shopShowcase = null;
+        this.cosmeticPractice = new CosmeticPracticeSession({
+            currency: this.store.get('currency'),
+            ownedSkinIds: this.store.get('ownedAvatarSkins'),
+            equippedSkinId: this.store.get('equippedAvatarSkin')
+        });
+        this._cosmeticPracticeAvatar = null;
         this.mapEditor = null;
         this.replayView = null;
         this._replaySpectatorGame = null;
@@ -282,6 +291,13 @@ class App {
 
             // Console visible → skip all other handlers
             if (this.gameConsole?.visible) return;
+
+            if (this.cosmeticPractice?.active && e.code === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                this._exitCosmeticPractice();
+                return;
+            }
 
             // While typing in chat, only Enter/Escape matter (handled below).
             if (this.chatOpen) {
@@ -463,6 +479,7 @@ class App {
         this._setupMenuMouse();
 
         this.setupMenuHandlers();
+        this._initShopShowcase();
         this.applyAccessibility();
         this.refreshMetaStats();
         this.store.connectRemote(this.store.get('playerName')).then(connected => {
@@ -479,6 +496,7 @@ class App {
         this.game.console = this.gameConsole; // game loop can check visibility
 
         this.loop();
+        queueMicrotask(() => this._enterSocialLobby('estate', { autoLock: false }));
     }
 
     _renderCosmeticCustomizer(tab) {
@@ -853,6 +871,8 @@ class App {
         bind('btn-shop', () => {
             this.ui.renderShop(this.store, 'chars');
             this.ui.showScreen('shop');
+            this._syncShopShowcase();
+            this.shopShowcase?.start();
         });
 
         bind('btn-battlepass', () => {
@@ -1110,9 +1130,19 @@ class App {
         });
 
         bind('btn-shop-back', () => {
+            this.shopShowcase?.stop();
             this.ui.showScreen('mainMenu');
             this.refreshMetaStats();
         });
+        bind('btn-shop-practice', event => {
+            const skinId = event.currentTarget?.dataset.id || this.store.get('equippedAvatarSkin');
+            this._startCosmeticPractice(skinId);
+        });
+        bind('cosmetic-practice-prev', () => this._selectCosmeticPracticeSkin(-1));
+        bind('cosmetic-practice-next', () => this._selectCosmeticPracticeSkin(1));
+        bind('cosmetic-practice-buy', () => void this._purchaseCosmeticPracticeSkin());
+        bind('cosmetic-practice-equip', () => this._equipCosmeticPracticeSkin());
+        bind('cosmetic-practice-exit', () => this._exitCosmeticPractice());
 
         bind('btn-bp-back', () => {
             this.ui.showScreen('mainMenu');
@@ -2028,7 +2058,7 @@ bind('btn-random-map', () => {
         this.ui.showMessage?.('Only the lobby host can change the map.', 1400);
         return;
     }
-            const keys = Object.keys(Arena.MAPS);
+            const keys = this.game.getSelectableMaps();
             const picked = this.game.pickRandomMap();
             this.carouselIndex = keys.indexOf(picked);
             if (this.carouselIndex < 0) this.carouselIndex = 0;
@@ -2410,6 +2440,7 @@ updateCSLobbyInfo();
         gameContainer.addEventListener('click', () => {
             if ((this.game.state !== STATES.PLAYING
                 && this.game.state !== STATES.CELEBRATION
+                && this.game.state !== STATES.COSMETIC_PRACTICE
                 && this.game.state !== STATES.SOCIAL_HUB) || this.player.locked) return;
             if (this.chatOpen) return;
             const pauseEl = document.getElementById('pause-menu');
@@ -2587,7 +2618,7 @@ updateCSLobbyInfo();
         }
     }
 
-    _enterSocialLobby(mapId = this._socialHubMapId || 'island') {
+    _enterSocialLobby(mapId = this._socialHubMapId || 'estate', { autoLock = true } = {}) {
         if (this.socialLobby.active) return;
         this._longJumpTrack = null;
         const name = document.getElementById('player-name-input')?.value?.trim()
@@ -2628,7 +2659,7 @@ updateCSLobbyInfo();
             status.textContent = `${map.name} - public room active`;
         });
         this._appendSocialLobbyChat('WARRBALL', `Welcome to ${map.name}. Explore and chat with the room.`, true);
-        this.player.lock();
+        if (autoLock) this.player.lock();
     }
 
     _leaveSocialLobby() {
@@ -3636,6 +3667,185 @@ updateCarousel() {
     }
 
     // Practice range — bot yok, sınırsız top, spawn/taşı.
+    _initShopShowcase() {
+        const canvas = document.getElementById('shop-showcase-canvas');
+        if (!canvas || this.shopShowcase) return;
+        try {
+            this.shopShowcase = new ShopShowcaseRenderer(canvas, {
+                characterId: this.store.get('selectedChar'),
+                skinId: this.store.get('equippedAvatarSkin'),
+                autoStart: false
+            });
+        } catch (error) {
+            const status = document.getElementById('shop-showcase-status');
+            if (status) status.textContent = '3D preview unavailable. Catalog controls remain active.';
+        }
+        window.addEventListener('warrball:shop-preview', event => {
+            const detail = event.detail;
+            if (detail?.type !== 'avatar' || !AVATAR_SKINS[detail.id]) return;
+            this._syncShopShowcase(detail.id);
+            if (detail.previewing && !this.cosmeticPractice.active) {
+                queueMicrotask(() => this._startCosmeticPractice(detail.id));
+            }
+        }, { signal: this._mainAbort.signal });
+    }
+
+    _syncShopShowcase(skinId = null) {
+        const selected = skinId
+            || document.getElementById('shop-showcase-stage')?.dataset.skinId
+            || this.store.get('equippedAvatarSkin');
+        this.shopShowcase?.sync({
+            characterId: this.store.get('selectedChar'),
+            skinId: AVATAR_SKINS[selected] ? selected : 'default'
+        });
+        this.shopShowcase?.resize();
+    }
+
+    _syncCosmeticPracticeCommerce() {
+        return this.cosmeticPractice.syncCommerce({
+            currency: this.store.get('currency'),
+            ownedSkinIds: this.store.get('ownedAvatarSkins'),
+            equippedSkinId: this.store.get('equippedAvatarSkin')
+        });
+    }
+
+    _startCosmeticPractice(skinId = this.store.get('equippedAvatarSkin')) {
+        if (!AVATAR_SKINS[skinId]) return false;
+        if (this.cosmeticPractice.active) {
+            this._renderCosmeticPractice(this.cosmeticPractice.selectSkin(skinId));
+            return true;
+        }
+        this._capturePracticeSession();
+        this._syncCosmeticPracticeCommerce();
+        const snapshot = this.cosmeticPractice.open(skinId, 'shop');
+        this.shopShowcase?.stop();
+        this.game.cancelGuidedDrill();
+        this.game.clearPowerUps?.();
+        this.game.affixes?.clearRound();
+        this.game.chaosManager?.clear();
+        this.game.state = STATES.LOBBY;
+        this.game.selectMode('classic');
+        this.game.selectMap(COSMETIC_PRACTICE_MAP_ID);
+        this.player.setTeam('red');
+        this.player.respawn();
+        this.player.position.set(0, this.player.height, 2);
+        this.player.velocity.set(0, 0, 0);
+        this.player.euler.set(0, 0, 0, 'YXZ');
+        this.player.camera.quaternion.setFromEuler(this.player.euler);
+        this.game.bots.forEach(bot => bot.remove());
+        this.game.bots = [];
+        this.game._practiceMode = true;
+        this.game._cosmeticPractice = true;
+        this.game.ball.active = false;
+        this.game.ball.velocity.set(0, 0, 0);
+        this.game.ball.mesh.visible = false;
+        this.game.setState(STATES.COSMETIC_PRACTICE);
+        this.ui.hideAll();
+        this.ui.hideHUD();
+        document.getElementById('practice-lab-hud')?.classList.add('hidden');
+        document.getElementById('cosmetic-practice-hud')?.classList.remove('hidden');
+        document.body.classList.add('cosmetic-practice-active');
+        this.player.setHandVisible(false);
+        this._cosmeticPracticeAvatar = createShowcaseAvatar({
+            characterId: this.store.get('selectedChar'),
+            skinId: snapshot.selectedSkinId
+        });
+        this._cosmeticPracticeAvatar.root.rotation.y = Math.PI;
+        this._cosmeticPracticeAvatar.root.scale.setScalar(1.35);
+        this.arena.cosmeticStudio?.previewAnchor?.add(this._cosmeticPracticeAvatar.root);
+        this._renderCosmeticPractice(snapshot);
+        return true;
+    }
+
+    _renderCosmeticPractice(snapshot = this.cosmeticPractice.snapshot()) {
+        if (!snapshot?.skin) return;
+        this._cosmeticPracticeAvatar?.sync({
+            characterId: this.store.get('selectedChar'),
+            skinId: snapshot.selectedSkinId
+        });
+        const eligibility = snapshot.eligibility;
+        const setText = (id, value) => {
+            const element = document.getElementById(id);
+            if (element) element.textContent = value;
+        };
+        setText('cosmetic-practice-name', snapshot.skin.name);
+        setText('cosmetic-practice-meta', `${snapshot.catalogIndex + 1}/${snapshot.catalogSize} - ${snapshot.skin.model === 'slim' ? 'Slim' : 'Classic'} model`);
+        setText('cosmetic-practice-balance', `${eligibility.balance} credits`);
+        setText('cosmetic-practice-status', eligibility.equipped
+            ? 'Equipped now.'
+            : eligibility.owned
+                ? 'Owned. Equip when ready.'
+                : `Previewing before purchase - ${eligibility.price} credits`);
+        const buy = document.getElementById('cosmetic-practice-buy');
+        if (buy) {
+            buy.disabled = !eligibility.canPurchase;
+            buy.textContent = eligibility.owned ? 'Owned' : eligibility.canPurchase ? `Buy - ${eligibility.price}` : `Need ${eligibility.price} credits`;
+        }
+        const equip = document.getElementById('cosmetic-practice-equip');
+        if (equip) {
+            equip.disabled = !eligibility.canEquip;
+            equip.textContent = eligibility.equipped ? 'Equipped' : 'Equip Skin';
+        }
+    }
+
+    _selectCosmeticPracticeSkin(direction) {
+        if (!this.cosmeticPractice.active) return;
+        const snapshot = direction < 0 ? this.cosmeticPractice.previous() : this.cosmeticPractice.next();
+        this._renderCosmeticPractice(snapshot);
+    }
+
+    async _purchaseCosmeticPracticeSkin() {
+        if (!this.cosmeticPractice.active) return false;
+        const snapshot = this.cosmeticPractice.snapshot();
+        if (!snapshot.eligibility.canPurchase) return false;
+        const button = document.getElementById('cosmetic-practice-buy');
+        if (button) {
+            button.disabled = true;
+            button.setAttribute('aria-busy', 'true');
+            button.textContent = 'Purchasing...';
+        }
+        const purchased = await this.store.purchase('avatar', snapshot.selectedSkinId);
+        button?.removeAttribute('aria-busy');
+        this._renderCosmeticPractice(this._syncCosmeticPracticeCommerce());
+        this.refreshMetaStats();
+        this.ui.showMessage?.(purchased ? `${snapshot.skin.name} purchased.` : 'Purchase failed or item already owned.', 1800);
+        return purchased;
+    }
+
+    _equipCosmeticPracticeSkin() {
+        if (!this.cosmeticPractice.active) return false;
+        const snapshot = this.cosmeticPractice.snapshot();
+        const equipped = this.store.equipAvatarSkin(snapshot.selectedSkinId);
+        if (!equipped) return false;
+        this.initAvatarPainter();
+        this.avatarPainter?.applyPreset(snapshot.selectedSkinId);
+        this._renderCosmeticPractice(this._syncCosmeticPracticeCommerce());
+        this._syncShopShowcase(snapshot.selectedSkinId);
+        this.refreshMetaStats();
+        this.ui.showMessage?.(`${snapshot.skin.name} equipped.`, 1600);
+        return true;
+    }
+
+    _exitCosmeticPractice() {
+        if (!this.cosmeticPractice.active) return false;
+        const returnScreen = this.cosmeticPractice.snapshot().returnScreen;
+        this.cosmeticPractice.close();
+        this._cosmeticPracticeAvatar?.dispose();
+        this._cosmeticPracticeAvatar = null;
+        this.game._cosmeticPractice = false;
+        this._exitPracticeSession();
+        this.game.setState(STATES.MENU);
+        document.getElementById('cosmetic-practice-hud')?.classList.add('hidden');
+        document.body.classList.remove('cosmetic-practice-active');
+        this.player.setHandVisible(true);
+        this.ui.renderShop(this.store, 'avatars');
+        this.ui.showScreen(returnScreen);
+        this._syncShopShowcase();
+        this.shopShowcase?.start();
+        this.player.unlock();
+        return true;
+    }
+
     _capturePracticeSession() {
         if (this._practiceSessionRestore) return;
         this._practiceSessionRestore = {
@@ -5009,9 +5219,10 @@ updateCarousel() {
             || this.game.state === STATES.COUNTDOWN
             || this.game.state === STATES.ROUND_END
             || this.game.state === STATES.CELEBRATION
+            || this.game.state === STATES.COSMETIC_PRACTICE
             || this.game.state === STATES.SOCIAL_HUB)
             && !pauseOpen && !settingsOpen && !this.chatOpen && !socialChatFocused && !teamPopup;
-        if (canLock && !document.pointerLockElement) {
+        if (canLock && this.game.state !== STATES.COSMETIC_PRACTICE && !document.pointerLockElement) {
             if (!this._plRetry || performance.now() - this._plRetry > 500) {
                 this._plRetry = performance.now();
                 try { this.renderer.renderer.domElement.requestPointerLock()?.catch?.(() => {}); } catch (_) {}
@@ -5023,7 +5234,7 @@ updateCarousel() {
         // Hide friends sidebar during gameplay
         const sidebar = document.getElementById('friends-sidebar');
         if (sidebar) {
-            const inGame = this.game.state === STATES.LOBBY || this.game.state === STATES.PLAYING || this.game.state === STATES.COUNTDOWN || this.game.state === STATES.CELEBRATION || this.game.state === STATES.ROUND_END || this.game.state === STATES.GAME_OVER || this.game.state === STATES.SOCIAL_HUB;
+            const inGame = this.game.state === STATES.LOBBY || this.game.state === STATES.PLAYING || this.game.state === STATES.COUNTDOWN || this.game.state === STATES.CELEBRATION || this.game.state === STATES.ROUND_END || this.game.state === STATES.GAME_OVER || this.game.state === STATES.COSMETIC_PRACTICE || this.game.state === STATES.SOCIAL_HUB;
             sidebar.classList.toggle('hidden', inGame);
         }
 
@@ -5082,6 +5293,18 @@ updateCarousel() {
         }
 
         // Killcam camera — free camera orbit around death scene
+        if (this.cosmeticPractice.active && this._cosmeticPracticeAvatar) {
+            const reduceMotion = this.store.get('settings')?.reduceMotion === true
+                || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+            this._cosmeticPracticeAvatar.setPoseTime(performance.now() / 1000, reduceMotion);
+        }
+
+        if (this.game.state === STATES.COSMETIC_PRACTICE) {
+            if (!Spectator.active && !teamPopup) this.player.update(dt);
+            if (!Spectator.active && !teamPopup) this._updateMovementPolish(false);
+            this.game.ball.deactivate();
+        }
+
         if (this.game._killcamActive) {
             this.game._killcamElapsed += dt;
             const t = this.game._killcamElapsed / this.game._killcamDuration;
@@ -5104,6 +5327,7 @@ updateCarousel() {
 
         // Practice mode özel tuşlar
         if (this.game._practiceMode
+            && !this.game._cosmeticPractice
             && !this.game.guidedDrill.active
             && !this.game._guidedDrillResultOpen
             && this.game.state === STATES.PLAYING) {

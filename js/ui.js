@@ -87,6 +87,7 @@ export class UI {
             rules: document.getElementById('hud-competitive-rules')
         };
         this._competitiveHUDKey = '';
+        this._shopPreviewAvatar = null;
         this.initSettings();
     }
 
@@ -1112,13 +1113,98 @@ export class UI {
         }
     }
 
+    _syncShopTabs(tab) {
+        const labels = {
+            chars: 'Characters', live: 'Live Deals', balls: 'Balls', avatars: 'Character Skins',
+            wearables: 'Wearables', cases: 'Cases', inventory: 'Inventory', skills: 'Skills', boosts: 'Boosts'
+        };
+        document.querySelectorAll('#shop-tabs .shop-tab').forEach(button => {
+            const selected = button.dataset.tab === tab;
+            button.classList.toggle('selected', selected);
+            button.setAttribute('aria-selected', String(selected));
+            button.tabIndex = selected ? 0 : -1;
+        });
+        const grid = document.getElementById('shop-grid');
+        const selectedTab = document.querySelector(`#shop-tabs .shop-tab[data-tab="${tab}"]`);
+        if (grid && selectedTab?.id) grid.setAttribute('aria-labelledby', selectedTab.id);
+        const title = document.getElementById('shop-catalog-title');
+        if (title) title.textContent = labels[tab] || 'Collection';
+        const screen = document.getElementById('shop-screen');
+        if (screen) screen.dataset.shopTab = tab;
+    }
+
+    _setShopShowcase(store, skin, previewing = false, announce = false) {
+        const selected = skin || AVATAR_SKINS.default;
+        const equippedId = store.get('equippedAvatarSkin') || 'default';
+        const equipped = selected.id === equippedId;
+        const owned = selected.price === 0 || store.hasAvatarAccess(selected.id);
+        const stage = document.getElementById('shop-showcase-stage');
+        const canvas = document.getElementById('shop-showcase-canvas');
+        const fallback = stage?.querySelector('.shop-showcase-fallback');
+        const name = document.getElementById('shop-selected-name');
+        const meta = document.getElementById('shop-selected-meta');
+        const status = document.getElementById('shop-showcase-status');
+        const practice = document.getElementById('btn-shop-practice');
+
+        if (stage) {
+            stage.dataset.skinId = selected.id;
+            stage.style.setProperty('--showcase-head', selected.head);
+            stage.style.setProperty('--showcase-body', selected.body);
+            stage.style.setProperty('--showcase-arms', selected.arms);
+            stage.style.setProperty('--showcase-legs', selected.legs);
+        }
+        if (canvas) canvas.dataset.skinId = selected.id;
+        if (fallback) fallback.dataset.model = selected.model || 'classic';
+        if (name) name.textContent = selected.name;
+        if (meta) {
+            const state = equipped ? 'Equipped' : owned ? 'Owned' : `${selected.price} credits`;
+            meta.textContent = `${selected.model === 'slim' ? 'Slim' : 'Classic'} model · ${state}`;
+        }
+        if (status) {
+            status.textContent = equipped
+                ? `${selected.name} is equipped.`
+                : owned
+                    ? `${selected.name} is owned and ready to equip.`
+                    : `Previewing ${selected.name}. Purchase keeps it permanently.`;
+        }
+        if (practice) practice.dataset.id = selected.id;
+
+        document.querySelectorAll('[data-shop-preview="avatar"]').forEach(control => {
+            const selectedControl = control.dataset.id === selected.id;
+            control.classList.toggle('is-previewing', selectedControl);
+            if (control.matches('button')) control.setAttribute('aria-pressed', String(selectedControl));
+        });
+
+        const detail = Object.freeze({ type: 'avatar', id: selected.id, skin: selected, equipped, owned, previewing });
+        if (stage?.dispatchEvent && typeof CustomEvent !== 'undefined') {
+            stage.dispatchEvent(new CustomEvent('shop-preview-change', { bubbles: true, detail }));
+        }
+        if (typeof window !== 'undefined' && window.dispatchEvent && typeof CustomEvent !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('warrball:shop-preview', { detail }));
+        }
+        if (announce && status) status.focus?.({ preventScroll: true });
+    }
+
+    _finalizeShopCatalog(grid) {
+        const count = grid.querySelectorAll?.('.shop-card').length || 0;
+        const countEl = document.getElementById('shop-catalog-count');
+        if (countEl) countEl.textContent = `${count} ${count === 1 ? 'item' : 'items'}`;
+        grid.setAttribute?.('aria-busy', 'false');
+    }
+
     // ===== SHOP EKRANI =====
     renderShop(store, tab = 'chars') {
         const grid = document.getElementById('shop-grid');
         const coinsEl = document.getElementById('shop-coins');
         if (coinsEl) coinsEl.textContent = store.get('currency');
         if (!grid) return;
-        grid.innerHTML = '';
+        this._syncShopTabs(tab);
+        grid.setAttribute?.('aria-busy', 'true');
+        if (typeof grid.replaceChildren === 'function') grid.replaceChildren();
+        else grid.innerHTML = '';
+
+        const equippedSkin = AVATAR_SKINS[store.get('equippedAvatarSkin')] || AVATAR_SKINS.default;
+        this._setShopShowcase(store, equippedSkin);
 
         if (tab === 'live') {
             const market = store.getLiveMarket?.() || { offers: [] };
@@ -1127,6 +1213,9 @@ export class UI {
                 : '';
             if (!market.offers?.length) {
                 grid.innerHTML = '<p class="shop-empty">Loading today\'s deals...</p>';
+                const countEl = document.getElementById('shop-catalog-count');
+                if (countEl) countEl.textContent = 'Updating offers';
+                grid.setAttribute?.('aria-busy', 'true');
                 return;
             }
             market.offers.forEach(offer => {
@@ -1151,7 +1240,7 @@ export class UI {
                 const owned = store.ownsCharacter(c.id);
                 const card = document.createElement('div');
                 card.className = `shop-card char-${c.id} ${owned ? 'owned' : ''}`;
-                card.innerHTML = `<div class="char-emoji">${c.emoji}</div><div class="char-name">${c.name}</div><div class="char-desc">${c.desc}</div>${owned ? '<div class="shop-owned">Owned</div>' : `<button class="btn btn-primary btn-small shop-buy" data-type="char" data-id="${c.id}">🪙 ${c.price}</button>`}`;
+                card.innerHTML = `<div class="char-emoji">${c.emoji}</div><div class="char-name">${c.name}</div><div class="char-desc">${c.desc}</div>${owned ? '<div class="shop-owned">Owned</div>' : `<button class="btn btn-primary btn-small shop-buy" data-type="char" data-id="${c.id}">COINS ${c.price}</button>`}`;
                 grid.appendChild(card);
             });
         } else if (tab === 'balls') {
@@ -1161,7 +1250,7 @@ export class UI {
                 const card = document.createElement('div');
                 card.className = `shop-card ball-skin rarity-${b.rarity || 'common'} ${owned ? 'owned' : ''}`;
                 const equipped = store.get('equippedBall') === id;
-                card.innerHTML = `<div class="ball-inspect-stage"><div class="ball-preview" style="background:${'#'+b.color.toString(16).padStart(6,'0')}"></div><span class="ball-inspect-trail" aria-hidden="true"></span></div><div class="char-name">${b.name}</div><button class="btn btn-small ball-inspect" data-id="${id}" aria-pressed="false">Inspect trail</button>${owned ? (equipped ? '<div class="shop-owned">✔ Equipped</div>' : `<button class="btn btn-small shop-equip" data-type="ball" data-id="${id}">🎯 Equip</button>`) : `<button class="btn btn-primary btn-small shop-buy" data-type="ball" data-id="${id}">🪙 150</button>`}`;
+                card.innerHTML = `<div class="ball-inspect-stage"><div class="ball-preview" style="background:${'#'+b.color.toString(16).padStart(6,'0')}"></div><span class="ball-inspect-trail" aria-hidden="true"></span></div><div class="char-name">${b.name}</div><button class="btn btn-small ball-inspect" data-id="${id}" aria-pressed="false">Inspect trail</button>${owned ? (equipped ? '<div class="shop-owned">Equipped</div>' : `<button class="btn btn-small shop-equip" data-type="ball" data-id="${id}">Equip</button>`) : `<button class="btn btn-primary btn-small shop-buy" data-type="ball" data-id="${id}">COINS 150</button>`}`;
                 const preview = card.querySelector('.ball-preview');
                 if (preview) {
                     preview.style.background = '';
@@ -1184,28 +1273,64 @@ export class UI {
                 const owned = store.ownsSkill(s.id);
                 const card = document.createElement('div');
                 card.className = `shop-card ${owned ? 'owned' : ''}`;
-                card.innerHTML = `<div class="skill-emoji">${s.emoji}</div><div class="char-name">${s.name}</div><div class="char-desc">${s.desc}</div>${owned ? '<div class="shop-owned">Owned</div>' : `<button class="btn btn-primary btn-small shop-buy" data-type="skill" data-id="${s.id}">🪙 100</button>`}`;
+                card.innerHTML = `<div class="shop-item-icon" aria-hidden="true"><svg class="ui-icon"><use href="#i-target"></use></svg></div><div class="char-name">${s.name}</div><div class="char-desc">${s.desc}</div>${owned ? '<div class="shop-owned">Owned</div>' : `<button class="btn btn-primary btn-small shop-buy" data-type="skill" data-id="${s.id}">COINS 100</button>`}`;
                 grid.appendChild(card);
             });
         } else if (tab === 'avatars') {
-            Object.values(AVATAR_SKINS).forEach(s => {
-                if (s.id === 'default') return;
+            const visibleSkins = Object.values(AVATAR_SKINS).filter(s => s.id !== 'default');
+            const previewId = AVATAR_SKINS[this._shopPreviewAvatar]?.id || equippedSkin.id;
+            visibleSkins.forEach(s => {
                 const owned = s.price === 0 || store.hasAvatarAccess(s.id);
                 const equipped = store.get('equippedAvatarSkin') === s.id;
-                const card = document.createElement('div');
-                card.className = `shop-card ${owned ? 'owned' : ''}`;
-                card.innerHTML = `<div class="char-emoji">🎨</div><div class="char-name">${s.name}</div><div class="skin-preview" style="--skin-head:${s.head};--skin-body:${s.body};--skin-arms:${s.arms};--skin-legs:${s.legs}"></div>${owned ? (equipped ? '<div class="shop-owned">✔ Equipped</div>' : `<button class="btn btn-small shop-equip" data-type="avatar" data-id="${s.id}">Equip</button>`) : `<button class="btn btn-primary btn-small shop-buy" data-type="avatar" data-id="${s.id}">🪙 ${s.price}</button>`}`;
+                const card = document.createElement('article');
+                card.className = `shop-card avatar-skin-card ${owned ? 'owned' : ''} ${equipped ? 'equipped' : ''}`;
+                card.dataset.shopPreview = 'avatar';
+                card.dataset.id = s.id;
+
+                const select = document.createElement('button');
+                select.type = 'button';
+                select.className = 'shop-preview-select';
+                select.dataset.shopPreview = 'avatar';
+                select.dataset.id = s.id;
+                select.setAttribute('aria-label', `Preview ${s.name}`);
+                select.setAttribute('aria-pressed', String(previewId === s.id));
+                select.innerHTML = `<span class="skin-preview" style="--skin-head:${s.head};--skin-body:${s.body};--skin-arms:${s.arms};--skin-legs:${s.legs}" aria-hidden="true"></span><span class="shop-card-copy"><span class="char-name">${s.name}</span><span class="char-desc">${s.model === 'slim' ? 'Slim' : 'Classic'} player model</span></span><span class="shop-preview-label">Preview</span>`;
+                select.addEventListener('click', () => {
+                    this._shopPreviewAvatar = s.id;
+                    this._setShopShowcase(store, s, true, true);
+                });
+                card.appendChild(select);
+
+                const actions = document.createElement('div');
+                actions.className = 'shop-card-actions';
+                if (equipped) {
+                    const state = document.createElement('div');
+                    state.className = 'shop-owned';
+                    state.textContent = 'Equipped';
+                    actions.appendChild(state);
+                } else {
+                    const action = document.createElement('button');
+                    action.type = 'button';
+                    action.className = owned ? 'btn btn-small shop-equip' : 'btn btn-primary btn-small shop-buy';
+                    action.dataset.type = 'avatar';
+                    action.dataset.id = s.id;
+                    action.textContent = owned ? 'Equip' : `COINS ${s.price}`;
+                    actions.appendChild(action);
+                }
+                if (!owned) {
+                    const trial = document.createElement('button');
+                    trial.type = 'button';
+                    trial.className = 'btn btn-secondary btn-small shop-trial';
+                    trial.dataset.id = s.id;
+                    trial.textContent = '15m Trial';
+                    actions.appendChild(trial);
+                }
+                card.appendChild(actions);
                 grid.appendChild(card);
             });
-            grid.querySelectorAll('.shop-card').forEach((card, index) => {
-                const skin = Object.values(AVATAR_SKINS).filter(item => item.id !== 'default')[index];
-                if (!skin || store.hasAvatarAccess(skin.id)) return;
-                const trial = document.createElement('button');
-                trial.className = 'btn btn-secondary btn-small shop-trial';
-                trial.dataset.id = skin.id;
-                trial.textContent = '15m Trial';
-                card.appendChild(trial);
-            });
+            const selectedSkin = AVATAR_SKINS[previewId] || equippedSkin;
+            this._shopPreviewAvatar = selectedSkin.id;
+            this._setShopShowcase(store, selectedSkin, false);
         } else if (tab === 'wearables') {
             const equipped = store.get('equippedWearables') || {};
             Object.entries(COSMETIC_TYPES).forEach(([type, label]) => {
@@ -1285,6 +1410,7 @@ export class UI {
                 grid.appendChild(card);
             });
         }
+        this._finalizeShopCatalog(grid);
     }
 
     updateContractTracker(daily, store) {
