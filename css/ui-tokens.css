@@ -10,12 +10,40 @@
   --ui-muted: #a4c8cc;
   --ui-primary: #36d8ca;
   --ui-primary-hover: #61eadc;
+  --ui-primary-strong: #1fa89c;
   --ui-info: #70ddff;
   --ui-focus: #9ff6ee;
   --ui-danger: #ff5d72;
   --ui-success: #5ee5b5;
   --ui-warning: #ffc665;
   --ui-shadow: 0 24px 64px rgb(0 10 15 / 0.46);
+
+  /* Elevation scale (dp-style: rest -> raised -> modal/overlay) */
+  --ui-shadow-sm: 0 6px 18px rgb(0 10 15 / 0.28);
+  --ui-shadow-md: var(--ui-shadow);
+  --ui-shadow-lg: 0 34px 90px rgb(0 8 13 / 0.5);
+
+  /* Spacing scale (4px base) */
+  --ui-space-1: 4px;
+  --ui-space-2: 8px;
+  --ui-space-3: 12px;
+  --ui-space-4: 16px;
+  --ui-space-5: 24px;
+  --ui-space-6: 32px;
+  --ui-space-7: 48px;
+
+  /* Corner-radius scale */
+  --ui-radius-sm: 8px;
+  --ui-radius-md: 14px;
+  --ui-radius-lg: 22px;
+  --ui-radius-xl: 30px;
+  --ui-radius-pill: 999px;
+
+  /* Motion scale (paired with .reduce-motion / prefers-reduced-motion below) */
+  --ui-motion-fast: 120ms;
+  --ui-motion-base: 200ms;
+  --ui-motion-slow: 420ms;
+  --ui-ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 :root[data-theme="soft-spectrum"] {
@@ -28,6 +56,7 @@
   --ui-muted: #b1cad3;
   --ui-primary: #62d9d0;
   --ui-primary-hover: #83e9df;
+  --ui-primary-strong: #3aa89e;
   --ui-info: #79ccff;
   --ui-focus: #a6f3e8;
   --ui-danger: #ff83a8;

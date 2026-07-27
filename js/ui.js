@@ -1511,34 +1511,110 @@ export class UI {
     }
 
     // ===== BATTLEPASS EKRANI =====
+    // ponytail: every dynamic label goes through textContent, never innerHTML — no
+    // user-controlled strings render here, but this keeps the whole screen XSS-safe
+    // by convention like the rest of the codebase.
+    _bpRewardIcon(kind) {
+        return kind === 'currency' ? '🪙' : kind === 'ball' ? '🏐' : kind === 'xpboost' ? '⚡' : '✨';
+    }
+
+    _buildBpTierRow(reward, track, bp, hasPremium) {
+        const row = document.createElement('div');
+        const unlocked = bp.tier >= reward.tier;
+        const claimedList = track === 'free' ? bp.claimedFree : bp.claimedPremium;
+        const claimed = claimedList.includes(reward.tier);
+        const locked = track === 'premium' && !hasPremium;
+        row.className = `bp-reward bp-reward-row bp-reward-${track} ${claimed ? 'claimed' : ''} ${!unlocked || locked ? 'locked' : ''}`;
+
+        const label = document.createElement('span');
+        label.textContent = `${this._bpRewardIcon(reward.kind)} ${reward.name}`;
+        row.appendChild(label);
+
+        if (locked) {
+            const lockNote = document.createElement('span');
+            lockNote.className = 'char-price';
+            lockNote.textContent = '🔒 Premium';
+            row.appendChild(lockNote);
+        } else if (unlocked && !claimed) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'btn btn-primary btn-small bp-claim';
+            btn.dataset.tier = String(reward.tier);
+            btn.dataset.track = track;
+            btn.textContent = 'Claim';
+            row.appendChild(btn);
+        } else if (claimed) {
+            const done = document.createElement('span');
+            done.textContent = 'Claimed';
+            row.appendChild(done);
+        }
+        return row;
+    }
+
+    _ensureBpPremiumToggle(store) {
+        const hero = document.querySelector('#battlepass-screen .progression-hero');
+        if (!hero) return;
+        let btn = document.getElementById('bp-premium-buy');
+        if (!btn) {
+            btn = document.createElement('button');
+            btn.type = 'button';
+            btn.id = 'bp-premium-buy';
+            btn.className = 'btn btn-secondary btn-small bp-premium-buy';
+            hero.appendChild(btn);
+        }
+        const bp = store.getBattlepassProgress();
+        if (bp.premium) {
+            btn.textContent = 'Premium unlocked';
+            btn.disabled = true;
+        } else {
+            btn.disabled = false;
+            btn.textContent = `Unlock Premium Track — 🪙 ${store.getBattlepassPremiumPrice()}`;
+        }
+    }
+
     renderBattlepass(store) {
-        const track = document.getElementById('bp-track');
+        const trackEl = document.getElementById('bp-track');
         const tierEl = document.getElementById('bp-tier');
         const xpEl = document.getElementById('bp-xp');
         const bp = store.getBattlepassProgress();
-        if (tierEl) tierEl.textContent = bp.tier;
-        if (xpEl) xpEl.textContent = bp.xp;
-        if (!track) return;
-        track.innerHTML = '';
-        const rewards = store.getBattlepassRewards();
-        const nextReward = rewards.find(reward => reward.tier > bp.tier);
+        const hasPremium = bp.premium === true;
+        if (tierEl) tierEl.textContent = String(bp.tier);
+        if (xpEl) xpEl.textContent = String(bp.xp);
+        const tierLabel = tierEl?.parentElement?.querySelector('small');
+        if (tierLabel) tierLabel.textContent = `tier / 50`;
+        const xpLabel = xpEl?.parentElement?.querySelector('small');
+        const xpNeeded = store.getBattlepassXpForNextTier();
+        if (xpLabel) xpLabel.textContent = xpNeeded ? `XP / ${xpNeeded}` : 'MAX TIER';
+        const seasonLabel = document.querySelector('#battlepass-screen .shell-header .shell-kicker');
+        if (seasonLabel) seasonLabel.textContent = `SEASON ${String(bp.seasonId).padStart(2, '0')}`;
+        this._ensureBpPremiumToggle(store);
+        if (!trackEl) return;
+        trackEl.innerHTML = '';
+        const { free, premium } = store.getBattlepassRewards();
+        const nextFree = free.find(reward => reward.tier > bp.tier);
         const nextEl = document.getElementById('bp-next-reward');
         const ringEl = document.getElementById('bp-progress-ring');
         const ring = document.querySelector('.progression-ring');
-        if (nextEl) nextEl.textContent = nextReward
-            ? `Tier ${nextReward.tier}: ${nextReward.name}`
+        if (nextEl) nextEl.textContent = nextFree
+            ? `Tier ${nextFree.tier}: ${nextFree.name}`
             : 'Season track complete';
-        if (ringEl) ringEl.textContent = `${bp.xp}%`;
-        if (ring) ring.style.setProperty('--bp-progress', `${bp.xp}%`);
-        rewards.forEach(r => {
-            const div = document.createElement('div');
-            const claimed = bp.claimed.includes(r.tier);
-            const unlocked = bp.tier >= r.tier;
-            div.className = `bp-tier ${claimed ? 'claimed' : ''} ${!unlocked ? 'locked' : ''}`;
-            const label = r.type === 'currency' ? `+${r.amount}🪙` : `${r.type === 'character' ? '🦸' : r.type === 'ball' ? '🏐' : r.type === 'skill' ? '⚡' : '🔷'} ${r.name}`;
-            div.innerHTML = `<div class="bp-tier-num">${r.tier}</div><div class="bp-reward">${label}</div>${unlocked && !claimed ? `<button class="btn btn-primary btn-small bp-claim" data-tier="${r.tier}">Claim</button>` : ''}`;
-            track.appendChild(div);
-        });
+        const ringPercent = xpNeeded ? Math.round((bp.xp / xpNeeded) * 100) : 100;
+        if (ringEl) ringEl.textContent = `${ringPercent}%`;
+        if (ring) ring.style.setProperty('--bp-progress', `${ringPercent}%`);
+        for (let tier = 1; tier <= free.length; tier++) {
+            const freeReward = free[tier - 1];
+            const premiumReward = premium[tier - 1];
+            const cell = document.createElement('div');
+            const unlocked = bp.tier >= tier;
+            cell.className = `bp-tier ${!unlocked ? 'locked' : ''}`;
+            const num = document.createElement('div');
+            num.className = 'bp-tier-num';
+            num.textContent = String(tier);
+            cell.appendChild(num);
+            cell.appendChild(this._buildBpTierRow(freeReward, 'free', bp, hasPremium));
+            cell.appendChild(this._buildBpTierRow(premiumReward, 'premium', bp, hasPremium));
+            trackEl.appendChild(cell);
+        }
     }
 
     // ===== ACHIEVEMENTS EKRANI =====

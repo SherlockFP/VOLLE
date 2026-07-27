@@ -2,6 +2,7 @@
 // ponytail: her map tek config objesi, build() mevcut pattern'i takip eder.
 import * as THREE from 'three';
 import { WeatherSystem } from './weather.js';
+import { computeGoalZones } from './goal-mode.js';
 
 // Daha büyük court'lar + aydınlık temalar. dark space/neon → aydınlık palet.
 export const MAPS = {
@@ -431,6 +432,10 @@ export class Arena {
         this.mapId = MAPS[mapId] ? mapId : 'beach';
         this.config = MAPS[this.mapId];
         this.portalsEnabled = options.portalsEnabled !== false;
+        // ponytail: goal geometry only builds when Goal Rush is the active mode.
+        this.goalRushEnabled = !!options.goalRush;
+        this.goalZones = null;
+        this.goalZoneMeshes = null;
 
         this.courtWidth = this.config.courtWidth;
         this.courtLength = this.config.courtLength;
@@ -512,6 +517,7 @@ export class Arena {
             this.buildSkybox();
             this.buildPortals();
             this.buildSpectatorStands();
+            if (this.goalRushEnabled) this.buildGoalZones();
             if (!this.bounds.maxY) this.bounds.maxY = this.ceilingHeight || 30;
             if (this.config.weather && this.config.weather !== 'clear' && this.config.weather !== 'indoor') {
                 this.weather = new WeatherSystem(this.scene, this.bounds);
@@ -562,6 +568,7 @@ export class Arena {
             this.buildOpenEnv();
         }
         this.buildPortals();
+        if (this.goalRushEnabled) this.buildGoalZones();
         this._buildDecorations();
         // Weather — init after scene is built if config has non-clear weather
         if (this.config.weather && this.config.weather !== 'clear' && this.config.weather !== 'indoor') {
@@ -838,6 +845,84 @@ export class Arena {
         }
     }
 
+
+    // Goal Rush — procedural goal frame + glow + floor ring at each end of the court.
+    // Trigger volume (this.goalZones) is derived from this.bounds so it works on
+    // every map without per-map hardcoding; see js/goal-mode.js for the pure math.
+    buildGoalZones() {
+        if (this.goalZones) return;
+        const zones = computeGoalZones(this.bounds);
+        if (!zones) return;
+        this.goalZones = zones;
+        this.goalZoneMeshes = {
+            red: this._buildGoalFrame(zones.red, 0xff4444),
+            blue: this._buildGoalFrame(zones.blue, 0x4488ff)
+        };
+    }
+
+    _buildGoalFrame(zone, color) {
+        const meshes = [];
+        const halfWidth = (zone.maxX - zone.minX) / 2;
+        const height = Math.max(zone.maxY - zone.minY, 0.5);
+        const mouthZ = zone.center.z;
+        const centerX = (zone.minX + zone.maxX) / 2;
+
+        const postMat = new THREE.MeshStandardMaterial({
+            color, emissive: color, emissiveIntensity: 0.4, roughness: 0.4, metalness: 0.3
+        });
+        const postGeo = new THREE.CylinderGeometry(0.18, 0.2, height, 10);
+        [zone.minX, zone.maxX].forEach(x => {
+            const post = new THREE.Mesh(postGeo, postMat);
+            post.position.set(x, zone.minY + height / 2, mouthZ);
+            post.castShadow = true;
+            this.add(post);
+            meshes.push(post);
+        });
+
+        const bar = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.16, 0.16, halfWidth * 2, 10),
+            postMat
+        );
+        bar.rotation.z = Math.PI / 2;
+        bar.position.set(centerX, zone.minY + height, mouthZ);
+        this.add(bar);
+        meshes.push(bar);
+
+        // Glow plane fills the mouth so the scoring target reads clearly at speed.
+        const glow = new THREE.Mesh(
+            new THREE.PlaneGeometry(halfWidth * 2 * 0.92, height * 0.92),
+            new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.22, side: THREE.DoubleSide })
+        );
+        glow.position.set(centerX, zone.minY + height / 2, mouthZ);
+        this.add(glow);
+        meshes.push(glow);
+
+        // Floor ring marks the trigger footprint from above.
+        const ring = new THREE.Mesh(
+            new THREE.RingGeometry(Math.max(halfWidth * 0.75, 0.1), halfWidth * 0.92, 24),
+            new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.5, side: THREE.DoubleSide })
+        );
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.set(centerX, zone.minY + 0.03, mouthZ);
+        this.add(ring);
+        meshes.push(ring);
+
+        return meshes;
+    }
+
+    setGoalRushEnabled(enabled) {
+        this.goalRushEnabled = !!enabled;
+        if (this.goalRushEnabled) {
+            this.buildGoalZones();
+            Object.values(this.goalZoneMeshes || {}).flat().forEach(m => { m.visible = true; });
+        } else if (this.goalZoneMeshes) {
+            Object.values(this.goalZoneMeshes).flat().forEach(m => { m.visible = false; });
+        }
+    }
+
+    getGoalZones() {
+        return this.goalZones;
+    }
     buildDojoProps() {
         // Ahşap fenerler köşelerde
         const lanternGeo = new THREE.BoxGeometry(0.6, 1.2, 0.6);

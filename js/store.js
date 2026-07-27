@@ -23,17 +23,21 @@ import {
 import { createSocialProfile } from './social-service.js';
 import { DEFAULT_NETCODE, normalizeNetcode } from './experimental-netcode.js';
 import { COSMETICS, DEFAULT_WEARABLE_LOADOUT, normalizeWearableLoadout } from './cosmetic-catalog.js';
+import {
+    BALL_PRICES,
+    FREE_TRACK as BATTLEPASS_FREE_TRACK,
+    PREMIUM_TRACK as BATTLEPASS_PREMIUM_TRACK,
+    PREMIUM_PASS_PRICE,
+    addXp as addBattlepassXp,
+    applySeasonRollover as applyBattlepassSeasonRollover,
+    claimReward as claimBattlepassRewardPure,
+    createSeason as createBattlepassSeason,
+    normalizeProgress as normalizeBattlepassProgress,
+    xpForTier as battlepassXpForTier
+} from './battlepass.js';
 
 const KEY = 'dodgball_save_v2';
 const PROFILE_TOKEN_KEY = 'dodgball_profile_token';
-const BALL_PRICES = Object.freeze({
-    fire: 150, ice: 150, lightning: 150, bomb: 150, star: 150, rainbow: 150,
-    plasma: 180, abyss: 180, melon: 180,
-    inferno: 220, frostbite: 220, voltstorm: 260, nebula: 280, creeper: 300,
-    happy: 300, glitch: 340, void_eye: 340, candy: 260, solar: 360, toxic: 240, disco: 320,
-    magma: 380, ocean: 300, honey: 280, dragon: 420, portal: 400,
-    moon: 260, pumpkin: 300, matrix: 340, sakura: 320, blackhole: 460
-});
 
 function buildCharacterProgress() {
     return Object.fromEntries(Object.keys(CHARACTERS).map(id => [id, { level: 1, xp: 0 }]));
@@ -51,25 +55,6 @@ function previousLocalDateKey(value = new Date()) {
     return localDateKey(date);
 }
 
-// Battlepass tier reward'ları (50 tier). Her tier'da bir reward.
-function buildBattlepassRewards() {
-    const rewards = [];
-    const charIds = Object.keys(CHARACTERS).filter(id => id !== 'rally');
-    const ballIds = ['fire','ice','lightning','bomb','star','rainbow'];
-    const skillIds = Object.keys(SKILLS);
-    const runeIds = Object.keys(RUNES);
-    for (let i = 1; i <= 50; i++) {
-        if (i % 10 === 0) rewards.push({ tier: i, type: 'character', id: charIds[(i/10-1) % charIds.length], name: `Character unlock` });
-        else if (i % 5 === 0) rewards.push({ tier: i, type: 'ball', id: ballIds[(i/5-1) % ballIds.length], name: `Ball skin` });
-        else if (i % 3 === 0) rewards.push({ tier: i, type: 'skill', id: skillIds[i % skillIds.length], name: `Skill unlock` });
-        else if (i % 2 === 0) rewards.push({ tier: i, type: 'rune', id: runeIds[(i/2-1) % runeIds.length], name: `Rune unlock` });
-        else rewards.push({ tier: i, type: 'currency', amount: 50, name: `+50 coins` });
-    }
-    return rewards;
-}
-
-const BATTLEPASS_REWARDS = buildBattlepassRewards();
-
 const DEFAULTS = {
     currency: 200,
     gems: 0,
@@ -83,7 +68,7 @@ const DEFAULTS = {
     equippedBall: 'classic',
     ownedBalls: ['classic'],
     loadout: { ...DEFAULT_LOADOUT },
-    battlepass: { tier: 0, xp: 0, claimed: [], premium: false },
+    battlepass: normalizeBattlepassProgress(),
     customAvatar: null,
     ownedAvatarSkins: ['default'],
     equippedAvatarSkin: 'default',
@@ -175,7 +160,7 @@ class StoreClass {
                 crosshairSettings: { ...DEFAULTS.crosshairSettings, ...(parsed.crosshairSettings||{}) },
                 selectedChar: CHARACTERS[parsed.selectedChar] ? parsed.selectedChar : DEFAULTS.selectedChar,
                 characterProgress: { ...DEFAULTS.characterProgress, ...(parsed.characterProgress||{}) },
-                battlepass: { ...DEFAULTS.battlepass, ...(parsed.battlepass||{}) },
+                battlepass: normalizeBattlepassProgress(parsed.battlepass),
                 stats: { ...DEFAULTS.stats, ...(parsed.stats||{}) },
                 rankedState: parsed.rankedState || createRankedState({ elo: Math.round(legacyElo) }),
                 unlockedChars: Object.keys(CHARACTERS),
@@ -474,12 +459,12 @@ class StoreClass {
         }
     }
 
-    // Award coins + xp, handle level-ups + battlepass tier dolum.
+    // Award coins + xp, handle level-ups + battlepass tier fill (this is the
+    // match-end hook: js/main.js calls Store.grant({ currency, xp }) once per game).
     grant({ currency = 0, xp = 0, gems = 0 } = {}) {
         this.data.currency += currency;
         this.data.gems += gems;
         this.data.xp += xp;
-        this.data.battlepass.xp += xp;
         let leveledUp = false;
         let need = this._xpForLevel(this.data.level);
         while (this.data.xp >= need) {
@@ -488,13 +473,46 @@ class StoreClass {
             leveledUp = true;
             need = this._xpForLevel(this.data.level);
         }
-        // Battlepass tier dolum (100xp = 1 tier)
-        while (this.data.battlepass.xp >= 100) {
-            this.data.battlepass.xp -= 100;
-            if (this.data.battlepass.tier < 50) this.data.battlepass.tier++;
-        }
+        this._rolloverBattlepassSeason();
+        const { state } = addBattlepassXp(this.data.battlepass, xp);
+        this.data.battlepass = state;
         this.save();
         return { leveledUp, level: this.data.level };
+    }
+
+    // Rolls the battlepass into a fresh season once the current one has expired.
+    // Tier/xp/claim progress resets; owned cosmetics/balls/currency are untouched
+    // because those live outside `battlepass` and are never cleared here.
+    _rolloverBattlepassSeason() {
+        const season = createBattlepassSeason(this.data.battlepass.seasonId, this.data.battlepass.seasonStartAt);
+        const { progress, season: nextSeason } = applyBattlepassSeasonRollover(this.data.battlepass, season, Date.now());
+        if (nextSeason.id !== season.id) this.data.battlepass = progress;
+    }
+
+    // Applies a resolved reward into the player's persistent inventory using the
+    // same ownership arrays / xp-boost inventory the rest of the store uses.
+    _grantBattlepassReward(reward) {
+        switch (reward.kind) {
+            case 'currency':
+                this.data.currency += reward.amount;
+                break;
+            case 'xpboost': {
+                const userId = this._socialUserId();
+                const boostId = `bp-${this.data.battlepass.seasonId}-${reward.tier}`;
+                try {
+                    this.data.socialState = grantXpBoost(this.data.socialState, {
+                        userId, boostId, quantity: 1, multiplier: reward.multiplier, durationMs: reward.durationMs
+                    });
+                } catch { /* boost already granted this season for this tier — ponytail: no-op */ }
+                break;
+            }
+            case 'ball':
+                if (!this.ownsBall(reward.id)) this.data.ownedBalls.push(reward.id);
+                break;
+            case 'cosmetic':
+                if (!this.ownsCosmetic(reward.id)) this.data.ownedCosmetics.push(reward.id);
+                break;
+        }
     }
 
     _xpForLevel(lvl) { return 100 + (lvl - 1) * 50; }
@@ -858,26 +876,41 @@ class StoreClass {
         return true;
     }
 
-    // Battlepass tier reward claim
-    claimBattlepassReward(tier) {
-        if (tier > this.data.battlepass.tier) return null;
-        if (this.data.battlepass.claimed.includes(tier)) return null;
-        const reward = BATTLEPASS_REWARDS.find(r => r.tier === tier);
-        if (!reward) return null;
-        this.data.battlepass.claimed.push(tier);
-        switch (reward.type) {
-            case 'currency': this.data.currency += reward.amount; break;
-            case 'character': if (!this.ownsCharacter(reward.id)) this.data.unlockedChars.push(reward.id); break;
-            case 'ball': if (!this.ownsBall(reward.id)) this.data.ownedBalls.push(reward.id); break;
-            case 'skill': if (!this.ownsSkill(reward.id)) this.data.ownedSkills.push(reward.id); break;
-            case 'rune': if (!this.data.ownedItems.includes(reward.id)) this.data.ownedItems.push(reward.id); break;
-        }
+    // Battlepass tier reward claim. Idempotent: claiming an already-claimed tier,
+    // an out-of-range tier, or a locked premium tier all return null with no side
+    // effects. `track` is 'free' (default) or 'premium'.
+    claimBattlepassReward(tier, track = 'free') {
+        this._rolloverBattlepassSeason();
+        const hasPremium = this.data.battlepass.premium === true;
+        const result = claimBattlepassRewardPure(this.data.battlepass, Number(tier), track, { hasPremium });
+        if (!result) return null;
+        this.data.battlepass = result.progress;
+        this._grantBattlepassReward(result.reward);
         this.save();
-        return reward;
+        return result.reward;
     }
 
-    getBattlepassRewards() { return BATTLEPASS_REWARDS; }
-    getBattlepassProgress() { return this.data.battlepass; }
+    // One-time purchase that unlocks the premium track for the current season.
+    buyPremiumBattlepass() {
+        if (this.data.battlepass.premium) return false;
+        if (this.data.currency < PREMIUM_PASS_PRICE) return false;
+        this.data.currency -= PREMIUM_PASS_PRICE;
+        this.data.stats.totalSpent = (this.data.stats.totalSpent || 0) + PREMIUM_PASS_PRICE;
+        this.data.battlepass = { ...this.data.battlepass, premium: true };
+        this.save();
+        return true;
+    }
+
+    getBattlepassRewards() { return { free: BATTLEPASS_FREE_TRACK, premium: BATTLEPASS_PREMIUM_TRACK }; }
+    getBattlepassProgress() {
+        this._rolloverBattlepassSeason();
+        return this.data.battlepass;
+    }
+    getBattlepassXpForNextTier() {
+        const tier = this.data.battlepass.tier;
+        return tier >= 50 ? 0 : battlepassXpForTier(tier + 1);
+    }
+    getBattlepassPremiumPrice() { return PREMIUM_PASS_PRICE; }
 
     // İstatistik güncelle + win streak + ranked ELO
     recordGame({ won = false, deflects = 0, hits = 0, rally = 0, ranked = false, opponentElo = 1000, characterId = 'rally', characterXp = 0 } = {}) {

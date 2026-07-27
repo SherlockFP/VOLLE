@@ -6,6 +6,7 @@ import { applyRunes } from './skills.js';
 import { CHAOS_MODES } from './chaos.js';
 import { applyCompetitiveRules, clearCompetitiveRules } from './competitive-rules.js';
 import { RALLY_DUEL_MODE_ID } from './rally-duel.js';
+import { GOAL_RUSH_MODE_ID, DEFAULT_GOAL_RUSH_MUTATORS, DEFAULT_SCORE_TO_WIN, DEFAULT_RESPAWN_DELAY } from './goal-mode.js';
 
 export const GAME_MODES = {
     classic: {
@@ -78,6 +79,11 @@ export const GAME_MODES = {
         desc: 'High-restitution wall play and breakable target chains.',
         mutators: { pinballBounce: true }
     },
+    goal_rush: {
+        id: GOAL_RUSH_MODE_ID, name: 'Goal Rush', emoji: '🥅',
+        desc: 'Topu rakip kaleye sok, sayı kazan. İlk 5 sayı ya da süre sonunda önde olan kazanır. Hızlı respawn.',
+        mutators: { ...DEFAULT_GOAL_RUSH_MUTATORS }
+    },
     ...CHAOS_MODES
 };
 
@@ -147,6 +153,9 @@ export function applyMode(game, modeId) {
     game._noNet = false;
     game._noTeams = false;
     game._rallyDuel = rallyDuel;
+    game._goalRush = false;
+    game._goalScoreToWin = DEFAULT_SCORE_TO_WIN;
+    game._goalRespawnDelay = DEFAULT_RESPAWN_DELAY;
 
     // Ball speed
     if (m.ballSpeedMul) {
@@ -179,6 +188,11 @@ export function applyMode(game, modeId) {
     game._noNet = !!m.noNet;
     game.ball._pinballBounce = !!m.pinballBounce;
     game._noTeams = !!m.noTeams;
+    game._goalRush = !!m.goalRush;
+    game._goalScoreToWin = m.scoreToWin || DEFAULT_SCORE_TO_WIN;
+    game._goalRespawnDelay = Number.isFinite(m.respawnDelay) ? m.respawnDelay : DEFAULT_RESPAWN_DELAY;
+    // ponytail: arena owns the goal-zone geometry; toggle is a no-op if arena/method is absent.
+    game.arena?.setGoalRushEnabled?.(game._goalRush);
 
     if (m.maxRounds) {
         game.scoreboard.setMaxRounds(m.maxRounds);

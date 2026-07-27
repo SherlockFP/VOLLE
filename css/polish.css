@@ -1,4 +1,11 @@
 :root {
+    /* NOTE: intentionally NOT aliased to var(--ui-primary)/var(--ui-bg) —
+       js/arena.js._applyTheme() overwrites those two specific custom
+       properties on :root per active map (HUD recolor per arena). Tying the
+       brand accent to --ui-primary would make kill feed / combo / menu
+       accents drift to the current map's floor color. These stay pinned to
+       the design system's turquoise hue, matched per theme below so dark
+       and soft-spectrum no longer disagree with each other. */
     --accent: #36d8ca;
     --accent-strong: #20bcae;
     --accent-cool: #70ddff;
@@ -6,6 +13,16 @@
     --panel-ink: rgba(5, 24, 31, 0.92);
     --panel-soft: rgba(11, 45, 55, 0.78);
     --line-cyan: rgba(112, 221, 255, 0.22);
+}
+
+:root[data-theme="soft-spectrum"] {
+    --accent: #62d9d0;
+    --accent-strong: #3aa89e;
+    --accent-cool: #79ccff;
+    --accent-glow: rgba(98, 217, 208, 0.32);
+    --panel-ink: rgba(7, 24, 36, 0.92);
+    --panel-soft: rgba(21, 51, 72, 0.78);
+    --line-cyan: rgba(121, 204, 255, 0.22);
 }
 
 body {
@@ -1584,6 +1601,108 @@ body.high-contrast #main-menu :is(.ow-topbar, .ow-showcase, .ow-action-panel, .f
     background-color: rgba(0, 3, 9, 0.96) !important;
 }
 
+/* --- Hero wordmark lockup + launch motion accents --- */
+#main-menu .ow-splash {
+    isolation: isolate;
+}
+
+#main-menu .ow-splash::before {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    left: 8%;
+    right: -12%;
+    bottom: -10%;
+    height: 78%;
+    background: radial-gradient(ellipse at 40% 60%, rgba(94, 231, 247, 0.22), rgba(240, 68, 85, 0.07) 48%, transparent 72%);
+    filter: blur(4px);
+    animation: hero-glow-pulse 5s ease-in-out infinite;
+    pointer-events: none;
+}
+
+#main-menu .ow-kicker {
+    position: relative;
+    padding-left: 20px;
+}
+
+#main-menu .ow-kicker::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 50%;
+    width: 13px;
+    height: 2px;
+    transform: translateY(-50%);
+    background: linear-gradient(90deg, var(--menu-red), var(--menu-blue));
+}
+
+#main-menu .ow-tagline {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+#main-menu .ow-tagline::after {
+    content: "";
+    flex: 1 1 auto;
+    height: 2px;
+    max-width: 96px;
+    background: linear-gradient(90deg, var(--menu-cyan), transparent);
+    opacity: 0.7;
+}
+
+#main-menu .ow-play {
+    position: relative;
+    isolation: isolate;
+}
+
+#main-menu .ow-play::after {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    inset: -6px;
+    border-radius: inherit;
+    box-shadow: 0 0 0 0 rgba(94, 231, 247, 0.35);
+    animation: hero-cta-pulse 3.2s ease-out infinite;
+    pointer-events: none;
+}
+
+#main-menu .ow-play:hover::after,
+#main-menu .ow-play:focus-visible::after {
+    animation-play-state: paused;
+    opacity: 0;
+}
+
+#main-menu .ow-sun-disc {
+    animation: hero-float 6s ease-in-out infinite;
+}
+
+#main-menu .ow-character {
+    animation: hero-float-character 6s ease-in-out infinite;
+    animation-delay: -2.4s;
+}
+
+@keyframes hero-glow-pulse {
+    0%, 100% { opacity: 0.55; }
+    50% { opacity: 0.9; }
+}
+
+@keyframes hero-cta-pulse {
+    0% { box-shadow: 0 0 0 0 rgba(94, 231, 247, 0.35); }
+    70% { box-shadow: 0 0 0 14px rgba(94, 231, 247, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(94, 231, 247, 0); }
+}
+
+@keyframes hero-float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-8px); }
+}
+
+@keyframes hero-float-character {
+    0%, 100% { transform: translateX(-8%) rotate(-3deg) translateY(0); }
+    50% { transform: translateX(-8%) rotate(-3deg) translateY(-6px); }
+}
+
 @keyframes menu-arena-in {
     from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }
@@ -2000,6 +2119,17 @@ body.high-contrast #main-menu :is(.ow-topbar, .ow-showcase, .ow-action-panel, .f
 
     #main-menu :is(.ow-tab, .ow-play, .ow-social-lobby, .ow-sbtn, .ow-link) {
         transition: none;
+    }
+
+    #main-menu .ow-splash::before,
+    #main-menu .ow-play::after,
+    #main-menu .ow-sun-disc,
+    #main-menu .ow-character {
+        animation: none;
+    }
+
+    #main-menu .ow-play::after {
+        opacity: 0;
     }
 }
 .brand-mark {

@@ -2,6 +2,20 @@ html { font-size: calc(16px * var(--ui-scale)); }
 body { color: var(--ui-text); background: var(--ui-bg); }
 button, input, select { min-height: 44px; }
 .screen { max-width: 100vw; max-height: 100dvh; overflow: hidden; }
+
+/* Baseline disabled-state fallback: applies wherever a screen doesn't already
+   define its own :disabled treatment, so no interactive control reads as
+   "just broken" when inactive. More specific rules elsewhere still win. */
+button:disabled,
+input:disabled,
+select:disabled,
+[role="button"][aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.5;
+  filter: saturate(0.7);
+  transform: none;
+  box-shadow: none;
+}
 .settings-overlay { width: 100%; box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr); place-items: center; padding: clamp(8px, 2vw, 24px); }
 .settings-modal { width: min(920px, 100%); max-height: calc(100dvh - 32px); color: var(--ui-text); background: var(--ui-bg-elevated); border-color: var(--ui-border); }
 .settings-scroll { display: block; overflow-y: auto; overscroll-behavior: contain; }

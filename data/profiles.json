@@ -945,5 +945,44 @@
     "createdAt": 1785164197556,
     "updatedAt": 1785165281813,
     "tokenHash": "b9cc1b0f194ed2a281805d6565c728bb96164188553efc185848796e341be1fd"
+  },
+  "859f0896-f853-4153-8c6c-0991406fbddf": {
+    "id": "859f0896-f853-4153-8c6c-0991406fbddf",
+    "playerName": "Player",
+    "currency": 200,
+    "gems": 0,
+    "unlockedChars": [
+      "rally"
+    ],
+    "ownedBalls": [
+      "classic"
+    ],
+    "ownedSkills": [
+      "slow"
+    ],
+    "ownedItems": [],
+    "ownedAvatarSkins": [
+      "default"
+    ],
+    "ownedKnives": [
+      "training"
+    ],
+    "ownedCosmetics": [],
+    "equippedWearables": {
+      "cape": "none",
+      "pet": "none",
+      "shoes": "none",
+      "aura": "none",
+      "impact": "none"
+    },
+    "casePity": {},
+    "caseReceipts": [],
+    "rewardedMatches": [],
+    "purchaseReceipts": [],
+    "premiumTransactions": [],
+    "economyRevision": 0,
+    "createdAt": 1785184998086,
+    "updatedAt": 1785185901787,
+    "tokenHash": "555a39d6b776900aacfb07e7fe3f7ac29585fa0275ec6aae872a14b1b18c5d26"
   }
 }

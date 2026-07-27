@@ -2247,11 +2247,24 @@ updateCSLobbyInfo();
             const claimBtn = e.target.closest('.bp-claim');
             if (claimBtn) {
                 const tier = parseInt(claimBtn.dataset.tier);
-                const reward = this.store.claimBattlepassReward(tier);
+                const track = claimBtn.dataset.track === 'premium' ? 'premium' : 'free';
+                const reward = this.store.claimBattlepassReward(tier, track);
                 if (reward) {
                     this.ui.showMessage?.(`Claimed: ${reward.name}!`);
                     this.ui.renderBattlepass(this.store);
                     this.refreshMetaStats();
+                }
+            }
+            // Battlepass premium track unlock
+            const bpPremiumBtn = e.target.closest('.bp-premium-buy');
+            if (bpPremiumBtn) {
+                const bought = this.store.buyPremiumBattlepass();
+                if (bought) {
+                    this.ui.showMessage?.('Premium Battle Pass unlocked!');
+                    this.ui.renderBattlepass(this.store);
+                    this.refreshMetaStats();
+                } else {
+                    this.ui.showMessage?.('Not enough coins for Premium Battle Pass');
                 }
             }
             // Daily challenge claim

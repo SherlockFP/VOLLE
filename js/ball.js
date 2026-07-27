@@ -221,7 +221,24 @@ export const BALL_SKINS = {
     pumpkin:   { name: 'Grinning Pumpkin',   price: 300, rarity: 'epic',      effect: 'smile',  color: 0xd85d0b, glow: 0xffbd3d, trail: 0xf57c18, starColor: 0x291208, trailStyle: 'ember' },
     matrix:    { name: 'Matrix Code',         price: 340, rarity: 'epic',      effect: 'pixel',  color: 0x071d0e, glow: 0x55ff7c, trail: 0x1fca59, starColor: 0xd3ffdb, burstTrail: true, trailStyle: 'comet' },
     sakura:    { name: 'Sakura Spirit',       price: 320, rarity: 'epic',      effect: 'candy',  color: 0xff8fbd, glow: 0xffe3ef, trail: 0xffafd0, starColor: 0xffffff, trailStyle: 'prism' },
-    blackhole: { name: 'Event Horizon',       price: 460, rarity: 'legendary', effect: 'void',   color: 0x030207, glow: 0x8f5cff, trail: 0x311766, starColor: 0xe9d7ff, burstTrail: true, trailStyle: 'void' }
+    blackhole: { name: 'Event Horizon',       price: 460, rarity: 'legendary', effect: 'void',   color: 0x030207, glow: 0x8f5cff, trail: 0x311766, starColor: 0xe9d7ff, burstTrail: true, trailStyle: 'void' },
+
+    // ponytail: .io shop expansion — 12 new skins (5 rare / 4 epic / 3 legendary).
+    // Cosmetic-only: color/glow/trail/effect fields the renderer already reads.
+    // Legendary entries reuse the existing burstTrail + trailStyle hook (see
+    // _emitTrail/addTrailDot) for a denser afterimage — no new update loop added.
+    copper:         { name: 'Copper Core',      price: 200, rarity: 'rare',      effect: 'pixel', color: 0xb87333, glow: 0xffcd94, trail: 0xd9925b, starColor: 0xfff3e0, trailStyle: 'comet' },
+    blizzard:       { name: 'Blizzard Shard',   price: 230, rarity: 'rare',      effect: 'frost', color: 0xcfefff, glow: 0xffffff, trail: 0xa8e6ff, starColor: 0xffffff, frostTrail: true, trailStyle: 'frost' },
+    ember_wisp:     { name: 'Ember Wisp',       price: 210, rarity: 'rare',      effect: 'flame', color: 0xff6a3d, glow: 0xffcf8a, trail: 0xff8f4d, starColor: 0xffe9b0, trailStyle: 'ember' },
+    neon_dash:      { name: 'Neon Dash',        price: 240, rarity: 'rare',      effect: 'spark', color: 0x39ff88, glow: 0xaaffdd, trail: 0x39ffea, starColor: 0xffffff, trailStyle: 'spark' },
+    bubblegum:      { name: 'Bubblegum Pop',    price: 220, rarity: 'rare',      effect: 'candy', color: 0xff6ec7, glow: 0xffd6f2, trail: 0xff9adb, starColor: 0xffffff, trailStyle: 'prism' },
+    cobalt_storm:   { name: 'Cobalt Storm',     price: 300, rarity: 'epic',      effect: 'spark', color: 0x123a7a, glow: 0x5ec8ff, trail: 0x2f6fd6, starColor: 0xcfe8ff, burstTrail: true, trailStyle: 'spark' },
+    venom:          { name: 'Venom Vial',       price: 310, rarity: 'epic',      effect: 'toxic', color: 0x1f3d17, glow: 0xa6ff3d, trail: 0x5ea62b, starColor: 0xddffb0, trailStyle: 'comet' },
+    circuit:        { name: 'Circuit Break',    price: 340, rarity: 'epic',      effect: 'glitch', color: 0x0a140d, glow: 0x39ff6a, trail: 0x1fca59, starColor: 0xd3ffdb, burstTrail: true, trailStyle: 'plasma' },
+    aurora:         { name: 'Aurora Veil',      price: 290, rarity: 'epic',      effect: 'frost', color: 0x0f3d3a, glow: 0x7dffe0, trail: 0x4fd8c7, starColor: 0xd9fff5, frostTrail: true, trailStyle: 'frost' },
+    phoenix:        { name: 'Phoenix Rebirth',  price: 430, rarity: 'legendary', effect: 'flame', color: 0x5c0b0b, glow: 0xffb020, trail: 0xff5a1f, starColor: 0xffe08a, burstTrail: true, trailStyle: 'ember' },
+    cosmic_serpent: { name: 'Cosmic Serpent',   price: 450, rarity: 'legendary', effect: 'void', color: 0x140430, glow: 0xb35cff, trail: 0x6b21c9, starColor: 0xe6ccff, burstTrail: true, trailStyle: 'void' },
+    prism_king:     { name: 'Prism King',       price: 480, rarity: 'legendary', effect: 'prism', color: 0xffffff, glow: 0xffffff, trail: 0xffffff, starColor: 0xffffff, rainbow: true, burstTrail: true, trailStyle: 'prism' }
 };
 
 export class Ball {

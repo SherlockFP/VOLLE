@@ -6,10 +6,12 @@ const arenaPath = new URL('../js/arena.js', import.meta.url);
 const arenaSource = await readFile(arenaPath, 'utf8');
 const moduleSource = arenaSource
     .replace(/^import \* as THREE from 'three';$/m, 'const THREE = {};')
-    .replace(/^import \{ WeatherSystem \} from '\.\/weather\.js';$/m, 'class WeatherSystem {}');
+    .replace(/^import \{ WeatherSystem \} from '\.\/weather\.js';$/m, 'class WeatherSystem {}')
+    .replace(/^import \{ computeGoalZones \} from '\.\/goal-mode\.js';$/m, 'const computeGoalZones = () => null;');
 
 assert.equal(moduleSource.includes("from 'three'"), false);
 assert.equal(moduleSource.includes("from './weather.js'"), false);
+assert.equal(moduleSource.includes("from './goal-mode.js'"), false);
 
 const {
     MAPS,

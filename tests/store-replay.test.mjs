@@ -12,6 +12,7 @@ globalThis.localStorage = {
 const { Store } = await import('../js/store.js');
 const { ReplayClass } = await import('../js/replay.js');
 const { CHARACTERS } = await import('../js/characters.js');
+const { FREE_TRACK, PREMIUM_TRACK, xpForTier, SEASON_DURATION_MS } = await import('../js/battlepass.js');
 
 test('every class is available without a currency purchase', () => {
     Store.reset();
@@ -207,4 +208,74 @@ test('replay snapshots are throttled and imports require ordered timestamps', ()
     assert.throws(() => replay.importJSON(JSON.stringify({
         events: [{ t: 2, type: 'a' }, { t: 1, type: 'b' }]
     })), /Invalid replay event/);
+});
+
+// ===== Battlepass integration (js/battlepass.js pure logic wired through Store) =====
+
+function cumulativeXp(tier) {
+    let total = 0;
+    for (let t = 1; t <= tier; t++) total += xpForTier(t);
+    return total;
+}
+
+test('Store.grant is the match-end xp hook and fills battlepass tiers via the real curve', () => {
+    Store.reset();
+    assert.equal(Store.getBattlepassProgress().tier, 0);
+    Store.grant({ currency: 0, xp: xpForTier(1) + xpForTier(2) });
+    assert.equal(Store.getBattlepassProgress().tier, 2);
+});
+
+test('claiming a free currency reward grants coins exactly once', () => {
+    Store.reset();
+    const tier = FREE_TRACK.findIndex(r => r.kind === 'currency') + 1;
+    Store.grant({ xp: cumulativeXp(tier) });
+    const before = Store.get('currency');
+    const reward = Store.claimBattlepassReward(tier, 'free');
+    assert.ok(reward && reward.kind === 'currency');
+    assert.equal(Store.get('currency'), before + reward.amount);
+    assert.equal(Store.claimBattlepassReward(tier, 'free'), null, 'second claim is a no-op');
+    assert.equal(Store.get('currency'), before + reward.amount, 'currency does not double-grant');
+});
+
+test('claiming a free ball reward adds it to ownedBalls using the existing ownership mechanism', () => {
+    Store.reset();
+    const ballReward = FREE_TRACK.find(r => r.kind === 'ball');
+    Store.grant({ xp: cumulativeXp(ballReward.tier) });
+    assert.equal(Store.ownsBall(ballReward.id), false);
+    const reward = Store.claimBattlepassReward(ballReward.tier, 'free');
+    assert.equal(reward.id, ballReward.id);
+    assert.equal(Store.ownsBall(ballReward.id), true);
+});
+
+test('premium rewards are locked until the premium pass is purchased', () => {
+    Store.reset();
+    const cosmeticReward = PREMIUM_TRACK.find(r => r.kind === 'cosmetic');
+    Store.grant({ xp: cumulativeXp(cosmeticReward.tier) });
+    assert.equal(Store.claimBattlepassReward(cosmeticReward.tier, 'premium'), null, 'locked without premium');
+    assert.equal(Store.get('currency') >= Store.getBattlepassPremiumPrice(), false);
+    Store.grant({ currency: Store.getBattlepassPremiumPrice() });
+    assert.equal(Store.buyPremiumBattlepass(), true);
+    assert.equal(Store.buyPremiumBattlepass(), false, 'premium purchase is not repeatable');
+    const reward = Store.claimBattlepassReward(cosmeticReward.tier, 'premium');
+    assert.equal(reward.id, cosmeticReward.id);
+    assert.equal(Store.ownsCosmetic(cosmeticReward.id), true);
+});
+
+test('season rollover resets battlepass tier progress but keeps granted cosmetics and balls', () => {
+    Store.reset();
+    const ballReward = FREE_TRACK.find(r => r.kind === 'ball');
+    Store.grant({ xp: cumulativeXp(ballReward.tier) });
+    Store.claimBattlepassReward(ballReward.tier, 'free');
+    assert.equal(Store.ownsBall(ballReward.id), true);
+    const seasonBefore = Store.getBattlepassProgress().seasonId;
+
+    // Force the season to look expired without touching owned inventory.
+    Store.data.battlepass.seasonStartAt = Date.now() - SEASON_DURATION_MS - 1000;
+    Store.save();
+    const progress = Store.getBattlepassProgress();
+
+    assert.equal(progress.seasonId, seasonBefore + 1);
+    assert.equal(progress.tier, 0);
+    assert.deepEqual(progress.claimedFree, []);
+    assert.equal(Store.ownsBall(ballReward.id), true, 'season rollover keeps claimed cosmetics/balls');
 });
