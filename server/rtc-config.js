@@ -30,7 +30,8 @@ function boundedString(value, maxLength = MAX_STRING_FIELD_LENGTH) {
 }
 
 function safeTurnUserId(userId) {
-    const cleaned = String(userId || 'warball').replace(/[^A-Za-z0-9_.-]/g, '');
+    // ponytail: nokta da elenir — path-traversal benzeri userid'ler kimlik üretimine sızmasın.
+    const cleaned = String(userId || 'warball').replace(/[^A-Za-z0-9_-]/g, '');
     return cleaned.slice(0, 64) || 'warball';
 }
 

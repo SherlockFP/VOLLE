@@ -129,10 +129,10 @@ test('turn rate is frame-rate independent and grows per deflection', () => {
     const halfTick = steeringTurnAlpha(1 / 132, 0);
     const compounded = 1 - (1 - halfTick) ** 2;
 
-    assert.ok(Math.abs(oneTick - 0.09) < 1e-12);
+    assert.ok(Math.abs(oneTick - 0.30) < 1e-12);
     assert.ok(Math.abs(compounded - oneTick) < 1e-12);
-    assert.ok(Math.abs(steeringTurnAlpha(1 / 66, 3) - (0.09 + 3 * 0.006)) < 1e-12);
-    assert.equal(steeringTurnAlpha(1 / 66, 999), 0.26);
+    assert.ok(Math.abs(steeringTurnAlpha(1 / 66, 3) - (0.30 + 3 * 0.018)) < 1e-12);
+    assert.equal(steeringTurnAlpha(1 / 66, 999), 0.9);
 });
 
 test('aim routes can target side, back, and above-body positions', () => {
@@ -153,8 +153,8 @@ test('homing gains strength near its target without exceeding its turn cap', () 
     const close = proximityHomingTurnRate(1, 2);
 
     assert.ok(close > far);
-    assert.ok(close <= 4.8);
-    assert.equal(proximityHomingTurnRate(0, 999), 4.8);
+    assert.ok(close <= 7.5);
+    assert.equal(proximityHomingTurnRate(0, 999), 7.5);
 });
 
 test('steering measures distance before normalization and clears route offsets for torso rescue', () => {

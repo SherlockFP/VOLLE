@@ -12,15 +12,15 @@ const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
 export function steeringTurnAlpha(dt, deflections = 0) {
     if (!Number.isFinite(dt) || dt <= 0) return 0;
-    const tickTurn = clamp(0.09 + Math.max(0, deflections) * 0.006, 0, 0.26);
+    const tickTurn = clamp(0.30 + Math.max(0, deflections) * 0.018, 0, 0.9);
     return 1 - Math.pow(1 - tickTurn, dt / STEERING_TICK);
 }
 
 export function proximityHomingTurnRate(distance, homingAge = 0) {
     const safeDistance = Math.max(0, Number.isFinite(distance) ? distance : 9);
     const proximity = 1 - clamp(safeDistance / 9, 0, 1);
-    const ageBonus = clamp(Number.isFinite(homingAge) ? homingAge * 0.08 : 0, 0, 0.6);
-    return clamp(2 + proximity * 2.2 + ageBonus, 2, 4.8);
+    const ageBonus = clamp(Number.isFinite(homingAge) ? homingAge * 0.12 : 0, 0, 0.85);
+    return clamp(3.5 + proximity * 3.4 + ageBonus, 3.5, 7.5);
 }
 
 export function createAimRouteOffset(origin, target, aimDirection) {

@@ -1,85 +1,16 @@
+// tests/shop-showcase.test.mjs — regression coverage for js/shop-showcase.js.
+// Now that createShowcaseAvatar builds on js/character-rig.js, this file loads the module for real
+// (dynamic import, no string-substitution shim) via tests/helpers/three-loader.mjs, which redirects
+// the bare 'three' specifier to tests/helpers/three-stub.mjs -- see that file for why (node:module
+// registerHooks, no CLI flags needed). This also lets the shop-showcase <-> character-rig import
+// cycle exercise for real instead of being papered over by a fake single-file THREE stub.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import { AVATAR_SKINS } from '../js/avatar.js';
-import { CHARACTERS } from '../js/characters.js';
+import { registerThreeStub } from './helpers/three-loader.mjs';
 
-const fakeThree = String.raw`
-class Color {
-    constructor(value = 0) { this.setHex(value); }
-    setHex(value) { this.hex = value; return this; }
-}
-class Object3D {
-    constructor() {
-        this.children = [];
-        this.parent = null;
-        this.name = '';
-        this.userData = {};
-        this.position = { x: 0, y: 0, z: 0, set(x, y, z) { this.x = x; this.y = y; this.z = z; } };
-        this.rotation = { x: 0, y: 0, z: 0, set(x, y, z) { this.x = x; this.y = y; this.z = z; } };
-        this.scale = { x: 1, y: 1, z: 1, set(x, y, z) { this.x = x; this.y = y; this.z = z; } };
-    }
-    add(...items) { for (const item of items) { item.parent = this; this.children.push(item); } return this; }
-    clear() { for (const child of this.children) child.parent = null; this.children.length = 0; }
-    removeFromParent() {
-        if (!this.parent) return;
-        this.parent.children = this.parent.children.filter(child => child !== this);
-        this.parent = null;
-    }
-}
-class Group extends Object3D {}
-class Scene extends Group {}
-class Mesh extends Object3D {
-    constructor(geometry, material) { super(); this.geometry = geometry; this.material = material; }
-}
-class Geometry {
-    constructor(...args) { this.args = args; this.disposed = false; }
-    dispose() { this.disposed = true; }
-}
-class BoxGeometry extends Geometry {}
-class CylinderGeometry extends Geometry {}
-class TorusGeometry extends Geometry {}
-class Material {
-    constructor(options = {}) {
-        Object.assign(this, options);
-        this.color = new Color(options.color);
-        this.emissive = new Color(options.emissive);
-        this.disposed = false;
-    }
-    dispose() { this.disposed = true; }
-}
-class MeshStandardMaterial extends Material {}
-class MeshBasicMaterial extends Material {}
-class HemisphereLight extends Object3D {}
-class DirectionalLight extends Object3D {}
-class PerspectiveCamera extends Object3D {
-    constructor(fieldOfView, aspect) { super(); this.fieldOfView = fieldOfView; this.aspect = aspect; }
-    lookAt() {}
-    updateProjectionMatrix() { this.projectionUpdates = (this.projectionUpdates || 0) + 1; }
-}
-class WebGLRenderer {
-    constructor(options) { this.domElement = options.canvas; this.shadowMap = {}; this.renderCount = 0; }
-    setClearColor() {}
-    setAnimationLoop(loop) { this.loop = loop; }
-    setPixelRatio(value) { this.pixelRatio = value; }
-    setSize(width, height) { this.size = { width, height }; }
-    render() { this.renderCount++; }
-    dispose() { this.disposed = true; }
-}
-const THREE = {
-    Group, Scene, Mesh, BoxGeometry, CylinderGeometry, TorusGeometry,
-    MeshStandardMaterial, MeshBasicMaterial, HemisphereLight, DirectionalLight,
-    PerspectiveCamera, WebGLRenderer, PCFSoftShadowMap: 1, SRGBColorSpace: 2,
-    ACESFilmicToneMapping: 3
-};
-`;
+registerThreeStub();
 
-const source = await readFile(new URL('../js/shop-showcase.js', import.meta.url), 'utf8');
-const moduleSource = source
-    .replace("import * as THREE from 'three';", fakeThree)
-    .replace("import { AVATAR_SKINS } from './avatar.js';", `const AVATAR_SKINS = ${JSON.stringify(AVATAR_SKINS)};`)
-    .replace("import { CHARACTERS } from './characters.js';", `const CHARACTERS = ${JSON.stringify(CHARACTERS)};`);
-const showcase = await import(`data:text/javascript,${encodeURIComponent(moduleSource)}`);
+const showcase = await import('../js/shop-showcase.js');
 
 function descendants(root) {
     return root.children.flatMap(child => [child, ...descendants(child)]);
@@ -143,27 +74,54 @@ test('normalizes catalog state and derives a deterministic material palette', ()
 });
 
 test('reusable avatar rig swaps skin materials in place and disposes GPU resources', () => {
-    const rig = showcase.createShowcaseAvatar({ characterId: 'scout', skinId: 'neon' });
-    const torso = descendants(rig.root).find(item => item.name === 'torso');
-    const arm = descendants(rig.root).find(item => item.name === 'left-arm');
+    const avatar = showcase.createShowcaseAvatar({ characterId: 'scout', skinId: 'neon' });
+    const torso = descendants(avatar.root).find(item => item.name === 'torso-mesh');
+    const arm = descendants(avatar.root).find(item => item.name === 'upper-arm-L');
     const material = torso.material;
     const oldColor = material.color.hex;
 
-    assert.equal(rig.root.name, 'warrball-showcase-avatar');
-    assert.deepEqual(rig.state, { characterId: 'scout', skinId: 'neon' });
+    assert.equal(avatar.root.name, 'warrball-showcase-avatar');
+    assert.deepEqual(avatar.state, { characterId: 'scout', skinId: 'neon' });
     assert.equal(arm.scale.x, .82);
-    assert.equal(rig.setSkin('frost'), 'frost');
-    assert.equal(torso.material, material);
+    assert.equal(avatar.setSkin('frost'), 'frost');
+    assert.equal(torso.material, material, 'setSkin must recolor materials in place, not replace them');
     assert.notEqual(material.color.hex, oldColor);
     assert.equal(material.color.hex, 0x4488ff);
     assert.equal(arm.scale.x, 1);
-    assert.equal(rig.setCharacter('tank'), 'tank');
-    assert.equal(rig.root.children[0].scale.x, 1.18);
+    assert.equal(avatar.setCharacter('tank'), 'tank');
+    // avatar.root.children[0] is the character rig's own root group -- applyShape() scales it directly.
+    assert.equal(avatar.root.children[0].scale.x, 1.18);
 
-    const meshes = descendants(rig.root).filter(item => item.geometry);
-    rig.dispose();
-    assert.equal(rig.root.userData.disposed, true);
-    assert.ok(meshes.every(mesh => mesh.geometry.disposed && mesh.material.disposed));
+    const meshes = descendants(avatar.root).filter(item => item.geometry);
+    assert.ok(meshes.length > 0, 'rig should have produced mesh children');
+    avatar.dispose();
+    assert.equal(avatar.root.userData.disposed, true);
+    assert.ok(meshes.every(mesh => mesh.geometry.disposeCalls === 1 && mesh.material.disposeCalls === 1));
+
+    // idempotent
+    assert.doesNotThrow(() => avatar.dispose());
+    assert.ok(meshes.every(mesh => mesh.geometry.disposeCalls === 1 && mesh.material.disposeCalls === 1));
+});
+
+test('setPoseTime drives the rig through an idle pose, and is fully static under reduced motion', () => {
+    const avatar = showcase.createShowcaseAvatar({ characterId: 'rally', skinId: 'default' });
+    const rigRoot = avatar.root.children[0];
+    const hips = rigRoot.children.find(child => child.name === 'hips');
+
+    avatar.setPoseTime(0.35, false);
+    const movedY = rigRoot.position.y;
+    const movedShoulderX = hips.children.find(c => c.name === 'torso')
+        .children.find(c => c.name === 'shoulderL').rotation.x;
+    // idle sway should perturb something off the resting zero pose at a non-zero time.
+    assert.ok(movedY !== 0 || movedShoulderX !== 0, 'idle pose should not be perfectly neutral at t=0.35');
+
+    avatar.setPoseTime(0.9, true);
+    assert.equal(rigRoot.position.y, 0, 'reduced motion must fully neutralize offsetY');
+    const shoulderL = hips.children.find(c => c.name === 'torso').children.find(c => c.name === 'shoulderL');
+    assert.equal(shoulderL.rotation.x, 0, 'reduced motion must fully neutralize joint rotations');
+    assert.equal(shoulderL.rotation.z, 0);
+
+    avatar.dispose();
 });
 
 test('renderer supports canvas mounts, keyboard rotation, reactive reduced motion, and cleanup', () => {
