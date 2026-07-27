@@ -3,3 +3,4 @@ data/profiles.json.tmp
 .opencode/
 .serena/
 graphify-out/
+.claude/
