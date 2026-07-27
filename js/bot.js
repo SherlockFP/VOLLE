@@ -3,8 +3,11 @@ import * as THREE from 'three';
 
 import { applyCharacter, CHARACTERS } from './characters.js';
 import { applyRunes, tickSkillCooldowns, useSkill } from './skills.js';
+import { outlineVertexShader } from './shaders/toon.vert.js';
 import { createKnifeModel, disposeObject3D } from './weapon-models.js';
 import { KNIVES } from './cosmetics.js';
+import { createCharacterRig } from './character-rig.js';
+import { createCharacterAnimator } from './character-anim.js';
 
 // ponytail: depthTest:true — sprites hide behind walls, no punch-through
 const DISABLE_SPRITES = false;
@@ -94,92 +97,42 @@ export class Bot {
     _initModel() {
         this.group = new THREE.Group();
         this.scene.add(this.group);
-        this._buildBoxMesh();
+        this._buildRig();
     }
 
-    _buildBoxMesh() {
-        // Clear group (empty from constructor) then build box character
-        const teamColor = this.team === 'red' ? 0xcc3333 : 0x3355cc;
-        const skinColor = 0xf5c6a0;
+    // ponytail: canonical procedural rig replaces the old hand-built box mesh
+    // (WARBALL_IO_PLAN.md section 3.1). Keeps this.group as the scene-attached
+    // container so external code (position/rotation/visible on bot.group) is untouched.
+    _buildRig() {
+        this.rig = createCharacterRig({
+            characterId: this.charId,
+            team: this.team,
+            materialFactory: hex => this.renderer.createToonMaterial(hex),
+            outlineFactory: geo => this.renderer.createOutlineMesh(geo)
+        });
+        this.group.add(this.rig.root);
+        this.animator = createCharacterAnimator(this.rig);
+        // Reused every frame in update() — 0 alloc.
+        this._animFacts = { speed: 0, grounded: true, verticalSpeed: 0, alive: true, aim: 0, strafe: 0 };
+        this._animPrevX = this.position.x;
+        this._animPrevZ = this.position.z;
 
-        this._teamMats = []; // team-colored mats, recolored on setTeam()
+        // team-colored mats are handled by rig.setTeam() now — kept for API parity
+        // with anything still checking bot._teamMats (nothing currently does).
+        this._teamMats = [];
 
-        // Body — torso (box, more human proportioned)
-        const torsoGeo = new THREE.BoxGeometry(0.7, 0.9, 0.4);
-        const torsoMat = this.renderer.createToonMaterial(teamColor);
-        this._teamMats.push(torsoMat);
-        this.torso = new THREE.Mesh(torsoGeo, torsoMat);
-        this.torso.position.y = 1.15;
-        this.torso.castShadow = true;
-        this.group.add(this.torso);
-        this.group.add(this.renderer.createOutlineMesh(torsoGeo));
-        this.group.children[this.group.children.length - 1].position.copy(this.torso.position);
-
-        // Head
-        const headGeo = new THREE.BoxGeometry(0.42, 0.48, 0.4);
-        const headMat = this.renderer.createToonMaterial(skinColor);
-        this.head = new THREE.Mesh(headGeo, headMat);
-        this.head.position.y = 1.85;
-        this.head.castShadow = true;
-        this.group.add(this.head);
-
-        // Eyes
-        const eyeGeo = new THREE.SphereGeometry(0.04, 6, 6);
-        const eyeMat = new THREE.MeshBasicMaterial({ color: 0x222222 });
-        const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
-        leftEye.position.set(-0.08, 1.88, 0.22);
-        this.group.add(leftEye);
-        const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
-        rightEye.position.set(0.08, 1.88, 0.22);
-        this.group.add(rightEye);
-
-        // Legs
-        const legGeo = new THREE.BoxGeometry(0.22, 0.7, 0.25);
-        const legMat = this.renderer.createToonMaterial(0x444444);
-        this.leftLeg = new THREE.Mesh(legGeo, legMat);
-        this.leftLeg.position.set(-0.18, 0.35, 0);
-        this.leftLeg.castShadow = true;
-        this.group.add(this.leftLeg);
-        this.rightLeg = new THREE.Mesh(legGeo, legMat);
-        this.rightLeg.position.set(0.18, 0.35, 0);
-        this.rightLeg.castShadow = true;
-        this.group.add(this.rightLeg);
-
-        // Arms
-        const armGeo = new THREE.BoxGeometry(0.18, 0.65, 0.2);
-        const armMat = this.renderer.createToonMaterial(teamColor);
-        this._teamMats.push(armMat);
-        this.leftArm = new THREE.Mesh(armGeo, armMat);
-        this.leftArm.position.set(-0.5, 1.1, 0);
-        this.leftArm.castShadow = true;
-        this.group.add(this.leftArm);
-        this.rightArm = new THREE.Mesh(armGeo, armMat);
-        this.rightArm.position.set(0.5, 1.1, 0);
-        this.rightArm.castShadow = true;
-        this.group.add(this.rightArm);
-
-        // Hands (skin)
-        const handGeo = new THREE.BoxGeometry(0.16, 0.18, 0.16);
-        const handMat = this.renderer.createToonMaterial(skinColor);
-        this.leftHand = new THREE.Mesh(handGeo, handMat);
-        this.leftHand.position.set(0, -0.35, 0);
-        this.leftArm.add(this.leftHand);
-        this.rightHand = new THREE.Mesh(handGeo, handMat);
-        this.rightHand.position.set(0, -0.35, 0);
-        this.rightArm.add(this.rightHand);
         this.knifeId = 'training';
         this.knifeGroup = createKnifeModel(KNIVES.training);
         this.knifeGroup.scale.setScalar(0.68);
-        this.knifeGroup.position.set(0, -0.45, -0.28);
-        this.knifeGroup.rotation.set(-0.35, 0, -0.15);
-        this.rightArm.add(this.knifeGroup);
+        this.knifeGroup.position.set(0, -0.02, -0.1);
+        this.knifeGroup.rotation.set(-0.3, 0, -0.15);
+        this.rig.sockets.handR.add(this.knifeGroup);
 
         // Name label + avatar sprites above the head
         if (!DISABLE_SPRITES) this.buildNameSprite();
 
         // Avatar sprite above head — shows character emoji so identity is clear
         if (!DISABLE_SPRITES) this.buildAvatarSprite();
-
     }
 
     buildNameSprite() {
@@ -228,18 +181,29 @@ export class Bot {
 
     // Target outline — bright red, pulses when this bot is the ball's target.
     buildTargetOutline() {
-        const parts = [
-            this.torso, this.head, this.leftLeg, this.rightLeg,
-            this.leftArm, this.rightArm, this.leftHand, this.rightHand
-        ];
-        this.targetOutline = this.renderer.createTargetOutline(parts);
+        const geo = new THREE.BoxGeometry(0.9, 1.8, 0.7);
+        const mat = new THREE.ShaderMaterial({
+            vertexShader: outlineVertexShader,
+            fragmentShader: `
+                uniform float uPulse;
+                void main() {
+                    float alpha = 0.3 + 0.3 * uPulse;
+                    gl_FragColor = vec4(1.0, 0.0, 0.0, alpha);
+                }
+            `,
+            uniforms: { outlineThickness: { value: 0.08 }, uPulse: { value: 0 } },
+            side: THREE.BackSide,
+            transparent: true,
+            depthWrite: false
+        });
+        this.targetOutline = new THREE.Mesh(geo, mat);
+        this.targetOutline.position.y = 0.85;
+        this.targetOutline.visible = false;
         this.group.add(this.targetOutline);
-        this.targetOutline.userData.sync?.();
     }
 
     setTargetOutline(show) {
         if (this.targetOutline) this.targetOutline.visible = show;
-        if (show) this.targetOutline?.userData.sync?.();
         this._outlineActive = show;
     }
 
@@ -288,6 +252,7 @@ export class Bot {
         }
         this.hp = Math.max(0, this.hp - amount);
         this.drawHpBar();
+        this.animator?.play('hit');
         return this.hp <= 0;
     }
 
@@ -316,10 +281,7 @@ export class Bot {
         // Target outline pulse
         if (this._outlineActive && this.targetOutline?.visible) {
             const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 300);
-            this.targetOutline.userData.sync?.();
-            for (const material of this.targetOutline.userData.materials || []) {
-                material.uniforms.uPulse.value = pulse;
-            }
+            this.targetOutline.material.uniforms.uPulse.value = pulse;
         }
 
         // Skill cooldown tick
@@ -422,17 +384,26 @@ export class Bot {
         // Attack cooldown
         if (this.attackTimer > 0) {
             this.attackTimer -= dt;
-            if (this.attackTimer <= 0) {
-                this.attacking = false;
-                if (this.rightArm) this.rightArm.rotation.x = 0;
-            }
+            if (this.attackTimer <= 0) this.attacking = false;
         }
 
-        // Arm swing anim when attacking (box mesh only)
-        if (this.attacking && this.rightArm) {
-            this.rightArm.rotation.x = -1.2;
+        // Drive the rig's animator — facts derived from what the bot already
+        // tracks (bots never leave the ground, so grounded/verticalSpeed are fixed).
+        // ponytail: speed via position delta, reused facts object, 0 alloc/frame.
+        if (this.animator) {
+            const invDt = dt > 1e-4 ? 1 / dt : 0;
+            const moved = Math.hypot(this.position.x - this._animPrevX, this.position.z - this._animPrevZ);
+            this._animPrevX = this.position.x;
+            this._animPrevZ = this.position.z;
+            const facts = this._animFacts;
+            facts.speed = moved * invDt;
+            facts.grounded = true;
+            facts.verticalSpeed = 0;
+            facts.alive = this.alive;
+            facts.aim = 0;
+            facts.strafe = 0;
+            this.animator.update(dt, facts);
         }
-        this.targetOutline?.userData.sync?.();
     }
 
     tryDeflect(ball, dt = 0.016) {
@@ -462,6 +433,7 @@ export class Bot {
         this.attackTimer = 0.3;
         this.deflectionCount++;
         this._deflectDecided = false;
+        this.animator?.play('deflect');
         return true;
     }
 
@@ -478,11 +450,7 @@ export class Bot {
     setTeam(team) {
         if (team === this.team) return;
         this.team = team;
-        const c = team === 'red' ? 0xcc3333 : 0x3355cc;
-        (this._teamMats || []).forEach(m => {
-            if (m.uniforms?.uColor) m.uniforms.uColor.value.setHex(c);
-            else if (m.color) m.color.setHex(c);
-        });
+        this.rig?.setTeam(team);
         // Rebuild the head-label + avatar sprites so the team color/tint updates.
         if (this.nameSprite) { this.group.remove(this.nameSprite); this.nameSprite.material.map?.dispose(); this.nameSprite.material.dispose(); }
         if (this.avatarSprite) { this.group.remove(this.avatarSprite); this.avatarSprite.material.map?.dispose(); this.avatarSprite.material.dispose(); }
@@ -520,7 +488,8 @@ export class Bot {
     }
 
     remove() {
-        disposeObject3D(this.targetOutline);
+        disposeObject3D(this.knifeGroup);
+        this.rig?.dispose();
         this.scene.remove(this.group);
     }
 }

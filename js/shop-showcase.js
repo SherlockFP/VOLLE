@@ -1,6 +1,12 @@
 import * as THREE from 'three';
 import { AVATAR_SKINS } from './avatar.js';
 import { CHARACTERS } from './characters.js';
+import { createCharacterRig } from './character-rig.js';
+import { poseFor, neutralPose } from './character-pose.js';
+// ponytail: character-rig.js imports normalizeShowcaseState/getShowcaseMaterialPalette/
+// getShowcaseCharacterShape FROM this file (below) -- a genuine import cycle. It stays safe because
+// every export both sides touch is a hoisted `function` declaration (never a top-level call), so both
+// bindings are live and initialized before either module body runs createCharacterRig()/createShowcaseAvatar().
 
 const DEFAULT_STATE = Object.freeze({ characterId: 'rally', skinId: 'default' });
 const CHARACTER_SHAPES = Object.freeze({
@@ -62,124 +68,50 @@ export function getShowcaseCharacterShape(characterId = DEFAULT_STATE.characterI
     return CHARACTER_SHAPES[id] || CHARACTER_SHAPES.rally;
 }
 
-function disposeMaterial(material) {
-    if (!material) return;
-    for (const value of Object.values(material)) {
-        if (value?.isTexture) value.dispose?.();
-    }
-    material.dispose?.();
-}
-
+// ponytail: no per-mesh box() building here anymore -- createCharacterRig owns geometry/material/
+// palette/shape, this file just wraps it for the shop preview's API + idle sway.
 export function createShowcaseAvatar(options = {}) {
-    const state = { ...normalizeShowcaseState(options) };
+    const rig = createCharacterRig({ characterId: options.characterId, skinId: options.skinId });
     const root = new THREE.Group();
-    const model = new THREE.Group();
     root.name = 'warrball-showcase-avatar';
     root.userData.showcaseAvatar = true;
-    root.add(model);
-
-    const materials = {
-        head: new THREE.MeshStandardMaterial({ roughness: .68, metalness: .02 }),
-        body: new THREE.MeshStandardMaterial({ roughness: .56, metalness: .08 }),
-        arms: new THREE.MeshStandardMaterial({ roughness: .58, metalness: .06 }),
-        legs: new THREE.MeshStandardMaterial({ roughness: .72, metalness: .03 }),
-        accent: new THREE.MeshStandardMaterial({ roughness: .3, metalness: .42 }),
-        detail: new THREE.MeshStandardMaterial({ roughness: .7, metalness: .12 }),
-        visor: new THREE.MeshStandardMaterial({ roughness: .18, metalness: .36, emissiveIntensity: .42 })
-    };
-    const geometries = new Set();
-    const meshes = {};
-
-    const box = (name, size, position, material, parent = model) => {
-        const geometry = new THREE.BoxGeometry(...size);
-        const mesh = new THREE.Mesh(geometry, material);
-        mesh.name = name;
-        mesh.position.set(...position);
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        geometries.add(geometry);
-        parent.add(mesh);
-        meshes[name] = mesh;
-        return mesh;
-    };
-
-    box('left-leg', [.37, 1.02, .42], [-.24, .56, 0], materials.legs);
-    box('right-leg', [.37, 1.02, .42], [.24, .56, 0], materials.legs);
-    box('left-boot', [.41, .24, .62], [-.24, .14, -.08], materials.detail);
-    box('right-boot', [.41, .24, .62], [.24, .14, -.08], materials.detail);
-    box('torso', [1.02, 1.28, .55], [0, 1.68, 0], materials.body);
-    box('belt', [1.08, .18, .6], [0, 1.12, 0], materials.detail);
-    box('left-arm', [.34, 1.18, .4], [-.7, 1.7, 0], materials.arms);
-    box('right-arm', [.34, 1.18, .4], [.7, 1.7, 0], materials.arms);
-    box('left-shoulder', [.48, .3, .54], [-.68, 2.18, 0], materials.accent);
-    box('right-shoulder', [.48, .3, .54], [.68, 2.18, 0], materials.accent);
-    box('neck', [.28, .22, .28], [0, 2.39, 0], materials.head);
-    box('head', [.76, .76, .76], [0, 2.77, 0], materials.head);
-    box('visor', [.58, .16, .055], [0, 2.82, -.405], materials.visor);
-    box('crest', [.2, .34, .62], [0, 3.28, .02], materials.accent);
-    box('chest-mark', [.34, .34, .045], [0, 1.78, -.3], materials.accent);
-
-    const applyPalette = () => {
-        const palette = getShowcaseMaterialPalette(state);
-        for (const [key, color] of Object.entries(palette)) materials[key]?.color?.setHex(color);
-        materials.visor.emissive?.setHex(palette.visor);
-        return palette;
-    };
-
-    const applyShape = () => {
-        const shape = getShowcaseCharacterShape(state.characterId);
-        model.scale.set(shape.width, shape.height, shape.depth);
-        meshes['left-shoulder'].scale.x = shape.shoulder;
-        meshes['right-shoulder'].scale.x = shape.shoulder;
-        const armWidth = AVATAR_SKINS[state.skinId].model === 'slim' ? .82 : 1;
-        meshes['left-arm'].scale.x = armWidth;
-        meshes['right-arm'].scale.x = armWidth;
-    };
+    root.add(rig.root);
 
     const api = {
         root,
         setSkin(skinId) {
-            state.skinId = normalizeId(AVATAR_SKINS, skinId, DEFAULT_STATE.skinId);
-            applyPalette();
-            applyShape();
-            return state.skinId;
+            return rig.setSkin(skinId);
         },
         setCharacter(characterId) {
-            state.characterId = normalizeId(CHARACTERS, characterId, DEFAULT_STATE.characterId);
-            applyPalette();
-            applyShape();
-            return state.characterId;
+            return rig.setCharacter(characterId);
         },
         sync(value = {}) {
-            const next = normalizeShowcaseState({ ...state, ...value });
-            state.characterId = next.characterId;
-            state.skinId = next.skinId;
-            applyPalette();
-            applyShape();
+            const next = normalizeShowcaseState({ ...rig.state, ...value });
+            rig.setSkin(next.skinId);
+            rig.setCharacter(next.characterId);
             return api.state;
         },
+        // ponytail: showcase only ever shows an idle stance -- drive poseFor('idle', ...) straight
+        // into rig.applyPose rather than pulling in the full createCharacterAnimator controller.
         setPoseTime(seconds = 0, reducedMotion = false) {
             const time = Number.isFinite(seconds) ? seconds : 0;
-            model.position.y = reducedMotion ? 0 : Math.sin(time * 1.7) * .025;
-            meshes['left-arm'].rotation.x = reducedMotion ? 0 : Math.sin(time * 1.25) * .055;
-            meshes['right-arm'].rotation.x = reducedMotion ? 0 : -Math.sin(time * 1.25) * .055;
+            const pose = reducedMotion ? neutralPose() : poseFor('idle', time, {});
+            rig.applyPose(pose);
         },
         dispose() {
             if (root.userData.disposed) return;
             root.userData.disposed = true;
+            rig.dispose();
             root.removeFromParent?.();
-            for (const geometry of geometries) geometry.dispose?.();
-            for (const material of Object.values(materials)) disposeMaterial(material);
             root.clear?.();
         }
     };
     Object.defineProperty(api, 'state', {
         enumerable: true,
-        get: () => Object.freeze({ ...state })
+        // rig.state also carries `team`; normalize back down to the showcase's {characterId, skinId} shape.
+        get: () => normalizeShowcaseState(rig.state)
     });
 
-    applyPalette();
-    applyShape();
     return api;
 }
 
@@ -233,10 +165,12 @@ export class ShopShowcaseRenderer {
 
         this.scene = new THREE.Scene();
         this.camera = new THREE.PerspectiveCamera(31, 1, .1, 50);
-        this.camera.position.set(0, 2.05, 7.1);
-        this.camera.lookAt(0, 1.55, 0);
+        // ponytail: rig avatar stands ~2.16 tall (feet at local y=0) vs. the old hand-built box avatar's
+        // ~3.45 -- camera distance/target and floor alignment scaled down to match (~0.63x).
+        this.camera.position.set(0, 1.3, 4.5);
+        this.camera.lookAt(0, 1.0, 0);
         this.avatar = createShowcaseAvatar(options);
-        this.avatar.root.position.y = -.08;
+        this.avatar.root.position.y = -.04;
         this.scene.add(this.avatar.root);
 
         this._environmentResources = [];

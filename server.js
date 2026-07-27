@@ -7,6 +7,7 @@ const { CATALOG, ProfileStore } = require('./server/profile-store');
 const { verifyMatchReceipt } = require('./server/match-receipt');
 const { CreatorMapStore } = require('./server/creator-map-store');
 const { RequestLimiter } = require('./server/request-limiter');
+const { buildRtcConfig } = require('./server/rtc-config');
 const { PaymentLedger, verifyPaymentEvent } = require('./server/payment-ledger');
 const { TelemetryStore } = require('./server/telemetry');
 const { createLiveMarket, findLiveOffer } = require('./server/live-market');
@@ -36,7 +37,8 @@ const RATE_LIMITS = {
     mapVote: [30, 60000],
     lobbyWrite: [30, 60000],
     paymentWebhook: [40, 60000],
-    telemetry: [120, 60000]
+    telemetry: [120, 60000],
+    rtcConfig: [60, 60000]
 };
 
 function validModerationKey(req) {
@@ -131,6 +133,14 @@ function allowRequest(req, res, bucketName) {
 
 const server = http.createServer(async (req, res) => {
     const urlPath = req.url.split('?')[0];
+
+    // --- WebRTC ICE config (STUN/TURN + optional self-hosted PeerJS broker) ---
+    // Env-driven only; zero env vars set => STUN-only, identical to prior behavior.
+    if (urlPath === '/api/rtc-config' && req.method === 'GET') {
+        if (!allowRequest(req, res, 'rtcConfig')) return;
+        sendJson(res, buildRtcConfig(process.env, { userId: profiles.authenticate(bearer(req))?.id }));
+        return;
+    }
 
     // --- Persistent guest profile/economy API ---
     if (urlPath === '/api/profile/session' && req.method === 'POST') {

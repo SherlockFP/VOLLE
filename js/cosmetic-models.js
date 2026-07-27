@@ -147,12 +147,255 @@ function createAura(item) {
     return group;
 }
 
+function createHat(item) {
+    const group = new THREE.Group();
+    const primary = material(item.colors[0], item.colors[1]);
+    if (item.style === 'crown') {
+        group.add(part(new THREE.CylinderGeometry(0.24, 0.26, 0.16, 8), item.colors[0], 0, 2.06, 0));
+        for (let index = 0; index < 5; index++) {
+            const angle = index / 5 * Math.PI * 2;
+            group.add(part(new THREE.OctahedronGeometry(0.05), item.colors[1], Math.cos(angle) * 0.22, 2.16, Math.sin(angle) * 0.22));
+        }
+    } else if (item.style === 'halo') {
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.028, 6, 20), basic(item.colors[0]));
+        ring.rotation.x = Math.PI / 2;
+        ring.position.y = 2.24;
+        group.add(ring);
+    } else if (item.style === 'helm') {
+        group.add(part(new THREE.BoxGeometry(0.46, 0.3, 0.46), item.colors[0], 0, 2.0, 0));
+        group.add(part(new THREE.BoxGeometry(0.08, 0.16, 0.05), item.colors[1], 0, 1.9, 0.22));
+    } else if (item.style === 'wizard') {
+        group.add(part(new THREE.ConeGeometry(0.26, 0.55, 8), item.colors[0], 0, 2.28, 0));
+        group.add(part(new THREE.OctahedronGeometry(0.045), item.colors[1], 0.14, 2.34, 0.05));
+    } else if (item.style === 'horns') {
+        group.add(part(new THREE.BoxGeometry(0.42, 0.08, 0.1), item.colors[1], 0, 2.02, 0));
+        for (const x of [-0.16, 0.16]) group.add(part(new THREE.ConeGeometry(0.06, 0.24, 5), item.colors[0], x, 2.14, 0.02));
+    } else if (item.style === 'pixel') {
+        for (let index = 0; index < 4; index++) {
+            group.add(part(new THREE.BoxGeometry(0.14, 0.14, 0.14), index % 2 ? item.colors[1] : item.colors[0],
+                -0.13 + (index % 2) * 0.26, 2.04 + Math.floor(index / 2) * 0.14, 0));
+        }
+    } else if (item.style === 'beanie') {
+        group.add(new THREE.Mesh(new THREE.SphereGeometry(0.27, 9, 7, 0, Math.PI * 2, 0, Math.PI * 0.6), primary));
+        group.add(part(new THREE.SphereGeometry(0.06, 7, 6), item.colors[1], 0, 2.22, 0));
+    } else {
+        group.add(new THREE.Mesh(new THREE.SphereGeometry(0.27, 9, 7, 0, Math.PI * 2, 0, Math.PI * 0.55), primary));
+    }
+    group.position.y = 1.85;
+    return group;
+}
+
+function createMask(item) {
+    const group = new THREE.Group();
+    const frontZ = -0.24;
+    if (item.style === 'visor') {
+        group.add(part(new THREE.BoxGeometry(0.32, 0.09, 0.06), item.colors[0], 0, 0.02, frontZ));
+    } else if (item.style === 'skull') {
+        group.add(part(new THREE.BoxGeometry(0.26, 0.24, 0.14), item.colors[0], 0, 0, frontZ + 0.02));
+        for (const x of [-0.07, 0.07]) group.add(part(new THREE.BoxGeometry(0.06, 0.06, 0.04), item.colors[1], x, 0.03, frontZ - 0.03));
+    } else if (item.style === 'ninja') {
+        group.add(part(new THREE.BoxGeometry(0.3, 0.2, 0.12), item.colors[0], 0, -0.02, frontZ));
+        group.add(part(new THREE.BoxGeometry(0.32, 0.05, 0.13), item.colors[1], 0, 0.06, frontZ));
+    } else if (item.style === 'glitch') {
+        for (let index = 0; index < 3; index++) {
+            group.add(part(new THREE.BoxGeometry(0.28 - index * 0.05, 0.05, 0.03), index % 2 ? item.colors[1] : item.colors[0],
+                0, 0.08 - index * 0.07, frontZ - index * 0.015));
+        }
+    } else {
+        group.add(part(new THREE.BoxGeometry(0.28, 0.16, 0.1), item.colors[0], 0, 0, frontZ));
+        group.add(part(new THREE.BoxGeometry(0.3, 0.05, 0.1), item.colors[1], 0, 0.08, frontZ));
+    }
+    group.position.y = 1.85;
+    return group;
+}
+
+function createWings(item) {
+    const group = new THREE.Group();
+    const wingMat = new THREE.MeshStandardMaterial({
+        color: item.colors[0], emissive: item.colors[1], emissiveIntensity: 0.2, roughness: 0.6, side: THREE.DoubleSide
+    });
+    const geometry = item.style === 'bat' || item.style === 'demon'
+        ? new THREE.ConeGeometry(0.4, 0.7, 4, 1, true)
+        : new THREE.PlaneGeometry(0.5, 0.7, 1, 3);
+    const wingL = new THREE.Mesh(geometry, wingMat);
+    wingL.position.set(-0.28, 1.42, 0.24);
+    wingL.rotation.set(0, 0.3, 0.35);
+    const wingR = new THREE.Mesh(geometry, wingMat);
+    wingR.position.set(0.28, 1.42, 0.24);
+    wingR.rotation.set(0, -0.3, -0.35);
+    group.add(wingL, wingR);
+    if (item.style === 'circuit') {
+        for (const x of [-0.28, 0.28]) group.add(part(new THREE.BoxGeometry(0.04, 0.5, 0.02), item.colors[1], x, 1.42, 0.26));
+    } else if (item.style === 'angel' || item.style === 'paper') {
+        for (const x of [-0.28, 0.28]) group.add(part(new THREE.OctahedronGeometry(0.05), item.colors[1], x, 1.7, 0.28));
+    }
+    group.userData.wingL = wingL;
+    group.userData.wingR = wingR;
+    group.userData.baseZ = wingL.rotation.z;
+    // ponytail: mutate rotation only — no per-frame allocation.
+    group.userData.update = time => {
+        const flap = Math.sin(time * 5.4) * 0.32;
+        wingL.rotation.z = group.userData.baseZ - flap;
+        wingR.rotation.z = -group.userData.baseZ + flap;
+    };
+    return group;
+}
+
+function createBackpack(item) {
+    const group = new THREE.Group();
+    const bodyMat = material(item.colors[0], item.colors[1]);
+    if (item.style === 'jetpack' || item.style === 'rocket') {
+        for (const x of [-0.14, 0.14]) {
+            group.add(part(new THREE.CylinderGeometry(0.09, 0.1, 0.5, 8), item.colors[0], x, 1.25, 0.26));
+            group.add(part(new THREE.ConeGeometry(0.09, 0.14, 8), item.colors[1], x, 0.96, 0.26));
+        }
+    } else if (item.style === 'battery') {
+        group.add(part(new THREE.BoxGeometry(0.36, 0.5, 0.22), item.colors[0], 0, 1.24, 0.26));
+        group.add(part(new THREE.BoxGeometry(0.38, 0.08, 0.23), item.colors[1], 0, 1.24, 0.26));
+    } else if (item.style === 'balloon') {
+        for (const x of [-0.16, 0, 0.16]) {
+            group.add(part(new THREE.SphereGeometry(0.13, 8, 7), x === 0 ? item.colors[1] : item.colors[0], x, 1.55 + (x === 0 ? 0.08 : 0), 0.28));
+        }
+    } else {
+        const body = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.5, 0.24), bodyMat);
+        body.position.set(0, 1.2, 0.26);
+        group.add(body);
+        group.add(part(new THREE.BoxGeometry(0.42, 0.1, 0.25), item.colors[1], 0, 1.42, 0.26));
+    }
+    return group;
+}
+
+function createBanner(item) {
+    const group = new THREE.Group();
+    const pole = part(new THREE.CylinderGeometry(0.025, 0.025, 1.1, 6), '#7a6a52', 0, 1.55, 0.28);
+    group.add(pole);
+    const flag = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.34, 0.44, 3, 3),
+        new THREE.MeshStandardMaterial({ color: item.colors[0], emissive: item.colors[1], emissiveIntensity: 0.16, roughness: 0.7, side: THREE.DoubleSide })
+    );
+    flag.position.set(0.19, 1.86, 0.28);
+    group.add(flag);
+    if (item.style === 'champion') {
+        group.add(part(new THREE.OctahedronGeometry(0.06), item.colors[1], 0, 2.12, 0.28));
+    } else if (item.style === 'skull') {
+        group.add(part(new THREE.BoxGeometry(0.1, 0.1, 0.06), item.colors[1], 0.19, 1.86, 0.32));
+    }
+    group.userData.flag = flag;
+    return group;
+}
+
+function createTrail(item) {
+    const group = new THREE.Group();
+    const segments = [];
+    // ponytail: two geometry shapes cover all 6 trail styles — box for pixel, octahedron otherwise.
+    const geometry = item.style === 'pixel' ? new THREE.BoxGeometry(0.1, 0.1, 0.1) : new THREE.OctahedronGeometry(0.08);
+    for (let index = 0; index < 5; index++) {
+        const mat = new THREE.MeshBasicMaterial({
+            color: item.colors[index % item.colors.length], transparent: true, opacity: 1 - index * 0.18
+        });
+        const segment = new THREE.Mesh(geometry, mat);
+        segment.position.set(0, 0.06, 0.2 + index * 0.16);
+        segment.scale.setScalar(1 - index * 0.12);
+        segments.push(segment);
+        group.add(segment);
+    }
+    group.userData.segments = segments;
+    // ponytail: opacity/scale pulse only, geometry/material reused — allocation-free per frame.
+    group.userData.update = time => {
+        for (let index = 0; index < segments.length; index++) {
+            const phase = time * 3 - index * 0.5;
+            segments[index].position.y = 0.06 + Math.max(0, Math.sin(phase)) * 0.05;
+            segments[index].material.opacity = Math.max(0, (1 - index * 0.18) * (0.6 + 0.4 * Math.sin(phase + 1)));
+        }
+    };
+    return group;
+}
+
+const FINISHER_GEOMETRY = {
+    confetti: () => new THREE.BoxGeometry(0.08, 0.08, 0.02),
+    shatter: () => new THREE.OctahedronGeometry(0.08),
+    lightning: () => new THREE.ConeGeometry(0.05, 0.2, 4),
+    vortex: () => new THREE.OctahedronGeometry(0.07),
+    explosion: () => new THREE.ConeGeometry(0.06, 0.18, 6)
+};
+
+function createFinisher(item) {
+    // Static shop/preview burst — the live elimination effect is spawnFinisherCosmetic().
+    const group = new THREE.Group();
+    const geometry = (FINISHER_GEOMETRY[item.style] || FINISHER_GEOMETRY.explosion)();
+    for (let index = 0; index < 8; index++) {
+        const angle = index / 8 * Math.PI * 2;
+        group.add(part(geometry, item.colors[index % item.colors.length],
+            Math.cos(angle) * 0.4, 1.2 + Math.sin(index) * 0.08, Math.sin(angle) * 0.4));
+    }
+    return group;
+}
+
 const createSlot = item => ({
     cape: createCape,
     pet: createPet,
     shoes: createShoes,
-    aura: createAura
+    aura: createAura,
+    hat: createHat,
+    mask: createMask,
+    wings: createWings,
+    backpack: createBackpack,
+    banner: createBanner,
+    trail: createTrail,
+    finisher: createFinisher
 }[item.type]?.(item) || null);
+
+const WEARABLE_SLOT_TYPES = ['cape', 'pet', 'shoes', 'aura', 'hat', 'mask', 'wings', 'backpack', 'banner', 'trail'];
+
+// Cosmetic type → rig socket name (character-rig.js RIG_SOCKETS), per WARBALL_IO_PLAN.md
+// section 3 item 5. Types not listed here (e.g. "pet") keep the legacy cosmeticsRoot
+// parenting — they were never socket-shaped to begin with.
+const RIG_SOCKET_BY_TYPE = Object.freeze({
+    hat: 'head',
+    mask: 'face',
+    cape: 'back',
+    wings: 'back',
+    backpack: 'back',
+    banner: 'back',
+    aura: 'aura',
+    trail: 'trail',
+    waist: 'waist'
+});
+
+// Authored cosmetic models assume a flat parent (entity.group, origin at the
+// feet). A rig socket sits somewhere else in that same local space, so we
+// compute its current local offset and subtract it — the model lands in the
+// exact spot it always has, but now rides the socket (and its animation).
+function socketLocalOffset(entity, socket, out) {
+    entity.group.updateMatrixWorld(true);
+    socket.getWorldPosition(out);
+    return entity.group.worldToLocal(out);
+}
+
+// Returns the list of objects actually inserted into the rig (for disposal/update
+// tracking), or null if this entity/type isn't rig-socketed — caller falls back
+// to the legacy cosmeticsRoot parenting.
+function attachToRig(entity, model, type) {
+    const rig = entity.rig;
+    if (!rig) return null;
+    const offset = new THREE.Vector3();
+    if (type === 'shoes') {
+        const { footL, footR } = rig.sockets;
+        if (!footL || !footR) return null;
+        const attached = [...model.children];
+        for (const child of attached) {
+            const socket = child.position.x < 0 ? footL : footR;
+            child.position.sub(socketLocalOffset(entity, socket, offset));
+            socket.add(child);
+        }
+        return attached;
+    }
+    const socket = rig.sockets[RIG_SOCKET_BY_TYPE[type]];
+    if (!socket) return null;
+    model.position.sub(socketLocalOffset(entity, socket, offset));
+    socket.add(model);
+    return [model];
+}
 
 export function applyEntityCosmetics(entity, value) {
     if (!entity?.group) return null;
@@ -168,13 +411,17 @@ export function applyEntityCosmetics(entity, value) {
         entity.cosmeticsRoot.remove(child);
         disposeObject3D(child);
     }
-    for (const type of ['cape', 'pet', 'shoes', 'aura']) {
+    for (const model of entity._rigCosmetics || []) disposeObject3D(model);
+    entity._rigCosmetics = [];
+    for (const type of WEARABLE_SLOT_TYPES) {
         const item = COSMETICS[loadout[type]];
         const model = item && createSlot(item);
         if (!model) continue;
         model.name = `cosmetic-${type}`;
         model.userData.cosmeticType = type;
-        entity.cosmeticsRoot.add(model);
+        const attached = entity.rig ? attachToRig(entity, model, type) : null;
+        if (attached) entity._rigCosmetics.push(...attached);
+        else entity.cosmeticsRoot.add(model);
     }
     entity.wearableLoadout = loadout;
     return loadout;
@@ -183,15 +430,20 @@ export function applyEntityCosmetics(entity, value) {
 export function updateEntityCosmetics(entity, timeSeconds) {
     const root = entity?.cosmeticsRoot;
     if (!root) return;
-    const pet = root.getObjectByName('cosmetic-pet');
+    const rigged = entity._rigCosmetics || [];
+    const find = name => root.getObjectByName(name) || rigged.find(child => child.name === name);
+    const pet = find('cosmetic-pet');
     if (pet) {
         pet.position.y = 0.45 + Math.sin(timeSeconds * 3.2) * 0.08;
         pet.rotation.y = -timeSeconds * 0.8;
     }
-    const aura = root.getObjectByName('cosmetic-aura');
+    const aura = find('cosmetic-aura');
     if (aura) aura.rotation.y = timeSeconds * 0.9;
-    const cape = root.getObjectByName('cosmetic-cape')?.userData.cape;
+    const cape = find('cosmetic-cape')?.userData.cape;
     if (cape) cape.rotation.x = 0.12 + Math.sin(timeSeconds * 4.5) * 0.06;
+    // ponytail: generic hook for wings/trail (and any future animated slot) — no per-child name lookups needed.
+    for (const child of root.children) child.userData.update?.(timeSeconds);
+    for (const child of rigged) child.userData.update?.(timeSeconds);
 }
 
 export function spawnImpactCosmetic(scene, id, position) {
@@ -229,6 +481,51 @@ export function spawnImpactCosmetic(scene, id, position) {
         for (const particle of group.children) {
             particle.position.addScaledVector(particle.userData.velocity, dt);
             particle.userData.velocity.y -= 4 * dt;
+            particle.material.opacity = Math.max(0, 1 - age);
+        }
+        if (age < 1) requestAnimationFrame(tick);
+        else {
+            scene.remove(group);
+            disposeObject3D(group);
+            activeImpacts.delete(group);
+        }
+    };
+    requestAnimationFrame(tick);
+    return group;
+}
+
+// ponytail: same burst engine as spawnImpactCosmetic, just bigger/longer for an elimination moment.
+export function spawnFinisherCosmetic(scene, id, position) {
+    const item = COSMETICS[id];
+    if (!scene || item?.type !== 'finisher' || !position) return null;
+    const group = new THREE.Group();
+    group.position.copy(position);
+    const geometry = (FINISHER_GEOMETRY[item.style] || FINISHER_GEOMETRY.explosion)();
+    for (let index = 0; index < 18; index++) {
+        const particle = new THREE.Mesh(
+            geometry,
+            new THREE.MeshBasicMaterial({ color: item.colors[index % item.colors.length], transparent: true })
+        );
+        const angle = index / 18 * Math.PI * 2;
+        particle.userData.velocity = new THREE.Vector3(Math.cos(angle), 0.5 + (index % 4) * 0.22, Math.sin(angle)).multiplyScalar(3.4);
+        group.add(particle);
+    }
+    if (activeImpacts.size >= 12) {
+        const oldest = activeImpacts.values().next().value;
+        oldest.parent?.remove(oldest);
+        disposeObject3D(oldest);
+        activeImpacts.delete(oldest);
+    }
+    scene.add(group);
+    activeImpacts.add(group);
+    const started = performance.now();
+    const tick = now => {
+        const dt = Math.min(0.04, (now - (group.userData.last || started)) / 1000);
+        group.userData.last = now;
+        const age = (now - started) / 1100;
+        for (const particle of group.children) {
+            particle.position.addScaledVector(particle.userData.velocity, dt);
+            particle.userData.velocity.y -= 3.6 * dt;
             particle.material.opacity = Math.max(0, 1 - age);
         }
         if (age < 1) requestAnimationFrame(tick);
