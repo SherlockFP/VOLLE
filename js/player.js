@@ -608,7 +608,12 @@ export class Player {
         this.knifeGroup.rotation.set(...pose.knifeRotation);
         (this.knifeGroup.userData.inspectParts || []).forEach((part, index) => {
             const base = part.userData.inspectBase || { x: 0, y: 0, z: 0 };
-            part.rotation.set(base.x, base.y, base.z + (pose.parts[index] || 0));
+            const delta = pose.parts[index] || 0;
+            if (typeof delta === 'number') {
+                part.rotation.set(base.x, base.y, base.z + delta);
+            } else {
+                part.rotation.set(base.x + (delta.x || 0), base.y + (delta.y || 0), base.z + (delta.z || 0));
+            }
         });
         const grip = pose.action === 'stab' || pose.action === 'slash' ? Math.sin(pose.progress * Math.PI) : 0;
         this.fingerGroup?.children.forEach((finger, index) => {

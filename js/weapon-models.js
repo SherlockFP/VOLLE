@@ -150,6 +150,11 @@ function addButterfly(group, materials) {
     }
     left.rotation.z = -0.08;
     right.rotation.z = 0.08;
+    // ponytail: authored rest state is CLOSED — blade folds back along the grip axis (pivot near
+    // z=0.035, close to bladeRoot's local origin) so it tucks between the rails instead of always
+    // reading as an exposed forward blade. knife-animation.js swings it back open per action.
+    bladeRoot.rotation.y = Math.PI;
+    bladeRoot.position.z = -0.09;
     const pivot = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.18, 12), materials.edge);
     pivot.rotation.z = Math.PI / 2;
     pivot.position.z = 0.035;

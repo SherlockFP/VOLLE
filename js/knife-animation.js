@@ -15,6 +15,43 @@ const smooth = value => {
     return t * t * (3 - 2 * t);
 };
 const pulse = value => Math.sin(clamp01(value) * Math.PI);
+const lerp = (a, b, t) => a + (b - a) * t;
+const lerpDelta = (a, b, t) => ({ x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t), z: lerp(a.z, b.z, t) });
+
+// Quick rise to `1` by `riseEnd`, holds until `fallStart`, eases back to `0` by progress 1.
+// Used to make karambit deployment read as a sharp snap rather than butterfly's slow unfold.
+const snapEnvelope = (progress, riseEnd, fallStart) => {
+    const t = clamp01(progress);
+    if (t <= riseEnd) return smooth(t / riseEnd);
+    if (t >= fallStart) return smooth(1 - (t - fallStart) / (1 - fallStart));
+    return 1;
+};
+
+// Per-model correction so each knife's own local pivot/silhouette frames consistently in the
+// cramped first-person frustum. classic/bayonet keep the original untouched transform.
+const MODEL_FRAME_OFFSET = Object.freeze({
+    classic: { position: [0, 0, 0], rotation: [0, 0, 0] },
+    bayonet: { position: [0, 0, 0], rotation: [0, 0, 0] },
+    karambit: { position: [-0.03, 0.02, 0.09], rotation: [0.08, -0.05, 0] },
+    butterfly: { position: [0.015, -0.01, 0.05], rotation: [0, 0.03, 0] }
+});
+
+// Rest/idle delta applied to the claw (group.userData.inspectParts[0]) — tucks the ring/point
+// back along the fist. Delta (0,0,0) is the authored "combat-ready" look (point-down, ring
+// forward), so every karambit action animates between this and zero.
+// Kept modest: the claw's ring (radius 0.205) and point (~0.29 units off the rotation pivot) sweep
+// a wide arc per radian, so anything much larger visibly tears the ring/point away from the fist.
+const KARAMBIT_REST = Object.freeze({ x: -0.42, y: 0.1, z: 0.16 });
+
+// Delta triples for butterfly's [left, right, bladeRoot] inspectParts. (0,0,0) everywhere is the
+// authored closed/rest silhouette (blade folded back between the rails).
+function butterflyParts(leftZ, rightZ, bladeY, bladeZ = 0) {
+    return [
+        { x: 0, y: 0, z: leftZ },
+        { x: 0, y: 0, z: rightZ },
+        { x: 0, y: bladeY, z: bladeZ }
+    ];
+}
 
 export function createKnifeAnimationState(model = 'classic') {
     return {
@@ -61,17 +98,26 @@ export function resolveKnifePose(state, context = {}) {
     const speed = Math.max(0, Math.min(1, (Number(context.speed) || 0) / 12));
     const swayX = Math.max(-1, Math.min(1, Number(context.swayX) || 0));
     const swayY = Math.max(-1, Math.min(1, Number(context.swayY) || 0));
-    const bob = Math.sin(time * (7 + speed * 5)) * (0.006 + speed * 0.016);
+    const bobRaw = Math.sin(time * (7 + speed * 5)) * (0.006 + speed * 0.016);
+    const bob = Number.isFinite(bobRaw) ? bobRaw : 0; // hostile-input guard: extreme time can overflow the product to Infinity/NaN
+    const model = state?.model;
+    const frame = MODEL_FRAME_OFFSET[model] || MODEL_FRAME_OFFSET.classic;
     const pose = {
         armPosition: [0.25 + swayX * 0.025, -0.3 + bob - swayY * 0.018, -0.3],
         armRotation: [-swayY * 0.035, -swayX * 0.05, swayX * 0.025],
-        knifePosition: [0.08, -0.08, -0.5],
-        knifeRotation: [-0.08, 0.18, -0.34],
+        knifePosition: [0.08 + frame.position[0], -0.08 + frame.position[1], -0.5 + frame.position[2]],
+        knifeRotation: [-0.08 + frame.rotation[0], 0.18 + frame.rotation[1], -0.34 + frame.rotation[2]],
         parts: [0, 0, 0],
         action,
         progress,
         variant: state?.variant === 'rare' ? 'rare' : 'standard'
     };
+
+    // Rest baseline: closed/tucked silhouette for the two folding models. Action branches below
+    // animate away from this and (except idle itself) settle back onto it by progress 1, matching
+    // the same start==end-at-baseline convention the arm/knife transforms above already use.
+    if (model === 'butterfly') pose.parts = butterflyParts(0, 0, 0, 0);
+    else if (model === 'karambit') pose.parts = [{ ...KARAMBIT_REST }];
 
     if (action === 'draw') {
         const settle = smooth(progress);
@@ -81,8 +127,18 @@ export function resolveKnifePose(state, context = {}) {
         pose.armRotation[0] += (1 - settle) * 0.75 - pulse(progress) * 0.12;
         pose.knifeRotation[1] += (1 - settle) * 1.1;
         pose.knifeRotation[2] -= (1 - settle) * 0.75;
-        if (state?.model === 'butterfly') {
-            pose.parts = [-1.8 * (1 - settle), 1.8 * (1 - settle), Math.sin(progress * Math.PI * 2) * 0.55];
+        if (model === 'butterfly') {
+            // Draw presents the blade open, then folds it closed into the resting grip by the end.
+            const openAmt = 1 - settle;
+            pose.parts = butterflyParts(
+                -1.8 * openAmt,
+                1.8 * openAmt,
+                -Math.PI * openAmt,
+                Math.sin(progress * Math.PI * 2) * 0.3 * openAmt
+            );
+        } else if (model === 'karambit') {
+            const combatAmt = snapEnvelope(progress, 0.18, 0.55);
+            pose.parts = [lerpDelta(KARAMBIT_REST, { x: 0, y: 0, z: 0 }, combatAmt)];
         }
     } else if (action === 'slash') {
         const windup = progress < 0.22 ? smooth(progress / 0.22) : 1;
@@ -95,6 +151,13 @@ export function resolveKnifePose(state, context = {}) {
         pose.armRotation[2] += 0.32 * force;
         pose.knifeRotation[0] -= 0.38 * pulse(progress);
         pose.knifeRotation[2] += 1.45 * (cut - recover * 0.7) - 0.3 * windup;
+        if (model === 'butterfly') {
+            const openAmt = pulse(progress);
+            pose.parts = butterflyParts(0, 0, -Math.PI * openAmt, 0);
+        } else if (model === 'karambit') {
+            const combatAmt = snapEnvelope(progress, 0.12, 0.3);
+            pose.parts = [lerpDelta(KARAMBIT_REST, { x: 0, y: 0, z: 0 }, combatAmt)];
+        }
     } else if (action === 'stab') {
         const thrust = progress < 0.42 ? smooth(progress / 0.42) : 1 - smooth((progress - 0.42) / 0.58);
         pose.armPosition[0] -= 0.12 * thrust;
@@ -103,6 +166,13 @@ export function resolveKnifePose(state, context = {}) {
         pose.armRotation[0] += 0.18 * thrust;
         pose.knifeRotation[0] += 0.2 * thrust;
         pose.knifeRotation[2] += 0.32 * thrust;
+        if (model === 'butterfly') {
+            const openAmt = pulse(progress);
+            pose.parts = butterflyParts(0, 0, -Math.PI * openAmt, 0);
+        } else if (model === 'karambit') {
+            const combatAmt = snapEnvelope(progress, 0.15, 0.4);
+            pose.parts = [lerpDelta(KARAMBIT_REST, { x: 0, y: 0, z: 0 }, combatAmt)];
+        }
     } else if (action === 'inspect') {
         const reveal = pulse(progress);
         const turns = pose.variant === 'rare' ? 4 : 2;
@@ -114,11 +184,21 @@ export function resolveKnifePose(state, context = {}) {
         pose.knifeRotation[0] += 0.55 * reveal;
         pose.knifeRotation[1] += Math.sin(progress * Math.PI * turns) * (pose.variant === 'rare' ? 1.4 : 0.82);
         pose.knifeRotation[2] += Math.sin(progress * Math.PI * 2) * 0.72;
-        if (state?.model === 'butterfly') {
+        if (model === 'butterfly') {
+            // Flourish: open -> spin -> closed, ending back on the resting silhouette.
             const flip = Math.sin(progress * Math.PI * turns);
-            pose.parts = [-flip * 1.75, flip * 1.75, flip * 0.72];
-        } else if (state?.model === 'karambit') {
-            pose.parts[0] = Math.sin(progress * Math.PI * turns) * 0.65;
+            const openAmt = pulse(progress);
+            pose.parts = butterflyParts(-flip * 1.75, flip * 1.75, -Math.PI * openAmt, flip * 0.6);
+        } else if (model === 'karambit') {
+            // Continuous multi-turn roll around the ring. Adding whole turns (2*PI*turns, turns an
+            // integer) is periodic, so progress===1 lands visually back on KARAMBIT_REST even though
+            // the numeric value keeps accumulating — satisfies both "completes a full rotation" and
+            // the same start/end-at-rest continuity every other action uses.
+            pose.parts = [{
+                x: KARAMBIT_REST.x + progress * Math.PI * 2 * turns,
+                y: KARAMBIT_REST.y + Math.sin(progress * Math.PI * turns) * 0.4,
+                z: KARAMBIT_REST.z
+            }];
         }
     }
     return pose;
