@@ -1200,18 +1200,21 @@ body.high-contrast :is(button, input, select, textarea):focus-visible {
     --menu-red-deep: #8f1f31;
     --menu-blue: #3b82f6;
     --menu-blue-deep: #174a9c;
-    --menu-cyan: #5ee7f7;
-    --menu-gold: #ffc857;
-    --menu-ink: #f4f8ff;
-    --menu-muted: #9ba9bc;
-    --menu-panel: rgba(9, 14, 24, 0.92);
-    --menu-panel-soft: rgba(17, 24, 38, 0.86);
-    --menu-line: rgba(190, 211, 242, 0.16);
+    /* Theme-driven. Fallbacks are the original dark values, so a theme that omits
+       a token still renders. --menu-red/--menu-blue above stay hardcoded on
+       purpose: team ownership must read the same under every theme. */
+    --menu-cyan: var(--ui-menu-accent, #5ee7f7);
+    --menu-gold: var(--ui-menu-gold, #ffc857);
+    --menu-ink: var(--ui-menu-ink, #f4f8ff);
+    --menu-muted: var(--ui-menu-muted, #9ba9bc);
+    --menu-panel: var(--ui-menu-panel, rgba(9, 14, 24, 0.92));
+    --menu-panel-soft: var(--ui-menu-panel-soft, rgba(17, 24, 38, 0.86));
+    --menu-line: var(--ui-menu-line, rgba(190, 211, 242, 0.16));
     color: var(--menu-ink);
     background:
-        radial-gradient(circle at 17% 52%, rgba(240, 68, 85, 0.21), transparent 31%),
-        radial-gradient(circle at 78% 42%, rgba(59, 130, 246, 0.24), transparent 34%),
-        linear-gradient(112deg, #090b12 0%, #10131c 48%, #080d18 100%);
+        radial-gradient(circle at 17% 52%, var(--ui-menu-glow-a, rgba(240, 68, 85, 0.21)), transparent 31%),
+        radial-gradient(circle at 78% 42%, var(--ui-menu-glow-b, rgba(59, 130, 246, 0.24)), transparent 34%),
+        var(--ui-menu-base, linear-gradient(112deg, #090b12 0%, #10131c 48%, #080d18 100%));
 }
 
 #main-menu::before {
@@ -2114,7 +2117,7 @@ body.high-contrast #main-menu :is(.ow-topbar, .ow-showcase, .ow-action-panel, .f
 #main-menu .ow-showcase {
     background:
         linear-gradient(90deg, rgba(240, 68, 85, 0.13), transparent 33%, transparent 67%, rgba(59, 130, 246, 0.16)),
-        linear-gradient(145deg, rgba(28, 58, 72, 0.9), rgba(8, 24, 37, 0.94));
+        var(--ui-menu-stage, linear-gradient(145deg, rgba(28, 58, 72, 0.9), rgba(8, 24, 37, 0.94)));
 }
 
 @media (max-width: 900px) {

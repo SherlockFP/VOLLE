@@ -761,10 +761,11 @@ class App {
         };
 
         bind('btn-play-solo', () => {
-            // PLAY → multiplayer seçim ekranı (create / join / solo)
-            this.ui.showScreen('multiplayerMenu');
-            this._refreshLobbyList();
-            this._mpRefreshTimer = setInterval(() => this._refreshLobbyList(), 5000);
+            // Button copy promises "Jump into a bot match", so start one instead of
+            // detouring to the lobby browser. Same path as btn-mp-solo.
+            clearInterval(this._mpRefreshTimer);
+            this.game.startSolo();
+            this.ui.showScreen('lobby');
         });
 
         // Multiplayer menü butonları
@@ -821,7 +822,12 @@ class App {
         bind('btn-host-game', async () => { this._doHostGame(); });
 
         bind('btn-join-game', () => {
-            this.ui.showScreen('joinMenu');
+            // Lobby browser (create / join-by-code / open lobbies). Reached from here
+            // now that QUICK PLAY goes straight into a match; btn-mp-join still
+            // opens the raw code prompt from inside.
+            this.ui.showScreen('multiplayerMenu');
+            this._refreshLobbyList();
+            this._mpRefreshTimer = setInterval(() => this._refreshLobbyList(), 5000);
         });
 
         bind('btn-join-connect', async () => {
