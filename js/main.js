@@ -32,6 +32,7 @@ import { Replay, extractReplayHighlight } from './replay.js';
 import { ReplayView } from './replay-view.js';
 import { Spectator } from './spectator.js';
 import { BALL_SKINS } from './ball.js';
+import { accountRankLabel, matchXp, prestigeTitle } from './prestige.js';
 import { Console } from './console.js';
 import { tournament } from './tournament.js';
 import { Friends } from './friends.js';
@@ -663,10 +664,16 @@ class App {
             }
         }
         this._saveSocialProfile();
-        this.ui.showMessage?.(`ELO ${won ? 'win' : draw ? 'draw' : 'loss'}: ${ranked.elo}`, 3500);
         this._rankedMatch = null;
         const coins = won ? 5 : 1;
-        const xp = this.store.boostedXp(50 + myStat.deflections * 3 + (won ? 100 : 30));
+        // Casual-first XP: weighted on how the match was played rather than on the
+        // result, so a strong loss still out-earns a passive win (js/prestige.js).
+        const xp = this.store.boostedXp(matchXp({
+            deflections: myStat.deflections,
+            kills: myStat.score,
+            survived: (myStat.deaths || 0) === 0,
+            won
+        }));
         const result = this.store.grant({ currency: coins, xp });
         const matchId = this.game.matchId || globalThis.crypto?.randomUUID?.()
             || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -711,8 +718,10 @@ class App {
             this.ui.showMessage?.(`🏆 Achievement: ${a.name}! +${a.reward} coins`, 3000);
         });
 
-        if (result.leveledUp) {
-            this.ui.showMessage?.(`Level Up! Now Lv ${result.level}`, 3000);
+        if (result.prestiged) {
+            this.ui.showMessage?.(`⭐ PRESTIGE ${result.prestige} — ${prestigeTitle(result.prestige)}!`, 4500);
+        } else if (result.leveledUp) {
+            this.ui.showMessage?.(`Level Up! ${accountRankLabel(result)}`, 3000);
         }
         if (mastery.masteryLeveledUp) {
             this.ui.showMessage?.(`${CHARACTERS[this.player.charId]?.name || 'Character'} Mastery Lv ${mastery.masteryLevel}!`, 3000);

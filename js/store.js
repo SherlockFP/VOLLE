@@ -36,6 +36,7 @@ import {
     xpForTier as battlepassXpForTier
 } from './battlepass.js';
 import { Daily, DAILY_CHALLENGE_XP, DAILY_ALL_COMPLETE_BONUS_XP } from './daily.js';
+import { applyAccountXp, xpForLevel } from './prestige.js';
 
 const KEY = 'dodgball_save_v2';
 const PROFILE_TOKEN_KEY = 'dodgball_profile_token';
@@ -61,6 +62,7 @@ const DEFAULTS = {
     gems: 0,
     xp: 0,
     level: 1,
+    prestige: 0,           // Call of Duty style prestige rank (js/prestige.js)
     ownedItems: [],         // ball skin + rune ids
     ownedSkills: ['slow'],  // skill ids (slow default)
     unlockedChars: Object.keys(CHARACTERS),
@@ -462,23 +464,28 @@ class StoreClass {
 
     // Award coins + xp, handle level-ups + battlepass tier fill (this is the
     // match-end hook: js/main.js calls Store.grant({ currency, xp }) once per game).
+    // Account levelling, including the prestige roll at MAX_LEVEL, is delegated to
+    // js/prestige.js so the XP curve lives in exactly one place.
     grant({ currency = 0, xp = 0, gems = 0 } = {}) {
         this.data.currency += currency;
         this.data.gems += gems;
-        this.data.xp += xp;
-        let leveledUp = false;
-        let need = this._xpForLevel(this.data.level);
-        while (this.data.xp >= need) {
-            this.data.xp -= need;
-            this.data.level++;
-            leveledUp = true;
-            need = this._xpForLevel(this.data.level);
-        }
+        const account = applyAccountXp(
+            { level: this.data.level, xp: this.data.xp, prestige: this.data.prestige },
+            xp
+        );
+        this.data.level = account.level;
+        this.data.xp = account.xp;
+        this.data.prestige = account.prestige;
         this._rolloverBattlepassSeason();
         const { state } = addBattlepassXp(this.data.battlepass, xp);
         this.data.battlepass = state;
         this.save();
-        return { leveledUp, level: this.data.level };
+        return {
+            leveledUp: account.leveledUp,
+            level: account.level,
+            prestige: account.prestige,
+            prestiged: account.prestiged
+        };
     }
 
     // Rolls the battlepass into a fresh season once the current one has expired.
@@ -516,7 +523,13 @@ class StoreClass {
         }
     }
 
-    _xpForLevel(lvl) { return 100 + (lvl - 1) * 50; }
+    // Kept for existing callers; js/prestige.js owns the curve.
+    _xpForLevel(lvl) { return xpForLevel(lvl); }
+
+    // Account rank triple for the menu/scoreboard. Legacy saves predate prestige.
+    getAccount() {
+        return { level: this.data.level, xp: this.data.xp, prestige: this.data.prestige || 0 };
+    }
 
     owns(id) {
         return this.data.ownedItems.includes(id)
