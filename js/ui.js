@@ -11,6 +11,7 @@ import { getRank, getRankProgress } from './ranked.js';
 import { Leaderboard } from './leaderboard.js';
 import { Arena } from './arena.js';
 import { COSMETICS, COSMETIC_TYPES, cosmeticsByType } from './cosmetic-catalog.js';
+import { Store } from './store.js';
 
 const CHARACTER_ATLAS = 'assets/generated/characters/character-atlas.png';
 const BALL_BASE_SPEED = 17;
@@ -491,7 +492,7 @@ export class UI {
         }, duration);
     }
 
-    showPostGame(won, xpGained, level, kills, deflects, audio, result = {}) {
+    showPostGame(won, xpGained, level, kills, deflects, audio, result = {}, store = Store) {
         const el = document.getElementById('post-game-screen');
         if (!el) return;
         el.classList.remove('hidden');
@@ -510,6 +511,7 @@ export class UI {
         const xpText = document.getElementById('pg-xp-text');
         if (xpFill) { xpFill.style.width = '0%'; requestAnimationFrame(() => { xpFill.style.width = perc + '%'; }); }
         if (xpText) xpText.textContent = `+${xpGained} XP`;
+        this._renderPostGameBattlepass(store);
         this.renderMatchAnalysis(result.analytics);
         const dings = Math.min(10, Math.ceil(perc / 10));
         let delay = 0;
@@ -531,6 +533,39 @@ export class UI {
             el.classList.add('hidden');
             window._postGameAction?.('main_menu');
         };
+    }
+
+    // Post-match "next reward" hook (NEXT_SESSION_PLAN.md #4.5): honest battlepass
+    // progress after the match XP already granted by Store.grant() lands, so this
+    // always reflects the real post-match state — never a fabricated or optimistic
+    // number. Free-track reward only (premium is a purchase, not something to dangle
+    // here). No-ops quietly if the battlepass API or DOM nodes aren't present.
+    _renderPostGameBattlepass(store) {
+        const wrap = document.getElementById('pg-bp-progress');
+        if (!wrap || typeof store?.getBattlepassProgress !== 'function') return;
+        const tierEl = document.getElementById('pg-bp-tier');
+        const nextEl = document.getElementById('pg-bp-next');
+        const fillEl = document.getElementById('pg-bp-bar-fill');
+        const xpTextEl = document.getElementById('pg-bp-xp-text');
+        const bp = store.getBattlepassProgress();
+        const tier = Number(bp?.tier) || 0;
+        if (tierEl) tierEl.textContent = String(tier);
+        const xpNeeded = Number(store.getBattlepassXpForNextTier?.()) || 0;
+        const maxed = tier >= 50 || xpNeeded <= 0;
+        wrap.classList.toggle('maxed', maxed);
+        if (maxed) {
+            if (nextEl) nextEl.textContent = 'Max tier reached';
+            if (fillEl) fillEl.style.width = '100%';
+            if (xpTextEl) xpTextEl.textContent = '';
+            return;
+        }
+        const xp = Math.max(0, Number(bp?.xp) || 0);
+        const { free } = store.getBattlepassRewards?.() || {};
+        const nextReward = Array.isArray(free) ? free.find(r => r.tier > tier) : null;
+        if (nextEl) nextEl.textContent = nextReward ? `Next: ${nextReward.name}` : `Tier ${tier + 1}`;
+        const pct = Math.max(0, Math.min(100, Math.round((xp / xpNeeded) * 100)));
+        if (fillEl) fillEl.style.width = `${pct}%`;
+        if (xpTextEl) xpTextEl.textContent = `${xp} / ${xpNeeded} XP to Tier ${tier + 1}`;
     }
 
     renderMatchAnalysis(report, initialTab = 'overview') {

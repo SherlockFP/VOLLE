@@ -2270,11 +2270,13 @@ updateCSLobbyInfo();
             // Daily challenge claim
             const dailyClaim = e.target.closest('.daily-claim');
             if (dailyClaim) {
-                const reward = Daily.claim(dailyClaim.dataset.id);
+                // ponytail: store.claimDailyChallenge tek giris noktasi — coin + battlepass
+                // XP'yi birlikte verir, kendi icinde idempotent (Daily.claim bayragi guard).
+                const reward = this.store.claimDailyChallenge(dailyClaim.dataset.id);
                 if (reward) {
-                    this.store.grant({ currency: reward });
-                    this.ui.showMessage?.(`Claimed: +${reward} coins!`);
+                    this.ui.showMessage?.(`Claimed: +${reward.coins} coins, +${reward.xpGranted} Battle Pass XP!`);
                     this.ui.renderDaily(Daily, this.store);
+                    this.ui.renderBattlepass?.(this.store);
                     this.refreshMetaStats();
                 }
                 return;

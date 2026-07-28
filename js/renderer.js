@@ -152,6 +152,59 @@ export class Renderer {
         return mesh;
     }
 
+    // Target outline — bright red silhouette traced from the supplied meshes (the
+    // character rig's own body parts), pulses via each material's uPulse uniform.
+    // Reuses outlineVertexShader (same inflate-along-normal trick as createOutlineMesh)
+    // but keeps its own translucent red fragment shader since createOutlineMesh's is
+    // opaque black (the toon-shader silhouette — a different, always-on visual). Each
+    // outline mesh is parented alongside its source part (same parent, same local
+    // transform) so it tracks rig animation for free — 0 alloc/frame, only the uPulse
+    // uniform is written per frame by callers.
+    createTargetOutline(parts = []) {
+        const group = new THREE.Group();
+        group.name = 'target-outline';
+        const materials = [];
+        const meshes = [];
+        for (const part of parts) {
+            if (!part?.isMesh || !part.geometry) continue;
+            const material = new THREE.ShaderMaterial({
+                vertexShader: outlineVertexShader,
+                fragmentShader: `
+                    uniform float uPulse;
+                    void main() {
+                        float alpha = 0.3 + 0.3 * uPulse;
+                        gl_FragColor = vec4(1.0, 0.0, 0.0, alpha);
+                    }
+                `,
+                uniforms: { outlineThickness: { value: 0.045 }, uPulse: { value: 0 } },
+                side: THREE.BackSide,
+                transparent: true,
+                depthWrite: false
+            });
+            const mesh = new THREE.Mesh(part.geometry, material);
+            mesh.name = `target-outline:${part.name || 'part'}`;
+            mesh.position.copy(part.position);
+            mesh.rotation.copy(part.rotation);
+            mesh.scale.copy(part.scale).multiplyScalar(1.05);
+            mesh.visible = false;
+            (part.parent || group).add(mesh);
+            materials.push(material);
+            meshes.push(mesh);
+        }
+        group.userData.materials = materials;
+        group.userData.meshes = meshes;
+        group.userData.setVisible = show => {
+            for (const mesh of meshes) mesh.visible = Boolean(show);
+        };
+        group.userData.dispose = () => {
+            for (const mesh of meshes) mesh.parent?.remove(mesh);
+            for (const material of materials) material.dispose();
+            meshes.length = 0;
+            materials.length = 0;
+        };
+        return group;
+    }
+
     render(camera) {
         this._initComposer(camera);
         this._composer.render();

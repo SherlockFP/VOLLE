@@ -362,3 +362,99 @@ test('dark settings and scoreboard descendants use accessible theme text tokens'
     assert.match(cssRule(selector), /color:\s*var\(--ui-muted\)/, selector);
   }
 });
+
+// Post-match "next reward" hook (NEXT_SESSION_PLAN.md #4.5): the indicator must
+// show the real post-match battlepass state (js/store.js already applied the
+// match XP before showPostGame runs) — never a fabricated or rounded-up number.
+function fakePgElement() {
+  const classes = new Set();
+  return {
+    textContent: '',
+    style: {},
+    classList: {
+      toggle: (name, on) => (on ? classes.add(name) : classes.delete(name)),
+      has: name => classes.has(name)
+    },
+    set innerHTML(_value) { throw new Error('post-match battlepass hook must use textContent, not innerHTML'); }
+  };
+}
+
+function fakePgDom() {
+  const nodes = {
+    'pg-bp-progress': fakePgElement(),
+    'pg-bp-tier': fakePgElement(),
+    'pg-bp-next': fakePgElement(),
+    'pg-bp-bar-fill': fakePgElement(),
+    'pg-bp-xp-text': fakePgElement()
+  };
+  return { nodes, getElementById: id => nodes[id] || null };
+}
+
+test('post-match battlepass hook shows the real tier, xp-to-next, and next free reward', async () => {
+  const previousDocument = globalThis.document;
+  const dom = fakePgDom();
+  globalThis.document = dom;
+  try {
+    const fakeStore = {
+      getBattlepassProgress: () => ({ tier: 4, xp: 65 }),
+      getBattlepassXpForNextTier: () => 180,
+      getBattlepassRewards: () => ({
+        free: [
+          { tier: 4, name: '+52 Coins' },
+          { tier: 5, name: '20-min XP Boost (1.25x)' }
+        ]
+      })
+    };
+    const UI = await loadUiClass();
+    const ui = Object.create(UI.prototype);
+    ui._renderPostGameBattlepass(fakeStore);
+
+    assert.equal(dom.nodes['pg-bp-tier'].textContent, '4');
+    assert.equal(dom.nodes['pg-bp-next'].textContent, 'Next: 20-min XP Boost (1.25x)');
+    assert.equal(dom.nodes['pg-bp-bar-fill'].style.width, '36%'); // round(65/180*100)
+    assert.equal(dom.nodes['pg-bp-xp-text'].textContent, '65 / 180 XP to Tier 5');
+    assert.equal(dom.nodes['pg-bp-progress'].classList.has('maxed'), false);
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
+test('post-match battlepass hook reports max tier honestly instead of a fake next reward', async () => {
+  const previousDocument = globalThis.document;
+  const dom = fakePgDom();
+  globalThis.document = dom;
+  try {
+    const fakeStore = {
+      getBattlepassProgress: () => ({ tier: 50, xp: 0 }),
+      getBattlepassXpForNextTier: () => 0,
+      getBattlepassRewards: () => ({ free: [] })
+    };
+    const UI = await loadUiClass();
+    const ui = Object.create(UI.prototype);
+    ui._renderPostGameBattlepass(fakeStore);
+
+    assert.equal(dom.nodes['pg-bp-tier'].textContent, '50');
+    assert.equal(dom.nodes['pg-bp-next'].textContent, 'Max tier reached');
+    assert.equal(dom.nodes['pg-bp-bar-fill'].style.width, '100%');
+    assert.equal(dom.nodes['pg-bp-xp-text'].textContent, '');
+    assert.equal(dom.nodes['pg-bp-progress'].classList.has('maxed'), true);
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
+test('post-match battlepass hook no-ops quietly when the DOM node is absent', async () => {
+  const previousDocument = globalThis.document;
+  globalThis.document = { getElementById: () => null };
+  try {
+    const UI = await loadUiClass();
+    const ui = Object.create(UI.prototype);
+    assert.doesNotThrow(() => ui._renderPostGameBattlepass({
+      getBattlepassProgress: () => ({ tier: 1, xp: 0 }),
+      getBattlepassXpForNextTier: () => 100,
+      getBattlepassRewards: () => ({ free: [] })
+    }));
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});

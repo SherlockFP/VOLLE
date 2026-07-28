@@ -2,6 +2,19 @@
 // ponytail: localStorage ile tarih kontrol, basit objeler.
 const DAILY_KEY = 'dodgball_daily_v1';
 
+// Battlepass XP bridge (was the biggest progression-loop gap: completing dailies
+// gave coins but no battlepass progress). js/store.js#claimDailyChallenge is the
+// only writer of battlepass XP for these; it grants DAILY_CHALLENGE_XP per claimed
+// challenge and DAILY_ALL_COMPLETE_BONUS_XP once per day when all 3 are claimed.
+// Idempotency lives here, not in the caller: `claimed` (per challenge) and
+// `bonusGranted` (per day) are persisted fields that only reset in `_reset()`,
+// i.e. on an actual day rollover — so re-claiming, reloading, or re-rendering the
+// UI can never re-trigger a grant. Values are roughly a third and a full match's
+// worth of xp (see js/main.js grant({xp}) call), enough to matter without
+// dwarfing normal match progression.
+export const DAILY_CHALLENGE_XP = 50;
+export const DAILY_ALL_COMPLETE_BONUS_XP = 100;
+
 const CHALLENGE_POOL = [
     { id: 'win_3', name: 'Win 3 Matches', emoji: '🏆', target: 3, type: 'wins', reward: 100 },
     { id: 'deflect_50', name: '50 Deflects', emoji: '🏐', target: 50, type: 'deflects', reward: 80 },
@@ -42,7 +55,10 @@ class DailyClass {
             const raw = localStorage.getItem(DAILY_KEY);
             if (!raw) { this._reset(); return; }
             const data = JSON.parse(raw);
-            if (data.date !== todayKey()) { this._reset(); return; }
+            if (!data || typeof data !== 'object' || data.date !== todayKey() || !Array.isArray(data.challenges)) {
+                this._reset();
+                return;
+            }
             this.data = data;
         } catch { this._reset(); }
     }
@@ -52,7 +68,7 @@ class DailyClass {
         const challenges = pickDailies(date).map(c => ({
             ...c, progress: 0, claimed: false
         }));
-        this.data = { date, challenges };
+        this.data = { date, challenges, bonusGranted: false };
         this._save();
     }
 
@@ -88,6 +104,21 @@ class DailyClass {
         this._save();
         return c.reward;
     }
+
+    // One-time per-day "all 3 done" bonus. Idempotent by construction: `bonusGranted`
+    // only flips true here and only resets in `_reset()` (real day rollover), so
+    // calling this after every successful claim() is always safe to repeat.
+    claimCompletionBonus() {
+        this._load();
+        if (this.data.bonusGranted) return false;
+        if (!Array.isArray(this.data.challenges) || this.data.challenges.length === 0) return false;
+        if (!this.data.challenges.every(c => c.claimed)) return false;
+        this.data.bonusGranted = true;
+        this._save();
+        return true;
+    }
+
+    isBonusClaimed() { this._load(); return this.data.bonusGranted === true; }
 
     isExpired() { return this.data.date !== todayKey(); }
 }

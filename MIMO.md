@@ -79,21 +79,26 @@ Key files: `js/ui-theme.js`, `js/settings-controller.js`, `css/ui-tokens.css`, `
 
 ## Pending Features (Phase 2-4)
 
-### Phase 2 — Content (Not Started)
+### Phase 2 — Content ✅ (2026-07-28)
 
-| # | Feature | Target File | Complexity |
-|---|---------|-------------|------------|
-| 8 | Ball Skins System (7 skins) | `js/ball.js` | Low |
-| 9 | Extended Ball Skins (5 more) | `js/ball.js` | Low |
-| 10 | Ice Map (slippery floor) | `js/arena.js`, `js/player.js` | Medium |
-| 11 | Cloud Map (low gravity) | `js/arena.js`, `js/player.js` | Medium |
-| 12 | Jungle Map (water hazard) | `js/arena.js`, `js/game.js` | Medium |
+| # | Feature | Target File | Durum |
+|---|---------|-------------|-------|
+| 8 | Ball Skins System | `js/ball.js` | ✅ |
+| 9 | Extended Ball Skins (+12 more) | `js/ball.js` | ✅ 5 rare / 4 epic / 3 legendary |
+| 10 | Ice Map (slippery floor) | `js/arena.js`, `js/player.js` | ✅ `slippery: true` |
+| 11 | Cloud Map (low gravity) | `js/arena.js`, `js/player.js` | ✅ `lowGravity: true` (Space ile aynı mekanizma) |
+| 12 | Jungle Map (water hazard) | `js/arena.js` | ✅ `waterZones: true` |
+
+> **Not:** 10/11/12 aslında bu dosyada "başlanmadı" yazmasına rağmen büyük ölçüde
+> yapılmıştı — 2026-07-28'de denetlendi, eksik olan tek şey jungle'ın hazard'ının
+> jenerik `waterZones` bayrağına taşınmasıydı. Bayrakların üçü de opt-in ve
+> varsayılan kapalı; mevcut 18 harita etkilenmedi (`tests/map-mechanics.test.mjs`).
 
 ### Phase 3 — UI/Meta (In Progress)
 
 | # | Feature | Target File | Complexity |
 |---|---------|-------------|------------|
-| 13 | Battlepass System (50 tiers) | `js/store.js`, `js/ui.js` | High |
+| 13 | Battlepass System (50 tiers) | `js/battlepass.js`, `js/store.js`, `js/ui.js` | ✅ free+premium track, 8 haftalik sezon, gunluk gorev XP baglantisi |
 | 14 | Enhanced Shop UI (tabs + live 3D showcase) — Complete | `js/ui.js`, `js/shop-showcase.js` | Medium |
 | 15 | Cosmetic Practice Range Mode — Complete | `js/main.js`, `js/cosmetic-practice.js`, `js/arena.js` | Medium |
 | 16 | Map Ban UI Enhancement | `js/ui.js` | Low |

@@ -84,6 +84,10 @@ function pruneLobbies() {
     }
 }
 
+function normalizeLobbyRecord(record, timestamp) {
+    return Object.assign({}, record, { updatedAt: timestamp });
+}
+
 function readBody(req, maxLength = 1e4) {
     return new Promise((resolve) => {
         let body = '';
@@ -369,7 +373,7 @@ const server = http.createServer(async (req, res) => {
         if (!allowRequest(req, res, 'lobbyWrite')) return;
         const b = await readBody(req);
         if (!b.code) { sendJson(res, { error: 'code required' }, 400); return; }
-        lobbies.set(b.code, {
+        lobbies.set(b.code, normalizeLobbyRecord({
             code: b.code,
             name: b.name || 'Lobby',
             hostName: b.hostName || 'Host',
@@ -378,9 +382,8 @@ const server = http.createServer(async (req, res) => {
             mode: b.mode || 'Classic',
             ranked: b.ranked === true,
             averageElo: Math.max(0, Math.min(5000, Number(b.averageElo) || 1000)),
-            maxPlayers: Math.max(2, Math.min(16, Number(b.maxPlayers) || 8)),
-            updatedAt: Date.now()
-        });
+            maxPlayers: Math.max(2, Math.min(16, Number(b.maxPlayers) || 8))
+        }, Date.now()));
         sendJson(res, { ok: true });
         return;
     }
@@ -412,14 +415,13 @@ const server = http.createServer(async (req, res) => {
             sendJson(res, { error: 'valid code and mapId required' }, 400);
             return;
         }
-        socialHubs.set(b.code, {
+        socialHubs.set(b.code, normalizeLobbyRecord({
             code: b.code,
             mapId,
             mapName,
             hostName: String(b.hostName || 'Host').slice(0, 32),
-            players: Math.max(1, Math.min(32, Number(b.players) || 1)),
-            updatedAt: Date.now()
-        });
+            players: Math.max(1, Math.min(32, Number(b.players) || 1))
+        }, Date.now()));
         sendJson(res, { ok: true });
         return;
     }
@@ -463,6 +465,10 @@ const server = http.createServer(async (req, res) => {
     });
 });
 
-server.listen(PORT, () => {
-    console.log(`\n  WARRBALL running on port ${PORT}\n  Local: http://localhost:${PORT}\n`);
-});
+if (require.main === module) {
+    server.listen(PORT, () => {
+        console.log(`\n  WARRBALL running on port ${PORT}\n  Local: http://localhost:${PORT}\n`);
+    });
+}
+
+module.exports = { normalizeLobbyRecord };

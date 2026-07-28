@@ -12,7 +12,6 @@ import { ChaosManager, CHAOS_MODES } from './chaos.js';
 import { EmoteSystem } from './emotes.js';
 import { AffixManager } from './affixes.js';
 import { SKILLS, useSkill, ULTIMATES } from './skills.js';
-import { outlineVertexShader } from './shaders/toon.vert.js';
 import { isNewerSequence } from './network.js';
 import { resolveKillerName, segmentIntersectsSphere } from './combat.js';
 import {
@@ -1177,6 +1176,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         for (const model of p._rigCosmetics || []) disposeObject3D(model);
         p._rigCosmetics = null;
         disposeObject3D(p.knifeGroup);
+        p.targetOutline?.userData.dispose?.();
         p.rig?.dispose();
         this.renderer.scene.remove(p.group);
         this.scoreboard.removePlayer(p.name);
@@ -1198,6 +1198,11 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         const color = team === 'red' ? 0xcc3333 : 0x3355cc;
 
         const rig = createCharacterRig({ characterId: 'rally', team });
+        // Snapshot the rig's own body meshes now, before the knife/cosmetics attach
+        // below (they ride rig sockets and would otherwise get swept up by a later
+        // traversal) — this is what createTargetOutline traces.
+        const outlineParts = [];
+        rig.root.traverse(o => { if (o.isMesh) outlineParts.push(o); });
         group.add(rig.root);
 
         // Avatar texture for head (Minecraft-style) — rig.setHeadTexture owns the head mesh/material.
@@ -1233,26 +1238,9 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         labelSprite.scale.set(1.6, 0.45, 1);
         group.add(labelSprite);
 
-        // Target outline — bright red, pulses when this player is the ball's target
-        const outlineGeo = new THREE.BoxGeometry(0.9, 2.0, 0.7);
-        const outlineMat = new THREE.ShaderMaterial({
-            vertexShader: outlineVertexShader,
-            fragmentShader: `
-                uniform float uPulse;
-                void main() {
-                    float alpha = 0.3 + 0.3 * uPulse;
-                    gl_FragColor = vec4(1.0, 0.0, 0.0, alpha);
-                }
-            `,
-            uniforms: { outlineThickness: { value: 0.08 }, uPulse: { value: 0 } },
-            side: THREE.BackSide,
-            transparent: true,
-            depthWrite: false
-        });
-        const targetOutline = new THREE.Mesh(outlineGeo, outlineMat);
-        targetOutline.position.y = 1.25; // center of torso-head group
-        targetOutline.visible = false;
-        group.add(targetOutline);
+        // Target outline — bright red silhouette traced from the rig's own meshes,
+        // pulses when this player is the ball's target. See js/renderer.js#createTargetOutline.
+        const targetOutline = this.renderer.createTargetOutline(outlineParts);
 
         this.renderer.scene.add(group);
         const animator = createCharacterAnimator(rig);
@@ -1263,7 +1251,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             targetOutline,
             _outlineActive: false, _teamColor: color,
             setTargetOutline(show) {
-                if (this.targetOutline) this.targetOutline.visible = show;
+                this.targetOutline?.userData.setVisible?.(show);
                 this._outlineActive = show;
             },
             position: this.arena.getPlayerSpawn(team).clone(),
@@ -3928,9 +3916,11 @@ spawnPowerUp() {
             this._stepRemoteAnimator(p, dt);
 
             // Target outline pulse
-            if (p._outlineActive && p.targetOutline?.visible) {
+            if (p._outlineActive) {
                 const pulse = 0.5 + 0.5 * Math.sin(now / 300);
-                p.targetOutline.material.uniforms.uPulse.value = pulse;
+                for (const material of p.targetOutline?.userData.materials || []) {
+                    material.uniforms.uPulse.value = pulse;
+                }
             }
         }
     }

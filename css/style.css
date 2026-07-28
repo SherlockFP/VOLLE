@@ -62,7 +62,7 @@ canvas { display: block; }
     to { opacity: 1; transform: translateY(0); }
 }
 .screen:not(.hidden) {
-    animation: screenFadeIn 0.3s ease-out;
+    animation: screenFadeIn var(--ui-motion-base) var(--ui-ease);
 }
 
 /* Loading screen */
@@ -70,7 +70,7 @@ canvas { display: block; }
     position: fixed; inset: 0; z-index: 99999;
     display: flex; align-items: center; justify-content: center;
     background: radial-gradient(ellipse at center, #0a0a1e 0%, #050510 100%);
-    transition: opacity 0.5s ease, visibility 0.5s ease;
+    transition: opacity var(--ui-motion-slow) var(--ui-ease), visibility var(--ui-motion-slow) var(--ui-ease);
 }
 #loading-screen.done {
     opacity: 0; visibility: hidden; pointer-events: none;
@@ -177,7 +177,7 @@ body.social-hub-active #menu-particles {
     overflow-y: auto;          /* scroll long menus instead of clipping */
     text-align: center;
     box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 0 40px var(--accent-glow);
-    animation: panelIn 0.4s ease-out;
+    animation: panelIn var(--ui-motion-slow) var(--ui-ease);
 }
 
 /* Slim, themed scrollbar for panels */
@@ -228,7 +228,7 @@ body.social-hub-active #menu-particles {
     border: none;
     border-radius: var(--radius);
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all var(--ui-motion-base) var(--ui-ease);
     text-transform: uppercase;
     letter-spacing: 1px;
 }
@@ -292,7 +292,7 @@ body.social-hub-active #menu-particles {
     border-radius: var(--radius);
     color: var(--text);
     outline: none;
-    transition: border-color 0.2s;
+    transition: border-color var(--ui-motion-base) var(--ui-ease);
 }
 .input:focus {
     border-color: var(--accent);
@@ -534,7 +534,7 @@ body.social-hub-active #menu-particles {
     pointer-events: none;
     z-index: 100;
     background: transparent;
-    transition: background 0.1s;
+    transition: background var(--ui-motion-fast) var(--ui-ease);
 }
 #damage-flash.active {
     background: rgba(255, 80, 60, 0.10);
@@ -542,7 +542,7 @@ body.social-hub-active #menu-particles {
 }
 #damage-flash.fade {
     background: transparent;
-    transition: background 0.3s ease-out;
+    transition: background var(--ui-motion-base) var(--ui-ease);
 }
 
 /* ===== COUNTDOWN ===== */
@@ -605,7 +605,7 @@ body.social-hub-active #menu-particles {
     pointer-events: none;
     z-index: 950;
     opacity: 0;
-    transition: opacity 0.2s;
+    transition: opacity var(--ui-motion-base) var(--ui-ease);
     text-align: center;
 }
 #combo-display.active { opacity: 1; }
@@ -656,7 +656,7 @@ body.social-hub-active #menu-particles {
     font-size: 1.4em;
     font-weight: 900;
     color: var(--accent);
-    transition: color 0.3s;
+    transition: color var(--ui-motion-base) var(--ui-ease);
 }
 #ball-speed .speed-label {
     font-size: 0.7em;
@@ -723,7 +723,7 @@ body.social-hub-active #menu-particles {
     align-items: center;
     background: radial-gradient(ellipse at center, rgba(20,10,30,0.75) 0%, rgba(0,0,0,0.85) 100%);
     backdrop-filter: blur(6px);
-    animation: teamFade 0.18s ease-out;
+    animation: teamFade var(--ui-motion-base) var(--ui-ease);
 }
 @keyframes teamFade { from { opacity: 0; } to { opacity: 1; } }
 #team-overlay.hidden { display: none; }
@@ -768,7 +768,7 @@ body.social-hub-active #menu-particles {
     border-radius: 8px;
     background: rgba(255,255,255,0.03);
     border: 1px solid rgba(255,255,255,0.06);
-    transition: background 0.15s;
+    transition: background var(--ui-motion-fast) var(--ui-ease);
     cursor: pointer;
 }
 .team-col.red  { border-top: 3px solid #d04040; box-shadow: inset 3px 0 0 rgba(208,64,64,0.4); }
@@ -783,7 +783,7 @@ body.social-hub-active #menu-particles {
     border-bottom: 1px solid rgba(255,255,255,0.08);
     text-transform: uppercase;
     cursor: pointer;
-    transition: color 0.15s, transform 0.12s;
+    transition: color var(--ui-motion-fast) var(--ui-ease), transform var(--ui-motion-fast) var(--ui-ease);
     user-select: none;
 }
 .team-col:hover { background: rgba(255,255,255,0.06); }
@@ -795,7 +795,7 @@ body.social-hub-active #menu-particles {
     font-weight: 400;
     font-size: 10px;
     opacity: 0;
-    transition: opacity 0.15s;
+    transition: opacity var(--ui-motion-fast) var(--ui-ease);
     display: inline-block;
     margin-left: 4px;
     letter-spacing: 0.5px;
@@ -827,7 +827,7 @@ body.social-hub-active #menu-particles {
     border-left-color: var(--accent);
     box-shadow: 0 0 12px rgba(255,136,0,0.15);
 }
-.team-list li.clickable { cursor: pointer; transition: background .12s, transform .12s, border-color .12s; }
+.team-list li.clickable { cursor: pointer; transition: background var(--ui-motion-fast) var(--ui-ease), transform var(--ui-motion-fast) var(--ui-ease), border-color var(--ui-motion-fast) var(--ui-ease); }
 .team-list li.clickable:hover { background: rgba(255,255,255,0.18); transform: translateX(3px); border-left-color: rgba(255,255,255,0.4); }
 .team-col.red .team-list li.clickable:hover  { background: rgba(238,85,85,0.28);  border-left-color: #ff6666; }
 .team-col.blue .team-list li.clickable:hover { background: rgba(85,119,221,0.28); border-left-color: #6699ee; }
@@ -951,7 +951,7 @@ body.social-hub-active #menu-particles {
     width: 100%;
     height: 100%;
     padding: 22px 0 20px 40px;
-    animation: panelIn 0.4s ease-out;
+    animation: panelIn var(--ui-motion-slow) var(--ui-ease);
     overflow: hidden;
 }
 .ow-topbar { grid-column: 1; grid-row: 1; padding-right: 40px; }
@@ -990,7 +990,7 @@ body.social-hub-active #menu-particles {
     border-radius: 6px;
     width: 150px;
     outline: none;
-    transition: background 0.15s;
+    transition: background var(--ui-motion-fast) var(--ui-ease);
 }
 .ow-name-input:hover, .ow-name-input:focus { background: rgba(255,255,255,0.07); }
 .ow-level { font-size: 0.78em; color: var(--text-dim); font-weight: 700; padding-left: 4px; }
@@ -1008,7 +1008,7 @@ body.social-hub-active #menu-particles {
     text-transform: uppercase;
     letter-spacing: 0.5px;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all var(--ui-motion-fast) var(--ui-ease);
 }
 .ow-tab:hover {
     color: #fff;
@@ -1036,7 +1036,7 @@ body.social-hub-active #menu-particles {
     color: var(--text);
     font-size: 1.1em;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all var(--ui-motion-fast) var(--ui-ease);
 }
 .ow-gear:hover { background: rgba(255,136,0,0.2); border-color: var(--accent); transform: rotate(45deg); }
 
@@ -1100,7 +1100,7 @@ body.social-hub-active #menu-particles {
     font-size: 0.88em;
     font-weight: 700;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all var(--ui-motion-fast) var(--ui-ease);
     white-space: nowrap;
 }
 .ow-sbtn:hover { background: rgba(255,255,255,0.13); transform: translateY(-2px); }
@@ -1117,7 +1117,7 @@ body.social-hub-active #menu-particles {
     letter-spacing: 3px;
     cursor: pointer;
     box-shadow: 0 8px 30px rgba(255,136,0,0.45), inset 0 2px 0 rgba(255,255,255,0.25);
-    transition: all 0.15s ease;
+    transition: all var(--ui-motion-fast) var(--ui-ease);
     flex-shrink: 0;
 }
 .ow-play:hover {
@@ -1143,7 +1143,7 @@ body.social-hub-active #menu-particles {
     font-size: 0.85em;
     font-weight: 700;
     cursor: pointer;
-    transition: color 0.15s;
+    transition: color var(--ui-motion-fast) var(--ui-ease);
 }
 .ow-link:hover { color: var(--accent); }
 .ow-hint { font-size: 0.72em; color: rgba(255,255,255,0.25); margin-left: auto; }
@@ -1198,7 +1198,7 @@ body.social-hub-active #menu-particles {
     position: absolute;
     left: 0; top: 0; bottom: 0;
     border-radius: 9px;
-    transition: width 0.3s ease, background 0.3s ease;
+    transition: width var(--ui-motion-base) var(--ui-ease), background var(--ui-motion-base) var(--ui-ease);
 }
 .vital-fill.hp { width: 100%; background: linear-gradient(90deg, #44dd66, #88ff88); }
 .vital-fill.hp.mid { background: linear-gradient(90deg, #ffaa22, #ffcc44); }
@@ -1375,7 +1375,7 @@ body.social-hub-active #menu-particles {
         /* Corner vignette */
         radial-gradient(ellipse at 50% 50%, transparent 50%, rgba(0,0,0,0.4) 100%);
     opacity: 0;
-    transition: opacity 0.2s ease-in;
+    transition: opacity var(--ui-motion-base) var(--ui-ease);
 }
 #killcam.visible {
     opacity: 1;
@@ -1394,7 +1394,7 @@ body.social-hub-active #menu-particles {
     text-shadow: 0 4px 20px rgba(255,0,0,0.6), 0 0 60px rgba(200,0,0,0.3);
     letter-spacing: 6px;
     transform: scale(0.8);
-    transition: transform 0.3s ease-out;
+    transition: transform var(--ui-motion-base) var(--ui-ease);
 }
 #killcam.visible #killcam-text {
     transform: scale(1);
@@ -1457,7 +1457,7 @@ body.social-hub-active #menu-particles {
     pointer-events: none;
     opacity: 0;
     border: 4px solid transparent;
-    transition: opacity 0.15s;
+    transition: opacity var(--ui-motion-fast) var(--ui-ease);
 }
 #incoming-indicator.active {
     opacity: 1;
@@ -1558,7 +1558,7 @@ body.social-hub-active #menu-particles {
     text-align: center;
     width: 220px;
     outline: none;
-    transition: all 0.2s;
+    transition: all var(--ui-motion-base) var(--ui-ease);
 }
 .cs-lobby-name-input:focus {
     border-color: var(--accent);
@@ -1579,7 +1579,7 @@ body.social-hub-active #menu-particles {
     font-size: 0.82em;
     font-weight: 700;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all var(--ui-motion-base) var(--ui-ease);
 }
 .cs-btn-back:hover {
     background: rgba(255,60,60,0.15);
@@ -1656,8 +1656,8 @@ body.social-hub-active #menu-particles {
     background: rgba(255,255,255,0.03);
     border: 1px solid rgba(255,255,255,0.06);
     border-radius: 10px;
-    transition: all 0.2s;
-    animation: cardIn 0.3s ease-out;
+    transition: all var(--ui-motion-base) var(--ui-ease);
+    animation: cardIn var(--ui-motion-base) var(--ui-ease);
     position: relative;
     min-width: 0;
 }
@@ -1757,7 +1757,7 @@ body.social-hub-active #menu-particles {
     font-size: 0.78em;
     font-weight: 700;
     cursor: pointer;
-    transition: all 0.15s;
+    transition: all var(--ui-motion-fast) var(--ui-ease);
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }
@@ -1783,7 +1783,7 @@ body.social-hub-active #menu-particles {
     font-size: 0.75em;
     font-weight: 700;
     cursor: pointer;
-    transition: all 0.15s;
+    transition: all var(--ui-motion-fast) var(--ui-ease);
 }
 .cs-btn-bot:hover { background: rgba(255,255,255,0.12); color: var(--text); }
 
@@ -1819,7 +1819,7 @@ body.social-hub-active #menu-particles {
     user-select: none;
 }
 .cs-settings-toggle:hover { color: var(--accent); }
-.cs-arrow { font-size: 0.7em; transition: transform 0.2s; }
+.cs-arrow { font-size: 0.7em; transition: transform var(--ui-motion-base) var(--ui-ease); }
 .cs-arrow.open { transform: rotate(90deg); }
 
 .cs-map-row {
@@ -1836,7 +1836,7 @@ body.social-hub-active #menu-particles {
     background: rgba(255,255,255,0.03);
     font-size: 0.9em;
     cursor: pointer;
-    transition: all 0.15s;
+    transition: all var(--ui-motion-fast) var(--ui-ease);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1871,7 +1871,7 @@ body.social-hub-active #menu-particles {
     font-weight: 700;
     color: var(--text-dim);
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all var(--ui-motion-base) var(--ui-ease);
 }
 .cs-mode-btn:hover {
     border-color: var(--accent);
@@ -1945,7 +1945,7 @@ body.social-hub-active #menu-particles {
     background: rgba(255,255,255,0.03);
     font-size: 1.1em;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all var(--ui-motion-base) var(--ui-ease);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1967,7 +1967,7 @@ body.social-hub-active #menu-particles {
     letter-spacing: 3px;
     cursor: pointer;
     box-shadow: 0 6px 30px rgba(255,136,0,0.4);
-    transition: all 0.2s;
+    transition: all var(--ui-motion-base) var(--ui-ease);
     text-shadow: 0 1px 8px rgba(0,0,0,0.3);
     position: relative;
     overflow: hidden;
@@ -1977,7 +1977,7 @@ body.social-hub-active #menu-particles {
     position: absolute;
     top: 0; left: -100%; width: 100%; height: 100%;
     background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
-    transition: left 0.5s;
+    transition: left var(--ui-motion-slow) var(--ui-ease);
 }
 .cs-btn-start:hover::before {
     left: 100%;
@@ -2030,7 +2030,7 @@ body.social-hub-active #menu-particles {
 .lobby-panel .btn-small { margin: 3px; padding: 6px 11px; font-size: 0.78em; }
 
 .map-select { flex-wrap: wrap; }
-.map-btn { transition: all 0.15s ease; opacity: 0.6; }
+.map-btn { transition: all var(--ui-motion-fast) var(--ui-ease); opacity: 0.6; }
 .map-btn.selected {
     opacity: 1;
     border-color: var(--accent);
@@ -2062,7 +2062,7 @@ body.social-hub-active #menu-particles {
 #settings-panel .settings-tabs button {
     flex: 1; padding: 14px; background: none; border: none;
     color: var(--text-dim); font-family: var(--font);
-    font-weight: 600; cursor: pointer; transition: all 0.2s;
+    font-weight: 600; cursor: pointer; transition: all var(--ui-motion-base) var(--ui-ease);
     border-bottom: 2px solid transparent;
 }
 #settings-panel .settings-tabs button.active {
@@ -2135,7 +2135,7 @@ body.social-hub-active #menu-particles {
     padding: 12px;
     text-align: center;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all var(--ui-motion-base) var(--ui-ease);
 }
 .char-card:hover, .shop-card:hover {
     transform: translateY(-3px);
@@ -2221,7 +2221,7 @@ body.social-hub-active #menu-particles {
     padding: 10px;
     text-align: center;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all var(--ui-motion-base) var(--ui-ease);
     font-size: 0.8em;
 }
 .skill-card:hover, .rune-card:hover { border-color: var(--accent); }
@@ -2248,7 +2248,7 @@ body.social-hub-active #menu-particles {
     font-weight: 700;
     font-size: 0.95em;
     border-bottom: 3px solid transparent;
-    transition: all 0.2s;
+    transition: all var(--ui-motion-base) var(--ui-ease);
 }
 .shop-tab.selected {
     color: var(--accent);
@@ -2356,7 +2356,7 @@ body.social-hub-active #menu-particles {
     border-radius: 6px;
     cursor: pointer;
     border: 2px solid rgba(255,255,255,0.1);
-    transition: transform 0.15s;
+    transition: transform var(--ui-motion-fast) var(--ui-ease);
 }
 .palette-swatch:hover { transform: scale(1.15); }
 
@@ -2420,7 +2420,7 @@ body.social-hub-active #menu-particles {
 .vital-fill.skill {
     width: 100%;
     background: linear-gradient(90deg, #ff8844, #ffaa66);
-    transition: width 0.2s;
+    transition: width var(--ui-motion-base) var(--ui-ease);
 }
 .vital-fill.skill.ready {
     background: linear-gradient(90deg, #44dd66, #66ff88);
@@ -2523,7 +2523,7 @@ body.social-hub-active #menu-particles {
     border-radius: 12px;
     padding: 14px;
     text-align: center;
-    transition: all 0.2s;
+    transition: all var(--ui-motion-base) var(--ui-ease);
     position: relative;
 }
 .achievement-card.unlocked {
@@ -2552,7 +2552,7 @@ body.social-hub-active #menu-particles {
     border-radius: 12px;
     padding: 14px;
     text-align: center;
-    transition: all 0.2s;
+    transition: all var(--ui-motion-base) var(--ui-ease);
     position: relative;
 }
 .daily-card.ready {
@@ -2577,7 +2577,7 @@ body.social-hub-active #menu-particles {
 .daily-progress-fill {
     height: 100%;
     background: linear-gradient(90deg, var(--accent), #ffaa44);
-    transition: width 0.3s;
+    transition: width var(--ui-motion-base) var(--ui-ease);
 }
 .daily-count { font-size: 0.8em; color: var(--text-dim); margin-bottom: 6px; }
 
@@ -2608,7 +2608,7 @@ body.social-hub-active #menu-particles {
 }
 .ranked-progress-fill {
     height: 100%;
-    transition: width 0.4s;
+    transition: width var(--ui-motion-slow) var(--ui-ease);
     border-radius: 6px;
 }
 .ranked-next {
@@ -2635,7 +2635,7 @@ body.social-hub-active #menu-particles {
 .profile-rank .rank-icon { font-size: 64px; }
 .profile-rank .rank-name { font-size: 24px; font-weight: bold; }
 .profile-rank .rank-progress { width: 100%; height: 8px; background: #333; border-radius: 4px; margin-top: 10px; }
-.profile-rank .rank-bar { height: 100%; background: linear-gradient(90deg, #ff6600, #ffaa00); border-radius: 4px; transition: width 0.5s; }
+.profile-rank .rank-bar { height: 100%; background: linear-gradient(90deg, #ff6600, #ffaa00); border-radius: 4px; transition: width var(--ui-motion-slow) var(--ui-ease); }
 .profile-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin: 20px 0; }
 .stat-card { background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; text-align: center; }
 .stat-card .stat-value { font-size: 28px; font-weight: bold; color: #ffaa00; }
@@ -2654,7 +2654,7 @@ body.social-hub-active #menu-particles {
     z-index: 170;
     pointer-events: none;
     opacity: 0;
-    transition: opacity 0.3s, transform 0.2s;
+    transition: opacity var(--ui-motion-base) var(--ui-ease), transform var(--ui-motion-base) var(--ui-ease);
     letter-spacing: 2px;
 }
 
@@ -2671,7 +2671,7 @@ body.social-hub-active #menu-particles {
     z-index: 170;
     pointer-events: none;
     opacity: 0;
-    transition: opacity 0.3s, transform 0.2s;
+    transition: opacity var(--ui-motion-base) var(--ui-ease), transform var(--ui-motion-base) var(--ui-ease);
     letter-spacing: 2px;
 }
 #combo-meter.visible {
@@ -2694,7 +2694,7 @@ body.social-hub-active #menu-particles {
     pointer-events: none;
     background: radial-gradient(ellipse at center, rgba(255,255,255,0) 30%, rgba(255,200,100,0.8) 100%);
     opacity: 0;
-    transition: opacity 0.1s;
+    transition: opacity var(--ui-motion-fast) var(--ui-ease);
 }
 
 /* ===== EMOTE WHEEL ===== */
@@ -2718,7 +2718,7 @@ body.social-hub-active #menu-particles {
     justify-content: center;
     font-size: 1.6em;
     cursor: pointer;
-    transition: all 0.15s;
+    transition: all var(--ui-motion-fast) var(--ui-ease);
     transform: translate(-50%, -50%);
 }
 .emote-wheel-item:hover {
@@ -2729,7 +2729,7 @@ body.social-hub-active #menu-particles {
 
 /* ===== GAME MODE SELECT ===== */
 .mode-select { flex-wrap: wrap; }
-.mode-btn { transition: all 0.15s ease; opacity: 0.7; }
+.mode-btn { transition: all var(--ui-motion-fast) var(--ui-ease); opacity: 0.7; }
 .mode-btn.selected {
     opacity: 1;
     border-color: var(--accent);
@@ -2848,7 +2848,7 @@ body.social-hub-active #menu-particles {
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    transition: all 0.15s ease;
+    transition: all var(--ui-motion-fast) var(--ui-ease);
     line-height: 1;
 }
 
@@ -2867,7 +2867,7 @@ body.social-hub-active #menu-particles {
     overflow: hidden;
     position: relative;
     cursor: pointer;
-    transition: opacity 0.3s, transform 0.3s;
+    transition: opacity var(--ui-motion-base) var(--ui-ease), transform var(--ui-motion-base) var(--ui-ease);
     display: flex;
     align-items: flex-end;
 }
@@ -2886,7 +2886,7 @@ body.social-hub-active #menu-particles {
     position: absolute;
     inset: 0;
     border-radius: 10px;
-    transition: background 0.3s ease;
+    transition: background var(--ui-motion-base) var(--ui-ease);
 }
 
 .carousel-info {
@@ -2945,7 +2945,7 @@ body.social-hub-active #menu-particles {
     background: rgba(255,255,255,0.2);
     border: none;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all var(--ui-motion-base) var(--ui-ease);
     padding: 0;
     flex-shrink: 0;
 }
@@ -2997,7 +2997,7 @@ body.social-hub-active #menu-particles {
     background: rgba(255,255,255,0.03);
     font-size: 0.75em;
     cursor: pointer;
-    transition: all 0.15s;
+    transition: all var(--ui-motion-fast) var(--ui-ease);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -3100,7 +3100,7 @@ body.social-hub-active #menu-particles {
     font-size: 0.82em;
     font-weight: 700;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all var(--ui-motion-fast) var(--ui-ease);
     letter-spacing: 0.5px;
 }
 
@@ -3169,7 +3169,7 @@ body.social-hub-active #menu-particles {
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.15s ease;
+    transition: all var(--ui-motion-fast) var(--ui-ease);
 }
 
 .settings-close-btn:hover {
@@ -3224,7 +3224,7 @@ body.social-hub-active #menu-particles {
     font-family: var(--font);
     font-size: 0.85em;
     cursor: pointer;
-    transition: all 0.15s;
+    transition: all var(--ui-motion-fast) var(--ui-ease);
 }
 .settings-tab.selected, .settings-tab:hover {
     background: rgba(255,136,0,0.15);
@@ -3311,7 +3311,7 @@ body.social-hub-active #menu-particles {
     inset: 0;
     background: rgba(255,255,255,0.12);
     border-radius: 22px;
-    transition: all 0.25s ease;
+    transition: all var(--ui-motion-base) var(--ui-ease);
     border: 1px solid rgba(255,255,255,0.08);
 }
 
@@ -3324,7 +3324,7 @@ body.social-hub-active #menu-particles {
     bottom: 2px;
     background: #fff;
     border-radius: 50%;
-    transition: all 0.25s ease;
+    transition: all var(--ui-motion-base) var(--ui-ease);
     box-shadow: 0 1px 4px rgba(0,0,0,0.3);
 }
 
@@ -3385,7 +3385,7 @@ body.social-hub-active #menu-particles {
     padding: 10px 12px 14px;
     background: linear-gradient(180deg, rgba(0,0,0,0.38), transparent);
     pointer-events: none;
-    animation: cbDrop 0.5s ease-out;
+    animation: cbDrop var(--ui-motion-slow) var(--ui-ease);
 }
 #celebration-banner.hidden { display: none; }
 #celebration-banner .cb-team {
@@ -3449,6 +3449,57 @@ body.social-hub-active #menu-particles {
     font-weight: 700;
     color: #fff;
     text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+}
+/* Post-match battlepass hook: honest "next reward" progress, not a countdown gimmick */
+.pg-bp-progress {
+    margin: 4px 0 12px;
+    padding: 10px 14px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px;
+    text-align: left;
+}
+.pg-bp-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 0.8em;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+}
+.pg-bp-tier-label b { color: #fff; }
+.pg-bp-next {
+    color: #ffcc66;
+    font-weight: 700;
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 55%;
+}
+.pg-bp-bar-wrap {
+    position: relative;
+    height: 10px;
+    background: rgba(255,255,255,0.14);
+    border-radius: 999px;
+    overflow: hidden;
+}
+.pg-bp-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #36d8ca, #61eadc);
+    border-radius: 999px;
+    width: 0%;
+    transition: width var(--ui-motion-slow) var(--ui-ease);
+}
+.pg-bp-progress.maxed .pg-bp-bar-fill {
+    background: linear-gradient(90deg, #ffcc00, #ff8800);
+}
+.pg-bp-xp-text {
+    display: block;
+    margin-top: 4px;
+    font-size: 0.72em;
+    color: var(--text-dim);
 }
 .pg-stats {
     margin: 12px 0;
@@ -3698,7 +3749,7 @@ body.social-hub-active #menu-particles {
     border: 1px solid rgba(255,255,255,0.1);
     border-radius: 8px;
     cursor: pointer;
-    transition: all 0.15s;
+    transition: all var(--ui-motion-fast) var(--ui-ease);
     text-align: center;
 }
 .mv-card:hover {
@@ -3791,7 +3842,7 @@ body.social-hub-active #menu-particles {
     background: rgba(255,255,255,0.06);
     border-radius: var(--radius);
     cursor: pointer;
-    transition: background 0.15s;
+    transition: background var(--ui-motion-fast) var(--ui-ease);
 }
 .mp-lobby-card:hover { background: rgba(255,136,0,0.12); }
 .mp-lobby-card .lobby-icon { font-size: 1.5em; }
@@ -3848,7 +3899,7 @@ body.social-hub-active #menu-particles {
     font-size: 0.65em;
     display: flex; align-items: center; justify-content: center;
     flex-shrink: 0;
-    transition: all 0.15s;
+    transition: all var(--ui-motion-fast) var(--ui-ease);
 }
 .fbar-toggle-btn:hover { background: rgba(255,255,255,0.12); color: #fff; }
 
@@ -3879,7 +3930,7 @@ body.social-hub-active #menu-particles {
     border-radius: 8px;
     cursor: pointer;
     font-size: 0.82em;
-    transition: all 0.12s;
+    transition: all var(--ui-motion-fast) var(--ui-ease);
     position: relative;
 }
 .fbar-friend:hover { background: rgba(255,255,255,0.05); }
@@ -3919,7 +3970,7 @@ body.social-hub-active #menu-particles {
     display: flex;
     gap: 2px;
     opacity: 0;
-    transition: opacity 0.12s;
+    transition: opacity var(--ui-motion-fast) var(--ui-ease);
 }
 .fbar-friend:hover .fbar-actions { opacity: 1; }
 .fbar-friend .fbar-actions button {
@@ -3931,7 +3982,7 @@ body.social-hub-active #menu-particles {
     border-radius: 4px;
     font-size: 0.7em;
     display: flex; align-items: center; justify-content: center;
-    transition: all 0.1s;
+    transition: all var(--ui-motion-fast) var(--ui-ease);
 }
 .fbar-friend .fbar-actions button:hover { background: rgba(255,255,255,0.08); color: #fff; }
 .fbar-friend .fbar-actions .fbar-msg-btn:hover { color: var(--accent); }
@@ -3954,7 +4005,7 @@ body.social-hub-active #menu-particles {
     font-size: 0.75em;
     outline: none;
     box-sizing: border-box;
-    transition: border 0.15s;
+    transition: border var(--ui-motion-fast) var(--ui-ease);
 }
 #fbar-add-input::placeholder { color: rgba(255,255,255,0.2); }
 #fbar-add-input:focus { border-color: var(--accent); background: rgba(255,255,255,0.06); }
@@ -3983,7 +4034,7 @@ body.social-hub-active #menu-particles {
     font-size: 0.85em;
     padding: 2px 4px;
     border-radius: 4px;
-    transition: all 0.1s;
+    transition: all var(--ui-motion-fast) var(--ui-ease);
 }
 .friends-chat-close:hover { background: rgba(255,255,255,0.06); color: #fff; }
 .friends-chat-log {
@@ -4028,7 +4079,7 @@ body.social-hub-active #menu-particles {
     font-family: var(--font);
     font-size: 0.75em;
     outline: none;
-    transition: border 0.15s;
+    transition: border var(--ui-motion-fast) var(--ui-ease);
 }
 #fbar-chat-input::placeholder { color: rgba(255,255,255,0.2); }
 #fbar-chat-input:focus { border-color: var(--accent); }
@@ -4043,7 +4094,7 @@ body.social-hub-active #menu-particles {
     font-size: 0.8em;
     display: flex; align-items: center; justify-content: center;
     flex-shrink: 0;
-    transition: filter 0.15s;
+    transition: filter var(--ui-motion-fast) var(--ui-ease);
 }
 #fbar-chat-send:hover { filter: brightness(1.2); }
 
@@ -4124,7 +4175,7 @@ body.social-hub-active #menu-particles {
     backdrop-filter: blur(10px);
     opacity: 0;
     pointer-events: none;
-    transition: opacity 0.4s ease;
+    transition: opacity var(--ui-motion-slow) var(--ui-ease);
 }
 #match-result.show { opacity: 1; pointer-events: all; }
 #match-result .result-text {
@@ -4310,7 +4361,7 @@ select:focus-visible,
     align-items: center;
     justify-content: center;
     gap: 9px;
-    transition: transform 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+    transition: transform var(--ui-motion-base) var(--ui-ease), box-shadow var(--ui-motion-base) var(--ui-ease), background-color var(--ui-motion-base) var(--ui-ease);
 }
 
 .btn-primary {
@@ -4381,7 +4432,7 @@ select:focus-visible,
     color: var(--shell-ink);
     background: transparent;
     backdrop-filter: none;
-    animation: shellRise 320ms ease-out both;
+    animation: shellRise var(--ui-motion-slow) var(--ui-ease) both;
 }
 
 .ow-topbar {
@@ -5177,7 +5228,7 @@ select:focus-visible,
     border: 1px solid var(--shell-line);
     border-radius: 18px;
     box-shadow: 0 6px 16px rgba(38, 112, 158, 0.08);
-    transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+    transition: transform var(--ui-motion-base) var(--ui-ease), box-shadow var(--ui-motion-base) var(--ui-ease), border-color var(--ui-motion-base) var(--ui-ease);
 }
 
 .shop-card:hover,
@@ -5512,7 +5563,7 @@ select:focus-visible,
     border: 1px solid rgba(132, 206, 244, 0.22);
     border-radius: 5px;
     cursor: pointer;
-    transition: color 150ms ease, background-color 150ms ease, border-color 150ms ease;
+    transition: color var(--ui-motion-fast) var(--ui-ease), background-color var(--ui-motion-fast) var(--ui-ease), border-color var(--ui-motion-fast) var(--ui-ease);
 }
 
 .replay-control-btn:hover {
@@ -5712,6 +5763,24 @@ select:focus-visible,
 .pg-chat-log {
     background: #e8f6fc;
     border-color: var(--shell-line);
+}
+
+.pg-bp-progress {
+    background: #e8f6fc;
+    border-color: var(--shell-line);
+}
+
+.pg-bp-head,
+.pg-bp-xp-text {
+    color: var(--shell-muted);
+}
+
+.pg-bp-tier-label b {
+    color: var(--shell-ink);
+}
+
+.pg-bp-bar-wrap {
+    background: rgba(20, 103, 157, 0.14);
 }
 
 #pg-chat-input {
@@ -6131,7 +6200,7 @@ select:focus-visible,
     box-shadow: 0 10px 22px rgba(30, 116, 164, 0.16);
     text-align: left;
     cursor: pointer;
-    transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+    transition: transform var(--ui-motion-base) var(--ui-ease), box-shadow var(--ui-motion-base) var(--ui-ease), border-color var(--ui-motion-base) var(--ui-ease);
 }
 
 .ow-social-lobby span em {
@@ -6278,7 +6347,7 @@ select:focus-visible,
     align-items: center;
     gap: 11px;
     border-radius: 19px;
-    animation: socialHubDrop 320ms ease-out both;
+    animation: socialHubDrop var(--ui-motion-slow) var(--ui-ease) both;
 }
 
 .social-lobby-mark {
@@ -6360,7 +6429,7 @@ select:focus-visible,
     align-items: center;
     gap: 5px 12px;
     border-radius: 18px;
-    animation: socialHubPrompt 260ms ease-out both;
+    animation: socialHubPrompt var(--ui-motion-base) var(--ui-ease) both;
 }
 
 .social-lobby-portal-label {
@@ -6995,7 +7064,7 @@ select:focus-visible,
     background: #f4fbff;
     border-color: rgba(69, 155, 205, 0.2);
     border-radius: 16px;
-    transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+    transition: transform var(--ui-motion-base) var(--ui-ease), border-color var(--ui-motion-base) var(--ui-ease), box-shadow var(--ui-motion-base) var(--ui-ease);
 }
 
 .avatar-studio .avatar-skin-card:hover:not(:disabled) {

@@ -141,7 +141,8 @@ export const MAPS = {
         courtWidth: 115, courtLength: 125, wallHeight: 24, ceilingHeight: 33,
         floorRed: 0x6a8a3a, floorBlue: 0x3a6a5a, wallColor: 0x8a7a5a,
         skyTop: 0x88cc66, skyBottom: 0xeef8c8, fogColor: 0xddeec0,
-        hasOcean: false, hasGlass: false, isJungle: true, size: 'medium', weather: 'rain'
+        hasOcean: false, hasGlass: false, isJungle: true, size: 'medium', weather: 'rain',
+        waterZones: true
     },
     cyber: {
         name: '🤖 Cyber Grid',
@@ -486,10 +487,10 @@ export class Arena {
                 zones.push({ kind: 'lava', x: width * x, z: length * z, radius, damage: 18 });
             });
         }
-        if (this.config.isJungle) {
+        if (this.config.waterZones) {
             const radius = Math.min(6, width * 0.1);
             [[-0.32, 0], [0.32, 0]].forEach(([x, z]) => {
-                zones.push({ kind: 'mud', x: width * x, z: length * z, radius, slow: 0.55 });
+                zones.push({ kind: 'water', x: width * x, z: length * z, radius, slow: 0.55 });
             });
         }
         if (this.config.isVerticalDrop) {
@@ -723,11 +724,11 @@ export class Arena {
     }
     buildHazardVisuals() {
         for (const zone of this.hazardZones) {
-            const color = zone.kind === 'lava' ? 0xff3b12 : zone.kind === 'void' ? 0x111827 : 0x2e8b57;
+            const color = zone.kind === 'lava' ? 0xff3b12 : zone.kind === 'void' ? 0x111827 : zone.kind === 'water' ? 0x1f7bb8 : 0x2e8b57;
             const geo = new THREE.CircleGeometry(zone.radius, 24);
             geo.rotateX(-Math.PI / 2);
             const mat = new THREE.MeshBasicMaterial({
-                color, transparent: true, opacity: zone.kind === 'lava' ? 0.72 : zone.kind === 'void' ? 0.94 : 0.38,
+                color, transparent: true, opacity: zone.kind === 'lava' ? 0.72 : zone.kind === 'void' ? 0.94 : zone.kind === 'water' ? 0.55 : 0.38,
                 side: THREE.DoubleSide
             });
             const mesh = new THREE.Mesh(geo, mat);

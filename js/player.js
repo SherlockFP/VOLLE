@@ -21,6 +21,7 @@ export const GROUND_FRICTION = 4;
 export const STOP_SPEED = 3.125;
 export const AIR_WISH_CAP = 0.94;
 export const SLIPPERY_SURFACE_FACTOR = 0.28;
+export const LOW_GRAVITY_FACTOR = 0.55;
 export const HORIZONTAL_STEP = 1 / 120;
 export const MAX_HORIZONTAL_STEPS = 8;
 export const LONG_JUMP_SPEED = 14;
@@ -199,6 +200,20 @@ export function resolveWaterMovement({ verticalVel = 0, dt = 0, swimUp = false, 
     const nextVelocity = Math.max(-7, Math.min(7, (verticalVel + input * step) * Math.exp(-4.5 * step)));
     const nextY = Math.max(floorY + 0.35, Math.min(surfaceY + 0.25, y + nextVelocity * step));
     return { verticalVel: nextVelocity, y: nextY, submerged: nextY < surfaceY - 0.2 };
+}
+
+// lowGravity map flag reuses this scale — same mechanism as arena.config.lowGravity
+// consumed by ball.js, so player fall speed and ball flight stay consistent.
+export function resolveGravityScale(lowGravity) {
+    return lowGravity ? LOW_GRAVITY_FACTOR : 1;
+}
+
+// Combines chill-skill slow with hazard-zone slow (waterZones etc). Hostile
+// hazardMoveMul (NaN/undefined/<=0/Infinity) falls back to no slow (1).
+export function resolveMovementSpeedMultiplier(chillActive, hazardMoveMul) {
+    const chill = chillActive ? 0.8 : 1;
+    const hazard = Number.isFinite(hazardMoveMul) && hazardMoveMul > 0 ? hazardMoveMul : 1;
+    return chill * hazard;
 }
 
 export function clipInwardVelocity(velocity, normal) {
@@ -756,7 +771,7 @@ export class Player {
         }
 
         // Chill slow (skill ile yavaşlatıldıysa)
-        const chillMul = (this._chillTimer > 0 ? 0.8 : 1) * (this._hazardMoveMul || 1);
+        const chillMul = resolveMovementSpeedMultiplier(this._chillTimer > 0, this._hazardMoveMul);
         if (this._chillTimer > 0) this._chillTimer -= dt;
 
         // Flick energy decays toward 0 each frame
@@ -929,7 +944,7 @@ export class Player {
             this.position.y = waterState.y;
             this.onGround = false;
         } else {
-            const gravity = this.gravity * (this.arena.config?.lowGravity ? 0.55 : 1);
+            const gravity = this.gravity * resolveGravityScale(this.arena.config?.lowGravity);
             this.verticalVel += gravity * dt;
             this.position.y += this.verticalVel * dt;
         }

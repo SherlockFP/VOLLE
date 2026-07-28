@@ -35,6 +35,7 @@ import {
     normalizeProgress as normalizeBattlepassProgress,
     xpForTier as battlepassXpForTier
 } from './battlepass.js';
+import { Daily, DAILY_CHALLENGE_XP, DAILY_ALL_COMPLETE_BONUS_XP } from './daily.js';
 
 const KEY = 'dodgball_save_v2';
 const PROFILE_TOKEN_KEY = 'dodgball_profile_token';
@@ -806,6 +807,26 @@ class StoreClass {
         };
         this.save();
         return result;
+    }
+
+    // Bridges js/daily.js challenges into battlepass XP. js/daily.js#claim() and
+    // #claimCompletionBonus() own the idempotency guards (per-challenge `claimed`,
+    // per-day `bonusGranted`); this method only fires the battlepass XP grant when
+    // those return a fresh (not-already-granted) result, so re-claiming, reloading,
+    // or re-rendering the UI can never double-grant. Rollover runs before addXp,
+    // same as every other battlepass entry point, so a grant that lands exactly on
+    // a season boundary always applies to the post-rollover (fresh) progress.
+    claimDailyChallenge(challengeId) {
+        const coins = Daily.claim(challengeId);
+        if (!coins) return null;
+        this.grant({ currency: coins });
+        this._rolloverBattlepassSeason();
+        let xpGranted = DAILY_CHALLENGE_XP;
+        if (Daily.claimCompletionBonus()) xpGranted += DAILY_ALL_COMPLETE_BONUS_XP;
+        const { state } = addBattlepassXp(this.data.battlepass, xpGranted);
+        this.data.battlepass = state;
+        this.save();
+        return { coins, xpGranted };
     }
 
     equipKnife(knifeId, team) {

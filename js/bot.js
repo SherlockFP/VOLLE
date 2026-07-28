@@ -3,7 +3,6 @@ import * as THREE from 'three';
 
 import { applyCharacter, CHARACTERS } from './characters.js';
 import { applyRunes, tickSkillCooldowns, useSkill } from './skills.js';
-import { outlineVertexShader } from './shaders/toon.vert.js';
 import { createKnifeModel, disposeObject3D } from './weapon-models.js';
 import { KNIVES } from './cosmetics.js';
 import { createCharacterRig } from './character-rig.js';
@@ -110,6 +109,11 @@ export class Bot {
             materialFactory: hex => this.renderer.createToonMaterial(hex),
             outlineFactory: geo => this.renderer.createOutlineMesh(geo)
         });
+        // Snapshot the rig's own body meshes now, before the knife/cosmetics attach
+        // below (they ride rig sockets and would otherwise get swept up by a later
+        // traversal) — this is what buildTargetOutline() traces.
+        this._outlineParts = [];
+        this.rig.root.traverse(o => { if (o.isMesh) this._outlineParts.push(o); });
         this.group.add(this.rig.root);
         this.animator = createCharacterAnimator(this.rig);
         // Reused every frame in update() — 0 alloc.
@@ -179,31 +183,14 @@ export class Bot {
         this.group.add(this.avatarSprite);
     }
 
-    // Target outline — bright red, pulses when this bot is the ball's target.
+    // Target outline — bright red silhouette traced from the rig's own meshes,
+    // pulses when this bot is the ball's target. See js/renderer.js#createTargetOutline.
     buildTargetOutline() {
-        const geo = new THREE.BoxGeometry(0.9, 1.8, 0.7);
-        const mat = new THREE.ShaderMaterial({
-            vertexShader: outlineVertexShader,
-            fragmentShader: `
-                uniform float uPulse;
-                void main() {
-                    float alpha = 0.3 + 0.3 * uPulse;
-                    gl_FragColor = vec4(1.0, 0.0, 0.0, alpha);
-                }
-            `,
-            uniforms: { outlineThickness: { value: 0.08 }, uPulse: { value: 0 } },
-            side: THREE.BackSide,
-            transparent: true,
-            depthWrite: false
-        });
-        this.targetOutline = new THREE.Mesh(geo, mat);
-        this.targetOutline.position.y = 0.85;
-        this.targetOutline.visible = false;
-        this.group.add(this.targetOutline);
+        this.targetOutline = this.renderer.createTargetOutline(this._outlineParts || []);
     }
 
     setTargetOutline(show) {
-        if (this.targetOutline) this.targetOutline.visible = show;
+        this.targetOutline?.userData.setVisible?.(show);
         this._outlineActive = show;
     }
 
@@ -279,9 +266,11 @@ export class Bot {
         }
 
         // Target outline pulse
-        if (this._outlineActive && this.targetOutline?.visible) {
+        if (this._outlineActive) {
             const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 300);
-            this.targetOutline.material.uniforms.uPulse.value = pulse;
+            for (const material of this.targetOutline?.userData.materials || []) {
+                material.uniforms.uPulse.value = pulse;
+            }
         }
 
         // Skill cooldown tick
@@ -489,6 +478,7 @@ export class Bot {
 
     remove() {
         disposeObject3D(this.knifeGroup);
+        this.targetOutline?.userData.dispose?.();
         this.rig?.dispose();
         this.scene.remove(this.group);
     }
