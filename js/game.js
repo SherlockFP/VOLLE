@@ -994,8 +994,13 @@ startGame(skipPreGame = false, matchId = null) {
         if (targets.length) {
             const first = targets[Math.floor(Math.random() * targets.length)];
             setTimeout(() => {
-        // ponytail: host-only hit detection — client plays effects from ball/playerHit broadcast
-        if (this.ball.active && this.network?.isHost) {
+        // Host-authoritative hit detection when actually networked (client plays effects
+        // from ball/playerHit broadcast); when not connected at all (solo/offline bot
+        // matches) there is no host to defer to, so the ball must self-target locally or
+        // it never gets a target and just falls in place forever. Same
+        // !connected||isHost convention already used elsewhere in this file
+        // (updatePowerUps, split-ball hit detection, rocket movement, map hazards).
+        if (this.ball.active && (!this.network?.connected || this.network?.isHost)) {
                     this.ball.setTarget(first);
                     this.ball.state = 'homing';
                 }
