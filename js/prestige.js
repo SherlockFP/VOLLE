@@ -45,11 +45,18 @@ export function isMaxed(account) {
     return prestige >= MAX_PRESTIGE && level >= MAX_LEVEL;
 }
 
-// Short label for the menu/scoreboard. "Lv 12" -> "Deflector · Lv 12".
+// Full label for roomy spots like the menu profile card and the match report.
 export function accountRankLabel(account) {
     const { level, prestige } = normalizeAccount(account);
     const title = prestigeTitle(prestige);
     return title ? `${title} · Lv ${level}` : `Lv ${level}`;
+}
+
+// Compact form for the scoreboard, whose column header is just "Lv" and has no
+// room for a title: "12" before the first prestige, "P2·12" after.
+export function accountRankShort(account) {
+    const { level, prestige } = normalizeAccount(account);
+    return prestige > 0 ? `P${prestige}·${level}` : String(level);
 }
 
 // Progress toward the next level, for bars and "next reward" copy.

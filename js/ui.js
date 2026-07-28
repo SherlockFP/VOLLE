@@ -11,7 +11,7 @@ import { getRank, getRankProgress } from './ranked.js';
 import { Leaderboard } from './leaderboard.js';
 import { Arena } from './arena.js';
 import { COSMETICS, COSMETIC_TYPES, cosmeticsByType } from './cosmetic-catalog.js';
-import { accountRankLabel } from './prestige.js';
+import { accountRankLabel, accountRankShort, levelProgress } from './prestige.js';
 import { Store } from './store.js';
 
 const CHARACTER_ATLAS = 'assets/generated/characters/character-atlas.png';
@@ -253,11 +253,16 @@ export class UI {
             row.className = p.team;
             const rank = p.rank || (p.isBot ? ['🥉','🥈','🥇'][Math.min(2, i)] : '🔰');
             const level = p.level || (p.isBot ? Math.min(20, i + 1) : (store?.get?.('level') || 1));
+            // Your own row carries the prestige marker ("P2·12"); bots keep a plain
+            // number. The column header is only "Lv", so this stays compact.
+            const levelText = !p.isBot && typeof store?.getAccount === 'function'
+                ? accountRankShort(store.getAccount())
+                : String(level);
             const values = [
                 `${p.name}${p.isYou ? ' (YOU)' : ''}`,
                 ffa ? 'SOLO' : String(p.team || '').toUpperCase(),
                 String(rank),
-                String(level),
+                levelText,
                 String(p.score ?? 0),
                 String(p.deflections ?? 0),
                 String(p.hits ?? 0)
@@ -506,22 +511,38 @@ export class UI {
         document.getElementById('pg-result').textContent = won ? '🏆 VICTORY!' : '💀 DEFEAT';
         const winnerEl = document.getElementById('pg-winner');
         if (winnerEl) winnerEl.textContent = result.winnerText || '';
-        document.getElementById('pg-level').textContent = `Level ${level}`;
+        // Prestige-aware rank so the progression a player is chasing is the thing
+        // the match report leads with. Falls back to the passed-in level for any
+        // store shape predating getAccount().
+        const account = typeof store?.getAccount === 'function'
+            ? store.getAccount()
+            : { level, xp: 0, prestige: 0 };
+        document.getElementById('pg-level').textContent = accountRankLabel(account);
         // Detailed AAR stats table
         const playerStats = result.playerStats || [];
         const statsHTML = this._buildAARTable(playerStats, kills, deflects);
         document.getElementById('postgame-stats').innerHTML = statsHTML;
         const pgLog = document.getElementById('pg-chat-log');
         if (pgLog) pgLog.innerHTML = '';
-        const perc = Math.min(100, (xpGained / 1000) * 100);
+        // The bar tracks progress toward the next level, not an arbitrary
+        // xpGained/1000 slice, so "how close am I" is answerable at a glance.
+        // That proximity is the actual one-more-match hook.
+        const progress = levelProgress(account);
+        const perc = Math.round(progress.ratio * 100);
+        const gainPerc = Math.min(100, (xpGained / 1000) * 100);
         const xpFill = document.getElementById('pg-xp-fill');
         const xpText = document.getElementById('pg-xp-text');
         if (xpFill) { xpFill.style.width = '0%'; requestAnimationFrame(() => { xpFill.style.width = perc + '%'; }); }
-        if (xpText) xpText.textContent = `+${xpGained} XP`;
+        if (xpText) {
+            xpText.textContent = progress.need > 0
+                ? `+${xpGained} XP · ${progress.xp}/${progress.need} to Lv ${progress.level + 1}`
+                : `+${xpGained} XP · MAX RANK`;
+        }
         this._renderPostGameBattlepass(store);
         this._renderPostGameRewardCard(store);
         this.renderMatchAnalysis(result.analytics);
-        const dings = Math.min(10, Math.ceil(perc / 10));
+        // Ding count stays tied to the XP earned, so a big match still sounds big.
+        const dings = Math.min(10, Math.ceil(gainPerc / 10));
         let delay = 0;
         for (let i = 0; i < dings; i++) {
             setTimeout(() => {

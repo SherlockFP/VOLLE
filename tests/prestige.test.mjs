@@ -8,6 +8,7 @@ import {
     MAX_LEVEL,
     MAX_PRESTIGE,
     accountRankLabel,
+    accountRankShort,
     applyAccountXp,
     isMaxed,
     levelProgress,
@@ -151,4 +152,19 @@ test('every prestige rank has a title so the reward is never blank', () => {
     for (let p = 1; p <= MAX_PRESTIGE; p += 1) {
         assert.notEqual(prestigeTitle(p), '', `prestige ${p} needs a title`);
     }
+});
+
+test('compact rank stays short enough for the "Lv" scoreboard column', () => {
+    assert.equal(accountRankShort({ level: 12, prestige: 0 }), '12');
+    assert.equal(accountRankShort({ level: 12, prestige: 2 }), 'P2·12');
+    // The widest possible value still has to fit a numeric column.
+    const widest = accountRankShort({ level: MAX_LEVEL, prestige: MAX_PRESTIGE });
+    assert.equal(widest, `P${MAX_PRESTIGE}·${MAX_LEVEL}`);
+    assert.ok(widest.length <= 7, `"${widest}" is too wide for the column`);
+});
+
+test('compact rank survives hostile input', () => {
+    assert.equal(accountRankShort(undefined), '1');
+    assert.equal(accountRankShort({}), '1');
+    assert.equal(accountRankShort({ level: NaN, prestige: NaN }), '1');
 });
