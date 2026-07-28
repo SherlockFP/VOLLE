@@ -3921,3 +3921,114 @@ body.hit-flash {
   to { transform: scale(1); opacity: 1; }
 }
 
+
+/* ===== ROUND CLOCK PROMINENCE ===== */
+/* The clock sat at 1.2em next to 1.8em team scores, so the most-glanced number
+   on screen was the smallest one. */
+.hud-timer {
+    font-size: 2em;
+    font-weight: 900;
+    font-variant-numeric: tabular-nums; /* digits stop jittering as it ticks */
+    letter-spacing: .02em;
+    min-width: 104px;
+    transition: color 180ms ease-out;
+}
+
+.hud-timer[data-urgency="warning"] { color: var(--ui-warning, #ffc665); }
+
+.hud-timer[data-urgency="critical"] {
+    color: var(--ui-danger, #ff5d72);
+    animation: timer-critical 1s ease-in-out infinite;
+}
+
+@keyframes timer-critical {
+    50% { opacity: .5; }
+}
+
+/* ===== PRESTIGE EMBLEM ===== */
+/* Pure CSS chip, no image assets. Tier accent comes from --pb-accent. */
+.prestige-badge {
+    --pb-accent: #c98f4a;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    height: 22px;
+    padding: 0 5px;
+    border: 1px solid var(--pb-accent);
+    border-radius: 6px;
+    background: linear-gradient(150deg, color-mix(in srgb, var(--pb-accent) 30%, transparent), transparent);
+    box-shadow: 0 0 10px color-mix(in srgb, var(--pb-accent) 35%, transparent);
+    color: var(--pb-accent);
+    font-size: .62rem;
+    font-weight: 950;
+    letter-spacing: .04em;
+    line-height: 1;
+    vertical-align: middle;
+}
+
+.prestige-badge[hidden] { display: none; }
+
+.prestige-badge[data-prestige="1"]  { --pb-accent: #c98f4a; }
+.prestige-badge[data-prestige="2"]  { --pb-accent: #b8c2cc; }
+.prestige-badge[data-prestige="3"]  { --pb-accent: #ffc857; }
+.prestige-badge[data-prestige="4"]  { --pb-accent: #5ee7f7; }
+.prestige-badge[data-prestige="5"]  { --pb-accent: #6fe3c0; }
+.prestige-badge[data-prestige="6"]  { --pb-accent: #8fb4ff; }
+.prestige-badge[data-prestige="7"]  { --pb-accent: #b58cff; }
+.prestige-badge[data-prestige="8"]  { --pb-accent: #ff9a3c; }
+.prestige-badge[data-prestige="9"]  { --pb-accent: #ff5d72; }
+.prestige-badge[data-prestige="10"] {
+    --pb-accent: #fff3e8;
+    animation: prestige-master 2.6s ease-in-out infinite;
+}
+
+@keyframes prestige-master {
+    50% { box-shadow: 0 0 18px color-mix(in srgb, var(--pb-accent) 60%, transparent); }
+}
+
+/* ===== POST-MATCH ROUND BREAKDOWN ===== */
+.pg-round-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 14px;
+}
+
+.pg-round-strip:empty { display: none; }
+
+.pg-round-chip {
+    display: grid;
+    gap: 1px;
+    min-width: 62px;
+    padding: 6px 8px;
+    border: 1px solid var(--ui-border, rgba(112, 221, 255, .18));
+    border-radius: 9px;
+    background: rgba(4, 22, 35, .6);
+    text-align: center;
+}
+
+.pg-round-chip b {
+    color: var(--ui-text, #effffd);
+    font-size: .74rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.pg-round-chip small {
+    color: var(--ui-muted, #a4c8cc);
+    font-size: .54rem;
+    font-weight: 800;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}
+
+/* Team ownership colour, same red/blue used everywhere else. */
+.pg-round-chip[data-winner="red"]  { border-color: rgba(240, 68, 85, .55); }
+.pg-round-chip[data-winner="red"] small  { color: #ff8b96; }
+.pg-round-chip[data-winner="blue"] { border-color: rgba(59, 130, 246, .55); }
+.pg-round-chip[data-winner="blue"] small { color: #8fb4ff; }
+
+@media (prefers-reduced-motion: reduce) {
+    .hud-timer[data-urgency="critical"],
+    .prestige-badge[data-prestige="10"] { animation: none; }
+}

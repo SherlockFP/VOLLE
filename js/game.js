@@ -2151,6 +2151,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         // HUD — damage meter dahil
         this.ui.updateHUD({
             time: this.scoreboard.getFormattedTime(),
+            timeRemaining: this.scoreboard.timeRemaining,
             redScore: this.scoreboard.redScore,
             blueScore: this.scoreboard.blueScore,
             ballSpeed: this.ball.getSpeed(),
@@ -3598,7 +3599,8 @@ spawnPowerUp() {
         this.ui.showPostGame(this._won, xp, 1, kills, this.rallyCount, this.audio, {
             winnerText,
             playerStats,
-            analytics
+            analytics,
+            roundHistory: this.scoreboard.roundHistory
         });
         // P2P: gameOver state'ini client'lara yayınla
         if (this.network?.isHost) {

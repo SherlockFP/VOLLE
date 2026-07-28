@@ -11,7 +11,7 @@ import { getRank, getRankProgress } from './ranked.js';
 import { Leaderboard } from './leaderboard.js';
 import { Arena } from './arena.js';
 import { COSMETICS, COSMETIC_TYPES, cosmeticsByType } from './cosmetic-catalog.js';
-import { accountRankLabel, accountRankShort, levelProgress } from './prestige.js';
+import { accountRankLabel, accountRankShort, levelProgress, prestigeTitle } from './prestige.js';
 import { Store } from './store.js';
 
 const CHARACTER_ATLAS = 'assets/generated/characters/character-atlas.png';
@@ -161,10 +161,23 @@ export class UI {
     hideHUD() { if (this.screens.hud) this.screens.hud.classList.add('hidden'); }
 
     updateHUD(data) {
-        const { time, redScore, blueScore, ballSpeed, hotPotato, competitive } = data;
+        const { time, timeRemaining, redScore, blueScore, ballSpeed, hotPotato, competitive } = data;
         const el = id => document.getElementById(id);
 
-        if (el('hud-round-timer')) el('hud-round-timer').textContent = time;
+        const timerEl = el('hud-round-timer');
+        if (timerEl) {
+            timerEl.textContent = time;
+            // updateHUD runs every frame, so only touch the DOM when the tier
+            // actually changes rather than rewriting the attribute 60x a second.
+            const urgency = !Number.isFinite(timeRemaining) ? ''
+                : timeRemaining <= 10 ? 'critical'
+                : timeRemaining <= 30 ? 'warning'
+                : '';
+            if (this._timerUrgency !== urgency) {
+                this._timerUrgency = urgency;
+                timerEl.dataset.urgency = urgency;
+            }
+        }
         if (el('hud-score-red')) el('hud-score-red').textContent = redScore;
         if (el('hud-score-blue')) el('hud-score-blue').textContent = blueScore;
         if (el('hud-speed')) {
@@ -518,6 +531,7 @@ export class UI {
             ? store.getAccount()
             : { level, xp: 0, prestige: 0 };
         document.getElementById('pg-level').textContent = accountRankLabel(account);
+        this._paintPrestigeBadge('pg-prestige', account.prestige);
         // Detailed AAR stats table
         const playerStats = result.playerStats || [];
         const statsHTML = this._buildAARTable(playerStats, kills, deflects);
@@ -541,6 +555,7 @@ export class UI {
         this._renderPostGameBattlepass(store);
         this._renderPostGameRewardCard(store);
         this.renderMatchAnalysis(result.analytics);
+        this._renderRoundStrip(result.roundHistory);
         // Ding count stays tied to the XP earned, so a big match still sounds big.
         const dings = Math.min(10, Math.ceil(gainPerc / 10));
         let delay = 0;
@@ -1151,7 +1166,51 @@ export class UI {
                 ? accountRankLabel(store.getAccount())
                 : `Lv ${store.get('level')}`;
         }
+        this._paintPrestigeBadge('meta-prestige', typeof store.getAccount === 'function'
+            ? store.getAccount().prestige
+            : 0);
         if (t) t.textContent = store.get('battlepass').tier;
+    }
+
+    // Shared prestige chip painter. Hidden entirely before the first prestige so
+    // a fresh account shows no empty decoration.
+    _paintPrestigeBadge(id, prestige) {
+        const badge = document.getElementById(id);
+        if (!badge) return;
+        const tier = Math.floor(Number(prestige)) || 0;
+        if (tier <= 0) {
+            badge.hidden = true;
+            badge.textContent = '';
+            return;
+        }
+        badge.hidden = false;
+        badge.dataset.prestige = String(tier);
+        badge.textContent = `P${tier}`;
+        badge.title = prestigeTitle(tier);
+    }
+
+    // Per-round breakdown from scoreboard.roundHistory. Match totals alone can't
+    // tell a player which round went wrong. Empty history leaves the strip empty
+    // and CSS :empty hides it, so network matches without history degrade quietly.
+    _renderRoundStrip(history) {
+        const strip = document.getElementById('pg-round-strip');
+        if (!strip) return;
+        strip.innerHTML = '';
+        if (!Array.isArray(history) || !history.length) return;
+        const frag = document.createDocumentFragment();
+        for (const entry of history) {
+            const winner = entry?.winner === 'red' || entry?.winner === 'blue' ? entry.winner : '';
+            const chip = document.createElement('div');
+            chip.className = 'pg-round-chip';
+            if (winner) chip.dataset.winner = winner;
+            const score = document.createElement('b');
+            score.textContent = `${entry?.red ?? 0}-${entry?.blue ?? 0}`;
+            const label = document.createElement('small');
+            label.textContent = `R${entry?.round ?? '?'} ${winner ? winner.toUpperCase() : '--'}`;
+            chip.append(score, label);
+            frag.append(chip);
+        }
+        strip.append(frag);
     }
 
     // ===== KARAKTER SELECT EKRANI =====

@@ -113,7 +113,10 @@
                     <div class="ow-profile-info">
                         <span class="ow-eyebrow">PLAYER CARD</span>
                         <input type="text" id="player-name-input" class="ow-name-input" value="Player" maxlength="16">
-                        <div class="ow-level" id="meta-level">Lv 1</div>
+                        <div class="ow-level">
+                            <span id="meta-prestige" class="prestige-badge" hidden></span>
+                            <span id="meta-level">Lv 1</span>
+                        </div>
                     </div>
                 </div>
 
@@ -1504,7 +1507,10 @@
             <div class="pg-panel">
                 <header class="pg-header"><div><span class="shell-kicker">MATCH REPORT</span><h2 class="pg-title" id="pg-result"></h2></div><svg class="ui-icon pg-header-mark" aria-hidden="true"><use href="#i-trophy"></use></svg></header>
                 <div class="pg-winner" id="pg-winner"></div>
-                <div class="pg-level" id="pg-level"></div>
+                <div class="pg-level">
+                    <span id="pg-prestige" class="prestige-badge" hidden></span>
+                    <span id="pg-level"></span>
+                </div>
                 <div class="pg-xp-bar-wrap">
                     <div class="pg-xp-bar-fill" id="pg-xp-fill" style="width:0%"></div>
                     <span class="pg-xp-text" id="pg-xp-text"></span>
@@ -1527,6 +1533,8 @@
                     <div class="reward-eta" id="pg-reward-eta"></div>
                 </div>
                 <div class="pg-stats" id="postgame-stats"></div>
+                <!-- Per-round breakdown, filled from scoreboard.roundHistory. -->
+                <div class="pg-round-strip" id="pg-round-strip"></div>
                 <section id="pg-analysis" class="pg-analysis">
                     <nav class="pg-analysis-tabs" aria-label="Match analysis">
                         <button type="button" class="selected" data-analysis-tab="overview">Overview</button>

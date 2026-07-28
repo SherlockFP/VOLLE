@@ -1,4 +1,7 @@
 // scoreboard.js — Score tracking, timer, round mgmt
+
+// Bounded so a long hot-potato or goal-rush match cannot grow this without limit.
+const MAX_ROUND_HISTORY = 32;
 export class Scoreboard {
     constructor() {
         this.players = new Map(); // name → { score, deflections, hits, team }
@@ -8,6 +11,7 @@ export class Scoreboard {
         this.timeRemaining = this.timeLimit;
         this.redScore = 0;
         this.blueScore = 0;
+        this.roundHistory = [];
     }
 
     addPlayer(name, team, opts = {}) {
@@ -53,10 +57,21 @@ export class Scoreboard {
         if (p) p.score += amount;
     }
 
+    // Single funnel for "a round was won": elimination, goal rush and hot potato
+    // all land here, so the per-round history is captured in exactly one place.
     recordRoundWin(team) {
         if (team === 'red') this.redScore++;
         else if (team === 'blue') this.blueScore++;
         else return false;
+        if (this.roundHistory.length < MAX_ROUND_HISTORY) {
+            this.roundHistory.push({
+                round: this.roundNum,
+                winner: team,
+                red: this.redScore,
+                blue: this.blueScore,
+                clock: this.getFormattedTime()
+            });
+        }
         return true;
     }
 
@@ -102,6 +117,7 @@ export class Scoreboard {
         this.timeRemaining = this.timeLimit;
         this.redScore = 0;
         this.blueScore = 0;
+        this.roundHistory = [];
         this.players.forEach(p => {
             p.score = 0;
             p.deflections = 0;
