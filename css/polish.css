@@ -686,6 +686,59 @@ body {
     bottom: clamp(154px, 22vh, 210px);
 }
 
+/* ===== COMBAT FEEDBACK ANIMATIONS ===== */
+@keyframes hit-flash {
+    0% { background: rgba(255, 255, 255, 0.4); }
+    100% { background: transparent; }
+}
+
+body.hit-flash { 
+    animation: hit-flash 20ms ease-out; 
+}
+
+/* Combo counter pulse */
+@keyframes combo-pulse {
+    0% { transform: translateX(-50%) scale(0.8); opacity: 0; }
+    100% { transform: translateX(-50%) scale(1); opacity: 1; }
+}
+
+#combo-counter {
+    position: fixed; 
+    bottom: 100px; 
+    left: 50%; 
+    transform: translateX(-50%);
+    font-size: 18px; 
+    font-weight: bold; 
+    color: #ffd700;
+    text-shadow: 0 0 8px rgba(255, 215, 0, 0.8);
+    animation: combo-pulse 300ms ease-out;
+    pointer-events: none;
+}
+
+#combo-counter.hidden { 
+    display: none; 
+}
+
+/* ===== MENU ALIVE ANIMATIONS ===== */
+@keyframes breathing {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.02); }
+}
+
+.hero-character, 
+.shop-hero { 
+    animation: breathing 4s ease-in-out infinite; 
+}
+
+/* Menu button glow on hover */
+.menu-button:hover, 
+.btn-main-menu:hover {
+    background: var(--ui-primary);
+    filter: drop-shadow(0 0 12px var(--ui-primary));
+    transform: translateY(-2px);
+    transition: all 150ms ease-out;
+}
+
 @media (max-width: 900px) {
     .career-dashboard,
     .patch-timeline {
@@ -3747,3 +3800,120 @@ body.cosmetic-practice-active #friends-sidebar { display: none !important; }
     #lobby-screen .cs-player-card { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
     #shop-screen .knife-preview-3d { animation: none !important; }
 }
+
+/* ===== COMBAT FEEDBACK ANIMATIONS ===== */
+
+/* Hit-flash: 20ms white overlay on lethal kill */
+@keyframes hit-flash {
+  0% { background: rgba(255, 255, 255, 0.4); }
+  100% { background: transparent; }
+}
+body.hit-flash {
+  animation: hit-flash 20ms ease-out;
+}
+
+/* Combo streak counter: "Nx KILL STREAK" */
+#combo-counter {
+  position: fixed;
+  bottom: 100px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 18px;
+  font-weight: bold;
+  color: #ffd700;
+  text-shadow: 0 0 8px rgba(255, 215, 0, 0.8);
+  z-index: 999;
+}
+
+#combo-counter.hidden {
+  display: none;
+}
+
+@keyframes combo-pulse {
+  0% {
+    transform: translateX(-50%) scale(0.8);
+    opacity: 0;
+  }
+  100% {
+    transform: translateX(-50%) scale(1);
+    opacity: 1;
+  }
+}
+
+#combo-counter {
+  animation: combo-pulse var(--combo-pulse-duration, 300ms) ease-out;
+}
+
+/* Kill feed: right-side stack */
+#kill-feed {
+  position: fixed;
+  right: 20px;
+  top: 150px;
+  z-index: 998;
+}
+
+.kill-entry {
+  color: var(--ui-text);
+  font-family: monospace;
+  font-size: 12px;
+  padding: 4px 8px;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  white-space: nowrap;
+  animation: kill-feed-slide-in 200ms ease-out, kill-feed-fade-out 1000ms ease-out 3000ms forwards;
+}
+
+.kill-entry .killer {
+  color: #ff5d72;
+  font-weight: bold;
+}
+
+.kill-entry .icon {
+  color: var(--ui-primary);
+}
+
+.kill-entry .victim {
+  color: #888;
+}
+
+@keyframes kill-feed-slide-in {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes kill-feed-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+/* Menu alive: hero breathing + button glow */
+.hero-character,
+.shop-hero {
+  animation: breathing 4s ease-in-out infinite;
+}
+
+@keyframes breathing {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.02); }
+}
+
+.menu-button:hover,
+.btn-main-menu:hover,
+.btn-primary:hover {
+  background: var(--ui-primary);
+  filter: drop-shadow(0 0 12px var(--ui-primary));
+  transform: translateY(-2px);
+  transition: all 150ms ease-out;
+}
+
+/* Post-match reward card reveal */
+.pg-reward-card {
+  animation: reward-reveal var(--reward-reveal-duration, 600ms) ease-out;
+}
+
+@keyframes reward-reveal {
+  from { transform: scale(0); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
