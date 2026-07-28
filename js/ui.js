@@ -135,6 +135,11 @@ export class UI {
             void target.offsetHeight; // force reflow for entrance animation
         }
         document.body.dataset.screen = name;
+        // Single screen-change signal so features can start/stop per screen without
+        // patching every showScreen() call site.
+        if (typeof window !== 'undefined' && window.dispatchEvent && typeof CustomEvent !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('warrball:screen', { detail: { screen: name } }));
+        }
         // Close floating menus that aren't in screens
         const extras = ['pause-menu', 'settings-screen', 'post-game-screen', 'team-popup', 'celeb-weapon-hud'];
         extras.forEach(id => {
@@ -512,6 +517,7 @@ export class UI {
         if (xpFill) { xpFill.style.width = '0%'; requestAnimationFrame(() => { xpFill.style.width = perc + '%'; }); }
         if (xpText) xpText.textContent = `+${xpGained} XP`;
         this._renderPostGameBattlepass(store);
+        this._renderPostGameRewardCard(store);
         this.renderMatchAnalysis(result.analytics);
         const dings = Math.min(10, Math.ceil(perc / 10));
         let delay = 0;
@@ -566,6 +572,39 @@ export class UI {
         const pct = Math.max(0, Math.min(100, Math.round((xp / xpNeeded) * 100)));
         if (fillEl) fillEl.style.width = `${pct}%`;
         if (xpTextEl) xpTextEl.textContent = `${xp} / ${xpNeeded} XP to Tier ${tier + 1}`;
+    }
+
+    // Post-match next reward preview. Shows tier, cosmetic name, and ETA (matches to unlock).
+    // Uses existing battlepass reward data from store to find the next tier's reward.
+    _renderPostGameRewardCard(store) {
+        const wrap = document.getElementById('pg-reward-card');
+        if (!wrap || typeof store?.getBattlepassProgress !== 'function') return;
+        const bp = store.getBattlepassProgress();
+        const tier = Number(bp?.tier) || 0;
+        // Don't show reward card at max tier
+        if (tier >= 50) {
+            wrap.style.display = 'none';
+            return;
+        }
+        wrap.style.display = '';
+        const { free } = store.getBattlepassRewards?.() || {};
+        const nextReward = Array.isArray(free) ? free.find(r => r.tier > tier) : null;
+        if (!nextReward) {
+            wrap.style.display = 'none';
+            return;
+        }
+        const tierEl = document.getElementById('pg-reward-tier');
+        const nameEl = document.getElementById('pg-reward-name');
+        const etaEl = document.getElementById('pg-reward-eta');
+        if (tierEl) tierEl.textContent = `TIER ${nextReward.tier}`;
+        if (nameEl) nameEl.textContent = nextReward.name || 'Mystery Reward';
+        // Calculate matches to unlock: estimate 150 XP per match
+        const xpNeeded = Number(store.getBattlepassXpForNextTier?.()) || 0;
+        const matchesEta = Math.ceil(xpNeeded / 150);
+        if (etaEl) etaEl.textContent = matchesEta === 1 ? '1 match to unlock' : `${matchesEta} matches to unlock`;
+        // Apply rarity styling if available
+        const rarity = nextReward.rarity || 'common';
+        wrap.className = `pg-reward-card rarity-${rarity}`;
     }
 
     renderMatchAnalysis(report, initialTab = 'overview') {

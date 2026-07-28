@@ -164,11 +164,15 @@ export class ShopShowcaseRenderer {
         if ('toneMappingExposure' in this.renderer) this.renderer.toneMappingExposure = 1.08;
 
         this.scene = new THREE.Scene();
-        this.camera = new THREE.PerspectiveCamera(31, 1, .1, 50);
         // ponytail: rig avatar stands ~2.16 tall (feet at local y=0) vs. the old hand-built box avatar's
         // ~3.45 -- camera distance/target and floor alignment scaled down to match (~0.63x).
-        this.camera.position.set(0, 1.3, 4.5);
-        this.camera.lookAt(0, 1.0, 0);
+        // options.camera lets a wider mount (e.g. the menu hero) pull back without a second renderer.
+        const framing = options.camera || {};
+        const position = framing.position || [0, 1.3, 4.5];
+        const target = framing.target || [0, 1.0, 0];
+        this.camera = new THREE.PerspectiveCamera(Number.isFinite(framing.fov) ? framing.fov : 31, 1, .1, 50);
+        this.camera.position.set(position[0], position[1], position[2]);
+        this.camera.lookAt(target[0], target[1], target[2]);
         this.avatar = createShowcaseAvatar(options);
         this.avatar.root.position.y = -.04;
         this.scene.add(this.avatar.root);
@@ -187,7 +191,11 @@ export class ShopShowcaseRenderer {
         this._window = ownerDocument?.defaultView || globalThis.window;
         this._document = ownerDocument;
         this._motionQuery = this._window?.matchMedia?.('(prefers-reduced-motion: reduce)') || null;
+        this._forcedReducedMotion = false;
         this.reducedMotion = Boolean(this._motionQuery?.matches);
+        // After _yaw/_pitch/_disposed exist: setAccent() renders, and rendering before
+        // those are initialized would write a NaN rotation.
+        if (options.accent) this.setAccent(options.accent);
         this._bindEvents();
         this.resize();
         if (options.autoStart !== false) this.start();
@@ -200,6 +208,7 @@ export class ShopShowcaseRenderer {
         key.castShadow = true;
         const rim = new THREE.DirectionalLight(0x42e8ff, 2.4);
         rim.position.set(4, 3, -3);
+        this._rimLight = rim;
         this.scene.add(hemi, key, rim);
 
         const floorGeometry = new THREE.CylinderGeometry(1.75, 2.02, .22, 48);
@@ -214,6 +223,7 @@ export class ShopShowcaseRenderer {
         floor.position.y = -.17;
         floor.receiveShadow = true;
         this.scene.add(floor);
+        this._floorMaterial = floorMaterial;
         this._environmentResources.push(floorGeometry, floorMaterial);
 
         const ringGeometry = new THREE.TorusGeometry(1.52, .025, 8, 64);
@@ -222,6 +232,7 @@ export class ShopShowcaseRenderer {
         ring.rotation.x = Math.PI / 2;
         ring.position.y = -.045;
         this.scene.add(ring);
+        this._ringMaterial = ringMaterial;
         this._environmentResources.push(ringGeometry, ringMaterial);
     }
 
@@ -258,7 +269,7 @@ export class ShopShowcaseRenderer {
             this._renderFrame();
         };
         this._onMotionChange = event => {
-            this.reducedMotion = Boolean(event.matches);
+            this.reducedMotion = Boolean(event.matches) || this._forcedReducedMotion;
             this.avatar.setPoseTime(this._elapsed, this.reducedMotion);
             this._refreshLoop();
             this._renderFrame();
@@ -318,6 +329,29 @@ export class ShopShowcaseRenderer {
         const state = this.avatar.sync(value);
         this._renderFrame();
         return state;
+    }
+
+    // Tints the stage (rim light, plinth, ring) toward a UI theme accent. Never called
+    // without an accent, so the shop preview keeps its original fixed palette.
+    setAccent(value) {
+        const accent = hexNumber(value, 0x5af7ef);
+        this._rimLight?.color.setHex(accent);
+        this._ringMaterial?.color.setHex(accent);
+        this._floorMaterial?.color.setHex(mixColor(0x0d2532, accent, .18));
+        this._floorMaterial?.emissive.setHex(mixColor(0x03151c, accent, .14));
+        this._renderFrame();
+        return accent;
+    }
+
+    // In-app accessibility setting, OR-ed with the OS prefers-reduced-motion query so
+    // neither source can silently re-enable idle motion for the other.
+    setReducedMotion(flag) {
+        this._forcedReducedMotion = Boolean(flag);
+        this.reducedMotion = this._forcedReducedMotion || Boolean(this._motionQuery?.matches);
+        this.avatar.setPoseTime(this._elapsed, this.reducedMotion);
+        this._refreshLoop();
+        this._renderFrame();
+        return this.reducedMotion;
     }
 
     start() {

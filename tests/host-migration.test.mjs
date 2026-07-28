@@ -1,7 +1,6 @@
+import { extractGameMethod, compileGameMethod } from './game-source.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { runInNewContext } from 'node:vm';
 import {
     HOST_CHECKPOINT_MAX_BYTES,
     HOST_MIGRATION_BACKOFF_MAX_MS,
@@ -18,77 +17,11 @@ import {
     validateHostMigrationProposal
 } from '../js/host-migration.js';
 
-const gameSource = readFileSync(new URL('../js/game.js', import.meta.url), 'utf8');
+
 const STATES = Object.freeze({
     PLAYING: 'playing',
     ROUND_END: 'round-end'
 });
-
-function extractGameMethod(name) {
-    const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const match = new RegExp(`^ {4}${escapedName}\\([^\\n]*\\) \\{`, 'm').exec(gameSource);
-    assert.ok(match, `Game.${name} method not found`);
-
-    const start = match.index;
-    const bodyStart = gameSource.indexOf('{', start);
-    let depth = 0;
-    let quote = null;
-    let escaped = false;
-    let lineComment = false;
-    let blockComment = false;
-
-    for (let index = bodyStart; index < gameSource.length; index++) {
-        const character = gameSource[index];
-        const next = gameSource[index + 1];
-
-        if (lineComment) {
-            if (character === '\n') lineComment = false;
-            continue;
-        }
-        if (blockComment) {
-            if (character === '*' && next === '/') {
-                blockComment = false;
-                index++;
-            }
-            continue;
-        }
-        if (quote) {
-            if (escaped) {
-                escaped = false;
-            } else if (character === '\\') {
-                escaped = true;
-            } else if (character === quote) {
-                quote = null;
-            }
-            continue;
-        }
-        if (character === '/' && next === '/') {
-            lineComment = true;
-            index++;
-            continue;
-        }
-        if (character === '/' && next === '*') {
-            blockComment = true;
-            index++;
-            continue;
-        }
-        if (character === "'" || character === '"' || character === '`') {
-            quote = character;
-            continue;
-        }
-        if (character === '{') depth++;
-        if (character === '}' && --depth === 0) {
-            return gameSource.slice(start, index + 1);
-        }
-    }
-
-    assert.fail(`Game.${name} method body is incomplete`);
-}
-
-function compileGameMethod(name, globals = {}) {
-    const method = extractGameMethod(name);
-    return runInNewContext(`({ ${method} }).${name}`, globals);
-}
 
 const reconcileHostRevive = compileGameMethod('_reconcileHostRevive');
 const applyHostMigrationCheckpoint = compileGameMethod('applyHostMigrationCheckpoint');

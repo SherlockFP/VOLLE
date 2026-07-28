@@ -44,6 +44,27 @@
   --ui-motion-base: 200ms;
   --ui-motion-slow: 420ms;
   --ui-ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* Kill-confirm & post-match animations */
+  --kill-flash-duration: 20ms;
+  --combo-pulse-duration: 400ms;
+  --tier-fill-duration: 800ms;
+  --reward-reveal-duration: 600ms;
+
+  /* Menu/hero palette — consumed by css/polish.css #main-menu with fallbacks.
+     Team red/blue stay theme-independent on purpose: PLAN.md forbids themes or
+     cosmetics obscuring team ownership. */
+  --ui-menu-accent: #5ee7f7;
+  --ui-menu-gold: #ffc857;
+  --ui-menu-ink: #f4f8ff;
+  --ui-menu-muted: #9ba9bc;
+  --ui-menu-panel: rgba(11, 29, 42, 0.82);
+  --ui-menu-panel-soft: rgba(17, 24, 38, 0.86);
+  --ui-menu-line: rgba(190, 211, 242, 0.16);
+  --ui-menu-base: linear-gradient(150deg, #102938 0%, #0a1b29 52%, #102237 100%);
+  --ui-menu-glow-a: rgba(240, 68, 85, 0.1);
+  --ui-menu-glow-b: rgba(59, 130, 246, 0.15);
+  --ui-menu-stage: linear-gradient(145deg, rgba(28, 58, 72, 0.9), rgba(8, 24, 37, 0.94));
 }
 
 :root[data-theme="soft-spectrum"] {
@@ -62,6 +83,127 @@
   --ui-danger: #ff83a8;
   --ui-success: #74dfbd;
   --ui-warning: #ffd07d;
+  --ui-menu-accent: #79ccff;
+  --ui-menu-panel: rgba(16, 40, 58, 0.84);
+  --ui-menu-line: rgba(200, 226, 240, 0.2);
+  --ui-menu-base: linear-gradient(112deg, #061420 0%, #0d2233 48%, #05101a 100%);
+  --ui-menu-stage: linear-gradient(145deg, rgba(30, 66, 88, 0.9), rgba(7, 26, 40, 0.94));
+}
+
+:root[data-theme="ember"] {
+  --ui-bg: #140b07;
+  --ui-bg-elevated: #22120a;
+  --ui-surface: #2c180d;
+  --ui-surface-2: #3a2011;
+  --ui-border: #7a4522;
+  --ui-text: #fff3e8;
+  --ui-muted: #c9a68d;
+  --ui-primary: #ff9a3c;
+  --ui-primary-hover: #ffb668;
+  --ui-primary-strong: #d2701d;
+  --ui-info: #ffc46a;
+  --ui-focus: #ffd9a8;
+  --ui-danger: #ff5340;
+  --ui-success: #c9d94a;
+  --ui-warning: #ffd166;
+  --ui-menu-accent: #ffa53c;
+  --ui-menu-gold: #ffd166;
+  --ui-menu-ink: #fff3e8;
+  --ui-menu-muted: #c4a690;
+  --ui-menu-panel: rgba(38, 20, 12, 0.84);
+  --ui-menu-panel-soft: rgba(46, 25, 15, 0.86);
+  --ui-menu-line: rgba(255, 196, 140, 0.18);
+  --ui-menu-base: linear-gradient(112deg, #140b07 0%, #1f110a 48%, #0f0705 100%);
+  --ui-menu-glow-a: rgba(255, 122, 48, 0.22);
+  --ui-menu-glow-b: rgba(255, 74, 58, 0.18);
+  --ui-menu-stage: linear-gradient(145deg, rgba(58, 30, 18, 0.9), rgba(24, 11, 6, 0.94));
+}
+
+:root[data-theme="violet-surge"] {
+  --ui-bg: #0d0819;
+  --ui-bg-elevated: #17102a;
+  --ui-surface: #1e1436;
+  --ui-surface-2: #281b46;
+  --ui-border: #5b3f95;
+  --ui-text: #f4efff;
+  --ui-muted: #b3a6cc;
+  --ui-primary: #b58cff;
+  --ui-primary-hover: #cbaaff;
+  --ui-primary-strong: #8354d6;
+  --ui-info: #8fb4ff;
+  --ui-focus: #ddc8ff;
+  --ui-danger: #ff5d94;
+  --ui-success: #6fe3c0;
+  --ui-warning: #ffcf5c;
+  --ui-menu-accent: #b58cff;
+  --ui-menu-gold: #ffcf5c;
+  --ui-menu-ink: #f4efff;
+  --ui-menu-muted: #b3a6cc;
+  --ui-menu-panel: rgba(24, 16, 42, 0.84);
+  --ui-menu-panel-soft: rgba(30, 20, 52, 0.86);
+  --ui-menu-line: rgba(196, 176, 255, 0.18);
+  --ui-menu-base: linear-gradient(112deg, #0d0819 0%, #150e26 48%, #090512 100%);
+  --ui-menu-glow-a: rgba(180, 80, 255, 0.22);
+  --ui-menu-glow-b: rgba(86, 110, 255, 0.24);
+  --ui-menu-stage: linear-gradient(145deg, rgba(44, 28, 74, 0.9), rgba(16, 9, 32, 0.94));
+}
+
+:root[data-theme="verdant"] {
+  --ui-bg: #050f0a;
+  --ui-bg-elevated: #0a1a12;
+  --ui-surface: #0f2418;
+  --ui-surface-2: #163121;
+  --ui-border: #2f6b46;
+  --ui-text: #eefff2;
+  --ui-muted: #9fc4ab;
+  --ui-primary: #7ef29a;
+  --ui-primary-hover: #a6f8b9;
+  --ui-primary-strong: #46bd6c;
+  --ui-info: #8fe6d0;
+  --ui-focus: #c4ffd5;
+  --ui-danger: #ff6b6b;
+  --ui-success: #b6f56a;
+  --ui-warning: #e8ff7a;
+  --ui-menu-accent: #7ef29a;
+  --ui-menu-gold: #e8ff7a;
+  --ui-menu-ink: #eefff2;
+  --ui-menu-muted: #9fc4ab;
+  --ui-menu-panel: rgba(12, 34, 24, 0.84);
+  --ui-menu-panel-soft: rgba(16, 40, 28, 0.86);
+  --ui-menu-line: rgba(160, 240, 190, 0.18);
+  --ui-menu-base: linear-gradient(112deg, #050f0a 0%, #0a1a12 48%, #040c08 100%);
+  --ui-menu-glow-a: rgba(64, 220, 140, 0.2);
+  --ui-menu-glow-b: rgba(120, 240, 110, 0.18);
+  --ui-menu-stage: linear-gradient(145deg, rgba(20, 54, 38, 0.9), rgba(6, 22, 14, 0.94));
+}
+
+:root[data-theme="crimson-court"] {
+  --ui-bg: #120609;
+  --ui-bg-elevated: #1e0a10;
+  --ui-surface: #290d15;
+  --ui-surface-2: #37121d;
+  --ui-border: #7d2a3f;
+  --ui-text: #fff0f3;
+  --ui-muted: #c9a3ad;
+  --ui-primary: #ff6b8a;
+  --ui-primary-hover: #ff93a9;
+  --ui-primary-strong: #cf3d5f;
+  --ui-info: #ff9ec4;
+  --ui-focus: #ffc9d5;
+  --ui-danger: #ff4d4d;
+  --ui-success: #6fe0a8;
+  --ui-warning: #ffb85c;
+  --ui-menu-accent: #ff6b8a;
+  --ui-menu-gold: #ffb85c;
+  --ui-menu-ink: #fff0f3;
+  --ui-menu-muted: #c9a3ad;
+  --ui-menu-panel: rgba(36, 14, 21, 0.84);
+  --ui-menu-panel-soft: rgba(44, 17, 26, 0.86);
+  --ui-menu-line: rgba(255, 170, 190, 0.18);
+  --ui-menu-base: linear-gradient(112deg, #120609 0%, #1c090f 48%, #0d0407 100%);
+  --ui-menu-glow-a: rgba(255, 60, 90, 0.24);
+  --ui-menu-glow-b: rgba(190, 40, 90, 0.2);
+  --ui-menu-stage: linear-gradient(145deg, rgba(60, 20, 32, 0.9), rgba(24, 7, 12, 0.94));
 }
 
 :focus-visible {

@@ -479,6 +479,7 @@ class App {
 
         this.setupMenuHandlers();
         this._initShopShowcase();
+        this._initMenuHero();
         this.applyAccessibility();
         this.refreshMetaStats();
         this.store.connectRemote(this.store.get('playerName')).then(connected => {
@@ -537,6 +538,7 @@ class App {
         if (resolution?.w && resolution?.h) this.renderer.setResolutionTarget(resolution.w, resolution.h);
         this.renderer.setRenderScale(this.store.get('renderScale') || 1);
         this.game.juice.reducedMotion = !!settings.reduceMotion;
+        this.menuHero?.setReducedMotion(!!settings.reduceMotion);
         this.game.juice.screenShakeEnabled = settings.screenShake !== false;
         this.game.juice.screenFlashEnabled = settings.screenFlash !== false;
         document.body.classList.toggle('reduced-motion', !!settings.reduceMotion);
@@ -1635,6 +1637,7 @@ bind('carousel-next', () => {
             const theme = normalizeTheme(event.target.value);
             this.store.set('uiTheme', theme);
             applyUiPreferences(document.documentElement, loadUiPreferences(this.store));
+            this.menuHero?.setAccent(this._menuAccent());
         });
         bindSetting('setting-ui-scale', event => {
             const scale = normalizeUiScale(Number(event.target.value) / 100);
@@ -3727,6 +3730,53 @@ updateCarousel() {
             skinId: AVATAR_SKINS[selected] ? selected : 'default'
         });
         this.shopShowcase?.resize();
+    }
+
+    // Live 3D hero on the main menu. Reuses the shop showcase rig instead of adding a
+    // second renderer path; the CSS character stays as the no-WebGL fallback.
+    _initMenuHero() {
+        const canvas = document.getElementById('menu-hero-canvas');
+        const showcase = document.getElementById('menu-character-showcase');
+        if (!canvas || this.menuHero) return;
+        try {
+            this.menuHero = new ShopShowcaseRenderer(canvas, {
+                characterId: this.store.get('selectedChar'),
+                skinId: this.store.get('equippedAvatarSkin'),
+                autoStart: false,
+                camera: { fov: 30, position: [0, 1.42, 6.4], target: [0, 1.02, 0] },
+                accent: this._menuAccent()
+            });
+        } catch (error) {
+            return;
+        }
+        showcase?.setAttribute('data-live', 'on');
+        window.addEventListener('warrball:screen', event => {
+            if (event.detail?.screen === 'mainMenu') {
+                this._syncMenuHero();
+                this.menuHero.start();
+            } else {
+                this.menuHero.stop();
+            }
+        }, { signal: this._mainAbort.signal });
+    }
+
+    _syncMenuHero() {
+        const skinId = this.store.get('equippedAvatarSkin');
+        this.menuHero?.sync({
+            characterId: this.store.get('selectedChar'),
+            skinId: AVATAR_SKINS[skinId] ? skinId : 'default'
+        });
+        this.menuHero?.setAccent(this._menuAccent());
+        this.menuHero?.resize();
+    }
+
+    // Active theme accent, read from the same CSS token the menu CSS consumes so the 3D
+    // stage can never drift from the 2D palette.
+    _menuAccent() {
+        const token = getComputedStyle(document.documentElement)
+            .getPropertyValue('--ui-menu-accent')
+            .trim();
+        return token || '#5ee7f7';
     }
 
     _syncCosmeticPracticeCommerce() {

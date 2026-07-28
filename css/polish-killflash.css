@@ -1,0 +1,248 @@
+/* ===== KILL-CONFIRM SYSTEM (Phase 3 #4.1) ===== */
+
+/* Kill flash overlay — white/team-color 20ms pulse on lethal hit */
+#kill-flash {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 299;
+    pointer-events: none;
+    background: transparent;
+    opacity: 0;
+}
+
+#kill-flash.pulse {
+    animation: killFlashPulse 20ms ease-out forwards;
+}
+
+#kill-flash.pulse.team-red {
+    animation: killFlashPulseRed 20ms ease-out forwards;
+}
+
+#kill-flash.pulse.team-blue {
+    animation: killFlashPulseBlue 20ms ease-out forwards;
+}
+
+@keyframes killFlashPulse {
+    0% {
+        background-color: rgba(255, 255, 255, 0.8);
+        opacity: 1;
+    }
+    100% {
+        background-color: rgba(255, 255, 255, 0);
+        opacity: 0;
+    }
+}
+
+@keyframes killFlashPulseRed {
+    0% {
+        background-color: rgba(255, 100, 100, 0.6);
+        opacity: 1;
+    }
+    100% {
+        background-color: rgba(255, 100, 100, 0);
+        opacity: 0;
+    }
+}
+
+@keyframes killFlashPulseBlue {
+    0% {
+        background-color: rgba(100, 150, 255, 0.6);
+        opacity: 1;
+    }
+    100% {
+        background-color: rgba(100, 150, 255, 0);
+        opacity: 0;
+    }
+}
+
+/* ===== POST-MATCH BATTLEPASS PROGRESSION (Phase 3 #4.5) ===== */
+
+/* Enhance existing post-game XP bar with animation */
+.pg-xp-bar-wrap {
+    position: relative;
+    height: 8px;
+    border-radius: 999px;
+    background: rgba(108, 228, 232, 0.1);
+    overflow: hidden;
+    margin: 12px 0;
+    border: 1px solid rgba(108, 228, 232, 0.2);
+}
+
+.pg-xp-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #36d8ca, #70ddff);
+    width: 0%;
+    border-radius: 999px;
+    transition: width 1.2s cubic-bezier(0.22, 1, 0.36, 1);
+    box-shadow: 0 0 12px rgba(54, 216, 202, 0.4);
+}
+
+.pg-xp-text {
+    display: block;
+    margin-top: 4px;
+    color: #8fd8df;
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-align: center;
+}
+
+/* Battlepass tier progress in post-game */
+.pg-bp-progress {
+    margin: 16px 0 12px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: rgba(10, 43, 61, 0.5);
+    border: 1px solid rgba(108, 228, 232, 0.15);
+}
+
+.pg-bp-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.pg-bp-tier-label {
+    color: #8fd8df;
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+}
+
+.pg-bp-tier-label b {
+    color: #36d8ca;
+    font-size: 0.95rem;
+}
+
+.pg-bp-next {
+    color: #a4c8cc;
+    font-size: 0.75rem;
+    text-align: right;
+}
+
+.pg-bp-bar-wrap {
+    position: relative;
+    height: 6px;
+    border-radius: 999px;
+    background: rgba(54, 216, 202, 0.08);
+    overflow: hidden;
+    border: 1px solid rgba(112, 221, 255, 0.12);
+    margin-bottom: 6px;
+}
+
+.pg-bp-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, rgba(54, 216, 202, 0.8), rgba(112, 221, 255, 0.8));
+    width: 0%;
+    border-radius: 999px;
+    transition: width 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.pg-bp-xp-text {
+    display: block;
+    color: #7ce8da;
+    font-size: 0.7rem;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Next reward card (reveals on tier-up or legendary) */
+.pg-reward-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 12px;
+    margin: 12px 0 0;
+    border-radius: 12px;
+    background: rgba(8, 43, 60, 0.6);
+    border: 1px solid rgba(54, 216, 202, 0.2);
+    animation: pgRewardReveal 400ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes pgRewardReveal {
+    0% {
+        opacity: 0;
+        transform: scale(0.95) translateY(8px);
+    }
+    100% {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+.pg-reward-card.rarity-legendary {
+    border-color: rgba(255, 215, 0, 0.4);
+    background: linear-gradient(145deg, rgba(25, 43, 60, 0.8), rgba(8, 18, 30, 0.9));
+    box-shadow: 0 0 20px rgba(255, 215, 0, 0.15), inset 0 0 20px rgba(255, 215, 0, 0.05);
+}
+
+.pg-reward-card.rarity-legendary .reward-tier {
+    color: #ffd700;
+    font-weight: 900;
+    text-shadow: 0 0 8px rgba(255, 215, 0, 0.5);
+}
+
+.pg-reward-icon {
+    width: 56px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(54, 216, 202, 0.12);
+    border: 1px solid rgba(54, 216, 202, 0.3);
+    border-radius: 10px;
+    font-size: 2.5em;
+}
+
+.reward-tier {
+    font-size: 0.75rem;
+    color: #36d8ca;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 700;
+}
+
+.reward-name {
+    color: #eaffff;
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-align: center;
+}
+
+.reward-eta {
+    color: #a4c8cc;
+    font-size: 0.7rem;
+    text-align: center;
+}
+
+/* XP ding sounds during post-game animation */
+@keyframes xpDingPulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.05); opacity: 0.8; }
+}
+
+.pg-xp-ding {
+    animation: xpDingPulse 0.15s ease-out;
+}
+
+/* Reduced motion: disable all animations */
+@media (prefers-reduced-motion: reduce) {
+    #kill-flash.pulse,
+    #kill-flash.pulse.team-red,
+    #kill-flash.pulse.team-blue,
+    .pg-xp-bar-fill,
+    .pg-bp-bar-fill,
+    .pg-reward-card,
+    .pg-xp-ding {
+        animation: none !important;
+    }
+    
+    .pg-xp-bar-fill,
+    .pg-bp-bar-fill {
+        transition: none !important;
+    }
+}

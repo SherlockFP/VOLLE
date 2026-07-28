@@ -16,7 +16,7 @@ Warrball is a 3D first-person ball combat game with esport aspirations. Browser-
 
 ## Phase 1 — UI Foundation & Hardening ✅
 
-- **Themes:** `dark` and `soft-spectrum`, persisted through `Store`.
+- **Themes:** `dark`, `soft-spectrum`, `ember`, `violet-surge`, `verdant`, `crimson-court` — persisted through `Store`, locked by `tests/ui-theme-catalog.test.mjs`.
 - **UI scale:** 80%–120%, applied immediately through `--ui-scale` and persisted.
 - **Unified settings:** one modal with Controls, Video, Game, and Accessibility tabs; compact-height content scrolls inside the modal.
 - **Accessibility:** keyboard focus ring, reduced-motion mode, and high-contrast token overrides.
@@ -202,7 +202,9 @@ dodgb/
 
 ## Known Issues
 
-- `graphify-out/` is stale (last run before recent commits). Run `/graphify` to update.
+- `graphify-out/` refreshed 2026-07-28 (2828 nodes, 5858 edges, 158 communities). Re-run
+  `graphify update .` after code changes — code extraction is AST-only, no API key needed.
+  `colliders.json` yields zero nodes and is absent from the graph (upstream graphify #1666).
 - `PLAN.md` contains both completed and pending items — check this file (MIMO.md) for current status.
 - Automated Node tests are available via `npm test`; Phase 1 UI coverage lives in `tests/ui-foundation.test.mjs`.
 - PeerJS P2P requires both peers to be on same network or use a signaling server.
@@ -253,6 +255,27 @@ dodgb/
 - Avatar preview selection auto-loads `cosmetic_studio`, a hidden no-combat/no-bot practice map with instant skin comparison, purchase, equip, and return-to-Shop controls.
 - Added reusable `js/shop-showcase.js` renderer/rig and pure `js/cosmetic-practice.js` session state.
 - Replaced the retired island Social Hub with one procedural Grand Estate containing walk-through mansions, pools, plaza, statues, local props, collisions, and procedural textures.
+
+## Menu Identity Pass (2026-07-28)
+
+- Main-menu palette now derives from theme tokens (`--ui-menu-*` in `css/ui-tokens.css`)
+  instead of the fixed hex block that used to sit in `css/polish.css`. `dark` fallbacks
+  equal the previous values, so the default look is unchanged.
+- Four new themes: Ember, Violet Surge, Verdant, Crimson Court. Team red/blue stay
+  theme-independent (PLAN.md: effects may never obscure team ownership).
+- The main menu hero is a live 3D character: `ShopShowcaseRenderer` is reused through a
+  new `options.camera` framing override, so no second renderer path exists. The old CSS
+  character remains the automatic fallback when WebGL is unavailable
+  (`#menu-character-showcase[data-live]`).
+- `UI.showScreen` now dispatches `warrball:screen`, so per-screen features start/stop
+  without patching all ~25 `showScreen('mainMenu')` call sites. The menu hero uses it.
+- `ShopShowcaseRenderer.setReducedMotion()` ORs the in-app accessibility setting with the
+  OS `prefers-reduced-motion` query; `applyAccessibility()` propagates it.
+- Menu hover/focus colors follow the active theme via `color-mix()` instead of fixed cyan.
+- Roadmap for the remaining UI work: `docs/V3_UX_ROADMAP.md`.
+- Verification: `npm run check` → 79 files clean. `node --test` → **509/509 passed**.
+  Browser matrix at 1600×900: all six themes, menu→shop→menu hero lifecycle, and the
+  reduced-motion chain confirmed.
 
 ---
 

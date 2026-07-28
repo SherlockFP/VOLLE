@@ -1,4 +1,11 @@
-export const UI_THEMES = Object.freeze(['dark', 'soft-spectrum']);
+export const UI_THEMES = Object.freeze([
+  'dark',
+  'soft-spectrum',
+  'ember',
+  'violet-surge',
+  'verdant',
+  'crimson-court'
+]);
 
 export function normalizeTheme(value) {
   return UI_THEMES.includes(value) ? value : 'dark';

@@ -1,3 +1,5 @@
+import { extractGameMethod, compileGameMethod } from './game-source.mjs';
+
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -12,7 +14,8 @@ import {
     createGoalRushState,
     applyGoalScore,
     advanceGoalRushClock,
-    resolveGoalRushTick
+    resolveGoalRushTick,
+    goalScoringTeam
 } from '../js/goal-mode.js';
 
 const STANDARD_BOUNDS = { minX: -50, maxX: 50, minY: 0, maxY: 30, minZ: -60, maxZ: 60 };
@@ -204,4 +207,104 @@ test('hostile inputs (NaN/undefined/null positions) never crash isInsideGoal or 
     assert.doesNotThrow(() => advanceGoalRushClock(createGoalRushState(), NaN));
     assert.doesNotThrow(() => advanceGoalRushClock(createGoalRushState(), undefined));
     assert.doesNotThrow(() => advanceGoalRushClock(createGoalRushState(), -50));
+});
+
+// Game._checkGoalRushScore() wiring test: validates the extracted method detects
+// goal entries and drives round end state transition. It's called every frame.
+test('_checkGoalRushScore wires goal detection to round end state transition', () => {
+    const zones = computeGoalZones(STANDARD_BOUNDS);
+    const STATES = Object.freeze({
+        PLAYING: 'playing',
+        ROUND_END: 'round-end'
+    });
+
+    const checkGoalRushScore = compileGameMethod('_checkGoalRushScore', {
+        STATES,
+        goalScoringTeam
+    });
+
+    const mockGame = {
+        _goalRush: true,
+        state: STATES.PLAYING,
+        network: { connected: false, isHost: false },
+        ball: {
+            active: true,
+            position: { x: zones.red.minX + 0.1, y: zones.red.minY + 0.1, z: zones.red.minZ + 0.1 },
+            deactivate: function() { this.active = false; }
+        },
+        arena: { getGoalZones: () => zones },
+        scoreboard: { recordRoundWin: function(team) { this.lastWin = team; } },
+        setState: function(s) { this.state = s; },
+        announce: () => {},
+        roundRestartDelay: 3
+    };
+
+    const scored = checkGoalRushScore.call(mockGame, 1000 / 60);
+    assert.equal(scored, true, 'should return true when goal detected');
+    assert.equal(mockGame.scoreboard.lastWin, 'blue', 'should credit blue team');
+    assert.equal(mockGame.state, STATES.ROUND_END, 'should transition to ROUND_END');
+    assert.equal(mockGame.ball.active, false, 'should deactivate ball');
+});
+
+test('_checkGoalRushScore returns false when goal rush disabled', () => {
+    const STATES = Object.freeze({ PLAYING: 'playing' });
+    const checkGoalRushScore = compileGameMethod('_checkGoalRushScore', { STATES, goalScoringTeam });
+    const mockGame = {
+        _goalRush: false,
+        state: STATES.PLAYING,
+        network: { connected: false },
+        ball: { active: true }
+    };
+    assert.equal(checkGoalRushScore.call(mockGame, 1000 / 60), false);
+});
+
+test('_checkGoalRushScore returns false when not in PLAYING state', () => {
+    const STATES = Object.freeze({ PLAYING: 'playing', ROUND_END: 'round-end' });
+    const checkGoalRushScore = compileGameMethod('_checkGoalRushScore', { STATES, goalScoringTeam });
+    const mockGame = {
+        _goalRush: true,
+        state: STATES.ROUND_END,
+        network: { connected: false },
+        ball: { active: true }
+    };
+    assert.equal(checkGoalRushScore.call(mockGame, 1000 / 60), false);
+});
+
+test('_checkGoalRushScore returns false when ball is inactive', () => {
+    const STATES = Object.freeze({ PLAYING: 'playing' });
+    const checkGoalRushScore = compileGameMethod('_checkGoalRushScore', { STATES, goalScoringTeam });
+    const mockGame = {
+        _goalRush: true,
+        state: STATES.PLAYING,
+        network: { connected: false },
+        ball: { active: false }
+    };
+    assert.equal(checkGoalRushScore.call(mockGame, 1000 / 60), false);
+});
+
+test('_checkGoalRushScore returns false when zones unavailable', () => {
+    const STATES = Object.freeze({ PLAYING: 'playing' });
+    const checkGoalRushScore = compileGameMethod('_checkGoalRushScore', { STATES, goalScoringTeam });
+    const mockGame = {
+        _goalRush: true,
+        state: STATES.PLAYING,
+        network: { connected: false },
+        ball: { active: true },
+        arena: { getGoalZones: () => null }
+    };
+    assert.equal(checkGoalRushScore.call(mockGame, 1000 / 60), false);
+});
+
+test('_checkGoalRushScore returns false when ball not in goal zone', () => {
+    const zones = computeGoalZones(STANDARD_BOUNDS);
+    const STATES = Object.freeze({ PLAYING: 'playing' });
+    const checkGoalRushScore = compileGameMethod('_checkGoalRushScore', { STATES, goalScoringTeam });
+    const mockGame = {
+        _goalRush: true,
+        state: STATES.PLAYING,
+        network: { connected: false },
+        ball: { active: true, position: { x: 0, y: 1, z: 0 } },
+        arena: { getGoalZones: () => zones }
+    };
+    assert.equal(checkGoalRushScore.call(mockGame, 1000 / 60), false);
 });

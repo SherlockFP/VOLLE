@@ -14,6 +14,7 @@ import { AffixManager } from './affixes.js';
 import { SKILLS, useSkill, ULTIMATES } from './skills.js';
 import { isNewerSequence } from './network.js';
 import { resolveKillerName, segmentIntersectsSphere } from './combat.js';
+import { goalScoringTeam } from './goal-mode.js';
 import {
     applyHotPotatoSnapshot,
     createHotPotatoState,
@@ -77,6 +78,27 @@ export const STATES = {
     CELEBRATION: 'CELEBRATION', PAUSED: 'PAUSED', SOCIAL_HUB: 'SOCIAL_HUB',
     COSMETIC_PRACTICE: 'COSMETIC_PRACTICE'
 };
+
+// Combat Feedback: Combo streak display
+window.comboStreakDisplay = (() => {
+    let streak = 0;
+    let timer = null;
+    return (onKill) => {
+        if (onKill) {
+            streak++;
+            const counter = document.getElementById('combo-counter');
+            if (counter) {
+                counter.querySelector('.combo-text').textContent = `${streak}x KILL STREAK`;
+                counter.classList.remove('hidden');
+                clearTimeout(timer);
+                timer = setTimeout(() => { 
+                    counter.classList.add('hidden'); 
+                    streak = 0; 
+                }, 3000);
+            }
+        }
+    };
+})();
 
 export class Game {
     constructor(renderer, player, arena, audio, ui, network) {
@@ -1523,6 +1545,46 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         return true;
     }
 
+    // Goal Rush scoring. gamemodes.js sets _goalRush/_goalScoreToWin, arena.js owns the
+    // goal geometry, js/goal-mode.js owns the pure zone math. A goal drives the existing
+    // round machinery (recordRoundWin + ROUND_END) rather than a parallel state object,
+    // so redScore/blueScore stay the single source of truth.
+    // ponytail: goalScoringTeam() instead of checkGoalEntry() — identical own-goal credit
+    // rule, but checkGoalEntry() allocates a fresh result object per call and this runs
+    // every frame (AGENTS.md: 0 alloc/frame target).
+    _checkGoalRushScore() {
+        if (!this._goalRush || this.state !== STATES.PLAYING) return false;
+        if (this.network?.connected && !this.network?.isHost) return false;
+        if (!this.ball?.active) return false;
+        const zones = this.arena?.getGoalZones?.();
+        if (!zones) return false;
+
+        const scoringTeam = goalScoringTeam(this.ball.position, zones);
+        if (!scoringTeam) return false;
+
+        this.scoreboard.recordRoundWin(scoringTeam);
+        this.ball.deactivate();
+        if (this._respawnTimer) {
+            clearTimeout(this._respawnTimer);
+            this._respawnTimer = null;
+        }
+        this.announce(
+            `🥅 GOAL! ${scoringTeam === 'red' ? '🔴 RED' : '🔵 BLUE'} SCORES!`,
+            'tf2_domination', 0.5, 2000
+        );
+        this.setState(STATES.ROUND_END);
+        this.roundRestartTimer = this.roundRestartDelay;
+        if (this.network?.isHost) {
+            this.network.broadcastRoundEnd({
+                winner: scoringTeam,
+                red: this.scoreboard.redScore,
+                blue: this.scoreboard.blueScore,
+                round: this.scoreboard.roundNum
+            });
+        }
+        return true;
+    }
+
     getClosestEnemy(fromPos, team) {
         const enemies = this.getEnemyTargets(team);
         if (!enemies.length) return null;
@@ -1599,6 +1661,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 && typeof document !== 'undefined'
                 && document.hidden;
             if (!hiddenDrill && !this._guidedDrillResultOpen) this.updatePlaying(dt);
+            this._checkGoalRushScore();
         } else if (this.state === STATES.COUNTDOWN && this.ball._warmup) {
             if (!this.network?.connected || this.network?.isHost) {
                 this.ball.update(dt);
@@ -1689,6 +1752,10 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                     blueScore: this.scoreboard.blueScore,
                     roundsExtended: this._overtimeExtends
                 })) {
+                    this.endGame();
+                } else if (this._goalRush
+                    && Math.max(this.scoreboard.redScore, this.scoreboard.blueScore) >= this._goalScoreToWin) {
+                    // Goal Rush ends on score, not on rounds played.
                     this.endGame();
                 } else if (this.scoreboard.isTimeUp() || this.scoreboard.isMaxRounds()) {
                     if (shouldStartOvertime({
@@ -2131,7 +2198,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             this.player._p2pAttackQueued = false;
             // Predict deflection locally
             const flick = this.player.getFlick();
-            const nextTarget = this.getAimedEnemy(pos, aimDir, team);
+            const nextTarget = this._goalRush ? null : this.getAimedEnemy(pos, aimDir, team);
             const result = this.ball.deflectWithAim(pos, aimDir, nextTarget, flick, null, this.player.deflectPower);
             if (nextTarget) this.ball.setTarget(nextTarget);
             if (this.ball._affixSplit) this.spawnSplitBall(this.ball);
@@ -2173,8 +2240,10 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             return;
         }
 
-        // Pick the enemy closest to where you're looking
-        const nextTarget = this.getAimedEnemy(pos, aimDir, team);
+        // Goal Rush: the objective is the goal, not a player, so a deflect flies where you
+        // aim instead of homing onto an enemy. ball.js physics is untouched (AGENTS.md rule 7)
+        // — target selection has always lived here, and setTarget(null) resets steering.
+        const nextTarget = this._goalRush ? null : this.getAimedEnemy(pos, aimDir, team);
         const flick = this.player.getFlick();
         const momentum = this.player._frameVel;
         const result = this.ball.deflectWithAim(pos, aimDir, nextTarget, flick, momentum, this.player.deflectPower);
@@ -2487,6 +2556,9 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         }
         if (isClient && lethal && hitTarget === this.player) this._predictedLocalDeath = true;
         if (lethal) this.killStreak++;
+        if (lethal && typeof window !== 'undefined' && window.comboStreakDisplay) {
+            window.comboStreakDisplay(true);
+        }
         // Ball affix on-hit effect (e.g. burn)
         if (this.ball?._affixOnHit) {
             this.ball._affixOnHit(hitTarget);
@@ -2599,12 +2671,19 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         // Death explosion + audio
         this.spawnDeathExplosion(hitPos, hitTarget.team);
         this.audio.playSfx('tf2_explosion', 0.5);
+        window.addKillFeed?.(scorerName, name, '⚔');
         this.audio.playExplosion();
         if (hitTarget === this.player) {
             this.audio.playSfx('tf2_you_are_dead', 0.5);
             this.audio.playSfx('tf2_scout_scream', 0.45);
         }
         this.audio.playHit();
+
+        // Hit-flash animation on screen
+        if (isLethal && typeof document !== 'undefined') {
+            document.body.classList.add('hit-flash');
+            setTimeout(() => document.body.classList.remove('hit-flash'), 20);
+        }
 
         // Client-side non-lethal hit message
         if (isClient && !isLethal) {

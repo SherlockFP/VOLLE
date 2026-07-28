@@ -148,6 +148,19 @@ export function checkGoalEntry(position, zones) {
     return none;
 }
 
+/**
+ * Allocation-free variant of checkGoalEntry() for per-frame callers (js/game.js runs
+ * this every frame, so returning a fresh result object there would churn the GC).
+ * Same own-goal credit rule: the team whose zone was entered never scores.
+ * Returns 'red' | 'blue' | null. Hostile/missing input yields null, never throws.
+ */
+export function goalScoringTeam(position, zones) {
+    if (!zones) return null;
+    if (isInsideGoal(position, zones.red)) return 'blue';
+    if (isInsideGoal(position, zones.blue)) return 'red';
+    return null;
+}
+
 /** Fresh Goal Rush match state. `timeLimit` in seconds; null/undefined disables the clock win condition. */
 export function createGoalRushState(options = {}) {
     const scoreToWin = Number.isFinite(options.scoreToWin) && options.scoreToWin > 0
