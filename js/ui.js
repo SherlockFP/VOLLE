@@ -65,6 +65,7 @@ export class UI {
             gameOver: document.getElementById('game-over-screen'),
             joinMenu: document.getElementById('join-menu'),
             multiplayerMenu: document.getElementById('multiplayer-menu'),
+            practiceMenu: document.getElementById('practice-menu-screen'),
             character: document.getElementById('character-screen'),
             shop: document.getElementById('shop-screen'),
             battlepass: document.getElementById('battlepass-screen'),
