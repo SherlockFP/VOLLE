@@ -1551,7 +1551,16 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             const dot = aimDir.dot(dir);
             if (dot > bestDot) { bestDot = dot; best = e; }
         });
-        return best;
+        if (best) return best;
+        // ponytail: aim konisi disinda kalinca en yakin dusmana geri dus. Bu olmadan
+        // top hedefsiz kaliyor, homing calismiyor ve sonsuza ucuyor (V27-07-2026
+        // regresyonu, c405d7a davranisina geri donduruldu).
+        return enemies.reduce((closest, enemy) => {
+            if (!closest) return enemy;
+            return fromPos.distanceTo(enemy.getPosition()) < fromPos.distanceTo(closest.getPosition())
+                ? enemy
+                : closest;
+        }, null);
     }
 
     // --- MAIN LOOP ---

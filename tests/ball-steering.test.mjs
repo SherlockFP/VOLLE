@@ -168,14 +168,16 @@ test('steering measures distance before normalization and clears route offsets f
     assert.match(method, /const rescueTurn = hasOverstayed \|\| isCircling/);
 });
 
-test('aim targeting has no closest-enemy fallback outside the aim cone', () => {
+// Regresyon koruması: V27-07-2026 bu geri-düşmeyi silmişti, top hedefsiz kalıp
+// sonsuza uçuyordu. c405d7a davranışı geri getirildi — tekrar silinmesin.
+test('aim targeting falls back to the closest enemy outside the aim cone', () => {
     const method = gameSource.slice(
         gameSource.indexOf('    getAimedEnemy(fromPos, aimDir, team) {'),
         gameSource.indexOf('    // --- MAIN LOOP ---')
     );
     assert.match(method, /let best = null, bestDot = 0\.5/);
-    assert.match(method, /return best;/);
-    assert.doesNotMatch(method, /enemies\.reduce/);
+    assert.match(method, /if \(best\) return best;/);
+    assert.match(method, /enemies\.reduce/);
 });
 
 test('corner recovery bends a reflected ball back toward its target', () => {
