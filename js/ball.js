@@ -583,10 +583,20 @@ export class Ball {
                         ? 1 + (this.currentSpeed - 500) / 400
                         : 1;
                     this._homingAge = (this._homingAge || 0) + dt;
-                    const steer = 1 - Math.exp(
-                        -proximityHomingTurnRate(dist, this._homingAge) * speedFactor * dt
+                    // ponytail: orbit kurtarma. Bu dalda (_updatePlayerSteering'in aksine)
+                    // hic yoktu: donus yaricapi (hiz / donus hizi) force-hit menzilinden
+                    // buyuk oldugunda top hedefe kapanamayip etrafinda sonsuz doniyordu.
+                    // Ayni esikler _updatePlayerSteering'deki kurtarma ile birebir.
+                    const rescueRange = clamp(this.currentSpeed * 0.055, 3.5, 6);
+                    const isCircling = dist < rescueRange && velDir.dot(targetDir) < 0.15;
+                    const hasOverstayed = this._homingAge > 1.15;
+                    const rescuing = hasOverstayed || isCircling;
+                    if (rescuing) this._targetRouteOffset = { x: 0, y: 0, z: 0 };
+                    const steer = Math.max(
+                        1 - Math.exp(-proximityHomingTurnRate(dist, this._homingAge) * speedFactor * dt),
+                        rescuing ? 1 - Math.exp(-7 * dt) : 0
                     );
-                    const newDir = velDir.lerp(desired, steer).normalize();
+                    const newDir = velDir.lerp(rescuing ? targetDir : desired, steer).normalize();
                     this.velocity.copy(newDir.multiplyScalar(this.currentSpeed));
                 }
             }
@@ -908,6 +918,7 @@ export class Ball {
         this._steeringPhase = 'torso';
         this._steeringInitialDir = null;
         this._targetRouteOffset = { x: 0, y: 0, z: 0 };
+        this._homingAge = 0;
     }
 
     _beginPlayerSteering(target, aimDirection) {

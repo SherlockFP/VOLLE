@@ -157,6 +157,32 @@ test('homing gains strength near its target without exceeding its turn cap', () 
     assert.equal(proximityHomingTurnRate(0, 999), 7.5);
 });
 
+// Regresyon koruması: orbit kurtarma yalnızca _updatePlayerSteering'de vardı.
+// Aimed/steering aktif olmayan yolda (bot atışları, steering penceresi bittikten
+// sonra) yoktu ve top hedefin etrafında sonsuz dönüyordu.
+test('non-steering homing branch also rescues from orbiting', () => {
+    const branch = source.slice(
+        source.indexOf('                } else if (dist > 0.5) {'),
+        source.indexOf('            // Close range (<2): skip gravity to avoid orbiting')
+    );
+    assert.ok(branch.length > 0, 'homing branch not found');
+    assert.match(branch, /const isCircling = dist < rescueRange && velDir\.dot\(targetDir\) < 0\.15/);
+    assert.match(branch, /const hasOverstayed = this\._homingAge > 1\.15/);
+    assert.match(branch, /rescuing \? 1 - Math\.exp\(-7 \* dt\) : 0/);
+    // kurtarma sırasında yumuşatılmış "desired" değil doğrudan hedefe dönülmeli
+    assert.match(branch, /velDir\.lerp\(rescuing \? targetDir : desired, steer\)/);
+    // eşikler _updatePlayerSteering'deki kurtarma ile aynı kalmalı
+    assert.match(source, /const rescueRange = clamp\(this\.currentSpeed \* 0\.055, 3\.5, 6\)/);
+});
+
+test('homing age resets with steering so a new target starts a fresh rescue clock', () => {
+    const reset = source.slice(
+        source.indexOf('    _resetSteering() {'),
+        source.indexOf('    _clampSpeed()')
+    );
+    assert.match(reset, /this\._homingAge = 0;/);
+});
+
 test('steering measures distance before normalization and clears route offsets for torso rescue', () => {
     const method = source.slice(
         source.indexOf('    _updatePlayerSteering(dt, targetPos) {'),
