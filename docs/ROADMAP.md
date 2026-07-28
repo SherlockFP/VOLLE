@@ -1,131 +1,100 @@
-# Warrball Development Program
+# Warrball Development Roadmap (living document)
 
-Start: 2026-07-18
+**Owner:** Main agent, acting as project lead/decision authority per explicit user mandate.
+**Operating rule:** decide and execute without asking permission per-step; verify every claim
+against real code/browser evidence before marking done; delegate independent slices to capable
+agents, never route judgment-requiring work to low-reasoning/mechanical agents.
 
-## Product goal
+This file is updated as phases complete or scope changes. It is not a status report — it is the
+plan being executed against.
 
-Fast browser dodgeball with reliable P2P play, strong movement, short matches,
-fair cosmetic progression, and shareable highlights.
+---
 
-## Release gates
+## Phase 0: Regression Recovery (blocking everything else)
 
-Every stage must pass:
+Three claims from the user, each verified before being treated as real:
 
-1. `npm test`
-2. `npm run check`
-3. No new `git diff --check` errors
-4. One failure-path test for the changed system
+1. **Main menu has no 3D render.** CONFIRMED root cause: `_initMenuHero()` (main.js) looks for
+   `#menu-hero-canvas`, which existed in commit `f2802c8` and was silently deleted in `0567fc8`
+   (a dev pass whose assigned scope was CSS tokens, not index.html) via an out-of-scope edit.
+   The function fails its `if (!canvas) return` guard silently — no error, just the flat CSS
+   `.ow-character` fallback forever. Fix: restore the canvas, verify live WebGL render.
 
-## Stage 0 - Baseline and safety (Week 1)
+2. **Ball doesn't go to bots when a match starts.** Not yet reproduced against a live match.
+   Must reproduce with a real bot match before touching ball-targeting code — no fix without a
+   confirmed repro.
 
-- Add zero-dependency Node tests.
-- Cover network codecs, sequence ordering, store purchases, mastery, replay import.
-- Record current gameplay constants and network packet formats.
-- Keep `MIMO.md` synchronized with implemented features.
+3. **Character model style mismatch.** In-match characters are the round-headed procedural rig
+   (`character-rig.js`, animated, cosmetic-socket-compatible). Avatar painter and shop preview
+   screens instead show Kenney "blocky-characters" GLB assets (Minecraft-style), per
+   `assets/cc0/ASSET_MANIFEST.md`'s own documented intent ("character previews"). This is a
+   genuine visual-promise break: what you customize is not what you see in-game.
 
-Done when tests run on a clean Node 18+ install.
+---
 
-## Stage 1 - Networking reliability (Weeks 1-2)
+## Phase 1: Foundational Decisions (must precede all new content)
 
-- Position packet sequence numbers and stale-packet rejection.
-- Smoothed clock offset from ping/pong.
-- Velocity-aware interpolation and bounded extrapolation.
-- Reconnect grace period before returning to menu.
-- Host migration protocol for lobby and active matches.
-- Packet-loss, jitter, and 50-250 ms latency simulation tests.
-- TURN/relay deployment design for restrictive NAT.
+- **Canonical character style = the procedural round-head rig.** It is what actually renders in
+  matches, is animated, and is the thing the entire cosmetic-attachment system (sockets, rig
+  offsets, `applyEntityCosmetics`) was built around. The Kenney blocky previews in avatar/shop are
+  the bug to fix, not a second style to keep alive. All new skins (zombie, anime-inspired) target
+  this rig.
+- **Default game mode = one-shot/instagib.** Locate the mode definition, verify it exists, wire
+  as default on load.
 
-Done when two clients survive packet reordering, a short disconnect, and host
-migration without resetting the match.
+## Phase 2: Main Menu Overhaul
 
-## Stage 2 - Performance (Week 3)
+- Restore and verify the live 3D hero canvas actually renders (not just DOM-present).
+- Make it feel alive, not "sıkıcı": idle motion, camera/parallax response to pointer, ambient
+  particles/lighting consistent with the theme system already shipped.
+- Keep the flat CSS card as the genuine no-WebGL fallback (`_initMenuHero`'s own stated intent) —
+  don't delete it, just make sure the live path actually engages.
 
-- Pool ball trail meshes, particles, damage numbers, and temporary effects.
-- Add renderer quality presets and automatic quality fallback.
-- Dispose map resources on rebuild.
-- Add frame-time and live object counters in debug mode.
+## Phase 3: Shop UX Fixes
 
-Targets:
+- Item preview tiles are too small to read at a glance — enlarge/redesign the grid cells.
+- "Back to menu" button is oversized, eating layout space — shrink to match other secondary
+  actions.
+- Top nav/category bar is oversized — shrink slightly, matching the rest of the shop's density.
+- Verify every added ball skin is actually selectable/visible in the shop grid (not just present
+  in `BALL_SKINS` data with no UI path to it).
+- Price pass: audit current prices for consistency across rarity tiers.
 
-- 60 FPS at 1080p on a mid-range laptop.
-- No unbounded mesh/material growth during a 20-minute match.
-- Under 16.7 ms median frame time; under 25 ms p95.
+## Phase 4: Viewmodel Overhaul
 
-## Stage 3 - Match flow and replay (Week 4)
+- Locate first-person weapon/hand rig (viewmodel) code.
+- Fix reported rocket-launcher-clips-into-hand.
+- Audit every other weapon's viewmodel offset for the same class of bug.
 
-- Quick Play -> match -> results -> rematch flow.
-- Reconnect UI and network status indicator.
-- Replay library screen with play/delete/export/import.
-- Automatic highlights: perfect deflect, clutch, longest rally, multi-kill.
-- Shareable compact replay code.
+## Phase 5: Map Atmosphere
 
-Done when a player can finish and replay a match without returning to setup
-screens.
+- Audit existing arenas for the "ruhsuz/zombimsi" (lifeless) complaint: lighting, skybox variety,
+  environmental detail, prop density.
+- Add atmosphere without touching collision/gameplay geometry.
 
-## Stage 4 - Online progression (Weeks 5-6)
+## Phase 6: New Content — Skins
 
-- Account/session service.
-- Cloud save with schema versioning.
-- Authoritative coins, inventory, ranked rating, and leaderboard.
-- Match result validation and idempotent reward grants.
-- Casual and ranked matchmaking queues.
-- Party queue and region/ping preference.
+- Zombie-themed character skins on the canonical procedural rig.
+- Original anime-inspired character skins — **no trademarked/copyrighted characters (e.g. actual
+  Naruto) are implemented; only original designs in that visual register.** This boundary is
+  fixed and non-negotiable regardless of future phrasing of the request.
+- Extra ball skins/effects as capacity allows.
 
-Security rules:
+## Phase 7: Mechanical Polish
 
-- Client never decides coin balance, ownership, or ranked result.
-- Gameplay skills are earned through play; shop focuses on cosmetics.
-- Every reward request has a unique match/result identifier.
+- Whatever concrete gameplay bugs Phase 0's reproduction work surfaces (ball targeting, etc.)
+  get fixed here with the same reproduce-before-fix discipline as Phase 0.
 
-## Stage 5 - Content and retention (Week 7)
+## Phase 8: Verification & Ship
 
-- Polish 4-6 competitive maps before adding more.
-- Weekly rotating modes.
-- Character mastery rewards.
-- Cosmetic skin, trail, deflect sound, kill effect, and victory pose catalog.
-- Daily/weekly challenge refresh from server time.
-- Seasonal ranked rewards.
+- Full automated suite + real browser smoke test (not synthetic module calls alone) for every
+  changed system before any commit.
+- Commit and push after each coherent phase, not one giant deferred commit — smaller, verified,
+  reviewable increments, consistent with how this session has operated so far.
 
-## Stage 6 - Accessibility and release polish (Week 8)
+---
 
-- Gamepad support and remapping.
-- Color-blind team palettes.
-- Reduced motion, shake, flash, and bloom options.
-- UI scale, subtitles, and sound indicators.
-- Mobile/touch feasibility pass.
-- Tutorial telemetry and first-match bot protection.
-- Production error logging and privacy-safe performance metrics.
+## Execution Log
 
-## Architecture direction
-
-Gradually extract from `main.js` and `game.js`:
-
-- `MatchFlow`
-- `GameSimulation`
-- `CombatSystem`
-- `NetworkReplication`
-- `ProgressionService`
-- `EffectPool`
-
-No large rewrite. Each extraction must preserve behavior and pass tests.
-
-## Implementation log - 2026-07-18
-
-Completed:
-
-- Position sequencing, stale-packet rejection, clock sync, bounded reconnect.
-- Ball trail pooling and immediate low/medium/high renderer profiles.
-- Replay archive, validation, 4 Hz world snapshots, ball trajectory playback.
-- Persistent guest sessions, token auth, disk profiles, server catalog purchases.
-- Bounded/idempotent match rewards and first-save whitelist migration.
-- Deterministic portals, open-air spawn fix, boundary guides, map theme fallback.
-- Reduced motion, shake, flash, contrast, color-vision settings.
-- First-launch tutorial routing.
-
-Remaining production gates:
-
-- Abrupt host migration and restrictive-NAT TURN/relay.
-- Dedicated authoritative match validation for ranked/paid economy.
-- Steam authentication, App ID, payment provider, receipt verification.
-- Gamepad/remapping, UI scale, subtitles, touch feasibility.
-- Real-device 20-minute frame-time and memory soak tests.
+- Session start: consolidated 5 stacked user messages into this roadmap.
+- Phase 0 item 1 (menu render): root cause confirmed, fix in progress.

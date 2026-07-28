@@ -4122,3 +4122,40 @@ body.hit-flash {
     .case-reel-item.is-winner .case-reel-orb { animation: none; }
     .case-reel-track.settled .case-reel-item { transition: none; }
 }
+
+/* ===== MAIN MENU: LIVE 3D HERO ===== */
+/* #menu-hero-canvas existed in f2802c8 and was silently dropped by an out-of-scope
+   edit in 0567fc8 -- _initMenuHero() (main.js) has been failing its `if (!canvas)
+   return` guard ever since, with no error, so the menu never got past the flat CSS
+   fallback. This restores the stage/canvas geometry (mirrors .shop-showcase-stage,
+   the proven working pattern) and the [data-live] hookup that main.js already sets
+   but that had no CSS reacting to it.
+
+   ShopShowcaseRenderer ships drag-rotate, idle auto-spin and an idle breathing pose
+   out of the box, so restoring the canvas is what makes the hero "interactive" --
+   no new interaction code needed here, just wiring. */
+#main-menu .ow-hero-stage {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    overflow: hidden;
+    border-radius: 12px;
+}
+
+#main-menu #menu-hero-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    cursor: grab;
+    touch-action: none;
+}
+
+#main-menu #menu-hero-canvas:active { cursor: grabbing; }
+
+/* Flat CSS character is the documented no-WebGL fallback (main.js _initMenuHero
+   comment). Once the live renderer actually mounts, main.js flips data-live="on";
+   hide the fallback so the two don't render on top of each other. */
+#menu-character-showcase[data-live="on"] .ow-character {
+    display: none;
+}
