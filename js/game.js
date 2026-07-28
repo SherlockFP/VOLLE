@@ -31,7 +31,7 @@ import {
 } from './weapon-models.js';
 import { KNIVES } from './cosmetics.js';
 import { normalizeWearableLoadout } from './cosmetic-catalog.js';
-import { applyEntityCosmetics, spawnImpactCosmetic, updateEntityCosmetics } from './cosmetic-models.js';
+import { applyEntityCosmetics, spawnFinisherCosmetic, spawnImpactCosmetic, updateEntityCosmetics } from './cosmetic-models.js';
 import { createCharacterRig } from './character-rig.js';
 import { createCharacterAnimator } from './character-anim.js';
 import {
@@ -2607,6 +2607,15 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             : attacker?.wearableLoadout?.impact;
         spawnImpactCosmetic(this.renderer.scene, impactId, hitPos);
         const isLethal = lethal || hitTarget.hp <= 0;
+        if (isLethal) {
+            // Finishers were sold ("A fireworks-grade blast ends the round") but nothing
+            // ever called spawnFinisherCosmetic. Same equipped-wearable lookup as the
+            // impact burst above; the spawn no-ops on a missing or wrong-typed id.
+            const finisherId = attacker === this.player
+                ? window.__store?.get?.('equippedWearables')?.finisher
+                : attacker?.wearableLoadout?.finisher;
+            spawnFinisherCosmetic(this.renderer.scene, finisherId, hitPos);
+        }
         if (attacker === this.player) {
             this.onReplayEvent?.({
                 type: 'hit',

@@ -246,7 +246,8 @@ function createWings(item) {
     const wingMat = new THREE.MeshStandardMaterial({
         color: item.colors[0], emissive: item.colors[1], emissiveIntensity: 0.2, roughness: 0.6, side: THREE.DoubleSide
     });
-    const geometry = item.style === 'bat' || item.style === 'demon'
+    // Dragon shares the membrane cone with bat/demon; its spines are added below.
+    const geometry = item.style === 'bat' || item.style === 'demon' || item.style === 'dragon'
         ? new THREE.ConeGeometry(0.4, 0.7, 4, 1, true)
         : new THREE.PlaneGeometry(0.5, 0.7, 1, 3);
     const wingL = new THREE.Mesh(geometry, wingMat);
@@ -258,6 +259,13 @@ function createWings(item) {
     group.add(wingL, wingR);
     if (item.style === 'circuit') {
         for (const x of [-0.28, 0.28]) group.add(part(new THREE.BoxGeometry(0.04, 0.5, 0.02), item.colors[1], x, 1.42, 0.26));
+    } else if (item.style === 'dragon') {
+        for (const x of [-0.28, 0.28]) {
+            for (let index = 0; index < 3; index++) {
+                group.add(part(new THREE.ConeGeometry(0.04, 0.13, 4), item.colors[1],
+                    x + (x < 0 ? -0.06 : 0.06), 1.62 - index * 0.16, 0.24));
+            }
+        }
     } else if (item.style === 'angel' || item.style === 'paper') {
         for (const x of [-0.28, 0.28]) group.add(part(new THREE.OctahedronGeometry(0.05), item.colors[1], x, 1.7, 0.28));
     }
@@ -322,6 +330,14 @@ function createBanner(item) {
         group.add(part(new THREE.OctahedronGeometry(0.06), item.colors[1], 0, 2.12, 0.28));
     } else if (item.style === 'skull') {
         group.add(part(new THREE.BoxGeometry(0.1, 0.1, 0.06), item.colors[1], 0.19, 1.86, 0.32));
+    } else if (item.style === 'flame') {
+        for (let index = 0; index < 3; index++) {
+            group.add(part(new THREE.ConeGeometry(0.045, 0.15, 5), item.colors[1],
+                0.34, 1.72 + index * 0.14, 0.28));
+        }
+    } else if (item.style === 'guild') {
+        group.add(part(new THREE.CylinderGeometry(0.02, 0.02, 0.3, 5), item.colors[1], 0.19, 2.06, 0.28));
+        group.add(part(new THREE.OctahedronGeometry(0.07), item.colors[1], 0.19, 1.86, 0.32));
     }
     group.userData.flag = flag;
     return group;
@@ -354,26 +370,6 @@ function createTrail(item) {
     return group;
 }
 
-const FINISHER_GEOMETRY = {
-    confetti: () => new THREE.BoxGeometry(0.08, 0.08, 0.02),
-    shatter: () => new THREE.OctahedronGeometry(0.08),
-    lightning: () => new THREE.ConeGeometry(0.05, 0.2, 4),
-    vortex: () => new THREE.OctahedronGeometry(0.07),
-    explosion: () => new THREE.ConeGeometry(0.06, 0.18, 6)
-};
-
-function createFinisher(item) {
-    // Static shop/preview burst — the live elimination effect is spawnFinisherCosmetic().
-    const group = new THREE.Group();
-    const geometry = (FINISHER_GEOMETRY[item.style] || FINISHER_GEOMETRY.explosion)();
-    for (let index = 0; index < 8; index++) {
-        const angle = index / 8 * Math.PI * 2;
-        group.add(part(geometry, item.colors[index % item.colors.length],
-            Math.cos(angle) * 0.4, 1.2 + Math.sin(index) * 0.08, Math.sin(angle) * 0.4));
-    }
-    return group;
-}
-
 const createSlot = item => ({
     cape: createCape,
     pet: createPet,
@@ -384,8 +380,7 @@ const createSlot = item => ({
     wings: createWings,
     backpack: createBackpack,
     banner: createBanner,
-    trail: createTrail,
-    finisher: createFinisher
+    trail: createTrail
 }[item.type]?.(item) || null);
 
 const WEARABLE_SLOT_TYPES = ['cape', 'pet', 'shoes', 'aura', 'hat', 'mask', 'wings', 'backpack', 'banner', 'trail'];
@@ -536,6 +531,15 @@ export function spawnImpactCosmetic(scene, id, position) {
     requestAnimationFrame(tick);
     return group;
 }
+
+// Per-style particle shape for the elimination burst below.
+const FINISHER_GEOMETRY = {
+    confetti: () => new THREE.BoxGeometry(0.08, 0.08, 0.02),
+    shatter: () => new THREE.OctahedronGeometry(0.08),
+    lightning: () => new THREE.ConeGeometry(0.05, 0.2, 4),
+    vortex: () => new THREE.OctahedronGeometry(0.07),
+    explosion: () => new THREE.ConeGeometry(0.06, 0.18, 6)
+};
 
 // ponytail: same burst engine as spawnImpactCosmetic, just bigger/longer for an elimination moment.
 export function spawnFinisherCosmetic(scene, id, position) {
