@@ -11,6 +11,7 @@ import { getRank, getRankProgress } from './ranked.js';
 import { Leaderboard } from './leaderboard.js';
 import { Arena } from './arena.js';
 import { COSMETICS, COSMETIC_TYPES, cosmeticsByType } from './cosmetic-catalog.js';
+import { accountRankLabel } from './prestige.js';
 import { Store } from './store.js';
 
 const CHARACTER_ATLAS = 'assets/generated/characters/character-atlas.png';
@@ -1120,7 +1121,14 @@ export class UI {
         const l = document.getElementById('meta-level');
         const t = document.getElementById('meta-bp-tier');
         if (c) c.textContent = store.get('currency');
-        if (l) l.textContent = store.get('level');
+        // Prestige-aware label ("Dodger · Lv 12"), so the prestige a player earned
+        // is actually visible. Falls back to the bare level for any store shape
+        // that predates getAccount().
+        if (l) {
+            l.textContent = typeof store.getAccount === 'function'
+                ? accountRankLabel(store.getAccount())
+                : `Lv ${store.get('level')}`;
+        }
         if (t) t.textContent = store.get('battlepass').tier;
     }
 
