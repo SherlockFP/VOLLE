@@ -2647,6 +2647,7 @@ body.photo-mode #hud,body.photo-mode #scoreboard-overlay,body.photo-mode .networ
     letter-spacing: .06em;
     text-align: center;
     backdrop-filter: blur(10px);
+    font-size: var(--ui-hud-text);
 }
 .hud-speed-text[data-heat="warm"], #ball-speed[data-heat="warm"] .speed-value { color: #ffd447; }
 .hud-speed-text[data-heat="danger"], #ball-speed[data-heat="danger"] .speed-value { color: #ff684f; }

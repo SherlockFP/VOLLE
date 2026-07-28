@@ -45,6 +45,12 @@
   --ui-motion-slow: 420ms;
   --ui-ease: cubic-bezier(0.22, 1, 0.36, 1);
 
+  /* HUD text sizing (responsive, readable from distance) */
+  --ui-hud-text: clamp(14px, 1.2vw, 18px);
+
+  /* Smooth easing curve (replaces bouncy curves) */
+  --ui-ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+
   /* Kill-confirm & post-match animations */
   --kill-flash-duration: 20ms;
   --combo-pulse-duration: 400ms;
