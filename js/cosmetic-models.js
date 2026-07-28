@@ -51,6 +51,19 @@ function createCape(item) {
     } else if (item.style === 'royal') {
         group.add(part(new THREE.TorusGeometry(0.25, 0.035, 6, 18), '#ffd86a', 0, 1.55, 0.2));
         group.add(part(new THREE.OctahedronGeometry(0.1), '#fff0a3', 0, 1.07, 0.2));
+    } else if (item.style === 'ember') {
+        for (const x of [-0.22, 0, 0.22]) {
+            group.add(part(new THREE.ConeGeometry(0.07, 0.22, 5), accent, x, 0.6, 0.2));
+        }
+    } else if (item.style === 'frost') {
+        for (const x of [-0.24, -0.08, 0.08, 0.24]) {
+            group.add(part(new THREE.ConeGeometry(0.05, 0.26, 4), accent, x, 0.58, 0.2));
+        }
+    } else if (item.style === 'void') {
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.03, 6, 16), basic(accent));
+        ring.position.set(0, 0.78, 0.21);
+        group.add(ring);
+        group.add(part(new THREE.SphereGeometry(0.09, 8, 7), item.colors[0], 0, 0.78, 0.22));
     } else {
         for (const x of [-0.24, 0, 0.24]) {
             group.add(part(new THREE.OctahedronGeometry(0.055), accent, x, 0.64, 0.2));
@@ -113,6 +126,12 @@ function createShoes(item) {
             group.add(part(new THREE.OctahedronGeometry(0.07), item.colors[1], x, 0.19, -0.12));
         } else if (item.style === 'pixel') {
             group.add(part(new THREE.BoxGeometry(0.11, 0.08, 0.11), item.colors[1], x, 0.14, -0.16));
+        } else if (item.style === 'ember') {
+            group.add(part(new THREE.ConeGeometry(0.05, 0.18, 5), item.colors[1], x, 0.16, -0.24));
+            group.add(part(new THREE.ConeGeometry(0.04, 0.12, 5), '#ffd08a', x, 0.24, -0.2));
+        } else if (item.style === 'magma') {
+            group.add(part(new THREE.BoxGeometry(0.26, 0.07, 0.4), item.colors[1], x, -0.06, -0.08));
+            group.add(part(new THREE.OctahedronGeometry(0.05), '#ffb347', x, 0.14, -0.02));
         } else {
             group.add(part(new THREE.ConeGeometry(0.06, 0.2, 6), item.colors[1], x, 0.2, 0.08));
         }
@@ -178,6 +197,11 @@ function createHat(item) {
     } else if (item.style === 'beanie') {
         group.add(new THREE.Mesh(new THREE.SphereGeometry(0.27, 9, 7, 0, Math.PI * 2, 0, Math.PI * 0.6), primary));
         group.add(part(new THREE.SphereGeometry(0.06, 7, 6), item.colors[1], 0, 2.22, 0));
+    } else if (item.style === 'cap') {
+        // Anchored to the generic dome's space (local y 0), with the brim behind
+        // the head so it reads as a backwards cap instead of another plain dome.
+        group.add(new THREE.Mesh(new THREE.SphereGeometry(0.27, 9, 7, 0, Math.PI * 2, 0, Math.PI * 0.5), primary));
+        group.add(part(new THREE.BoxGeometry(0.3, 0.045, 0.22), item.colors[1], 0, -0.01, 0.24));
     } else {
         group.add(new THREE.Mesh(new THREE.SphereGeometry(0.27, 9, 7, 0, Math.PI * 2, 0, Math.PI * 0.55), primary));
     }
@@ -200,6 +224,14 @@ function createMask(item) {
         for (let index = 0; index < 3; index++) {
             group.add(part(new THREE.BoxGeometry(0.28 - index * 0.05, 0.05, 0.03), index % 2 ? item.colors[1] : item.colors[0],
                 0, 0.08 - index * 0.07, frontZ - index * 0.015));
+        }
+    } else if (item.style === 'ember') {
+        group.add(part(new THREE.BoxGeometry(0.32, 0.12, 0.09), item.colors[0], 0, -0.05, frontZ));
+        group.add(part(new THREE.BoxGeometry(0.08, 0.08, 0.06), item.colors[1], 0.17, -0.03, frontZ + 0.04));
+    } else if (item.style === 'frost') {
+        group.add(part(new THREE.BoxGeometry(0.3, 0.1, 0.08), item.colors[0], 0, 0.01, frontZ));
+        for (const x of [-0.08, 0.08]) {
+            group.add(part(new THREE.ConeGeometry(0.035, 0.12, 4), item.colors[1], x, -0.08, frontZ));
         }
     } else {
         group.add(part(new THREE.BoxGeometry(0.28, 0.16, 0.1), item.colors[0], 0, 0, frontZ));
@@ -255,6 +287,17 @@ function createBackpack(item) {
     } else if (item.style === 'balloon') {
         for (const x of [-0.16, 0, 0.16]) {
             group.add(part(new THREE.SphereGeometry(0.13, 8, 7), x === 0 ? item.colors[1] : item.colors[0], x, 1.55 + (x === 0 ? 0.08 : 0), 0.28));
+        }
+    } else if (item.style === 'supplies') {
+        const body = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.46, 0.24), bodyMat);
+        body.position.set(0, 1.2, 0.26);
+        group.add(body);
+        const roll = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.4, 8), material(item.colors[1], item.colors[1]));
+        roll.rotation.z = Math.PI / 2;
+        roll.position.set(0, 1.46, 0.26);
+        group.add(roll);
+        for (const x of [-0.13, 0.13]) {
+            group.add(part(new THREE.BoxGeometry(0.05, 0.46, 0.26), item.colors[1], x, 1.2, 0.27));
         }
     } else {
         const body = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.5, 0.24), bodyMat);
