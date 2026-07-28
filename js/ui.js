@@ -1637,7 +1637,15 @@ export class UI {
                 : item.model === 'butterfly' ? 'BUTTERFLY KNIFE'
                 : item.model === 'karambit' ? 'KARAMBIT'
                 : 'KNIFE';
-            return `<div class="case-reel-item rarity-${item.rarity || result.reward.rarity}"><span class="case-reel-orb ${item.type === 'avatar' ? 'avatar' : ''}" aria-hidden="true"></span><small>${type}</small><b>${item.name || item.id}</b></div>`;
+            const rarity = item.rarity || result.reward.rarity || 'rare';
+            // data-type drives the silhouette and data-rarity the colour ramp. The
+            // drop list only carries name/type/rarity, so the visual has to come
+            // from those rather than per-item art.
+            const kind = item.type === 'avatar' ? 'avatar'
+                : item.type === 'ball' ? 'ball'
+                : item.type === 'cosmetic' ? 'cosmetic'
+                : 'knife';
+            return `<div class="case-reel-item rarity-${rarity}" data-rarity="${rarity}"><span class="case-reel-orb" data-type="${kind}" aria-hidden="true"></span><small>${type}</small><b>${item.name || item.id}</b></div>`;
         }).join('');
         resultEl.textContent = '';
         const preview = document.getElementById('case-reward-preview');
@@ -1651,6 +1659,9 @@ export class UI {
             if (settled) return;
             settled = true;
             track.classList.add('settled');
+            // Dim the losers and pop the winner, so the settle reads as a result
+            // rather than the reel merely stopping somewhere.
+            track.children[targetIndex]?.classList.add('is-winner');
             const rewardPreview = document.getElementById('case-reward-preview');
             if (rewardPreview) {
                 rewardPreview.className = `case-reward-preview active rarity-${result.reward.rarity || 'common'} ${result.reward.type === 'avatar' ? 'avatar' : `model-${result.reward.model || 'classic'}`}`;

@@ -4032,3 +4032,93 @@ body.hit-flash {
     .hud-timer[data-urgency="critical"],
     .prestige-badge[data-prestige="10"] { animation: none; }
 }
+
+/* ===== CASE REEL: READABLE ITEMS ===== */
+/* Every slot used to render the same teal orb, so a knife, a character skin and
+   a ball skin were visually identical and rarity was a barely-visible glow at
+   0.42 opacity. The drop list only carries name/type/rarity, so the silhouette
+   comes from the type and the colour ramp from the rarity. */
+
+.case-reel-item {
+    --reel-core: #6fe3c0;
+    --reel-glow: #36d8ca;
+}
+
+.case-reel-item.rarity-rare      { --reel-core: #74d2ff; --reel-glow: #36a8ff; }
+.case-reel-item.rarity-epic      { --reel-core: #c9a3ff; --reel-glow: #ae7cff; }
+.case-reel-item.rarity-legendary { --reel-core: #ffdf9b; --reel-glow: #ffc02e; }
+
+/* Rarity now reads at a glance: a top ribbon plus a real border, not a faint wash. */
+.case-reel-item::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: 0;
+    height: 3px;
+    background: var(--reel-glow);
+}
+
+.case-reel-item { border-color: color-mix(in srgb, var(--reel-glow) 45%, transparent); }
+.case-reel-item::after { opacity: .55; }
+
+.case-reel-item.rarity-legendary {
+    border-color: color-mix(in srgb, var(--reel-glow) 75%, transparent);
+    box-shadow: inset 0 0 26px color-mix(in srgb, var(--reel-glow) 22%, transparent);
+}
+
+/* Shared orb reset: each type overrides the shape below. */
+.case-reel-orb {
+    width: 34px;
+    height: 34px;
+    border-radius: 0;
+    background: linear-gradient(150deg, #fff 0%, var(--reel-core) 34%, var(--reel-glow) 100%);
+    box-shadow: 0 0 16px color-mix(in srgb, var(--reel-glow) 55%, transparent);
+}
+
+/* Ball skin: sphere with a seam. */
+.case-reel-orb[data-type="ball"] {
+    border-radius: 50%;
+    background: radial-gradient(circle at 34% 28%, #fff, var(--reel-core) 30%, var(--reel-glow) 72%, #06243c 100%);
+}
+
+/* Knife: pointed blade. */
+.case-reel-orb[data-type="knife"] {
+    clip-path: polygon(50% 0%, 74% 26%, 66% 100%, 34% 100%, 26% 26%);
+    background: linear-gradient(160deg, #fff 0%, var(--reel-core) 38%, var(--reel-glow) 100%);
+}
+
+/* Character skin: head over shoulders. */
+.case-reel-orb[data-type="avatar"] {
+    clip-path: polygon(34% 0%, 66% 0%, 66% 34%, 100% 52%, 100% 100%, 0% 100%, 0% 52%, 34% 34%);
+    background: linear-gradient(150deg, var(--reel-core) 0%, var(--reel-glow) 100%);
+}
+
+/* Wearable / cosmetic: hexagon chip. */
+.case-reel-orb[data-type="cosmetic"] {
+    clip-path: polygon(50% 0%, 94% 25%, 94% 75%, 50% 100%, 6% 75%, 6% 25%);
+    background: linear-gradient(150deg, #fff 0%, var(--reel-core) 40%, var(--reel-glow) 100%);
+}
+
+/* The winning slot should visibly win. */
+.case-reel-track.settled .case-reel-item:not(.is-winner) { opacity: .45; filter: saturate(.5); }
+
+.case-reel-item.is-winner {
+    transform: scale(1.06);
+    box-shadow: 0 0 0 2px var(--reel-glow), 0 0 34px color-mix(in srgb, var(--reel-glow) 60%, transparent);
+}
+
+.case-reel-item.is-winner .case-reel-orb { animation: reel-winner-pop 520ms ease-out; }
+
+@keyframes reel-winner-pop {
+    0%   { transform: scale(.6); }
+    60%  { transform: scale(1.18); }
+    100% { transform: scale(1); }
+}
+
+.case-reel-track.settled .case-reel-item { transition: opacity 260ms ease-out, filter 260ms ease-out, transform 260ms ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+    .case-reel-item.is-winner .case-reel-orb { animation: none; }
+    .case-reel-track.settled .case-reel-item { transition: none; }
+}
