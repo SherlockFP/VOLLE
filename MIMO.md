@@ -281,6 +281,41 @@ dodgb/
 
 ---
 
+## Skin Finisher Pass (2026-07-29)
+
+Valorant-style elimination and round-end effects driven by the ball skin that landed the
+kill. This was the actual gap — the shop, case reel and item previews were already strong
+and needed no rework.
+
+- `js/shader-finishers.js` — one parameterised `ShaderMaterial` with four `uVariant`
+  branches, keyed on each skin's existing `effect` family from `BALL_SKINS` rather than on
+  ids, so 22 shipped skins are covered without a per-skin table:
+  `void` -> void implosion, `flame` -> ember burst, `glitch` -> digital dissolve,
+  `frost` -> ghost fade. `uColor` comes from that skin's own `glow`.
+- `js/shaders/finisher.vert.js` / `finisher.frag.js` — inline hash/value-noise fbm, no
+  external GLSL dependency, matching the existing `js/shaders/` export style.
+- Four hooks in `js/game.js`, all optional-chained through `window.shaderFinishers` so the
+  layer is a drop-in and its absence is a no-op, never a crash:
+  `spawnDeathExplosion()` (one hook covers all six call sites, reads the live `ball.skinId`),
+  `setState(ROUND_END)`, the update loop (raw `dt`, deliberately before juice's hit-stop
+  early-return so a kill's own hit-stop cannot freeze the effect it just spawned), and
+  `startRound()` teardown.
+- Skins outside those four families (`spark`, `prism`, `pixel`, `smile`, `candy`, `toxic`)
+  silently no-op, as does an unknown id, a missing scene, or `prefers-reduced-motion`.
+- Audio deliberately untouched this pass — effects only, per the request.
+- Verification: all four variants compile and render distinctly in a real WebGL context;
+  every effect retires to `scene.children.length === 0` and disposes its geometry/material;
+  `update(dt)` is host-driven with a self-cancelling RAF fallback; `node --test` -> 558/558.
+
+**Deliberately reverted during this pass:** a parallel case-opener modal, a second
+marketplace grid and a `skin-effects` glow module were built and then deleted. Each
+duplicated something better that already shipped — `UI.showCaseReel()` (31-item CS:GO track,
+pixel-perfect stop, winner pop, 3D reward preview, skip), `UI.renderShop()` (live 3D
+showcase, ARIA, preview events) and the procedural `.ball-preview` CSS that already covers
+all 44 ball skins via `data-effect` + `--ball-color`. Check those three before adding UI here.
+
+---
+
 ## For Other AIs
 
 When working on this project:

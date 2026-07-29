@@ -1589,6 +1589,14 @@
         </div>
     </div>
 
+    <!-- Skin-driven finisher layer on window before main.js bootstraps: js/game.js reaches
+         for it via optional chaining in spawnDeathExplosion(), setState(ROUND_END), the
+         update loop and startRound(). Bare path (no ?v=) so module identity stays single
+         and the singleton stays a singleton. -->
+    <script type="module">
+        import { shaderFinishers } from './js/shader-finishers.js';
+        window.shaderFinishers = shaderFinishers;
+    </script>
 <script type="module" src="js/main.js?v=1.74"></script>
 </body>
 </html>

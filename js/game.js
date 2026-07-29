@@ -350,7 +350,18 @@ export class Game {
         RuntimeLog.auditTransition(prev, s);
         this.state = s;
         if (s !== STATES.PLAYING) this.audio?.resetThreatAudio?.();
-        if (s === STATES.ROUND_END && prev !== STATES.ROUND_END) this.onRoundEnd?.();
+        if (s === STATES.ROUND_END && prev !== STATES.ROUND_END) {
+            this.onRoundEnd?.();
+            // Valorant-style round-end flourish keyed off the winning side's ball skin.
+            // Optional-chained through window so the effect layer stays a drop-in: if
+            // js/shader-finishers.js is absent this is a no-op, not a crash.
+            window.shaderFinishers?.playRoundEnd?.({
+                skinId: this.ball?.skinId,
+                scene: this.renderer?.scene,
+                camera: this.player?.camera,
+                winnerTeam: this.scoreboard?.redScore > this.scoreboard?.blueScore ? 'red' : 'blue'
+            });
+        }
         if (s === STATES.LOBBY || s === STATES.MENU || s === STATES.SOCIAL_HUB) {
             if (prev !== STATES.LOBBY && prev !== STATES.MENU && prev !== STATES.SOCIAL_HUB) this._startMusic();
         } else if (s === STATES.PLAYING || s === STATES.COUNTDOWN) {
@@ -943,6 +954,9 @@ startGame(skipPreGame = false, matchId = null) {
         this.clearSplitBalls();
         this._clearRockets();
         this._hideKillcam();
+        // Drop any finisher still mid-flight from the previous round, alongside the other
+        // per-round scene teardown above — effects must not survive a scene rebuild.
+        window.shaderFinishers?.clear?.();
         this._overtime = false;
         this._overtimeTimer = 0;
         this._suddenDeathAnnounced = false;
@@ -1646,6 +1660,10 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 && [STATES.COUNTDOWN, STATES.PLAYING, STATES.ROUND_END, STATES.CELEBRATION].includes(this.state);
             updateEntityCosmetics(localCosmetics, performance.now() / 1000);
         }
+        // Advance skin finisher effects on RAW dt, before juice's hit-stop can early-return
+        // below: an elimination triggers hit-stop at the same instant the finisher spawns,
+        // so gating it on effectiveDt would freeze the very effect the kill just started.
+        window.shaderFinishers?.update?.(dt);
         // Juice: hit-stop/slow-mo/screen shake uygula, effective dt döndür
         const effectiveDt = this.juice.update(dt);
         if (effectiveDt === 0 && this.state !== STATES.CELEBRATION) return; // hit-stop: dünya donar (ama celebration'da değil)
@@ -2846,6 +2864,15 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
     // --- DEATH EXPLOSION ---
 
     spawnDeathExplosion(pos, team) {
+        // The skin that landed the kill decides the elimination effect (user-requested
+        // Valorant behaviour). Read the live ball skin here rather than threading a new
+        // argument through all six call sites — same value, no signature churn.
+        window.shaderFinishers?.playElimination?.({
+            skinId: this.ball?.skinId,
+            position: pos,
+            scene: this.renderer?.scene,
+            camera: this.player?.camera
+        });
         const color = team === 'red' ? 0xff4444 : 0x4488ff;
         for (let i = 0; i < 20; i++) {
             const geo = new THREE.BoxGeometry(0.2, 0.2, 0.2);
