@@ -21,12 +21,17 @@ const {
 
 const PORT = process.env.PORT || 8000;
 const ROOT = __dirname;
-const profiles = new ProfileStore(path.join(ROOT, 'data', 'profiles.json'));
-const accounts = new AccountStore(path.join(ROOT, 'data', 'accounts.db'), profiles);
+// data/ is gitignored, so fresh clones (e.g. Render deploys) ship without it and
+// SQLite hard-fails creating a db inside a missing directory (SQLITE_CANTOPEN 14).
+// DATA_DIR env lets hosts point at a persistent disk mount.
+const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, 'data');
+fs.mkdirSync(DATA_DIR, { recursive: true });
+const profiles = new ProfileStore(path.join(DATA_DIR, 'profiles.json'));
+const accounts = new AccountStore(path.join(DATA_DIR, 'accounts.db'), profiles);
 const presence = new PresenceStore();
-const creatorMaps = new CreatorMapStore(path.join(ROOT, 'data', 'creator-maps.json'));
-const paymentLedger = new PaymentLedger(path.join(ROOT, 'data', 'payment-ledger.json'));
-const telemetry = new TelemetryStore(path.join(ROOT, 'data', 'telemetry.json'));
+const creatorMaps = new CreatorMapStore(path.join(DATA_DIR, 'creator-maps.json'));
+const paymentLedger = new PaymentLedger(path.join(DATA_DIR, 'payment-ledger.json'));
+const telemetry = new TelemetryStore(path.join(DATA_DIR, 'telemetry.json'));
 const MATCH_REWARD_SECRET = process.env.MATCH_REWARD_SECRET || '';
 const CREATOR_MODERATION_KEY = process.env.CREATOR_MODERATION_KEY || '';
 const PAYMENT_WEBHOOK_SECRET = process.env.PAYMENT_WEBHOOK_SECRET || '';
