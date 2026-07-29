@@ -177,3 +177,42 @@ export function canEquipKnife(knifeId, team) {
     const knife = KNIVES[knifeId];
     return !!knife && knife.teams.includes(team);
 }
+
+// Case reveal pacing. Keyed off rarity families, never per item: grinding commons
+// must never cost the player time, while a legendary earns the long beat.
+// `slowMo` mirrors Juice.slowMo's scale contract (<1 = slower) and is what
+// stretches the reel, so the drama comes from one number instead of a table.
+const REVEAL_BASE_SPIN_MS = 1200;
+
+const REVEAL_TIERS = Object.freeze({
+    fast: Object.freeze({ tier: 'fast', slowMo: 1, holdMs: 900, flash: 0, sfx: null }),
+    medium: Object.freeze({ tier: 'medium', slowMo: 0.6, holdMs: 1800, flash: 0, sfx: null }),
+    long: Object.freeze({ tier: 'long', slowMo: 0.35, holdMs: 3200, flash: 0.45, sfx: 'tf2_domination' })
+});
+
+const REVEAL_FAMILIES = Object.freeze({
+    common: 'fast', uncommon: 'fast',
+    rare: 'medium', epic: 'medium',
+    legendary: 'long', exotic: 'long'
+});
+
+export function revealPresentationForRarity(rarity, options = {}) {
+    const key = typeof rarity === 'string' ? rarity.trim().toLowerCase() : '';
+    const base = REVEAL_TIERS[REVEAL_FAMILIES[key]] || REVEAL_TIERS.fast;
+    const reducedMotion = options?.reducedMotion === true;
+    // Reduced motion collapses the motion profile, never the audio payoff:
+    // the sting is a reward cue, not an animation.
+    const shape = reducedMotion ? REVEAL_TIERS.fast : base;
+    const spinMs = Math.round(REVEAL_BASE_SPIN_MS / shape.slowMo);
+    return {
+        rarity: key || 'common',
+        tier: base.tier,
+        slowMo: shape.slowMo,
+        spinMs,
+        holdMs: shape.holdMs,
+        durationMs: spinMs + shape.holdMs,
+        flash: shape.flash,
+        sfx: base.sfx,
+        reducedMotion
+    };
+}

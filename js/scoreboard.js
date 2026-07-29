@@ -59,9 +59,10 @@ export class Scoreboard {
 
     // Single funnel for "a round was won": elimination, goal rush and hot potato
     // all land here, so the per-round history is captured in exactly one place.
-    recordRoundWin(team) {
-        if (team === 'red') this.redScore++;
-        else if (team === 'blue') this.blueScore++;
+    recordRoundWin(team, points = 1) {
+        const safePoints = Number.isFinite(points) && points > 0 ? points : 1;
+        if (team === 'red') this.redScore += safePoints;
+        else if (team === 'blue') this.blueScore += safePoints;
         else return false;
         if (this.roundHistory.length < MAX_ROUND_HISTORY) {
             this.roundHistory.push({
@@ -69,7 +70,8 @@ export class Scoreboard {
                 winner: team,
                 red: this.redScore,
                 blue: this.blueScore,
-                clock: this.getFormattedTime()
+                clock: this.getFormattedTime(),
+                points: safePoints
             });
         }
         return true;

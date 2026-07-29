@@ -15,7 +15,11 @@ const CHARACTER_SHAPES = Object.freeze({
     scout: Object.freeze({ width: .88, height: 1.04, depth: .9, shoulder: .86 }),
     sniper: Object.freeze({ width: .92, height: 1.08, depth: .92, shoulder: .94 }),
     guardian: Object.freeze({ width: 1.1, height: 1, depth: 1.08, shoulder: 1.24 }),
-    soldier: Object.freeze({ width: 1.08, height: 1.02, depth: 1.08, shoulder: 1.18 })
+    soldier: Object.freeze({ width: 1.08, height: 1.02, depth: 1.08, shoulder: 1.18 }),
+    anchor: Object.freeze({ width: 1.15, height: 1.05, depth: 1.0, shoulder: 1.2 }),
+    phantom: Object.freeze({ width: 0.85, height: 1.0, depth: 1.0, shoulder: 0.9 }),
+    hardy: Object.freeze({ width: 1.1, height: 1.05, depth: 1.0, shoulder: 1.15 }),
+    swift: Object.freeze({ width: 0.9, height: 1.0, depth: 1.0, shoulder: 1.0 })
 });
 
 const hasOwn = (catalog, id) => Object.prototype.hasOwnProperty.call(catalog, id);
@@ -38,6 +42,31 @@ const mixColor = (left, right, amount = .5) => {
     );
     return (channel(16) << 16) | (channel(8) << 8) | channel(0);
 };
+
+// The 3D stage reads its palette from the same css/ui-tokens.css custom properties the 2D
+// menu consumes, so CSS stays the single source of truth for theme colour and a theme
+// switch can never leave the stage on a stale palette. Fallbacks are the shipped dark-theme
+// values: a missing or unparseable token must degrade to the original look, never to black.
+export const STAGE_TOKENS = Object.freeze({ floor: '--ui-surface-2', ring: '--ui-menu-accent' });
+export const STAGE_FALLBACK = Object.freeze({ floor: 0x12384d, ring: 0x5af7ef });
+
+// The plinth's emissive is a dim self-glow of its own tint, so it has to follow the theme
+// instead of being pinned to a second hard-coded colour.
+const stageGlow = floor => mixColor(0x000000, floor, .62);
+
+export function resolveStageTheme(readToken) {
+    const read = token => {
+        try {
+            return typeof readToken === 'function' ? readToken(token) : '';
+        } catch {
+            return '';
+        }
+    };
+    return Object.freeze({
+        floor: hexNumber(read(STAGE_TOKENS.floor), STAGE_FALLBACK.floor),
+        ring: hexNumber(read(STAGE_TOKENS.ring), STAGE_FALLBACK.ring)
+    });
+}
 
 export function normalizeShowcaseState(value = {}) {
     return Object.freeze({
@@ -75,10 +104,16 @@ export function createShowcaseAvatar(options = {}) {
     const root = new THREE.Group();
     root.name = 'warrball-showcase-avatar';
     root.userData.showcaseAvatar = true;
+    // Cosmetics-ready properties for applyEntityCosmetics() from main.js. The root serves
+    // as both the scene group and the entity that receives cosmetics.
+    root.group = root;
+    root.rig = rig;
+    root._rigCosmetics = [];
     root.add(rig.root);
 
     const api = {
         root,
+        rig,
         setSkin(skinId) {
             return rig.setSkin(skinId);
         },
@@ -97,6 +132,9 @@ export function createShowcaseAvatar(options = {}) {
             const time = Number.isFinite(seconds) ? seconds : 0;
             const pose = reducedMotion ? neutralPose() : poseFor('idle', time, {});
             rig.applyPose(pose);
+            // Frozen at t=0 under reduced motion so socketed cosmetics cannot animate
+            // while the rig itself is held in a neutral pose.
+            api.onPoseTime?.(reducedMotion ? 0 : time, reducedMotion);
         },
         dispose() {
             if (root.userData.disposed) return;
@@ -177,6 +215,11 @@ export class ShopShowcaseRenderer {
         this.avatar.root.position.y = -.04;
         this.scene.add(this.avatar.root);
 
+        // Resolved before _buildEnvironment() because the stage tint is read off the
+        // document's computed style.
+        this._window = ownerDocument?.defaultView || globalThis.window;
+        this._document = ownerDocument;
+
         this._environmentResources = [];
         this._buildEnvironment();
         this._yaw = -.26;
@@ -188,14 +231,10 @@ export class ShopShowcaseRenderer {
         this._elapsed = 0;
         this._lastFrame = null;
 
-        this._window = ownerDocument?.defaultView || globalThis.window;
-        this._document = ownerDocument;
         this._motionQuery = this._window?.matchMedia?.('(prefers-reduced-motion: reduce)') || null;
         this._forcedReducedMotion = false;
         this.reducedMotion = Boolean(this._motionQuery?.matches);
-        // After _yaw/_pitch/_disposed exist: setAccent() renders, and rendering before
-        // those are initialized would write a NaN rotation.
-        if (options.accent) this.setAccent(options.accent);
+
         this._bindEvents();
         this.resize();
         if (options.autoStart !== false) this.start();
@@ -212,11 +251,12 @@ export class ShopShowcaseRenderer {
         this.scene.add(hemi, key, rim);
 
         const floorGeometry = new THREE.CylinderGeometry(1.75, 2.02, .22, 48);
+        const theme = this._readStageTheme();
         const floorMaterial = new THREE.MeshStandardMaterial({
-            color: 0x12384d,
+            color: theme.floor,
             roughness: .36,
             metalness: .54,
-            emissive: 0x062d3b,
+            emissive: stageGlow(theme.floor),
             emissiveIntensity: .32
         });
         const floor = new THREE.Mesh(floorGeometry, floorMaterial);
@@ -227,13 +267,40 @@ export class ShopShowcaseRenderer {
         this._environmentResources.push(floorGeometry, floorMaterial);
 
         const ringGeometry = new THREE.TorusGeometry(1.52, .025, 8, 64);
-        const ringMaterial = new THREE.MeshBasicMaterial({ color: 0x5af7ef });
+        const ringMaterial = new THREE.MeshBasicMaterial({ color: theme.ring });
         const ring = new THREE.Mesh(ringGeometry, ringMaterial);
         ring.rotation.x = Math.PI / 2;
         ring.position.y = -.045;
         this.scene.add(ring);
         this._ringMaterial = ringMaterial;
         this._environmentResources.push(ringGeometry, ringMaterial);
+    }
+
+    _readStageTheme() {
+        const getToken = token => {
+            if (!this._document) return '';
+            const root = this._document.documentElement;
+            const style = this._window?.getComputedStyle?.(root);
+            const value = style?.getPropertyValue?.(token) || '';
+            return value.trim();
+        };
+        return resolveStageTheme(getToken);
+    }
+
+    _applyStageTheme() {
+        const theme = this._readStageTheme();
+        if (this._floorMaterial) {
+            this._floorMaterial.color.setHex(theme.floor);
+            this._floorMaterial.emissive.copy(new THREE.Color(stageGlow(theme.floor)));
+        }
+        if (this._ringMaterial) {
+            this._ringMaterial.color.setHex(theme.ring);
+        }
+    }
+
+    refreshTheme() {
+        this._applyStageTheme();
+        this._renderFrame();
     }
 
     _bindEvents() {
@@ -274,6 +341,7 @@ export class ShopShowcaseRenderer {
             this._refreshLoop();
             this._renderFrame();
         };
+        this._onThemeChange = () => this.refreshTheme();
         this._onVisibilityChange = () => this._refreshLoop();
         this._onResize = () => this.resize();
 
@@ -286,6 +354,7 @@ export class ShopShowcaseRenderer {
         if (this._motionQuery?.addEventListener) this._motionQuery.addEventListener('change', this._onMotionChange);
         else this._motionQuery?.addListener?.(this._onMotionChange);
         this._document?.addEventListener?.('visibilitychange', this._onVisibilityChange);
+        this._document?.addEventListener?.('warrball:theme', this._onThemeChange);
         this._window?.addEventListener?.('resize', this._onResize);
         const ResizeObserverClass = this._window?.ResizeObserver || globalThis.ResizeObserver;
         this._resizeObserver = ResizeObserverClass ? new ResizeObserverClass(this._onResize) : null;
@@ -395,6 +464,7 @@ export class ShopShowcaseRenderer {
         if (this._motionQuery?.removeEventListener) this._motionQuery.removeEventListener('change', this._onMotionChange);
         else this._motionQuery?.removeListener?.(this._onMotionChange);
         this._document?.removeEventListener?.('visibilitychange', this._onVisibilityChange);
+        this._document?.removeEventListener?.('warrball:theme', this._onThemeChange);
         this._window?.removeEventListener?.('resize', this._onResize);
         this._resizeObserver?.disconnect?.();
         this.avatar.dispose();

@@ -220,7 +220,8 @@ test('_checkGoalRushScore wires goal detection to round end state transition', (
 
     const checkGoalRushScore = compileGameMethod('_checkGoalRushScore', {
         STATES,
-        goalScoringTeam
+        goalScoringTeam,
+        checkGoalEntry
     });
 
     const mockGame = {
@@ -248,7 +249,7 @@ test('_checkGoalRushScore wires goal detection to round end state transition', (
 
 test('_checkGoalRushScore returns false when goal rush disabled', () => {
     const STATES = Object.freeze({ PLAYING: 'playing' });
-    const checkGoalRushScore = compileGameMethod('_checkGoalRushScore', { STATES, goalScoringTeam });
+    const checkGoalRushScore = compileGameMethod('_checkGoalRushScore', { STATES, goalScoringTeam, checkGoalEntry });
     const mockGame = {
         _goalRush: false,
         state: STATES.PLAYING,
@@ -260,7 +261,7 @@ test('_checkGoalRushScore returns false when goal rush disabled', () => {
 
 test('_checkGoalRushScore returns false when not in PLAYING state', () => {
     const STATES = Object.freeze({ PLAYING: 'playing', ROUND_END: 'round-end' });
-    const checkGoalRushScore = compileGameMethod('_checkGoalRushScore', { STATES, goalScoringTeam });
+    const checkGoalRushScore = compileGameMethod('_checkGoalRushScore', { STATES, goalScoringTeam, checkGoalEntry });
     const mockGame = {
         _goalRush: true,
         state: STATES.ROUND_END,
@@ -272,7 +273,7 @@ test('_checkGoalRushScore returns false when not in PLAYING state', () => {
 
 test('_checkGoalRushScore returns false when ball is inactive', () => {
     const STATES = Object.freeze({ PLAYING: 'playing' });
-    const checkGoalRushScore = compileGameMethod('_checkGoalRushScore', { STATES, goalScoringTeam });
+    const checkGoalRushScore = compileGameMethod('_checkGoalRushScore', { STATES, goalScoringTeam, checkGoalEntry });
     const mockGame = {
         _goalRush: true,
         state: STATES.PLAYING,
@@ -284,7 +285,7 @@ test('_checkGoalRushScore returns false when ball is inactive', () => {
 
 test('_checkGoalRushScore returns false when zones unavailable', () => {
     const STATES = Object.freeze({ PLAYING: 'playing' });
-    const checkGoalRushScore = compileGameMethod('_checkGoalRushScore', { STATES, goalScoringTeam });
+    const checkGoalRushScore = compileGameMethod('_checkGoalRushScore', { STATES, goalScoringTeam, checkGoalEntry });
     const mockGame = {
         _goalRush: true,
         state: STATES.PLAYING,
@@ -298,7 +299,7 @@ test('_checkGoalRushScore returns false when zones unavailable', () => {
 test('_checkGoalRushScore returns false when ball not in goal zone', () => {
     const zones = computeGoalZones(STANDARD_BOUNDS);
     const STATES = Object.freeze({ PLAYING: 'playing' });
-    const checkGoalRushScore = compileGameMethod('_checkGoalRushScore', { STATES, goalScoringTeam });
+    const checkGoalRushScore = compileGameMethod('_checkGoalRushScore', { STATES, goalScoringTeam, checkGoalEntry });
     const mockGame = {
         _goalRush: true,
         state: STATES.PLAYING,

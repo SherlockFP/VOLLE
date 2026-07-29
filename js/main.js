@@ -42,7 +42,7 @@ import { appendClanMessage, createClan, listClans } from './social.js';
 import { account, PROFILE_TOKEN_KEY } from './account.js';
 import { SOCIAL_HUB_MAPS, SocialLobby, getSocialLobbyMapState } from './social-lobby.js';
 import { applyUiPreferences, loadUiPreferences, normalizeTheme, normalizeUiScale } from './ui-theme.js';
-import { initSettingsTabs } from './settings-controller.js';
+import { initSettingsTabs, initThemeSwatches } from './settings-controller.js';
 import { formatMapSize } from './map-display.js';
 import {
     createDraftState,
@@ -136,6 +136,7 @@ class App {
         this.player = new Player(this.renderer, this.camera, this.arena);
         this.audio = new Audio();
         this.ui = new UI();
+        this.ui.audio = this.audio;
         this._setupAuthModal();
         this.ui.onCaseRewardReveal = reward => {
             if (reward?.type === 'knife') this._renderCosmeticPreview(document.getElementById('case-reward-preview'), reward);
@@ -1794,8 +1795,9 @@ bind('carousel-next', () => {
             const theme = normalizeTheme(event.target.value);
             this.store.set('uiTheme', theme);
             applyUiPreferences(document.documentElement, loadUiPreferences(this.store));
-            this.menuHero?.setAccent(this._menuAccent());
+            document.dispatchEvent(new CustomEvent('warrball:theme', { detail: { theme } }));
         });
+        this.themeSwatches = initThemeSwatches(document);
         bindSetting('setting-ui-scale', event => {
             const scale = normalizeUiScale(Number(event.target.value) / 100);
             this.store.set('uiScale', scale);
@@ -3900,8 +3902,7 @@ updateCarousel() {
                 characterId: this.store.get('selectedChar'),
                 skinId: this.store.get('equippedAvatarSkin'),
                 autoStart: false,
-                camera: { fov: 30, position: [0, 1.42, 6.4], target: [0, 1.02, 0] },
-                accent: this._menuAccent()
+                camera: { fov: 30, position: [0, 1.42, 6.4], target: [0, 1.02, 0] }
             });
         } catch (error) {
             return;
@@ -3923,17 +3924,26 @@ updateCarousel() {
             characterId: this.store.get('selectedChar'),
             skinId: AVATAR_SKINS[skinId] ? skinId : 'default'
         });
-        this.menuHero?.setAccent(this._menuAccent());
+        // Apply equipped cosmetics to the hero avatar
+        if (this.menuHero?.root?.rig) {
+            const knifeId = this.store.get('equippedKnife');
+            const rig = this.menuHero.root.rig;
+            // Dispose old knife if any
+            if (this.menuHero._heroKnife) {
+                disposeObject3D(this.menuHero._heroKnife);
+                this.menuHero._heroKnife = null;
+            }
+            // Attach new knife unless it's the training knife (default, not a cosmetic)
+            if (knifeId && knifeId !== 'training') {
+                const knifeStyle = KNIVES[knifeId]?.style || '';
+                const knifeModel = createKnifeModel(knifeStyle);
+                if (knifeModel && rig.sockets.handR) {
+                    rig.sockets.handR.add(knifeModel);
+                    this.menuHero._heroKnife = knifeModel;
+                }
+            }
+        }
         this.menuHero?.resize();
-    }
-
-    // Active theme accent, read from the same CSS token the menu CSS consumes so the 3D
-    // stage can never drift from the 2D palette.
-    _menuAccent() {
-        const token = getComputedStyle(document.documentElement)
-            .getPropertyValue('--ui-menu-accent')
-            .trim();
-        return token || '#5ee7f7';
     }
 
     _syncCosmeticPracticeCommerce() {

@@ -72,6 +72,13 @@
   --ui-menu-glow-a: rgba(240, 68, 85, 0.1);
   --ui-menu-glow-b: rgba(59, 130, 246, 0.15);
   --ui-menu-stage: linear-gradient(145deg, rgba(28, 58, 72, 0.9), rgba(8, 24, 37, 0.94));
+
+  /* Screen palette (shop, lobby, progression, social) */
+  --screen-accent: rgba(112, 221, 255);
+  --screen-accent-soft: rgba(54, 216, 202);
+  --screen-ink: #eaffff;
+  --screen-panel: rgba(36, 140, 204);
+  --screen-line: rgba(132, 206, 244);
 }
 
 :root[data-theme="soft-spectrum"],
@@ -96,6 +103,13 @@
   --ui-menu-line: rgba(200, 226, 240, 0.2);
   --ui-menu-base: linear-gradient(112deg, #061420 0%, #0d2233 48%, #05101a 100%);
   --ui-menu-stage: linear-gradient(145deg, rgba(30, 66, 88, 0.9), rgba(7, 26, 40, 0.94));
+
+  /* Screen palette (shop, lobby, progression, social) */
+  --screen-accent: #79ccff;
+  --screen-accent-soft: #83e9df;
+  --screen-ink: #f1fdff;
+  --screen-panel: rgba(16, 40, 58, 0.84);
+  --screen-line: rgba(200, 226, 240, 0.2);
 }
 
 :root[data-theme="ember"],
@@ -126,6 +140,13 @@
   --ui-menu-glow-a: rgba(255, 122, 48, 0.22);
   --ui-menu-glow-b: rgba(255, 74, 58, 0.18);
   --ui-menu-stage: linear-gradient(145deg, rgba(58, 30, 18, 0.9), rgba(24, 11, 6, 0.94));
+
+  /* Screen palette (shop, lobby, progression, social) */
+  --screen-accent: #ffc46a;
+  --screen-accent-soft: #ffb668;
+  --screen-ink: #fff3e8;
+  --screen-panel: rgba(38, 20, 12, 0.84);
+  --screen-line: rgba(255, 196, 140, 0.18);
 }
 
 :root[data-theme="violet-surge"],
@@ -156,6 +177,13 @@
   --ui-menu-glow-a: rgba(180, 80, 255, 0.22);
   --ui-menu-glow-b: rgba(86, 110, 255, 0.24);
   --ui-menu-stage: linear-gradient(145deg, rgba(44, 28, 74, 0.9), rgba(16, 9, 32, 0.94));
+
+  /* Screen palette (shop, lobby, progression, social) */
+  --screen-accent: #8fb4ff;
+  --screen-accent-soft: #cbaaff;
+  --screen-ink: #f4efff;
+  --screen-panel: rgba(24, 16, 42, 0.84);
+  --screen-line: rgba(196, 176, 255, 0.18);
 }
 
 :root[data-theme="verdant"],
@@ -186,6 +214,13 @@
   --ui-menu-glow-a: rgba(64, 220, 140, 0.2);
   --ui-menu-glow-b: rgba(120, 240, 110, 0.18);
   --ui-menu-stage: linear-gradient(145deg, rgba(20, 54, 38, 0.9), rgba(6, 22, 14, 0.94));
+
+  /* Screen palette (shop, lobby, progression, social) */
+  --screen-accent: #8fe6d0;
+  --screen-accent-soft: #a6f8b9;
+  --screen-ink: #eefff2;
+  --screen-panel: rgba(12, 34, 24, 0.84);
+  --screen-line: rgba(160, 240, 190, 0.18);
 }
 
 :root[data-theme="crimson-court"],
@@ -216,6 +251,13 @@
   --ui-menu-glow-a: rgba(255, 60, 90, 0.24);
   --ui-menu-glow-b: rgba(190, 40, 90, 0.2);
   --ui-menu-stage: linear-gradient(145deg, rgba(60, 20, 32, 0.9), rgba(24, 7, 12, 0.94));
+
+  /* Screen palette (shop, lobby, progression, social) */
+  --screen-accent: #ff9ec4;
+  --screen-accent-soft: #ff93a9;
+  --screen-ink: #fff0f3;
+  --screen-panel: rgba(36, 14, 21, 0.84);
+  --screen-line: rgba(255, 170, 190, 0.18);
 }
 
 :focus-visible {

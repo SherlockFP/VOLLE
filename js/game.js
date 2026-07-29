@@ -14,7 +14,7 @@ import { AffixManager } from './affixes.js';
 import { SKILLS, useSkill, ULTIMATES } from './skills.js';
 import { isNewerSequence } from './network.js';
 import { resolveKillerName, segmentIntersectsSphere } from './combat.js';
-import { goalScoringTeam } from './goal-mode.js';
+import { goalScoringTeam, checkGoalEntry } from './goal-mode.js';
 import {
     applyHotPotatoSnapshot,
     createHotPotatoState,
@@ -152,6 +152,8 @@ export class Game {
         this.preGameTimer = 0;
         this.lastDeflector = null;
         this.lastDeflectorTeam = null;
+        this._lastShotOrigin = { x: 0, y: 0, z: 0 };
+        this._hasShotOrigin = false;
         this._resetHotPotato();
         this._openingOwner = null;
         this.arena.pinballTargets?.forEach(target => {
@@ -173,6 +175,12 @@ export class Game {
         // Kill streak tracking per player (name → consecutive kills)
         this._killStreaks = new Map();
         this._killStreakTimers = new Map();
+
+        // Kill-confirm burn window: shooter's next shot deals bonus damage for 3.5s after elimination
+        // Map: playerName -> { duration: seconds_remaining, damageMultiplier: 1.15 }
+        this._killConfirm = new Map();
+        const KILL_CONFIRM_DURATION = 3.5;        // seconds
+        const KILL_CONFIRM_DAMAGE_MULTIPLIER = 1.15;  // 15% bonus
 
         // Occasional bot chatter for life
         this.botChatTimer = 8 + Math.random() * 8;
@@ -978,6 +986,7 @@ startGame(skipPreGame = false, matchId = null) {
         if (!this._guidedDrillArmed) this._applyBallAffix();
         this.lastDeflector = null;
         this.lastDeflectorTeam = null;
+        this._hasShotOrigin = false;
         this._openingOwner = null;
         this.arena.pinballTargets?.forEach(target => {
             target.broken = false;
@@ -1572,9 +1581,8 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
     // goal geometry, js/goal-mode.js owns the pure zone math. A goal drives the existing
     // round machinery (recordRoundWin + ROUND_END) rather than a parallel state object,
     // so redScore/blueScore stay the single source of truth.
-    // ponytail: goalScoringTeam() instead of checkGoalEntry() — identical own-goal credit
-    // rule, but checkGoalEntry() allocates a fresh result object per call and this runs
-    // every frame (AGENTS.md: 0 alloc/frame target).
+    // ponytail: goalScoringTeam() gates the per-frame path with zero allocation;
+    // checkGoalEntry() only runs on an actual goal (AGENTS.md: 0 alloc/frame target).
     _checkGoalRushScore() {
         if (!this._goalRush || this.state !== STATES.PLAYING) return false;
         if (this.network?.connected && !this.network?.isHost) return false;
@@ -1582,30 +1590,45 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         const zones = this.arena?.getGoalZones?.();
         if (!zones) return false;
 
-        const scoringTeam = goalScoringTeam(this.ball.position, zones);
-        if (!scoringTeam) return false;
+        if (!goalScoringTeam(this.ball.position, zones)) return false;
+        const entry = checkGoalEntry(this.ball.position, zones,
+            this._hasShotOrigin ? { shotOrigin: this._lastShotOrigin } : undefined);
+        if (!entry.scored) return false;
 
-        this.scoreboard.recordRoundWin(scoringTeam);
+        // Own goal: credit flips to the other team but never with the power-shot bonus.
+        const ownGoal = !!this.lastDeflectorTeam && this.lastDeflectorTeam === entry.concededTeam;
+        this.scoreboard.recordRoundWin(entry.scoringTeam, ownGoal ? 1 : entry.points);
         this.ball.deactivate();
         if (this._respawnTimer) {
             clearTimeout(this._respawnTimer);
             this._respawnTimer = null;
         }
         this.announce(
-            `🥅 GOAL! ${scoringTeam === 'red' ? '🔴 RED' : '🔵 BLUE'} SCORES!`,
+            `🥅 GOAL! ${entry.scoringTeam === 'red' ? '🔴 RED' : '🔵 BLUE'} SCORES!`,
             'tf2_domination', 0.5, 2000
         );
         this.setState(STATES.ROUND_END);
         this.roundRestartTimer = this.roundRestartDelay;
         if (this.network?.isHost) {
             this.network.broadcastRoundEnd({
-                winner: scoringTeam,
+                winner: entry.scoringTeam,
                 red: this.scoreboard.redScore,
                 blue: this.scoreboard.blueScore,
                 round: this.scoreboard.roundNum
             });
         }
         return true;
+    }
+
+    // Copies the ball's position at deflect time so Goal Rush can score power shots
+    // by shot distance. Reuses one object — deflects happen every rally (no alloc).
+    _recordShotOrigin() {
+        const p = this.ball?.position;
+        if (!p) return;
+        this._lastShotOrigin.x = p.x;
+        this._lastShotOrigin.y = p.y;
+        this._lastShotOrigin.z = p.z;
+        this._hasShotOrigin = true;
     }
 
     getClosestEnemy(fromPos, team) {
@@ -1648,6 +1671,42 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         }, null);
     }
 
+    _grantKillConfirm(playerName) {
+        // Grant burn window if not in competitive mode; return success
+        if (!playerName || this._powerUpsDisabled) return false;
+        this._killConfirm.set(playerName, {
+            duration: 3.5,
+            savedTrailColor: this.ball._affixTrailColor,
+            savedGlowColor: this.ball._affixGlowColor
+        });
+        return true;
+    }
+
+    _updateKillConfirm(dt) {
+        // Decrement burn window timers, remove expired entries
+        for (const [playerName, state] of this._killConfirm.entries()) {
+            state.duration -= dt;
+            if (state.duration <= 0) {
+                this._clearKillConfirm();  // Clear on expiry
+            }
+        }
+    }
+
+    _clearKillConfirm() {
+        // Clear all kill-confirm burn windows
+        this._killConfirm.clear();
+    }
+
+    _consumeKillConfirm(playerName) {
+        // Check if player has active burn window; return damage multiplier and clear on consume
+        if (!playerName || this._powerUpsDisabled) return 1.0;  // No bonus in competitive mode
+        const state = this._killConfirm.get(playerName);
+        if (!state || state.duration <= 0) return 1.0;  // No active window
+        const multiplier = state.damageMultiplier || 1.15;
+        this._killConfirm.delete(playerName);  // Single-shot reward on consumption
+        return multiplier;
+    }
+
     // --- MAIN LOOP ---
 
     update(dt) {
@@ -1673,13 +1732,8 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         if (this._timeScale && this._timeScale !== 1) dt *= this._timeScale;
 
         // ponytail: pending-lethal-hit grace window is timeout-based, handled
-        // inside handleHit / remoteAttack — no per-frame check needed here.
-
-        // Active black holes — gravitational pull & visual update
-        this.updateBlackHoles(dt);
-
-        // Emote sprite'ları güncelle
-        this.emotes.update(dt);
+        // Tick kill-confirm burn windows (damage bonus after elimination)
+        this._updateKillConfirm(dt);
         if (this.state === STATES.PLAYING || this.state === STATES.CELEBRATION) this._updateRockets(dt);
 
         if (this.state === STATES.PLAYING && !this._guidedDrillResultOpen) {
@@ -2022,6 +2076,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 this.lastDeflectorTeam = this.player.team;
                 this._pushDeflectHistory(this.playerName);
                 this.ball.lastShotBy = this.playerName;
+                this._recordShotOrigin();
                 this.rallyCount++;
                 this.player.onSuccessfulDeflect?.();
                 this.audio.playSfx('tf2_hit', 0.35);
@@ -2234,6 +2289,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             this.lastDeflectorTeam = team;
             this._pushDeflectHistory(this.playerName);
             this.ball.lastShotBy = this.playerName;
+            this._recordShotOrigin();
             this.rallyCount++;
             this.player.onSuccessfulDeflect();
             this.scoreboard.recordDeflection(this.playerName);
@@ -2295,6 +2351,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         this._claimOpeningOwner(this.player);
         this._pushDeflectHistory(this.playerName);
         this.ball.lastShotBy = this.playerName;
+        this._recordShotOrigin();
         this.rallyCount++;
         this.player.onSuccessfulDeflect();
         this.scoreboard.recordDeflection(this.playerName);
@@ -2422,6 +2479,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         this._claimOpeningOwner(bot);
         this._pushDeflectHistory(bot.name);
         this.ball.lastShotBy = bot.name;
+        this._recordShotOrigin();
         this.rallyCount++;
         bot.onSuccessfulDeflect();
         this.scoreboard.recordDeflection(bot.name);
@@ -2796,6 +2854,9 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                         this._killStreaks.delete(scorerName);
                         this._killStreakTimers.delete(scorerName);
                     }, 8000));
+
+                    // Kill-confirm burn window: grant bonus damage window if not in competitive mode
+                    this._grantKillConfirm(scorerName);
                 }
 
                 // Reset victim's streak
@@ -3460,10 +3521,11 @@ spawnPowerUp() {
         this._won = this._ffa ? winner === this.playerName : this._winningTeam !== null && this.player.team === this._winningTeam;
 
         // Winner/loser TF2 anouncer
+        // Match-end announcer: use audio cues for win/loss
         if (this._won) {
-            this.audio.playSfx('tf2_victory', 0.55);
+            this.audio.playCue('match-win');
         } else {
-            this.audio.playSfx('tf2_you_failed', 0.5);
+            this.audio.playCue('match-loss');
         }
         this._finalStats = stats;
         this._finalWinner = winner;

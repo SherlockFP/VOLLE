@@ -23,13 +23,15 @@ export class Bot {
         this.difficulty = difficulty;
 
         const diffSettings = {
-            easy:   { deflectChance: 0.35, reactionTime: 0.7, moveSpeed: 3.5, skillChance: 0.05 },
-            medium: { deflectChance: 0.75, reactionTime: 0.35, moveSpeed: 5.5, skillChance: 0.20 },
-            hard:   { deflectChance: 0.92, reactionTime: 0.12, moveSpeed: 7.5, skillChance: 0.45 }
+            easy:   { deflectChance: 0.35, reactionTime: 0.65, windUp: 0.30, mishitRate: 0.20, moveSpeed: 3.5, skillChance: 0.05 },
+            medium: { deflectChance: 0.75, reactionTime: 0.35, windUp: 0.15, mishitRate: 0.08, moveSpeed: 5.5, skillChance: 0.20 },
+            hard:   { deflectChance: 0.92, reactionTime: 0.18, windUp: 0.08, mishitRate: 0.02, moveSpeed: 7.5, skillChance: 0.45 }
         };
         const s = diffSettings[difficulty] || diffSettings.medium;
         this.deflectChance = s.deflectChance;
         this.reactionTime = s.reactionTime;
+        this.windUpTime = s.windUp;
+        this.mishitRate = s.mishitRate;
         this.moveSpeed = s.moveSpeed;
         this.skillChance = s.skillChance;
 
@@ -38,6 +40,8 @@ export class Bot {
         this.radius = 0.5;
         this.attacking = false;
         this.attackTimer = 0;
+        this.windUpTimer = 0;
+        this.windUpCommitted = false;
         this.strafeDir = Math.random() > 0.5 ? 1 : -1;
         this.strafeTimer = 0;
         this.reactionTimer = 0;
@@ -78,7 +82,7 @@ export class Bot {
         // Medium/hard bot'lara random rune uygula (balans)
         if (difficulty !== 'easy') {
             const allRunes = ['hp_bonus','dmg_resist','deflect_power','speed_bonus','stam_regen','lifesteal'];
-            const numRunes = difficulty === 'hard' ? 3 : 1;
+            const numRunes = difficulty === 'hard' ? 2 : 1;  // reduced from 3 to 2
             const botRunes = [];
             for (let i = 0; i < numRunes; i++) {
                 const r = allRunes[Math.floor(Math.random() * allRunes.length)];
@@ -406,23 +410,54 @@ export class Bot {
         if (dist > 8) {
             this.reactionTimer = 0;
             this._deflectDecided = false;
+            this.windUpTimer = 0;
+            this.windUpCommitted = false;
             return false;
         }
         this.reactionTimer += dt;
         if (this.reactionTimer < this.reactionTime) return false;
         if (dist > ball.attackRange) return false;
 
-        if (!this._deflectDecided) {
+        // Wind-up telegraphing: bot shows intent before committing to deflect
+        if (!this.windUpCommitted && !this._deflectDecided) {
             this._deflectDecided = true;
             this._willDeflect = Math.random() < this.deflectChance;
         }
-        if (!this._willDeflect) return false;
+
+        if (!this._willDeflect) {
+            this.windUpTimer = 0;
+            this.windUpCommitted = false;
+            return false;
+        }
+
+        // Start wind-up if not already committed
+        if (!this.windUpCommitted) {
+            this.windUpTimer += dt;
+            if (this.windUpTimer < this.windUpTime) return false;  // still winding up
+            this.windUpCommitted = true;  // committed - now check for mishit
+        }
+
+        // Commit to deflect, but check if bot will mishit (realistic skill variance)
+        if (Math.random() < this.mishitRate) {
+            this.attacking = true;
+            this.attackTimer = 0.3;
+            this.deflectionCount++;
+            this._deflectDecided = false;
+            this.windUpTimer = 0;
+            this.windUpCommitted = false;
+            this.animator?.play('deflect');
+            this._mishit = true;  // flag for game.js to apply angle deviation
+            return true;  // attack animation plays, but ball goes off-target
+        }
 
         this.attacking = true;
         this.attackTimer = 0.3;
         this.deflectionCount++;
         this._deflectDecided = false;
+        this.windUpTimer = 0;
+        this.windUpCommitted = false;
         this.animator?.play('deflect');
+        this._mishit = false;
         return true;
     }
 
@@ -458,6 +493,8 @@ export class Bot {
         this.attacking = false;
         this.attackTimer = 0;
         this.reactionTimer = 0;
+        this.windUpTimer = 0;
+        this.windUpCommitted = false;
         this.spawnAnim = 0;
         this.hp = this.maxHp;
         this.shield = 0;

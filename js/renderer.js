@@ -128,12 +128,14 @@ export class Renderer {
         this.setQuality(this._quality);
     }
 
-    createToonMaterial(color) {
+    createToonMaterial(color, texture = null) {
         return new THREE.ShaderMaterial({
             vertexShader: toonVertexShader,
             fragmentShader: toonFragmentShader,
             uniforms: {
                 uColor: { value: new THREE.Color(color) },
+                uTexture: { value: texture },
+                uTextureEnabled: { value: !!texture },
                 uLightDir: { value: new THREE.Vector3(0.5, 1.0, 0.3).normalize() },
                 uRimPower: { value: 5.0 }
             }

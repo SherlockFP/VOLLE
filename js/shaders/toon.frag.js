@@ -1,6 +1,8 @@
 // Toon fragment shader — 3-step cel shading + rim light
 export const toonFragmentShader = `
 uniform vec3 uColor;
+uniform sampler2D uTexture;
+uniform bool uTextureEnabled;
 uniform vec3 uLightDir;
 uniform float uRimPower;
 
@@ -10,6 +12,13 @@ varying vec2 vUv;
 
 void main() {
     vec3 normal = normalize(vNormal);
+    // Optional texture modulation — multiply into base color BEFORE quantization
+    vec3 finalColor = uColor;
+    if (uTextureEnabled) {
+        vec4 texColor = texture2D(uTexture, vUv);
+        finalColor = uColor * texColor.rgb;
+    }
+
     vec3 lightDir = normalize(uLightDir);
 
     // Soft cel shading — brighter bands, gentle steps for a sweet cartoon look.
@@ -26,8 +35,8 @@ void main() {
     }
 
     // Warm/cool shadow tint instead of flat darkening — more storybook.
-    vec3 warmLit = uColor * intensity;
-    vec3 coolShadow = uColor * vec3(0.75, 0.8, 1.0);
+    vec3 warmLit = finalColor * intensity;
+    vec3 coolShadow = finalColor * vec3(0.75, 0.8, 1.0);
     vec3 color = mix(coolShadow, warmLit, smoothstep(0.0, 1.0, intensity));
 
     // Soft rim light for that plush toy edge glow.

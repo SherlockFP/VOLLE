@@ -1,6 +1,21 @@
 import * as THREE from 'three';
+import {
+    HEAD_SIZE, HEAD_MESH_LOCAL_Y, HEAD_HALF_DEPTH,
+    HIPS_WORLD_Y, HEAD_SOCKET_LOCAL_Y, FACE_SOCKET_LOCAL_Y, FACE_SOCKET_LOCAL_Z
+} from './character-rig.js';
 import { COSMETICS, normalizeWearableLoadout } from './cosmetic-catalog.js';
 import { disposeObject3D } from './weapon-models.js';
+
+// Derived cosmetic anchor positions from rig geometry constants, so future head resizes
+// automatically track instead of silently floating gear. All Y values are absolute world positions.
+// joints.head = HIPS_WORLD_Y + 0.80, head mesh top = joints.head + HEAD_MESH_LOCAL_Y + HEAD_HALF_DEPTH
+const HEAD_SOCKET_WORLD_Y = HIPS_WORLD_Y + 0.80 + HEAD_SOCKET_LOCAL_Y;  // 2.16
+const HEAD_MESH_WORLD_Y = HIPS_WORLD_Y + 0.80 + HEAD_MESH_LOCAL_Y;  // 1.94
+const HEAD_TOP_WORLD_Y = HEAD_MESH_WORLD_Y + HEAD_HALF_DEPTH;  // 2.10
+const FACE_SOCKET_WORLD_Y = HIPS_WORLD_Y + 0.80 + FACE_SOCKET_LOCAL_Y;  // 1.74
+const FACE_PLANE_WORLD_Z = -FACE_SOCKET_LOCAL_Z;  // 0.24 (from rig convention)
+
+export { HEAD_SOCKET_WORLD_Y, HEAD_MESH_WORLD_Y, HEAD_TOP_WORLD_Y, FACE_SOCKET_WORLD_Y };
 
 const material = (color, emissive = color) => new THREE.MeshStandardMaterial({
     color,
@@ -205,39 +220,46 @@ function createHat(item) {
     } else {
         group.add(new THREE.Mesh(new THREE.SphereGeometry(0.27, 9, 7, 0, Math.PI * 2, 0, Math.PI * 0.55), primary));
     }
-    group.position.y = 1.85;
+    // Hats attach to the head socket. Most are positioned relative to the head mesh top (HEAD_TOP_WORLD_Y).
+    group.position.y = HEAD_TOP_WORLD_Y - 0.04;  // empirically tuned baseline
     return group;
 }
-
 function createMask(item) {
     const group = new THREE.Group();
-    const frontZ = -0.24;
+    // Masks sit on the face socket, which is centered on the head front plane (local z = -FACE_SOCKET_LOCAL_Z).
+    // Relative positions use the face-relative origin (0, 0, 0).
     if (item.style === 'visor') {
-        group.add(part(new THREE.BoxGeometry(0.32, 0.09, 0.06), item.colors[0], 0, 0.02, frontZ));
+        group.add(part(new THREE.BoxGeometry(0.32, 0.09, 0.06), item.colors[0], 0, 0.02, 0));
     } else if (item.style === 'skull') {
-        group.add(part(new THREE.BoxGeometry(0.26, 0.24, 0.14), item.colors[0], 0, 0, frontZ + 0.02));
-        for (const x of [-0.07, 0.07]) group.add(part(new THREE.BoxGeometry(0.06, 0.06, 0.04), item.colors[1], x, 0.03, frontZ - 0.03));
+        group.add(part(new THREE.BoxGeometry(0.26, 0.24, 0.14), item.colors[0], 0, 0, 0.02));
+        for (const x of [-0.07, 0.07]) group.add(part(new THREE.BoxGeometry(0.06, 0.06, 0.04), item.colors[1], x, 0.03, -0.03));
     } else if (item.style === 'ninja') {
-        group.add(part(new THREE.BoxGeometry(0.3, 0.2, 0.12), item.colors[0], 0, -0.02, frontZ));
-        group.add(part(new THREE.BoxGeometry(0.32, 0.05, 0.13), item.colors[1], 0, 0.06, frontZ));
+        group.add(part(new THREE.BoxGeometry(0.3, 0.2, 0.12), item.colors[0], 0, -0.02, 0));
+        group.add(part(new THREE.BoxGeometry(0.32, 0.05, 0.13), item.colors[1], 0, 0.06, 0));
     } else if (item.style === 'glitch') {
         for (let index = 0; index < 3; index++) {
             group.add(part(new THREE.BoxGeometry(0.28 - index * 0.05, 0.05, 0.03), index % 2 ? item.colors[1] : item.colors[0],
-                0, 0.08 - index * 0.07, frontZ - index * 0.015));
+                0, 0.08 - index * 0.07, -index * 0.015));
         }
     } else if (item.style === 'ember') {
-        group.add(part(new THREE.BoxGeometry(0.32, 0.12, 0.09), item.colors[0], 0, -0.05, frontZ));
-        group.add(part(new THREE.BoxGeometry(0.08, 0.08, 0.06), item.colors[1], 0.17, -0.03, frontZ + 0.04));
+        group.add(part(new THREE.BoxGeometry(0.32, 0.12, 0.09), item.colors[0], 0, -0.05, 0));
+        group.add(part(new THREE.BoxGeometry(0.08, 0.08, 0.06), item.colors[1], 0.17, -0.03, 0.04));
     } else if (item.style === 'frost') {
-        group.add(part(new THREE.BoxGeometry(0.3, 0.1, 0.08), item.colors[0], 0, 0.01, frontZ));
+        group.add(part(new THREE.BoxGeometry(0.3, 0.1, 0.08), item.colors[0], 0, 0.01, 0));
         for (const x of [-0.08, 0.08]) {
-            group.add(part(new THREE.ConeGeometry(0.035, 0.12, 4), item.colors[1], x, -0.08, frontZ));
+            group.add(part(new THREE.ConeGeometry(0.035, 0.12, 4), item.colors[1], x, -0.08, 0));
         }
     } else {
-        group.add(part(new THREE.BoxGeometry(0.28, 0.16, 0.1), item.colors[0], 0, 0, frontZ));
-        group.add(part(new THREE.BoxGeometry(0.3, 0.05, 0.1), item.colors[1], 0, 0.08, frontZ));
+        group.add(part(new THREE.BoxGeometry(0.28, 0.16, 0.1), item.colors[0], 0, 0, 0));
+        group.add(part(new THREE.BoxGeometry(0.3, 0.05, 0.1), item.colors[1], 0, 0.08, 0));
     }
-    group.position.y = 1.85;
+    // Masks attach to the face socket in the rig, which is at the head front plane. The socketLocalOffset
+    // function in applyEntityCosmetics computes the offset from the entity.group origin (feet, y=0) to
+    // the face socket position, and subtracts it — so this y=FACE_SOCKET_WORLD_Y works after that adjustment.
+    // But since attachToRig now handles the offset, we can just use 0 here and let socketLocalOffset subtract
+    // the actual socket position. Actually, no — let me keep it simple: the group position gets offset-adjusted,
+    // so we position the model where it looks right in the authored space (entity.group origin at feet).
+    group.position.y = FACE_SOCKET_WORLD_Y;
     return group;
 }
 
@@ -370,6 +392,52 @@ function createTrail(item) {
     return group;
 }
 
+function createGloves(item) {
+    const group = new THREE.Group();
+    // Gloves attach to both handL and handR sockets, so we create one per hand below
+    // and let attachToRig handle duplicating this group's structure for each hand.
+    // For now, create a single left glove in local space; attachToRig will mirror it.
+    if (item.style === 'leather') {
+        group.add(part(new THREE.BoxGeometry(0.16, 0.22, 0.18), item.colors[0], 0, -0.11, 0));
+        group.add(part(new THREE.BoxGeometry(0.18, 0.06, 0.2), item.colors[1], 0, 0.03, 0));
+    } else if (item.style === 'metal') {
+        group.add(part(new THREE.BoxGeometry(0.18, 0.24, 0.2), item.colors[0], 0, -0.12, 0));
+        group.add(part(new THREE.OctahedronGeometry(0.05), item.colors[1], -0.08, -0.04, 0.11));
+        group.add(part(new THREE.OctahedronGeometry(0.05), item.colors[1], 0.08, -0.04, 0.11));
+    } else if (item.style === 'frost') {
+        group.add(part(new THREE.BoxGeometry(0.16, 0.22, 0.18), item.colors[0], 0, -0.11, 0));
+        for (const y of [-0.18, -0.06, 0.06]) {
+            group.add(part(new THREE.ConeGeometry(0.03, 0.08, 4), item.colors[1], 0, y, 0.1));
+        }
+    } else {
+        group.add(part(new THREE.BoxGeometry(0.16, 0.2, 0.16), item.colors[0], 0, -0.1, 0));
+    }
+    return group;
+}
+
+function createShinGuards(item) {
+    const group = new THREE.Group();
+    // Like gloves, shin guards attach to footL/footR sockets.
+    // Create a single guard in local space, attached at the foot socket position.
+    if (item.style === 'leather') {
+        group.add(part(new THREE.BoxGeometry(0.2, 0.24, 0.16), item.colors[0], 0, -0.12, 0));
+        group.add(part(new THREE.BoxGeometry(0.22, 0.05, 0.18), item.colors[1], 0, 0.04, 0));
+    } else if (item.style === 'metal') {
+        group.add(part(new THREE.BoxGeometry(0.22, 0.28, 0.18), item.colors[0], 0, -0.14, 0));
+        for (const x of [-0.11, 0.11]) {
+            group.add(part(new THREE.CylinderGeometry(0.035, 0.035, 0.3, 6), item.colors[1], x, -0.12, 0));
+        }
+    } else if (item.style === 'frost') {
+        group.add(part(new THREE.BoxGeometry(0.2, 0.24, 0.16), item.colors[0], 0, -0.12, 0));
+        for (const y of [-0.18, -0.06, 0.06]) {
+            group.add(part(new THREE.ConeGeometry(0.04, 0.12, 4), item.colors[1], 0, y, 0.09));
+        }
+    } else {
+        group.add(part(new THREE.BoxGeometry(0.2, 0.22, 0.16), item.colors[0], 0, -0.11, 0));
+    }
+    return group;
+}
+
 const createSlot = item => ({
     cape: createCape,
     pet: createPet,
@@ -380,14 +448,20 @@ const createSlot = item => ({
     wings: createWings,
     backpack: createBackpack,
     banner: createBanner,
-    trail: createTrail
+    trail: createTrail,
+    gloves: createGloves,
+    shin_guards: createShinGuards
 }[item.type]?.(item) || null);
 
-const WEARABLE_SLOT_TYPES = ['cape', 'pet', 'shoes', 'aura', 'hat', 'mask', 'wings', 'backpack', 'banner', 'trail'];
+const WEARABLE_SLOT_TYPES = ['cape', 'pet', 'shoes', 'aura', 'hat', 'mask', 'wings', 'backpack', 'banner', 'trail', 'gloves', 'shin_guards'];
+
 
 // Cosmetic type → rig socket name (character-rig.js RIG_SOCKETS), per WARBALL_IO_PLAN.md
-// section 3 item 5. Types not listed here (e.g. "pet") keep the legacy cosmeticsRoot
-// parenting — they were never socket-shaped to begin with.
+// section 3 item 5. Types not listed here (e.g. pet) keep the legacy cosmeticsRoot parenting.
+// Pet specifically: both cosmeticsRoot (entity.group at feet) and aura socket (rig.root +0.9Y) are
+// root-relative, so migrating pet between them changes no visible behavior. To make a pet follow body
+// motion (swing during strafing/lean), it would attach to waist or back socket. For now, keep pet on
+// cosmeticsRoot for simplicity — there is no behavioral cost and no visible difference.
 const RIG_SOCKET_BY_TYPE = Object.freeze({
     hat: 'head',
     mask: 'face',
@@ -427,6 +501,43 @@ function attachToRig(entity, model, type) {
             socket.add(child);
         }
         return attached;
+    }
+    if (type === 'gloves') {
+        const { handL, handR } = rig.sockets;
+        if (!handL || !handR) return null;
+        // Attach single model to both hands by cloning for the right hand
+        const leftClone = model;
+        leftClone.position.sub(socketLocalOffset(entity, handL, offset));
+        handL.add(leftClone);
+        const rightClone = new THREE.Group();
+        rightClone.copy(model, false);
+        rightClone.position.sub(socketLocalOffset(entity, handR, offset));
+        // Mirror the right glove by negating x positions of children
+        for (const child of rightClone.children) {
+            child.position.x = -child.position.x;
+            if (child instanceof THREE.Mesh && child.geometry) child.geometry = child.geometry.clone();
+            if (child instanceof THREE.Mesh && child.material) child.material = child.material.clone();
+        }
+        handR.add(rightClone);
+        return [leftClone, rightClone];
+    }
+    if (type === 'shin_guards') {
+        const { footL, footR } = rig.sockets;
+        if (!footL || !footR) return null;
+        // Like gloves, create left and mirrored right
+        const leftClone = model;
+        leftClone.position.sub(socketLocalOffset(entity, footL, offset));
+        footL.add(leftClone);
+        const rightClone = new THREE.Group();
+        rightClone.copy(model, false);
+        rightClone.position.sub(socketLocalOffset(entity, footR, offset));
+        for (const child of rightClone.children) {
+            child.position.x = -child.position.x;
+            if (child instanceof THREE.Mesh && child.geometry) child.geometry = child.geometry.clone();
+            if (child instanceof THREE.Mesh && child.material) child.material = child.material.clone();
+        }
+        footR.add(rightClone);
+        return [leftClone, rightClone];
     }
     const socket = rig.sockets[RIG_SOCKET_BY_TYPE[type]];
     if (!socket) return null;

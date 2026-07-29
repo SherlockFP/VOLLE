@@ -4,7 +4,7 @@ import { CHARACTERS } from './characters.js';
 import { SKILLS, RUNES } from './skills.js';
 import { BALL_SKINS } from './ball.js';
 import { AVATAR_SKINS } from './avatar.js';
-import { CASES, KNIVES, getCaseDropRates } from './cosmetics.js';
+import { CASES, KNIVES, getCaseDropRates, revealPresentationForRarity } from './cosmetics.js';
 import { ACHIEVEMENTS } from './achievements.js';
 import { MatchHistory } from './matchhistory.js';
 import { getRank, getRankProgress } from './ranked.js';
@@ -92,6 +92,7 @@ export class UI {
         this._competitiveHUDKey = '';
         this._shopPreviewAvatar = null;
         this.initSettings();
+        this._setupHoverAudio();
     }
 
     initSettings() {
@@ -521,6 +522,7 @@ export class UI {
         const el = document.getElementById('post-game-screen');
         if (!el) return;
         el.classList.remove('hidden');
+        audio?.playCue?.('score');
         document.getElementById('pg-result').textContent = won ? '🏆 VICTORY!' : '💀 DEFEAT';
         const winnerEl = document.getElementById('pg-winner');
         if (winnerEl) winnerEl.textContent = result.winnerText || '';
@@ -930,6 +932,7 @@ export class UI {
             msg.innerHTML = `<span class="chat-name">${name}:</span> ${this.escapeHTML(text)}`;
             chatLog.appendChild(msg);
             chatLog.scrollTop = chatLog.scrollHeight;
+            this.audio?.playCue('chat');
             setTimeout(() => { msg.classList.add('chat-fade'); }, 8000);
             setTimeout(() => { msg.remove(); }, 12000);
         }
@@ -1620,6 +1623,26 @@ export class UI {
         }).join('')}`;
     }
 
+    _isReducedMotion() {
+        return document.documentElement.classList.contains('reduce-motion')
+            || document.body.classList.contains('reduced-motion')
+            || window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    }
+
+    _setupHoverAudio() {
+        document.addEventListener('pointerenter', (e) => {
+            if (!this.audio?.playCue) return;
+            const target = e.target;
+            const interactiveSelectors = ['button', '.btn', '.tab', '.ow-tab', '.shop-card', '.case-select'];
+            for (const sel of interactiveSelectors) {
+                if ((target.matches && target.matches(sel)) || target.closest?.(sel)) {
+                    this.audio.playCue('ui-hover');
+                    break;
+                }
+            }
+        }, true);
+    }
+
     showCaseReel(box, result) {
         const overlay = document.getElementById('case-reel');
         const track = document.getElementById('case-reel-track');
@@ -1638,9 +1661,6 @@ export class UI {
                 : item.model === 'karambit' ? 'KARAMBIT'
                 : 'KNIFE';
             const rarity = item.rarity || result.reward.rarity || 'rare';
-            // data-type drives the silhouette and data-rarity the colour ramp. The
-            // drop list only carries name/type/rarity, so the visual has to come
-            // from those rather than per-item art.
             const kind = item.type === 'avatar' ? 'avatar'
                 : item.type === 'ball' ? 'ball'
                 : item.type === 'cosmetic' ? 'cosmetic'
@@ -1655,12 +1675,14 @@ export class UI {
         }
         overlay.classList.remove('hidden');
         let settled = false;
+        const presentation = revealPresentationForRarity(result.reward.rarity, { reducedMotion: this._isReducedMotion() });
+        overlay.dataset.revealTier = presentation.tier;
+        let flashFadeTimer = null;
         const finish = () => {
             if (settled) return;
             settled = true;
+            clearTimeout(flashFadeTimer);
             track.classList.add('settled');
-            // Dim the losers and pop the winner, so the settle reads as a result
-            // rather than the reel merely stopping somewhere.
             track.children[targetIndex]?.classList.add('is-winner');
             const rewardPreview = document.getElementById('case-reward-preview');
             if (rewardPreview) {
@@ -1670,18 +1692,38 @@ export class UI {
             }
             resultEl.innerHTML = `<span>${result.duplicate ? `Duplicate +${result.refund}` : 'UNLOCKED - INVENTORY READY'}</span><strong>${result.reward.name}</strong>`;
             this.onCaseRewardReveal?.(result.reward);
-            setTimeout(() => overlay.classList.add('hidden'), 3600);
+            if (presentation.flash > 0) {
+                flashFadeTimer = setTimeout(() => {
+                    this.updateFlash?.(presentation.flash);
+                    const decayTime = 280;
+                    const decaySteps = 28;
+                    let step = 0;
+                    const fadeOut = () => {
+                        step++;
+                        const opacity = presentation.flash * Math.max(0, 1 - step / decaySteps);
+                        const el = document.getElementById('juice-flash');
+                        if (el) el.style.opacity = opacity;
+                        if (step < decaySteps) flashFadeTimer = setTimeout(fadeOut, decayTime / decaySteps);
+                    };
+                    fadeOut();
+                }, 220);
+            }
+            if (presentation.sfx && this.audio?.playSfx) {
+                this.audio.playSfx(presentation.sfx, 0.7);
+            }
+            setTimeout(() => overlay.classList.add('hidden'), presentation.holdMs);
         };
         requestAnimationFrame(() => {
             const selected = track.children[targetIndex];
             const stop = overlay.querySelector('.case-reel-window').clientWidth / 2
                 - (selected.offsetLeft + selected.offsetWidth / 2);
             track.style.setProperty('--case-reel-stop', `${Math.round(stop)}px`);
+            track.style.transitionDuration = presentation.spinMs + 'ms';
             track.getBoundingClientRect();
             requestAnimationFrame(() => track.classList.add('spin'));
         });
-        const timer = setTimeout(finish, 3700);
-        document.getElementById('case-reel-skip')?.addEventListener('click', () => { clearTimeout(timer); finish(); }, { once: true });
+        const timer = setTimeout(finish, presentation.spinMs + 100);
+        document.getElementById('case-reel-skip')?.addEventListener('click', () => { clearTimeout(timer); clearTimeout(flashFadeTimer); finish(); }, { once: true });
     }
 
     // ===== BATTLEPASS EKRANI =====

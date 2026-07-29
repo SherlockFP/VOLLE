@@ -11,9 +11,10 @@ import { readFile } from 'node:fs/promises';
 const arenaPath = new URL('../js/arena.js', import.meta.url);
 const arenaSource = await readFile(arenaPath, 'utf8');
 const arenaModuleSource = arenaSource
-    .replace(/^import \* as THREE from 'three';$/m, 'const THREE = {};')
-    .replace(/^import \{ WeatherSystem \} from '\.\/weather\.js';$/m, 'class WeatherSystem {}')
-    .replace(/^import \{ computeGoalZones \} from '\.\/goal-mode\.js';$/m, 'const computeGoalZones = () => null;');
+    .replace(/^import \* as THREE from 'three';?[\r\n]*/m, '')
+    .replace(/^import \{ WeatherSystem \} from '\.\/weather\.js';?[\r\n]*/m, 'const WeatherSystem = {};\n')
+    .replace(/^import \{ computeGoalZones \} from '\.\/goal-mode\.js';?[\r\n]*/m, 'const computeGoalZones = () => null;\n')
+    .replace(/^import \{ getTexture, clearTextureCache \} from '\.\/procedural-textures\.js';?[\r\n]*/m, 'const getTexture = () => null; const clearTextureCache = () => {};\n');
 
 const { MAPS, Arena } = await import(
     `data:text/javascript;base64,${Buffer.from(arenaModuleSource).toString('base64')}`

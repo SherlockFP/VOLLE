@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { WeatherSystem } from './weather.js';
 import { computeGoalZones } from './goal-mode.js';
+import { getTexture, clearTextureCache } from './procedural-textures.js';
 
 // Daha büyük court'lar + aydınlık temalar. dark space/neon → aydınlık palet.
 export const MAPS = {
@@ -1994,15 +1995,32 @@ export class Arena {
         this.add(centerGlow);
     }
 
+    _createTexturedToonMaterial(archetype, color) {
+        const tex = getTexture(archetype, {
+            color, surface: 'wall', quality: this.renderer?._quality || 'medium',
+            repeatX: 2, repeatY: 2
+        });
+        return this.renderer.createToonMaterial(color, tex);
+    }
+    _createTexturedLambertMaterial(archetype, color) {
+        const tex = getTexture(archetype, {
+            color, surface: 'prop', quality: this.renderer?._quality || 'medium',
+            repeatX: 1, repeatY: 1
+        });
+        return new THREE.MeshLambertMaterial({ color, map: tex });
+    }
+
+
     buildWalls() {
         return; // ponytail: no visual walls, keep bounds for collision
+
         const halfW = this.courtWidth / 2;
         const halfL = this.courtLength / 2;
         const c = this.config;
 
         // Open sides (beach_open, minecraft) — corner posts only, no full walls
         if (c.openSides || c.noSides) {
-            const postMat = this.renderer.createToonMaterial(c.wallColor);
+            const postMat = this._createTexturedToonMaterial('plank', c.wallColor);
             const postGeo = new THREE.BoxGeometry(0.8, 1.5, 0.8);
             // 4 corner posts
             [[-halfW, -halfL], [-halfW, halfL], [halfW, -halfL], [halfW, halfL]].forEach(([x, z]) => {
@@ -2034,7 +2052,7 @@ export class Arena {
 
             // Glass frame pillars
             const pillarGeo = new THREE.BoxGeometry(0.3, this.wallHeight, 0.3);
-            const pillarMat = this.renderer.createToonMaterial(c.wallColor);
+            const pillarMat = this._createTexturedToonMaterial('panel', c.wallColor);
             for (let z = -halfL; z <= halfL; z += 8) {
                 [-halfW, halfW].forEach(x => {
                     const p = new THREE.Mesh(pillarGeo, pillarMat);
@@ -2044,7 +2062,7 @@ export class Arena {
             }
         } else {
             // Solid walls
-            const wallMat = this.renderer.createToonMaterial(c.wallColor);
+            const wallMat = this._createTexturedToonMaterial('panel', c.wallColor);
             const sideGeo = new THREE.BoxGeometry(0.6, this.wallHeight, this.courtLength + 1);
             [-halfW - 0.3, halfW + 0.3].forEach(x => {
                 const w = new THREE.Mesh(sideGeo, wallMat);
@@ -2055,7 +2073,7 @@ export class Arena {
         }
 
         // Back walls always solid
-        const backMat = this.renderer.createToonMaterial(c.wallColor);
+        const backMat = this._createTexturedToonMaterial('stone', c.wallColor);
         const backGeo = new THREE.BoxGeometry(this.courtWidth + 1, this.wallHeight, 0.6);
         [-halfL - 0.3, halfL + 0.3].forEach(z => {
             const w = new THREE.Mesh(backGeo, backMat);
@@ -2123,8 +2141,9 @@ export class Arena {
 
     buildCeiling() {
         return; // ponytail: no visual ceiling, keep ceilingHeight for bounds
+
         // Beams
-        const beamMat = this.renderer.createToonMaterial(this.config.wallColor);
+        const beamMat = this._createTexturedToonMaterial('panel', this.config.wallColor);
         const beamGeo = new THREE.BoxGeometry(this.courtWidth + 2, 0.35, 0.35);
         for (let z = -this.courtLength / 2; z <= this.courtLength / 2; z += 7) {
             const b = new THREE.Mesh(beamGeo, beamMat);
@@ -2975,8 +2994,9 @@ export class Arena {
             }
         }
         if (c.isJungle) {
+
             // 6 leafy sphere bushes at floor level
-            const mat = new THREE.MeshLambertMaterial({ color: 0x2d8a2d });
+            const mat = this._createTexturedLambertMaterial('speck', 0x2d8a2d);
             for (let i = 0; i < 6; i++) {
                 const r = 0.5 + Math.random() * 0.5;
                 const geo = new THREE.SphereGeometry(r, 7, 7);

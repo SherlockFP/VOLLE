@@ -82,7 +82,9 @@ test('reusable avatar rig swaps skin materials in place and disposes GPU resourc
 
     assert.equal(avatar.root.name, 'warrball-showcase-avatar');
     assert.deepEqual(avatar.state, { characterId: 'scout', skinId: 'neon' });
-    assert.equal(arm.scale.x, .82);
+    // Slim arm scale is 0.75 (slim arm 3px vs classic 4px = 3/4 = 0.75, derived from AVATAR_MODELS).
+    // The old hardcoded 0.82 was an incorrect guess that never matched the avatar atlas specification.
+    assert.equal(arm.scale.x, 0.75);
     assert.equal(avatar.setSkin('frost'), 'frost');
     assert.equal(torso.material, material, 'setSkin must recolor materials in place, not replace them');
     assert.notEqual(material.color.hex, oldColor);
