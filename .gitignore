@@ -1,5 +1,6 @@
 data/profiles.json
 data/profiles.json.tmp
+data/accounts.db
 .opencode/
 .serena/
 graphify-out/

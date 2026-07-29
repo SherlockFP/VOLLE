@@ -39,6 +39,7 @@ import { Friends } from './friends.js';
 import { MatchHistory } from './matchhistory.js';
 import { CHARACTERS } from './characters.js';
 import { appendClanMessage, createClan, listClans } from './social.js';
+import { account, PROFILE_TOKEN_KEY } from './account.js';
 import { SOCIAL_HUB_MAPS, SocialLobby, getSocialLobbyMapState } from './social-lobby.js';
 import { applyUiPreferences, loadUiPreferences, normalizeTheme, normalizeUiScale } from './ui-theme.js';
 import { initSettingsTabs } from './settings-controller.js';
@@ -135,6 +136,7 @@ class App {
         this.player = new Player(this.renderer, this.camera, this.arena);
         this.audio = new Audio();
         this.ui = new UI();
+        this._setupAuthModal();
         this.ui.onCaseRewardReveal = reward => {
             if (reward?.type === 'knife') this._renderCosmeticPreview(document.getElementById('case-reward-preview'), reward);
         };
@@ -507,7 +509,133 @@ class App {
         this.gameConsole.init(this.game);
         this.game.console = this.gameConsole; // game loop can check visibility
 
+        this._setupPresenceHeartbeat();
         this.loop();
+    }
+
+    _setupAuthModal() {
+        const modal = document.getElementById('auth-modal');
+        if (!modal) return;
+        
+        // Tab switching
+        document.querySelectorAll('.auth-tab-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const tab = e.target.getAttribute('data-tab');
+                document.querySelectorAll('.auth-tab-btn').forEach(b => b.classList.remove('auth-tab-active'));
+                document.querySelectorAll('.auth-tab-content').forEach(c => c.classList.add('hidden'));
+                e.target.classList.add('auth-tab-active');
+                document.getElementById(`auth-${tab}-tab`)?.classList.remove('hidden');
+            });
+        });
+        
+        // Tab link switching
+        document.querySelectorAll('[data-switch-tab]').forEach(link => {
+            link.addEventListener('click', (e) => {
+                e.preventDefault();
+                const tab = e.target.getAttribute('data-switch-tab');
+                document.querySelector(`[data-tab="${tab}"]`).click();
+            });
+        });
+        
+        // Login form
+        document.getElementById('auth-login-submit')?.addEventListener('click', () => this._handleLogin());
+        document.getElementById('auth-login-username')?.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') this._handleLogin();
+        });
+        document.getElementById('auth-login-password')?.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') this._handleLogin();
+        });
+        
+        // Register form
+        document.getElementById('auth-register-submit')?.addEventListener('click', () => this._handleRegister());
+        document.getElementById('auth-register-username')?.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') this._handleRegister();
+        });
+        document.getElementById('auth-register-password')?.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') this._handleRegister();
+        });
+        
+        // Skip/Guest button
+        document.getElementById('auth-skip')?.addEventListener('click', () => {
+            modal.classList.add('hidden');
+        });
+    }
+
+    async _handleLogin() {
+        const username = document.getElementById('auth-login-username')?.value || '';
+        const password = document.getElementById('auth-login-password')?.value || '';
+        const errorDiv = document.getElementById('auth-login-error');
+        
+        if (!username || !password) {
+            if (errorDiv) {
+                errorDiv.textContent = 'Username and password required';
+                errorDiv.classList.remove('hidden');
+            }
+            return;
+        }
+        
+        const result = await account.login(username, password);
+        if (result.error) {
+            if (errorDiv) {
+                errorDiv.textContent = result.error;
+                errorDiv.classList.remove('hidden');
+            }
+        } else {
+            document.getElementById('auth-modal')?.classList.add('hidden');
+            if (errorDiv) errorDiv.classList.add('hidden');
+            document.getElementById('auth-login-username').value = '';
+            document.getElementById('auth-login-password').value = '';
+        }
+    }
+
+    async _handleRegister() {
+        const username = document.getElementById('auth-register-username')?.value || '';
+        const password = document.getElementById('auth-register-password')?.value || '';
+        const avatar = document.getElementById('auth-register-avatar')?.value || '';
+        const errorDiv = document.getElementById('auth-register-error');
+        
+        if (!username || !password) {
+            if (errorDiv) {
+                errorDiv.textContent = 'Username and password required';
+                errorDiv.classList.remove('hidden');
+            }
+            return;
+        }
+        
+        const result = await account.register(username, password, avatar);
+        if (result.error) {
+            if (errorDiv) {
+                errorDiv.textContent = result.error;
+                errorDiv.classList.remove('hidden');
+            }
+        } else {
+            document.getElementById('auth-modal')?.classList.add('hidden');
+            if (errorDiv) errorDiv.classList.add('hidden');
+            document.getElementById('auth-register-username').value = '';
+            document.getElementById('auth-register-password').value = '';
+            document.getElementById('auth-register-avatar').value = '';
+        }
+    }
+
+    _setupPresenceHeartbeat() {
+        // Send presence heartbeat every 20s if logged in. Gracefully no-ops for guests
+        // (offline presence in /api/social/status returns empty, friends list falls back
+        // to local in-match presence). This keeps the server's presence Map fresh without
+        // requiring the app to send auth headers on every frame.
+        this._presenceHeartbeatInterval = setInterval(() => {
+            if (account.isLoggedIn()) {
+                fetch('/api/social/heartbeat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${account.getToken()}`
+                    },
+                    body: JSON.stringify({ avatar: account.getAvatar() })
+                }).catch(() => {
+                    // Silently ignore network errors; presence is a display hint only
+                });
+            }
+        }, 20000);
     }
 
     _getKnifeStyle(id) {

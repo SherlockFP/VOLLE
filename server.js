@@ -4,6 +4,8 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { CATALOG, ProfileStore } = require('./server/profile-store');
+const { AccountStore } = require('./server/account-store');
+const { PresenceStore } = require('./server/presence-store');
 const { verifyMatchReceipt } = require('./server/match-receipt');
 const { CreatorMapStore } = require('./server/creator-map-store');
 const { RequestLimiter } = require('./server/request-limiter');
@@ -20,6 +22,8 @@ const {
 const PORT = process.env.PORT || 8000;
 const ROOT = __dirname;
 const profiles = new ProfileStore(path.join(ROOT, 'data', 'profiles.json'));
+const accounts = new AccountStore(path.join(ROOT, 'data', 'accounts.db'), profiles);
+const presence = new PresenceStore();
 const creatorMaps = new CreatorMapStore(path.join(ROOT, 'data', 'creator-maps.json'));
 const paymentLedger = new PaymentLedger(path.join(ROOT, 'data', 'payment-ledger.json'));
 const telemetry = new TelemetryStore(path.join(ROOT, 'data', 'telemetry.json'));
@@ -36,6 +40,8 @@ const RATE_LIMITS = {
     mapWrite: [10, 60000],
     mapVote: [30, 60000],
     lobbyWrite: [30, 60000],
+    account: [10, 60000],
+    social: [60, 60000],
     paymentWebhook: [40, 60000],
     telemetry: [120, 60000],
     rtcConfig: [60, 60000]
@@ -151,6 +157,44 @@ const server = http.createServer(async (req, res) => {
         if (!allowRequest(req, res, 'session')) return;
         const b = await readBody(req);
         sendJson(res, profiles.session(b.token, b.playerName, b.legacy));
+        return;
+    }
+
+    // --- Account management: register, login ---
+    if (urlPath === '/api/account/register' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'account')) return;
+        const b = await readBody(req, 2048);
+        const result = accounts.register(b.username, b.password, b.avatar);
+        sendJson(res, result, result.status);
+        return;
+    }
+    if (urlPath === '/api/account/login' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'account')) return;
+        const b = await readBody(req, 2048);
+        const result = accounts.login(b.username, b.password);
+        sendJson(res, result, result.status);
+        return;
+    }
+
+    // --- Social presence: heartbeat, friend status ---
+    if (urlPath === '/api/social/heartbeat' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'social')) return;
+        const token = bearer(req);
+        const account = accounts.getByProfileToken(token);
+        if (!account) { sendJson(res, { error: 'unauthorized' }, 401); return; }
+        const b = await readBody(req, 256);
+        presence.heartbeat(account.username, b.avatar || '');
+        sendJson(res, { ok: true });
+        return;
+    }
+    if (urlPath === '/api/social/status' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'social')) return;
+        const token = bearer(req);
+        const account = accounts.getByProfileToken(token);
+        if (!account) { sendJson(res, { error: 'unauthorized' }, 401); return; }
+        const b = await readBody(req, 2048);
+        const usernames = Array.isArray(b.usernames) ? b.usernames : [];
+        sendJson(res, { statuses: presence.status(usernames) });
         return;
     }
     if (urlPath === '/api/profile' && req.method === 'GET') {

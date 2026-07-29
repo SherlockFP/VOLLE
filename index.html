@@ -10,6 +10,7 @@
     <link rel="stylesheet" href="css/ui-tokens.css?v=1">
     <link rel="stylesheet" href="css/ui-shell.css?v=1">
     <link rel="stylesheet" href="css/polish.css?v=1">
+    <link rel="stylesheet" href="css/auth.css?v=1">
     <script type="importmap">
     {
         "imports": {
@@ -70,6 +71,32 @@
             <div class="match-loading-track"><span id="match-loading-progress"></span></div>
             <b id="match-loading-percent" class="match-loading-percent">0%</b>
             <small>WARRBALL COMPETITIVE NETWORK</small>
+        </div>
+    </div>
+    <!-- Auth Modal: Register/Login -->
+    <div id="auth-modal" class="command-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title">
+        <div class="command-card auth-card">
+            <header><h2 id="auth-modal-title">Create or Sign In</h2></header>
+            <div class="auth-tabs">
+                <button class="auth-tab-btn auth-tab-active" data-tab="login">Sign In</button>
+                <button class="auth-tab-btn" data-tab="register">Create Account</button>
+            </div>
+            <div id="auth-login-tab" class="auth-tab-content auth-tab-active">
+                <input type="text" id="auth-login-username" class="auth-input" placeholder="Username" autocomplete="username">
+                <input type="password" id="auth-login-password" class="auth-input" placeholder="Password" autocomplete="current-password">
+                <div id="auth-login-error" class="auth-error hidden"></div>
+                <button id="auth-login-submit" class="btn btn-primary">Sign In</button>
+                <p class="auth-note">No account? <a href="#" data-switch-tab="register">Create one</a></p>
+            </div>
+            <div id="auth-register-tab" class="auth-tab-content hidden">
+                <input type="text" id="auth-register-username" class="auth-input" placeholder="Username (3-20 characters)" autocomplete="username">
+                <input type="password" id="auth-register-password" class="auth-input" placeholder="Password (8+ characters)" autocomplete="new-password">
+                <input type="text" id="auth-register-avatar" class="auth-input" placeholder="Avatar URL (optional)">
+                <div id="auth-register-error" class="auth-error hidden"></div>
+                <button id="auth-register-submit" class="btn btn-primary">Create Account</button>
+                <p class="auth-note">Already have an account? <a href="#" data-switch-tab="login">Sign in</a></p>
+            </div>
+            <button id="auth-skip" class="btn btn-secondary auth-skip">Continue as Guest</button>
         </div>
     </div>
     <div id="ranked-queue-overlay" class="command-overlay hidden" role="dialog" aria-modal="true">

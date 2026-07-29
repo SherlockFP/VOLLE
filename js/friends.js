@@ -39,6 +39,23 @@ export class FriendsList {
         const names = new Set(currentPlayers.map(p => p.name?.toLowerCase()));
         return this.friends.filter(f => names.has(f.toLowerCase()));
     }
+    async getServerStatus(friendNames) {
+        // Fetch online/offline status from server if available (requires auth token).
+        // Gracefully falls back to empty array if server is unreachable or user is not logged in.
+        if (!friendNames || friendNames.length === 0) return [];
+        try {
+            const response = await fetch('/api/social/status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ usernames: friendNames })
+            });
+            if (!response.ok) return [];
+            const data = await response.json();
+            return data.statuses || [];
+        } catch {
+            return [];
+        }
+    }
 
     addDM(friendName, from, text) {
         if (!this.dms[friendName]) this.dms[friendName] = [];
