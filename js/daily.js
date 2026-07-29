@@ -15,6 +15,16 @@ const DAILY_KEY = 'dodgball_daily_v1';
 export const DAILY_CHALLENGE_XP = 50;
 export const DAILY_ALL_COMPLETE_BONUS_XP = 100;
 
+// Pure award math, exported so the bridge's numbers stay unit-testable without
+// localStorage, a Store instance or a DOM. Callers own idempotency (claim() and
+// claimCompletionBonus() below); this only answers "how much xp is that worth".
+// Hostile input degrades to 0 rather than poisoning battlepass xp with NaN.
+export function dailyXpAward(challengesClaimed = 0, allComplete = false) {
+    const n = Math.floor(Number(challengesClaimed));
+    const claimed = Number.isFinite(n) && n > 0 ? n : 0;
+    return claimed * DAILY_CHALLENGE_XP + (allComplete === true ? DAILY_ALL_COMPLETE_BONUS_XP : 0);
+}
+
 const CHALLENGE_POOL = [
     { id: 'win_3', name: 'Win 3 Matches', emoji: '🏆', target: 3, type: 'wins', reward: 100 },
     { id: 'deflect_50', name: '50 Deflects', emoji: '🏐', target: 50, type: 'deflects', reward: 80 },

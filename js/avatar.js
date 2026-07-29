@@ -78,6 +78,13 @@ const resolveModel = value => {
     return AVATAR_MODELS[id] || AVATAR_MODELS.classic;
 };
 
+export const getAvatarArmScale = (modelId = 'classic') => {
+    const model = resolveModel(modelId);
+    // Slim arm width 3px vs classic 4px = 0.75; character-rig applies this to narrow the
+    // in-game arm meshes so they match what the avatar editor draws.
+    return model.arm.width / 4;
+};
+
 const shade = (color, factor) => {
     const hex = color.replace('#', '');
     const value = Number.parseInt(hex, 16);

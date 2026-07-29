@@ -54,6 +54,66 @@ export class Audio {
         this._buffers = {}; // name → AudioBuffer cache
     }
 
+    // ===== Named cue API with retrigger guard and graceful fallback =====
+    // Cue table: canonical per-cue definitions with volume normalization (0-1).
+    // Retrigger guard (50ms default) prevents rapid bursts from stacking/clipping.
+    // Unknown cue IDs silently no-op rather than throwing.
+    static CUES = {
+        'ui-click': { fn: 'playClick' },
+        'ui-hover': { fn: 'playHover' },
+        'deflect-spike': { fn: 'playDeflect', args: ['spike'] },
+        'deflect-lob': { fn: 'playDeflect', args: ['lob'] },
+        'deflect-flat': { fn: 'playDeflect', args: ['flat'] },
+        'whoosh': { fn: 'playWhoosh' },
+        'dinging': { fn: 'playDing' },
+        'jump': { fn: 'playJump' },
+        'land': { fn: 'playLand' },
+        'bounce': { fn: 'playBounce' },
+        'threat-1': { fn: 'playThreatCue', args: [1] },
+        'threat-2': { fn: 'playThreatCue', args: [2] },
+        'threat-3': { fn: 'playThreatCue', args: [3] },
+        'knife-inspect': { fn: 'playKnife', args: ['inspect'] },
+        'knife-slash': { fn: 'playKnife', args: ['slash'] },
+        'knife-stab': { fn: 'playKnife', args: ['stab'] },
+        'voice-ping-incoming': { fn: 'playVoicePing', args: ['incoming'] },
+        'voice-ping-help': { fn: 'playVoicePing', args: ['help'] },
+        'voice-ping-save': { fn: 'playVoicePing', args: ['save'] },
+        'beep': { fn: 'playBeep' },
+        'go': { fn: 'playGo' },
+        'speed-warning': { fn: 'playSpeedWarning' },
+        'score': { fn: 'playScore' },
+        'chat': { fn: 'playChat' },
+        'hit-tf2': { fn: 'playSfx', args: ['tf2_hit', 0.35], retriggerMs: 50 },
+        'crit-tf2': { fn: 'playSfx', args: ['tf2_crit', 0.65] },
+        'frying-pan': { fn: 'playSfx', args: ['tf2_frying_pan', 0.35], retriggerMs: 50 },
+        'match-win': { fn: 'playSfx', args: ['tf2_victory', 0.7], retriggerMs: 1000 },
+        'match-loss': { fn: 'playSfx', args: ['tf2_you_failed', 0.65], retriggerMs: 1000 },
+        'match-end': { fn: 'playSfx', args: ['tf2_notification', 0.5], retriggerMs: 1000 },
+    };
+
+    _cueCooldowns = {};
+
+    playCue(cueName) {
+        if (!cueName || typeof cueName !== 'string') return false;
+        const cue = Audio.CUES[cueName];
+        if (!cue) return false;
+        if (this.soundVolume <= 0) return false;
+        const now = performance.now?.() || Date.now?.() || 0;
+        const minGap = cue.retriggerMs ?? 50;
+        const lastPlay = this._cueCooldowns[cueName] || 0;
+        if (now - lastPlay < minGap) return false;
+        this._cueCooldowns[cueName] = now;
+        const fn = this[cue.fn];
+        if (!fn || typeof fn !== 'function') return false;
+        try {
+            if (cue.args) fn.apply(this, cue.args);
+            else fn.call(this);
+            return true;
+        } catch (_e) {
+            return false;
+        }
+    }
+
     init() {
         if (this.ctx) return;
         try {

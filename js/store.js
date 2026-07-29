@@ -35,7 +35,7 @@ import {
     normalizeProgress as normalizeBattlepassProgress,
     xpForTier as battlepassXpForTier
 } from './battlepass.js';
-import { Daily, DAILY_CHALLENGE_XP, DAILY_ALL_COMPLETE_BONUS_XP } from './daily.js';
+import { Daily, DAILY_CHALLENGE_XP, DAILY_ALL_COMPLETE_BONUS_XP, dailyXpAward } from './daily.js';
 import { applyAccountXp, xpForLevel } from './prestige.js';
 
 const KEY = 'dodgball_save_v2';
@@ -834,8 +834,7 @@ class StoreClass {
         if (!coins) return null;
         this.grant({ currency: coins });
         this._rolloverBattlepassSeason();
-        let xpGranted = DAILY_CHALLENGE_XP;
-        if (Daily.claimCompletionBonus()) xpGranted += DAILY_ALL_COMPLETE_BONUS_XP;
+        const xpGranted = dailyXpAward(1, Daily.claimCompletionBonus());
         const { state } = addBattlepassXp(this.data.battlepass, xpGranted);
         this.data.battlepass = state;
         this.save();

@@ -2,7 +2,7 @@
 // ponytail: geometri sabit sayılar plan diyagramından birebir; oran/renk shop-showcase'ten import.
 import * as THREE from 'three';
 import { JOINTS } from './character-pose.js';
-import { AVATAR_SKINS, getAvatarArmScale } from './avatar.js';
+import { AVATAR_SKINS } from './avatar.js';
 import { getShowcaseMaterialPalette, getShowcaseCharacterShape, normalizeShowcaseState } from './shop-showcase.js';
 
 export const RIG_SOCKETS = Object.freeze([
@@ -13,42 +13,6 @@ export const RIG_SOCKETS = Object.freeze([
 const MATERIAL_SLOTS = Object.freeze(['head', 'body', 'arms', 'legs', 'accent', 'detail', 'visor']);
 const TEAM_COLORS = Object.freeze({ red: 0xcc3333, blue: 0x3355cc });
 const SHOULDER_X = 0.44;
-// --- Canonical geometry constants (one definition per surface, consumed by rig and exported for cosmetics) ---
-// Head cube (Minecraft-style, replaces old sphere; .32 overhangs .26 neck by .03 a side)
-export const HEAD_SIZE = 0.32;
-export const HEAD_HALF_DEPTH = HEAD_SIZE / 2; // .16
-export const HEAD_MESH_LOCAL_Y = 0.20;  // offset on joints.head
-export const HEAD_MESH_LOCAL_Z_FRONT = -HEAD_HALF_DEPTH;  // local -Z is front face plane
-export const FACE_DECAL_DEPTH = 0.01;
-
-// Neck box (bridges torso top to head bottom; height raised .16->.20 to close gap)
-export const NECK_WIDTH = 0.26;
-export const NECK_HEIGHT = 0.20;
-export const NECK_DEPTH = 0.26;
-export const NECK_HALF_HEIGHT = NECK_HEIGHT / 2;  // .10
-export const NECK_MESH_LOCAL_Y = 0.76;  // offset on joints.torso
-
-// Torso box (body proportions, unchanged)
-export const TORSO_WIDTH = 0.62;
-export const TORSO_HEIGHT = 0.68;
-export const TORSO_DEPTH = 0.36;
-export const TORSO_HALF_HEIGHT = TORSO_HEIGHT / 2;  // .34
-export const TORSO_MESH_LOCAL_Y = 0.34;  // offset on joints.torso
-
-// Visor (thin bar on head front plane, straddles it half-embedded/half-proud)
-export const VISOR_WIDTH = 0.22;
-export const VISOR_HEIGHT = 0.05;
-export const VISOR_DEPTH = 0.04;
-export const VISOR_MESH_LOCAL_Y = 0.20;  // same as head center, on joints.head
-export const VISOR_MESH_LOCAL_Z = -HEAD_HALF_DEPTH;  // derives from head front plane
-
-// Rig skeleton: joints positioned relative to their parents (for cosmetics to compute socket world positions)
-export const HIPS_WORLD_Y = 0.94;
-export const HEAD_SOCKET_LOCAL_Y = 0.42;  // offset on joints.head (world: 2.16)
-export const FACE_SOCKET_LOCAL_Y = 0;     // offset on joints.head (world: 1.74)
-export const FACE_SOCKET_LOCAL_Z = -0.24;  // offset on joints.head
-export const HAND_SOCKET_LOCAL_Y = -0.46; // offset on elbow joints (world: ~0.66)
-export const FOOT_SOCKET_LOCAL_Y = -0.46; // offset on knee joints (world: ~0)
 
 const num = value => (typeof value === 'number' && Number.isFinite(value) ? value : 0);
 
@@ -76,7 +40,7 @@ function pivot(name, parent, x = 0, y = 0, z = 0) {
 }
 
 /**
- * @param {object} options { characterId, skinId, team, materialFactory, outlineFactory, castShadow }
+ * @param {object} options { characterId, skinId, team, materialFactory, outlineFactory, quality, castShadow }
  * @returns RigHandle
  */
 export function createCharacterRig(options = {}) {
@@ -87,6 +51,7 @@ export function createCharacterRig(options = {}) {
     const materialFactory = typeof options.materialFactory === 'function' ? options.materialFactory : null;
     const outlineFactory = typeof options.outlineFactory === 'function' ? options.outlineFactory : null;
     const castShadow = options.castShadow !== false;
+    const segments = options.quality === 'low' ? 6 : 10;
 
     const buildMaterial = hex => (materialFactory
         ? materialFactory(hex)
@@ -95,10 +60,6 @@ export function createCharacterRig(options = {}) {
     const initialPalette = getShowcaseMaterialPalette(state);
     const materials = {};
     for (const slot of MATERIAL_SLOTS) materials[slot] = buildMaterial(initialPalette[slot]);
-    // Not a palette slot (MATERIAL_SLOTS drives applyPalette): stays white so the avatar face
-    // texture renders unmodulated. Lives in `materials` purely so dispose()'s Object.values sweep
-    // frees it and its map along with the rest -- no parallel bookkeeping to forget.
-    materials.face = buildMaterial(0xffffff);
     const teamMaterials = [materials.body, materials.arms];
 
     const geometries = new Set();
@@ -174,19 +135,12 @@ export function createCharacterRig(options = {}) {
     // (head.x swings up to ~aim*.55 + idle sway, torso barely rotates). Overlaps both
     // neighbors by .02 on purpose (matches the shop-showcase.js reference rig's overlap
     // convention) so float error / pose blending never exposes a seam.
-    // ponytail: neck bridges torso top (0.94+.34+.34=1.62) and the cube head's flat underside
-    // (head joint 1.74 + .20 - HEAD_SIZE/2 = 1.78) — parented to torso (not head) so it stays
-    // fused to the shoulders instead of swinging away and reopening a gap during head pitch/aim
-    // (head.x swings up to ~aim*.55 + idle sway, torso barely rotates). Overlaps both neighbors
-    // by .02 on purpose (matches the shop-showcase.js reference rig's overlap convention) so
-    // float error / pose blending never exposes a seam. Height .16->.20 and y .74->.76 because
-    // the cube's underside sits .04 above where the old sphere's bottom tangent point did.
     addPart(joints.torso, {
-        name: 'neck-mesh', geometry: new THREE.BoxGeometry(.26, .20, .26),
-        position: [0, .76, 0], material: materials.head
+        name: 'neck-mesh', geometry: new THREE.BoxGeometry(.26, .16, .26),
+        position: [0, .74, 0], material: materials.head
     });
     addPart(joints.head, {
-        name: 'head-mesh', geometry: new THREE.BoxGeometry(HEAD_SIZE, HEAD_SIZE, HEAD_SIZE),
+        name: 'head-mesh', geometry: new THREE.SphereGeometry(.20, segments, segments - 2),
         position: [0, .20, 0], material: materials.head
     });
 
@@ -244,21 +198,10 @@ export function createCharacterRig(options = {}) {
         name: 'belt', geometry: new THREE.BoxGeometry(.5, .12, .3),
         position: [0, .02, 0], material: materials.detail, outline: false
     });
-    // Front of the character is -Z. The visor's center sits exactly on the cube's front plane so
-    // it straddles it (half embedded, half proud), derived from HEAD_HALF_DEPTH so it tracks any
-    // future head resize instead of drifting inside/off the face like the sphere-era -.19 would.
-    const visorMesh = addPart(joints.head, {
+    addPart(joints.head, {
         name: 'visor', geometry: new THREE.BoxGeometry(.22, .05, .04),
-        position: [0, .20, -HEAD_HALF_DEPTH], material: materials.visor, outline: false
+        position: [0, .20, -.19], material: materials.visor, outline: false
     });
-    // A painted avatar face covers the whole front plane, so it replaces the visor rather than
-    // layering over it -- setHeadTexture swaps which of the two is visible.
-    const faceMesh = addPart(joints.head, {
-        name: 'face-mesh', geometry: new THREE.BoxGeometry(HEAD_SIZE, HEAD_SIZE, FACE_DECAL_DEPTH),
-        position: [0, .20, -(HEAD_HALF_DEPTH + FACE_DECAL_DEPTH / 2)],
-        material: materials.face, outline: false
-    });
-    faceMesh.visible = false;
 
     // --- palette / proportions ---
     const PART_SLOTS = ['body', 'arms', 'legs'];
@@ -281,10 +224,7 @@ export function createCharacterRig(options = {}) {
         root.scale.set(shape.width, shape.height, shape.depth);
         joints.shoulderL.position.x = -SHOULDER_X * shape.shoulder;
         joints.shoulderR.position.x = SHOULDER_X * shape.shoulder;
-        // Derived from the avatar atlas (slim arm 3px vs classic 4px = .75) so a 'slim' pick
-        // narrows the in-game arms by exactly what the avatar preview draws -- the old hardcoded
-        // .82 rendered arms thicker than the avatar advertised.
-        const armWidth = getAvatarArmScale(AVATAR_SKINS[state.skinId]?.model);
+        const armWidth = AVATAR_SKINS[state.skinId]?.model === 'slim' ? .82 : 1;
         for (const mesh of armMeshes) mesh.scale.x = armWidth;
     }
 
@@ -358,22 +298,17 @@ export function createCharacterRig(options = {}) {
         root.visible = Boolean(visible);
     }
 
-    // ponytail: the texture (game.js _avatarFace = HEAD_FRONT's 8x8 crop) goes on the face decal,
-    // not the shared "head" slot -- one material on a cube tiles that crop onto all 6 faces, which
-    // puts a face on the back of the head. The cube keeps its palette head color, which already is
-    // the avatar skin's head hex (shop-showcase getShowcaseMaterialPalette), so the result is a
-    // skin-toned blocky head wearing the player's painted face. Works for the default
-    // MeshStandardMaterial (supports .map); avatar textures aren't used together with a toon
-    // materialFactory anywhere today, so no shader branch needed. Texture disposal still falls out
-    // of the existing dispose() pass (materials.face is in the Object.values scan).
+    // ponytail: reuses the shared "head" material slot directly — works for the
+    // default MeshStandardMaterial (supports .map); avatar textures aren't used
+    // together with a toon materialFactory anywhere today, so no shader branch needed.
+    // Texture disposal falls out of the existing dispose() pass (Object.values scan).
     function setHeadTexture(texture) {
-        const face = materials.face;
-        if (!face) return;
-        if (face.map && face.map !== texture) face.map.dispose?.();
-        face.map = texture || null;
-        face.needsUpdate = true;
-        faceMesh.visible = Boolean(texture);
-        visorMesh.visible = !texture;
+        const head = materials.head;
+        if (!head) return;
+        if (head.map && head.map !== texture) head.map.dispose?.();
+        head.map = texture || null;
+        if (head.color?.setHex) head.color.setHex(texture ? 0xffffff : getShowcaseMaterialPalette(state).head);
+        head.needsUpdate = true;
     }
 
     function dispose() {
