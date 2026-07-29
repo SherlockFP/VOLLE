@@ -1,7 +1,7 @@
 # MIMO.md — 2BALL Project Current State
 
-> **Last updated:** 2026-07-21
-> **Status:** Active development. Phase 1 plus Showcase Shop, Cosmetic Studio, and Grand Estate complete; remaining Phase 2-4 backlog pending.
+> **Last updated:** 2026-07-29
+> **Status:** Active development. Account system (register/login + presence/friends) complete; Phase 1-3 features done; Phase 4 backlog pending.
 > **Tech Stack:** Three.js + PeerJS + vanilla JS (ES modules), browser-based 3D dodgeball.
 
 ---
@@ -77,31 +77,23 @@ Key files: `js/ui-theme.js`, `js/settings-controller.js`, `css/ui-tokens.css`, `
 
 ---
 
-## Pending Features (Phase 2-4)
+### Phase 3 — Accounts & Social (In Progress)
 
-### Phase 2 — Content ✅ (2026-07-28)
+| # | Feature | Target File | Status |
+|---|---------|-------------|--------|
+| 20 | SQLite-backed Registration | `server/account-store.js` | ✅ scrypt password hashing, case-insensitive username |
+| 21 | Login with Token Recovery | `server/account-store.js` | ✅ bearer token reuses existing ProfileStore integration |
+| 22 | Presence Tracking | `server/presence-store.js` | ✅ in-memory online/offline, 45s TTL, heartbeat API |
+| 23 | Auth Modal UI | `index.html`, `css/auth.css` | ✅ register/login tabs, error display |
+| 24 | Client Account Module | `js/account.js` | ✅ localStorage persistence, async register/login |
+| 25 | Presence Heartbeat | `js/main.js` | ✅ 20s interval, 0% impact on guests |
+| 26 | Friends Server Status | `js/friends.js` | ✅ `getServerStatus()` for online friend polling |
 
-| # | Feature | Target File | Durum |
-|---|---------|-------------|-------|
-| 8 | Ball Skins System | `js/ball.js` | ✅ |
-| 9 | Extended Ball Skins (+12 more) | `js/ball.js` | ✅ 5 rare / 4 epic / 3 legendary |
-| 10 | Ice Map (slippery floor) | `js/arena.js`, `js/player.js` | ✅ `slippery: true` |
-| 11 | Cloud Map (low gravity) | `js/arena.js`, `js/player.js` | ✅ `lowGravity: true` (Space ile aynı mekanizma) |
-| 12 | Jungle Map (water hazard) | `js/arena.js` | ✅ `waterZones: true` |
+**Key Design:** Accounts are identity-only. Gameplay remains 100% P2P. Only login recovery and presence display use the server. Guest sessions continue unchanged with localStorage-only profiles.
 
-> **Not:** 10/11/12 aslında bu dosyada "başlanmadı" yazmasına rağmen büyük ölçüde
-> yapılmıştı — 2026-07-28'de denetlendi, eksik olan tek şey jungle'ın hazard'ının
-> jenerik `waterZones` bayrağına taşınmasıydı. Bayrakların üçü de opt-in ve
-> varsayılan kapalı; mevcut 18 harita etkilenmedi (`tests/map-mechanics.test.mjs`).
+**Tests:** 12 new tests (8 account-store + 4 presence-store) all passing.
+**Verified:** Register, login, duplicate rejection, wrong password rejection, and end-to-end auth flow.
 
-### Phase 3 — UI/Meta (In Progress)
-
-| # | Feature | Target File | Complexity |
-|---|---------|-------------|------------|
-| 13 | Battlepass System (50 tiers) | `js/battlepass.js`, `js/store.js`, `js/ui.js` | ✅ free+premium track, 8 haftalik sezon, gunluk gorev XP baglantisi |
-| 14 | Enhanced Shop UI (tabs + live 3D showcase) — Complete | `js/ui.js`, `js/shop-showcase.js` | Medium |
-| 15 | Cosmetic Practice Range Mode — Complete | `js/main.js`, `js/cosmetic-practice.js`, `js/arena.js` | Medium |
-| 16 | Map Ban UI Enhancement | `js/ui.js` | Low |
 
 ### Phase 4 — Optional (Not Started)
 
@@ -124,7 +116,8 @@ dodgb/
 ├── package.json            — Node.js config
 ├── server.js               — Static file server (port 8000)
 ├── css/
-│   └── style.css           — All styles
+│   ├── style.css           — All styles
+│   ├── auth.css            — Auth modal (register/login)
 ├── js/
 │   ├── main.js             — Bootstrap
 │   ├── game.js             — Game loop, states, combat (~3200 lines)
@@ -140,7 +133,8 @@ dodgb/
 │   ├── store.js            — Meta progression (currency/xp/level)
 │   ├── characters.js       — 7 character definitions + stats
 │   ├── skills.js           — 8 skills + 8 runes
-│   ├── matchhistory.js     — Match history + stats (NEW)
+│   ├── matchhistory.js     — Match history + stats
+│   ├── account.js          — Client account module (register/login/localStorage)
 │   ├── ranked.js           — ELO system
 │   ├── tournament.js       — Bracket system
 │   ├── daily.js            — Daily challenges
@@ -157,6 +151,14 @@ dodgb/
 │   ├── achievements.js     — Achievement system
 │   ├── console.js          — Console commands
 │   └── shaders/            — Toon shader (vert + frag)
+├── server/
+│   ├── profile-store.js     — Profile/economy (currency/purchases/cosmetics)
+│   ├── account-store.js     — SQLite-backed accounts (register/login)
+│   ├── presence-store.js    — Online status tracking
+│   ├── creator-map-store.js — User-created map storage
+│   ├── payment-ledger.js    — In-app purchase ledger
+│   ├── telemetry.js         — Analytics storage
+│   └── [other server modules]
 ├── models/                 — 3D models
 ├── music/                  — Background music
 ├── sfx/                    — Sound effects

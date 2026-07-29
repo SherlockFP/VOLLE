@@ -191,21 +191,15 @@ Exit gate:
 
 Deliverables:
 
-- Account authentication.
-- Production database.
-- Inventory and currency ledger.
-- Idempotent purchase/reward transactions.
-- Direct cosmetic store.
-- Mastery currency and free earning routes.
-- Regional pricing, refund and tax integration.
-- Founder/supporter pack.
-
-Exit gate:
-
-- No client can choose its own reward amount.
-- Every paid item has an exact preview and price.
-- Free players can earn a representative set of cosmetics.
-
+- Account authentication. **✅ COMPLETE** (2026-07-29): SQLite-backed register/login, scrypt password hashing, bearer token integration with existing ProfileStore, case-insensitive username, duplicate/wrong-password validation.
+- Presence tracking. **✅ COMPLETE** (2026-07-29): In-memory online status, 45s TTL, heartbeat API, friend status polling. Gameplay remains 100% P2P.
+- Production database. [Pending: schema design, data migration, backup/restore]
+- Inventory and currency ledger. [Existing: ProfileStore JSON; pending: migration to SQL schema]
+- Idempotent purchase/reward transactions. [Existing: works for guest/bearer profiles; pending: account-specific ledger]
+- Direct cosmetic store. [Existing: live market system]
+- Mastery currency and free earning routes. [Existing: battlepass system]
+- Regional pricing, refund and tax integration. [Pending]
+- Founder/supporter pack. [Pending]
 ### V3.3: Authoritative online competition
 
 Deliverables:
