@@ -2594,6 +2594,40 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         const nextTarget = this.getClosestEnemy(pos, bot.team);
         if (!nextTarget) return;
 
+        // Mishit: bot committed but missed — apply a randomized spread to the aim
+        // so the ball deflects off-target (bot.js sets _mishit = true when the
+        // mishit-rate dice rolls against the bot).
+        if (bot._mishit) {
+            const baseDir = new THREE.Vector3().subVectors(nextTarget.getPosition(), pos).normalize();
+            // 10-30° spread: bot aims vaguely toward the target but it's off enough
+            // that a human can read "this was a mistake and I can punish it".
+            const spreadAngle = 0.15 + Math.random() * 0.35; // ~8.5° to 20°
+            const axis = new THREE.Vector3(
+                Math.random() - 0.5,
+                Math.random() * 0.3,
+                Math.random() - 0.5
+            ).normalize();
+            baseDir.applyAxisAngle(axis, spreadAngle);
+            baseDir.normalize();
+            this.ball.deflectWithAim(pos, baseDir, nextTarget,
+                { vertical: (Math.random() - 0.3) * 30, horizontal: (Math.random() - 0.5) * 15, power: 0.35 + Math.random() * 0.3 },
+                null, bot.deflectPower * 0.8);
+            bot._mishit = false;
+            if (this.ball._affixSplit) this.spawnSplitBall(this.ball);
+            this.ball.setTarget(nextTarget);
+            this.lastDeflector = bot;
+            this.lastDeflectorTeam = bot.team;
+            this._pushDeflectHistory(bot.name);
+            this.ball.lastShotBy = bot.name;
+            this._recordShotOrigin();
+            this.rallyCount++;
+            this._applyRallyHeat();
+            this.scoreboard.recordDeflection(bot.name);
+            this.audio.playSfx('tf2_hit', 0.3);
+            this.audio.playDeflect();
+            return;
+        }
+
         // Botlar da lob/spike atsın — difficulty'e göre çeşitlilik, round tendency ile hafif kaydırılır
         const diff = bot.difficulty || 'medium';
         const baseSkillRate = diff === 'hard' ? 0.4 : diff === 'medium' ? 0.2 : 0.05;

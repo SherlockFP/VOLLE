@@ -49,9 +49,11 @@ export function getBallThreat(isTarget, ballSpeed, distance) {
     };
 }
 
+// Ponytail: 4-column atlas grid, each cell is 25% wide and 25% tall. The old
+// 100/3 math produced positions that leaked past the right edge of column 4.
 function characterPortrait(index) {
-    const x = (index % 4) * (100 / 3);
-    const y = Math.floor(index / 4) * 50;
+    const x = (index % 4) * 25;
+    const y = Math.floor(index / 4) * 25;
     return `<div class="char-portrait" style="background-image:url('${CHARACTER_ATLAS}');background-position:${x}% ${y}%"></div>`;
 }
 
