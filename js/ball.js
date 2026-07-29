@@ -241,6 +241,119 @@ export const BALL_SKINS = {
     prism_king:     { name: 'Prism King',       price: 480, rarity: 'legendary', effect: 'prism', color: 0xffffff, glow: 0xffffff, trail: 0xffffff, starColor: 0xffffff, rainbow: true, burstTrail: true, trailStyle: 'prism' }
 };
 
+// ---------------------------------------------------------------------------
+// Expressive-depth layer: charged throw, strafe curve, rally heat.
+// Kept pure and exported so every tuning curve is unit-testable and can be
+// retuned without touching the class or the steering math.
+// ---------------------------------------------------------------------------
+
+export const CHARGE_FULL_SECONDS = 0.6;
+export const CHARGE_OVERCHARGE_SECONDS = 1.05;
+export const CHARGE_RATE = 1 / CHARGE_FULL_SECONDS;
+export const CHARGE_MAX_POWER = 1.8;
+export const CHARGE_OVERCHARGE_POWER = 1.55;
+export const CHARGE_FULL_SPREAD = 0.06;
+export const CHARGE_MAX_SPREAD = 0.2;
+export const CHARGE_MIN_MOVEMENT = 0.62;
+
+const NEUTRAL_CHARGE = Object.freeze({ power: 1, spread: 0, movementScale: 1, overcharged: false, ratio: 0 });
+
+export function chargeProfile(heldSeconds) {
+    if (!Number.isFinite(heldSeconds) || heldSeconds <= 0) return { ...NEUTRAL_CHARGE };
+    const held = Math.min(heldSeconds, CHARGE_OVERCHARGE_SECONDS);
+    const ratio = clamp(held / CHARGE_FULL_SECONDS, 0, 1);
+    const ramp = 1 - (1 - ratio) * (1 - ratio);
+    if (held <= CHARGE_FULL_SECONDS) {
+        return {
+            power: 1 + (CHARGE_MAX_POWER - 1) * ramp,
+            spread: CHARGE_FULL_SPREAD * ramp,
+            movementScale: 1 - (1 - CHARGE_MIN_MOVEMENT) * ramp,
+            overcharged: false,
+            ratio
+        };
+    }
+    const over = clamp((held - CHARGE_FULL_SECONDS) / (CHARGE_OVERCHARGE_SECONDS - CHARGE_FULL_SECONDS), 0, 1);
+    return {
+        power: CHARGE_MAX_POWER + (CHARGE_OVERCHARGE_POWER - CHARGE_MAX_POWER) * over,
+        spread: CHARGE_FULL_SPREAD + (CHARGE_MAX_SPREAD - CHARGE_FULL_SPREAD) * over,
+        movementScale: CHARGE_MIN_MOVEMENT,
+        overcharged: over > 0,
+        ratio: 1
+    };
+}
+
+export const SPIN_STRAFE_THRESHOLD = 0.6;
+export const SPIN_STRAFE_GAIN = 0.42;
+export const SPIN_MAX = 3;
+export const SPIN_MAGNUS_COEFF = 0.34;
+export const SPIN_DECAY_PER_SECOND = 1.1;
+export const SPIN_EPSILON = 0.001;
+export const DEFLECT_SPIN_SCALE = Object.freeze({ normal: 0.45, great: 0.75, perfect: 1 });
+
+export function spinFromStrafe(strafeVelocity, forward, tier = 'normal') {
+    if (!finitePoint(strafeVelocity) || !finitePoint(forward)) return 0;
+    const forwardLength = Math.hypot(forward.x, forward.z);
+    if (forwardLength < SPIN_EPSILON) return 0;
+    const fx = forward.x / forwardLength;
+    const fz = forward.z / forwardLength;
+    const lateral = strafeVelocity.x * fz - strafeVelocity.z * fx;
+    if (Math.abs(lateral) < SPIN_STRAFE_THRESHOLD) return 0;
+    const scale = Number.isFinite(DEFLECT_SPIN_SCALE[tier]) ? DEFLECT_SPIN_SCALE[tier] : DEFLECT_SPIN_SCALE.normal;
+    const magnitude = Math.min(SPIN_MAX, (Math.abs(lateral) - SPIN_STRAFE_THRESHOLD) * SPIN_STRAFE_GAIN * scale);
+    return magnitude <= 0 ? 0 : Math.sign(lateral) * magnitude;
+}
+
+export function spinLateralAcceleration(spin, velocity, dt) {
+    if (!Number.isFinite(spin) || spin === 0 || !finitePoint(velocity) || !Number.isFinite(dt) || dt <= 0) {
+        return { x: 0, y: 0, z: 0 };
+    }
+    const horizontal = Math.hypot(velocity.x, velocity.z);
+    if (horizontal < SPIN_EPSILON) return { x: 0, y: 0, z: 0 };
+    const nx = velocity.x / horizontal;
+    const nz = velocity.z / horizontal;
+    const strength = SPIN_MAGNUS_COEFF * spin * horizontal * dt;
+    return { x: -nz * strength, y: 0, z: nx * strength };
+}
+
+export function decaySpin(spin, dt) {
+    if (!Number.isFinite(spin) || spin === 0) return 0;
+    if (!Number.isFinite(dt) || dt <= 0) return spin;
+    const decayed = spin * Math.exp(-SPIN_DECAY_PER_SECOND * dt);
+    return Math.abs(decayed) < SPIN_EPSILON ? 0 : decayed;
+}
+
+export const BALL_BASE_SPEED = 17;
+
+export const BALL_HEAT_TIERS = Object.freeze([
+    Object.freeze({ id: 'cool', index: 0, minRatio: 1, color: 0xffe08a }),
+    Object.freeze({ id: 'warm', index: 1, minRatio: 1.5, color: 0xffd447 }),
+    Object.freeze({ id: 'hot', index: 2, minRatio: 2.25, color: 0xff4d35 }),
+    Object.freeze({ id: 'blazing', index: 3, minRatio: 3.5, color: 0xfff4dc }),
+    Object.freeze({ id: 'overdrive', index: 4, minRatio: 5, color: 0xbfe9ff })
+]);
+
+export function ballHeatLevel(speed, baseSpeed = BALL_BASE_SPEED) {
+    const base = Number.isFinite(baseSpeed) && baseSpeed > 0 ? baseSpeed : BALL_BASE_SPEED;
+    const safeSpeed = Number.isFinite(speed) && speed > 0 ? speed : 0;
+    const ratio = safeSpeed / base;
+    let index = 0;
+    for (let i = BALL_HEAT_TIERS.length - 1; i > 0; i--) {
+        if (ratio >= BALL_HEAT_TIERS[i].minRatio) { index = i; break; }
+    }
+    const tier = BALL_HEAT_TIERS[index];
+    const next = BALL_HEAT_TIERS[index + 1];
+    const span = next ? next.minRatio - tier.minRatio : 0;
+    const progress = span > 0 ? clamp((ratio - tier.minRatio) / span, 0, 1) : (next ? 0 : 1);
+    return {
+        tier: tier.id,
+        index,
+        color: tier.color,
+        intensity: clamp((ratio - 1) / 3, 0, 1),
+        progress,
+        ratio
+    };
+}
+
 export class Ball {
     constructor(renderer, arena) {
         this.renderer = renderer;
@@ -304,6 +417,8 @@ export class Ball {
         // Charge-up throw — hold to charge, release for power throw.
         this.chargeLevel = 0;         // 0..1
         this.isCharging = false;
+        this.chargeHeld = 0;          // 0..CHARGE_OVERCHARGE_SECONDS, accumulates
+        this.curveSpin = 0;           // physics-only spin from strafe during deflect
 
         // ponytail: proximity forced-hit — top hedefe 1.5 birimden az yaklaşınca
         // süre sayacı başlar. Oyuncu vurmazsa 0.4s sonra zorunlu hit.
@@ -392,6 +507,8 @@ export class Ball {
         this._perfectWindowTarget = null;
         this.chargeLevel = 0;
         this.isCharging = false;
+        this.chargeHeld = 0;
+        this.curveSpin = 0;
         this.bodyZone = ['head','chest','abdomen','legs'][Math.floor(Math.random() * 4)];
         this.ricochetTarget = null;
         this.lastShotBy = null;
@@ -616,6 +733,15 @@ export class Ball {
                 this.position.add(new THREE.Vector3(displacement.x, displacement.y, displacement.z));
             } else {
                 this.position.add(this.velocity.clone().multiplyScalar(dt));
+            }
+
+            // Magnus effect from strafe curve spin: additive lateral velocity
+            // based on ball speed and spin direction. Only active in rally.
+            if (Math.abs(this.curveSpin) > SPIN_EPSILON) {
+                const magnus = spinLateralAcceleration(this.curveSpin, this.velocity, dt);
+                this.velocity.x += magnus.x;
+                this.velocity.z += magnus.z;
+                this.curveSpin = decaySpin(this.curveSpin, dt);
             }
 
             // Spin remains visual only; physical steering owns the flight path.
@@ -1042,12 +1168,10 @@ export class Ball {
     }
 
     _updateHeatVisual() {
-        const ratio = this.baseSpeed > 0 ? this.currentSpeed / this.baseSpeed : 1;
-        const heat = clamp((ratio - 1) / 3, 0, 1);
-        const color = ratio >= 3.5 ? 0xfff4dc : ratio >= 2.25 ? 0xff4d35 : 0xffd447;
-        this.heatMat.color.setHex(color);
-        this.heatMat.opacity = heat * 0.3;
-        this.heatShell.scale.setScalar(1.08 + heat * 0.16);
+        const heat = ballHeatLevel(this.currentSpeed, this.baseSpeed);
+        this.heatMat.color.setHex(heat.color);
+        this.heatMat.opacity = heat.intensity * 0.3;
+        this.heatShell.scale.setScalar(1.08 + heat.intensity * 0.16);
     }
 
     updateColor() {
@@ -1121,6 +1245,12 @@ export class Ball {
             this.spin = Math.min(3.0, Math.max(-3.0, hSpin + vSpin));
         }
 
+        this.curveSpin = 0;
+        if (momentum && Math.hypot(momentum.x, momentum.z) > SPIN_STRAFE_THRESHOLD) {
+            const forward = { x: aimDir.x, y: 0, z: aimDir.z };
+            this.curveSpin = spinFromStrafe(momentum, forward, 'normal');
+        }
+
         this.currentSpeed = Math.min(speed, this.maxSpeed);
         // Clamp velocity magnitude to currentSpeed so physics stays consistent
         this._clampSpeed();
@@ -1157,6 +1287,7 @@ export class Ball {
         this._clampSpeed();
         this.lastShot = 'flat'; // bots throw flat shots
         this.updateColor();
+        this.curveSpin = 0;
     }
 
     setTarget(target) {
@@ -1182,14 +1313,25 @@ export class Ball {
     getPerfectTimingErrorMs() {
         return this.perfectWindow > 0 ? this.perfectWindow * 1000 : Infinity;
     }
-
-    // Charge-up throw — hold L-Click to charge, release for power.
-    // game.js/player.js'den çağrılır. level 0..1.
-    startCharge() { this.isCharging = true; this.chargeLevel = 0; }
-    tickCharge(dt) { if (this.isCharging) this.chargeLevel = Math.min(1, this.chargeLevel + dt * 1.5); }
-    stopCharge() { const l = this.chargeLevel; this.isCharging = false; this.chargeLevel = 0; return l; }
+    startCharge() { this.isCharging = true; this.chargeLevel = 0; this.chargeHeld = 0; }
+    tickCharge(dt) {
+        if (this.isCharging) {
+            this.chargeHeld += dt;
+            this.chargeLevel = Math.min(1, this.chargeHeld * CHARGE_RATE);
+        }
+    }
+    stopCharge() {
+        const l = this.chargeLevel;
+        this.isCharging = false;
+        this.chargeLevel = 0;
+        this.chargeHeld = 0;
+        return l;
+    }
     getChargeLevel() { return this.chargeLevel; }
 
+    getChargeProfile() {
+        return chargeProfile(this.chargeHeld);
+    }
     // A-D-A-D spin — orbit ball around player (limited time, speeds up)
     startOrbit(holder) {
         this.state = 'orbiting';
@@ -1235,13 +1377,22 @@ export class Ball {
 
     // Release — throw held ball with charge bonus (Left Click or auto-release)
     releaseBall(aimDir, target) {
+        const profile = this.getChargeProfile();
         const charge = this.stopCharge();
         this.heldPlayer = null;
         this.state = 'rally';
         this.aimed = true;
-        const speed = this.baseSpeed * (1 + charge * 0.8);
+        const speed = this.baseSpeed * profile.power;
         this.currentSpeed = Math.min(speed, this.maxSpeed);
         const dir = new THREE.Vector3(aimDir.x, 0, aimDir.z).normalize();
+        if (profile.spread > 0.001) {
+            const angle = (Math.random() - 0.5) * 2 * profile.spread;
+            const cos = Math.cos(angle);
+            const sin = Math.sin(angle);
+            const jx = dir.x * cos - dir.z * sin;
+            const jz = dir.x * sin + dir.z * cos;
+            dir.set(jx, dir.y, jz).normalize();
+        }
         this.velocity.copy(dir.multiplyScalar(this.currentSpeed));
         this.velocity.y = this.currentSpeed * 0.25;
         this._clampSpeed();

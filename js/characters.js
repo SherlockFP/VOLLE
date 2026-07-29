@@ -7,7 +7,7 @@ const ROSTER = {
         maxHp: 100, speed: 10, deflectPower: 1.0, staminaMax: 100,
         passive: 'none',
         desc: 'Dengeli tüm-rounder. Başlangıç karakteri.',
-        color: 0xff8844
+        color: 0xff8844, price: 0
     },
     tank: {
         id: 'tank', name: 'Bulwark', emoji: '🛡️',
@@ -78,13 +78,41 @@ const ROSTER = {
         passive: 'rocket_jump',
         desc: 'Sağ tıkla roket atar. Patlama itişini kullanarak rocket jump yapar.',
         color: 0xd94c48, price: 650
-    }
+    },
+    anchor: {
+        id: 'anchor', name: 'Anchor', emoji: '🔗',
+        maxHp: 135, speed: 8.5, deflectPower: 1.0, staminaMax: 120,
+        passive: 'damage_reduc',
+        desc: 'Heavier, broad-shouldered defensive anchor. High HP, low speed, defensive passive.',
+        color: 0x7766cc, price: 500
+    },
+    phantom: {
+        id: 'phantom', name: 'Phantom', emoji: '👻',
+        maxHp: 70, speed: 12.5, deflectPower: 1.25, staminaMax: 95,
+        passive: 'spike_bonus',
+        desc: 'Sleek, narrow, lightweight glass cannon. Devastating spike damage, fragile.',
+        color: 0x9966ff, price: 550
+    },
+    hardy: {
+        id: 'hardy', name: 'Hardy', emoji: '🏔️',
+        maxHp: 125, speed: 9, deflectPower: 1.05, staminaMax: 130,
+        passive: 'shield_regen',
+        desc: 'Robust, balanced defensive specialist. Shield regen for sustained play.',
+        color: 0x6699aa, price: 550
+    },
+    swift: {
+        id: 'swift', name: 'Swift', emoji: '⚡',
+        maxHp: 85, speed: 12, deflectPower: 1.05, staminaMax: 130,
+        passive: 'fast_stam',
+        desc: 'Lithe, agile, mobile support character. High stamina regen for extended play.',
+        color: 0x55ffcc, price: 450
+    },
 };
 
 // Keep the competitive roster compact. Legacy entries remain in source for save
 // compatibility, but are not selectable or assigned to new players.
 export const CHARACTERS = Object.freeze(Object.fromEntries(
-    ['rally', 'tank', 'scout', 'sniper', 'guardian', 'soldier'].map(id => [id, ROSTER[id]])
+    ['rally', 'tank', 'scout', 'sniper', 'guardian', 'soldier', 'anchor', 'phantom', 'hardy', 'swift'].map(id => [id, ROSTER[id]])
 ));
 
 // Pasif yetenek uygulama — player/bot objesine stat bonusları ekle.

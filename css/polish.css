@@ -736,7 +736,7 @@ body.hit-flash {
     background: var(--ui-primary);
     filter: drop-shadow(0 0 12px var(--ui-primary));
     transform: translateY(-2px);
-    transition: all 150ms ease-out;
+    transition: all var(--ui-motion-fast) var(--ui-ease);
 }
 
 @media (max-width: 900px) {
@@ -1108,7 +1108,7 @@ body.hit-flash {
     background: radial-gradient(circle, rgba(8, 36, 48, 0.48), rgba(3, 16, 25, 0.74));
     box-shadow: 0 24px 80px rgba(0, 8, 18, 0.45), inset 0 0 42px rgba(54, 216, 202, 0.08);
     backdrop-filter: blur(14px);
-    animation: emote-wheel-in 180ms cubic-bezier(.2,.8,.2,1);
+    animation: emote-wheel-in var(--ui-motion-base) cubic-bezier(.2,.8,.2,1);
 }
 
 .emote-wheel::after {
@@ -1211,10 +1211,14 @@ body.high-contrast :is(button, input, select, textarea):focus-visible {
     --menu-panel-soft: var(--ui-menu-panel-soft, rgba(17, 24, 38, 0.86));
     --menu-line: var(--ui-menu-line, rgba(190, 211, 242, 0.16));
     color: var(--menu-ink);
+    /* Merged from a second, later #main-menu rule that used to override this one
+       (roadmap 4.2). Values below are that winning "slightly brighter arena" set,
+       so rendering is unchanged; theme fallbacks equal the default tokens. */
     background:
-        radial-gradient(circle at 17% 52%, var(--ui-menu-glow-a, rgba(240, 68, 85, 0.21)), transparent 31%),
-        radial-gradient(circle at 78% 42%, var(--ui-menu-glow-b, rgba(59, 130, 246, 0.24)), transparent 34%),
-        var(--ui-menu-base, linear-gradient(112deg, #090b12 0%, #10131c 48%, #080d18 100%));
+        radial-gradient(circle at 50% 14%, rgba(93, 224, 226, 0.18), transparent 34%),
+        radial-gradient(circle at 15% 40%, var(--ui-menu-glow-a, rgba(240, 68, 85, 0.1)), transparent 30%),
+        radial-gradient(circle at 86% 44%, var(--ui-menu-glow-b, rgba(59, 130, 246, 0.15)), transparent 32%),
+        var(--ui-menu-base, linear-gradient(150deg, #102938 0%, #0a1b29 52%, #102237 100%));
 }
 
 #main-menu::before {
@@ -1256,7 +1260,7 @@ body.high-contrast :is(button, input, select, textarea):focus-visible {
     grid-template-columns: minmax(0, 1.28fr) minmax(360px, 0.72fr);
     gap: clamp(14px, 1.6vw, 26px);
     color: var(--menu-ink);
-    animation: menu-arena-in 360ms cubic-bezier(.2, .75, .25, 1) both;
+    animation: menu-arena-in var(--ui-motion-slow) cubic-bezier(.2, .75, .25, 1) both;
 }
 
 #main-menu .ow-topbar {
@@ -2099,14 +2103,6 @@ body.high-contrast #main-menu :is(.ow-topbar, .ow-showcase, .ow-action-panel, .f
         rgba(8, 34, 44, 0.82);
 }
 
-/* Slightly brighter menu while retaining the competitive arena mood. */
-#main-menu {
-    background:
-        radial-gradient(circle at 50% 14%, rgba(93, 224, 226, 0.18), transparent 34%),
-        radial-gradient(circle at 15% 40%, rgba(240, 68, 85, 0.1), transparent 30%),
-        radial-gradient(circle at 86% 44%, rgba(59, 130, 246, 0.15), transparent 32%),
-        linear-gradient(150deg, #102938 0%, #0a1b29 52%, #102237 100%);
-}
 
 #main-menu .ow-topbar,
 #main-menu .ow-action-panel,
@@ -2554,7 +2550,7 @@ body.cl-hud-hidden :is(#hud,#scoreboard-overlay,#network-diagnostics,#speaker-in
 .showcase-preview { display:grid; place-items:center; min-height:150px; margin:10px 0; border:1px solid rgba(103,239,226,.3); border-radius:15px; background:radial-gradient(circle,#16859455,transparent 60%),linear-gradient(#061c32,#030d1c); perspective:500px; }
 .showcase-preview b { color:#fff; font-size:1.5rem; transform:rotateY(-8deg); text-shadow:0 0 20px #55e6d4; }.showcase-preview span,.showcase-preview small { color:#84dfe6; }
 .match-loading-percent { color:#8ef4e8; font-size:.68rem; font-variant-numeric:tabular-nums; }
-.match-loading-track>span { display:block; width:0; height:100%; transition: width .12s linear; }
+.match-loading-track>span { display:block; width:0; height:100%; transition: width var(--ui-motion-fast) linear; }
 .stat-track { display:flex; justify-content:center; gap:8px; align-items:center; margin:8px 0; color:#ff9b72; font-size:.67rem; font-weight:950; letter-spacing:.1em; }.stat-track b { color:#fff; font-variant-numeric:tabular-nums; }
 .knife-preview-3d { transform:perspective(420px) rotateX(12deg) rotateY(-18deg); animation:inventory-float 4s ease-in-out infinite; }
 .inventory-card:has(.knife-inspect:focus) .knife-preview-3d,.inventory-card.inspecting .knife-preview-3d { animation:knife-inspect 2.3s linear infinite; }
@@ -2608,7 +2604,7 @@ body.photo-mode #hud,body.photo-mode #scoreboard-overlay,body.photo-mode .networ
 .host-migration-banner span { display:block; color:#7cebdc; font-size:.65rem; font-weight:950; letter-spacing:.18em; }
 .host-migration-banner strong { display:block; margin:5px 0 12px; font-size:1.04rem; }
 .host-migration-track,.practice-lab-track { height:5px; overflow:hidden; border-radius:99px; background:rgba(133,236,239,.14); }
-.host-migration-track i,.practice-lab-track i { display:block; width:0; height:100%; border-radius:inherit; background:linear-gradient(90deg,#61eadc,#70ddff); transition: width .18s linear; }
+.host-migration-track i,.practice-lab-track i { display:block; width:0; height:100%; border-radius:inherit; background:linear-gradient(90deg,#61eadc,#70ddff); transition: width var(--ui-motion-base) linear; }
 .perfect-deflect-hud { position:fixed; z-index:95; top:22%; left:50%; display:grid; grid-template-columns:auto auto; gap:2px 12px; align-items:center; padding:9px 13px; color:#fff; border:1px solid rgba(255,222,112,.72); border-radius:12px; background:linear-gradient(145deg,rgba(99,59,5,.8),rgba(10,28,39,.78)); box-shadow:0 0 34px rgba(255,190,48,.28); transform:translateX(-50%); pointer-events:none; }
 .perfect-deflect-hud.hidden { display:none; }
 .perfect-deflect-hud span { color:#ffe477; font-size:.69rem; font-weight:950; letter-spacing:.13em; }.perfect-deflect-hud b { font-size:1.25rem; }.perfect-deflect-hud small { grid-column:1/-1; color:#d7ffff; font-variant-numeric:tabular-nums; }
@@ -3908,7 +3904,7 @@ body.hit-flash {
   background: var(--ui-primary);
   filter: drop-shadow(0 0 12px var(--ui-primary));
   transform: translateY(-2px);
-  transition: all 150ms ease-out;
+  transition: all var(--ui-motion-fast) var(--ui-ease);
 }
 
 /* Post-match reward card reveal */
@@ -3931,7 +3927,7 @@ body.hit-flash {
     font-variant-numeric: tabular-nums; /* digits stop jittering as it ticks */
     letter-spacing: .02em;
     min-width: 104px;
-    transition: color 180ms ease-out;
+    transition: color var(--ui-motion-base) var(--ui-ease);
 }
 
 .hud-timer[data-urgency="warning"] { color: var(--ui-warning, #ffc665); }

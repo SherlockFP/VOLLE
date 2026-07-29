@@ -1,5 +1,6 @@
 :root,
-:root[data-theme="dark"] {
+:root[data-theme="dark"],
+.theme-swatch-card[data-theme="dark"] {
   --ui-scale: 1;
   --ui-bg: #06151b;
   --ui-bg-elevated: #0a232c;
@@ -73,7 +74,8 @@
   --ui-menu-stage: linear-gradient(145deg, rgba(28, 58, 72, 0.9), rgba(8, 24, 37, 0.94));
 }
 
-:root[data-theme="soft-spectrum"] {
+:root[data-theme="soft-spectrum"],
+.theme-swatch-card[data-theme="soft-spectrum"] {
   --ui-bg: #071824;
   --ui-bg-elevated: #10283a;
   --ui-surface: #153348;
@@ -96,7 +98,8 @@
   --ui-menu-stage: linear-gradient(145deg, rgba(30, 66, 88, 0.9), rgba(7, 26, 40, 0.94));
 }
 
-:root[data-theme="ember"] {
+:root[data-theme="ember"],
+.theme-swatch-card[data-theme="ember"] {
   --ui-bg: #140b07;
   --ui-bg-elevated: #22120a;
   --ui-surface: #2c180d;
@@ -125,7 +128,8 @@
   --ui-menu-stage: linear-gradient(145deg, rgba(58, 30, 18, 0.9), rgba(24, 11, 6, 0.94));
 }
 
-:root[data-theme="violet-surge"] {
+:root[data-theme="violet-surge"],
+.theme-swatch-card[data-theme="violet-surge"] {
   --ui-bg: #0d0819;
   --ui-bg-elevated: #17102a;
   --ui-surface: #1e1436;
@@ -154,7 +158,8 @@
   --ui-menu-stage: linear-gradient(145deg, rgba(44, 28, 74, 0.9), rgba(16, 9, 32, 0.94));
 }
 
-:root[data-theme="verdant"] {
+:root[data-theme="verdant"],
+.theme-swatch-card[data-theme="verdant"] {
   --ui-bg: #050f0a;
   --ui-bg-elevated: #0a1a12;
   --ui-surface: #0f2418;
@@ -183,7 +188,8 @@
   --ui-menu-stage: linear-gradient(145deg, rgba(20, 54, 38, 0.9), rgba(6, 22, 14, 0.94));
 }
 
-:root[data-theme="crimson-court"] {
+:root[data-theme="crimson-court"],
+.theme-swatch-card[data-theme="crimson-court"] {
   --ui-bg: #120609;
   --ui-bg-elevated: #1e0a10;
   --ui-surface: #290d15;
