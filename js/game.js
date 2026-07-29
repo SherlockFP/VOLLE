@@ -203,9 +203,13 @@ export class Game {
         // Game feel + modlar + emote
         this.juice = new Juice(this.player.camera, this.renderer);
         this.emotes = new EmoteSystem(this.renderer.scene);
+        // Placeholder until App.applyLoadout() (main.js) runs and the real default
+        // mode (instagib) gets applied via selectMode() — that order matters because
+        // applyLoadout()->Player.applyLoadout() resets HP from character base stats,
+        // which would otherwise clobber a mode's maxHp mutator set here first.
         this.mode = GAME_MODES.classic;
-        this.matchModifier = 'none';
         this._oneHitKill = false;
+        this.matchModifier = 'none';
         this._activeBlackHoles = [];
         this._splitBalls = [];
         this._killcamActive = false;

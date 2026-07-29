@@ -221,6 +221,12 @@ class App {
 
         // Loadout uygula
         this.applyLoadout();
+        // Default mode = instagib ("one shot"). Must run AFTER applyLoadout(): that
+        // call resets player.maxHp from character base stats (player.js), which would
+        // silently clobber a maxHp mutator applied any earlier (e.g. in Game's own
+        // constructor). selectMode() is the same call the lobby's mode-chip click
+        // handler makes, so this stays perfectly consistent with manual mode picks.
+        this.game.selectMode('instagib');
 
         this.renderer.scene.add(this.camera);
 
@@ -486,6 +492,11 @@ class App {
         this.store.connectRemote(this.store.get('playerName')).then(connected => {
             if (!connected) return;
             this.applyLoadout();
+            // Player.applyLoadout() resets HP from character base stats, silently
+            // clobbering any mode maxHp mutator (e.g. instagib's) applied earlier.
+            // Re-sync current mode's mutators so a slow connectRemote() resolution
+            // doesn't quietly downgrade an active one-shot match back to normal HP.
+            this.game.selectMode(this.game.mode.id);
             this.refreshMetaStats();
         });
         this.store.set('onboardingSeen', true);
@@ -1245,6 +1256,9 @@ class App {
             const loadout = { ...this.store.get('loadout'), skill: selectedSkill, runes: selectedRunes };
             this.store.setLoadout(loadout);
             this.applyLoadout();
+            // Same applyLoadout()-clobbers-mode-HP issue as above: re-sync so saving
+            // a loadout mid-instagib-lobby doesn't silently restore normal HP.
+            this.game.selectMode(this.game.mode.id);
             this.ui.showMessage?.('Loadout saved!');
             this.ui.showScreen('mainMenu');
             this.refreshMetaStats();
