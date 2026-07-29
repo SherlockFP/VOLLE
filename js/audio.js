@@ -89,6 +89,9 @@ export class Audio {
         'match-win': { fn: 'playSfx', args: ['tf2_victory', 0.7], retriggerMs: 1000 },
         'match-loss': { fn: 'playSfx', args: ['tf2_you_failed', 0.65], retriggerMs: 1000 },
         'match-end': { fn: 'playSfx', args: ['tf2_notification', 0.5], retriggerMs: 1000 },
+        'respawn': { fn: 'playRespawn' },
+        'equip-change': { fn: 'playEquipChange' },
+        'settings-apply': { fn: 'playSettingsApply' },
     };
 
     _cueCooldowns = {};
@@ -547,5 +550,44 @@ export class Audio {
     // Chat message pop
     playChat() {
         this._osc('sine', 800, 0.05, 0.08);
+    }
+
+    // Respawn — soft rising "materialize" swell (0.12 peak) followed by a bright
+    // confirm ding (0.08) once the swell lands. Distinct from jump/land (grounded
+    // thuds) and score/go (multi-note fanfares reserved for round transitions).
+    playRespawn() {
+        if (!this.ctx || !this.masterGain) return;
+        const t = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(220, t);
+        osc.frequency.exponentialRampToValueAtTime(660, t + 0.22);
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.12, t + 0.05);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+        osc.connect(g);
+        g.connect(this.masterGain);
+        osc.start(t);
+        osc.stop(t + 0.32);
+        setTimeout(() => this._osc('sine', 990, 0.15, 0.08), 200);
+    }
+
+    // Equip change — quick two-tone "swap" tick (0.07/0.06), for character/knife
+    // loadout changes. Distinct from ui-click (menu nav) so equipping reads as a
+    // confirmed action rather than just another button press.
+    playEquipChange() {
+        if (!this.ctx) return;
+        this._osc('square', 500, 0.04, 0.07);
+        setTimeout(() => this._osc('square', 760, 0.04, 0.06), 45);
+    }
+
+    // Settings apply — short affirmative two-note chime (0.1/0.1), calmer than
+    // playGo's 3-note round-start fanfare (that one stays reserved for match/round
+    // transitions).
+    playSettingsApply() {
+        if (!this.ctx) return;
+        this._osc('sine', 660, 0.12, 0.1);
+        setTimeout(() => this._osc('sine', 880, 0.16, 0.1), 70);
     }
 }

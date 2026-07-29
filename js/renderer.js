@@ -110,13 +110,18 @@ export class Renderer {
         }
     }
 
+    // Exported so settings tooling (js/settings-controller.js) can assert
+    // "quality preset -> expected renderer values" without duplicating this
+    // table — this object is the only place preset numbers are defined.
+    static QUALITY_PRESETS = {
+        low: { pixelRatio: 1, shadows: false, bloom: 0 },
+        medium: { pixelRatio: 1.5, shadows: true, bloom: 0.05 },
+        high: { pixelRatio: 2, shadows: true, bloom: 0.08 }
+    };
+
     setQuality(quality = 'medium') {
         this._quality = ['low', 'medium', 'high'].includes(quality) ? quality : 'medium';
-        const config = {
-            low: { pixelRatio: 1, shadows: false, bloom: 0 },
-            medium: { pixelRatio: 1.5, shadows: true, bloom: 0.05 },
-            high: { pixelRatio: 2, shadows: true, bloom: 0.08 }
-        }[this._quality];
+        const config = Renderer.QUALITY_PRESETS[this._quality];
         this._qualityPixelRatioCap = config.pixelRatio;
         this._applyPixelRatio();
         this.renderer.shadowMap.enabled = config.shadows && !this._hubPerformanceMode;

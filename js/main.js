@@ -21,6 +21,7 @@ import { Store } from './store.js';
 import { DEFAULT_LOADOUT } from './skills.js';
 import { AvatarPainter, AVATAR_SKINS } from './avatar.js';
 import { createShowcaseAvatar, ShopShowcaseRenderer } from './shop-showcase.js';
+import { createMenuStage } from './menu-stage.js';
 import { COSMETIC_PRACTICE_MAP_ID, CosmeticPracticeSession } from './cosmetic-practice.js';
 import { CASES, KNIVES } from './cosmetics.js';
 import { createKnifeModel, disposeObject3D } from './weapon-models.js';
@@ -42,7 +43,7 @@ import { appendClanMessage, createClan, listClans } from './social.js';
 import { account, PROFILE_TOKEN_KEY } from './account.js';
 import { SOCIAL_HUB_MAPS, SocialLobby, getSocialLobbyMapState } from './social-lobby.js';
 import { applyUiPreferences, loadUiPreferences, normalizeTheme, normalizeUiScale } from './ui-theme.js';
-import { initSettingsTabs, initThemeSwatches } from './settings-controller.js';
+import { initSettingsTabs, initThemeSwatches, initSettingsExtras, shouldRenderFrame } from './settings-controller.js';
 import { formatMapSize } from './map-display.js';
 import {
     createDraftState,
@@ -490,6 +491,7 @@ class App {
         this.setupMenuHandlers();
         this._initShopShowcase();
         this._initMenuHero();
+        this._initMenuStage();
         this.applyAccessibility();
         this.refreshMetaStats();
         this.store.connectRemote(this.store.get('playerName')).then(connected => {
@@ -680,6 +682,7 @@ class App {
         this.renderer.setRenderScale(this.store.get('renderScale') || 1);
         this.game.juice.reducedMotion = !!settings.reduceMotion;
         this.menuHero?.setReducedMotion(!!settings.reduceMotion);
+        this.menuStage?.setReducedMotion(!!settings.reduceMotion);
         this.game.juice.screenShakeEnabled = settings.screenShake !== false;
         this.game.juice.screenFlashEnabled = settings.screenFlash !== false;
         document.body.classList.toggle('reduced-motion', !!settings.reduceMotion);
@@ -1822,6 +1825,12 @@ bind('carousel-next', () => {
             this.store.set('settings', settings);
             this.audio.setSoundVolume(settings.soundVolume / 100);
         });
+        // Settings-modal extras (master volume/mute, invert-Y, killfeed toggle) —
+        // wiring + persistence live in js/settings-controller.js#initSettingsExtras;
+        // this just hands it the live instances. Registered after the music/sound
+        // volume bindSetting calls above so its own secondary listeners on those
+        // same sliders see the already-updated store values.
+        initSettingsExtras({ store: this.store, audio: this.audio, game: this.game, player: this.player });
         bindSetting('setting-fov', e => {
             const val = parseFloat(e.target.value);
             this.camera.fov = val;
@@ -2108,6 +2117,7 @@ bind('carousel-next', () => {
             hydrateSetting('setting-crosshair-dynamic', config.dynamicGap);
             applyCrosshair();
             this.ui.showMessage?.('Crosshair applied and saved', 1600);
+            this.audio.playCue('settings-apply');
         });
         const savedSensitivity = this.store.get('mouseSensitivity') || 2;
         hydrateSetting('setting-sensitivity', savedSensitivity);
@@ -2272,6 +2282,7 @@ updateCSLobbyInfo();
                 }
                 document.querySelectorAll('.char-card').forEach(c => c.classList.remove('selected'));
                 charCard.classList.add('selected');
+                this.audio.playCue('equip-change');
             }
             const skillCard = e.target.closest('.skill-card');
             if (skillCard) {
@@ -2576,6 +2587,7 @@ updateCSLobbyInfo();
                     this.player.setKnifeStyle?.(this._getKnifeStyle(knifeBtn.dataset.id));
                 }
                 this.ui.showMessage?.(ok ? `Equipped for ${knifeBtn.dataset.team.toUpperCase()}` : 'This knife cannot be equipped.');
+                if (ok) this.audio.playCue('equip-change');
                 this.ui.renderShop(this.store, 'inventory');
                 return;
             }
@@ -3914,6 +3926,35 @@ updateCarousel() {
                 this.menuHero.start();
             } else {
                 this.menuHero.stop();
+            }
+        }, { signal: this._mainAbort.signal });
+    }
+
+    // Full-viewport Three.js backdrop behind the main menu (js/menu-stage.js). Mirrors
+    // _initMenuHero's structure (built once, then started/stopped per screen change) but
+    // fully disposes instead of merely pausing: leaving mainMenu is always either a menu
+    // sub-screen (background invisible anyway, no reason to hold its GPU resources) or the
+    // path into an actual match, so disposing on every departure is a safe superset of
+    // "dispose when a match starts" without needing to hook every match-start call site.
+    _initMenuStage() {
+        const canvas = document.getElementById('menu-stage-canvas');
+        if (!canvas) return;
+        const create = () => {
+            try {
+                this.menuStage = createMenuStage({ canvas, window, document, autoStart: false });
+                this.menuStage.setReducedMotion(!!this.store.get('settings').reduceMotion);
+            } catch (error) {
+                this.menuStage = null;
+            }
+        };
+        create();
+        window.addEventListener('warrball:screen', event => {
+            if (event.detail?.screen === 'mainMenu') {
+                if (!this.menuStage) create();
+                this.menuStage?.start();
+            } else {
+                this.menuStage?.dispose();
+                this.menuStage = null;
             }
         }, { signal: this._mainAbort.signal });
     }
@@ -5439,6 +5480,12 @@ updateCarousel() {
     }
 
     loop() {
+        const _now = performance.now();
+        if (!shouldRenderFrame(this.store.get('fpsLimit') || 0, this._lastFrameTime || 0, _now)) {
+            requestAnimationFrame(() => this.loop());
+            return;
+        }
+        this._lastFrameTime = _now;
         requestAnimationFrame(() => this.loop());
         const dt = Math.min(this.clock.getDelta(), 0.05);
 

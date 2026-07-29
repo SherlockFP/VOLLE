@@ -13,6 +13,68 @@ const DISABLE_SPRITES = false;
 
 const BOT_HIT_DAMAGE = 22;
 
+// Difficulty base stats, hoisted so the tendency helpers below can read the same
+// canonical table the constructor uses (was previously a constructor-local literal).
+const DIFFICULTY_SETTINGS = {
+    easy:   { deflectChance: 0.35, reactionTime: 0.65, windUp: 0.30, mishitRate: 0.20, moveSpeed: 3.5, skillChance: 0.05 },
+    medium: { deflectChance: 0.75, reactionTime: 0.35, windUp: 0.15, mishitRate: 0.08, moveSpeed: 5.5, skillChance: 0.20 },
+    hard:   { deflectChance: 0.92, reactionTime: 0.18, windUp: 0.08, mishitRate: 0.02, moveSpeed: 7.5, skillChance: 0.45 }
+};
+
+// Round personalities: rolled once per round (Bot.rollTendency), held for the whole
+// round, and only ever bias EXISTING decision parameters — no new capabilities, no
+// hidden-state reads, same competitive gates as any other bot.
+//   aggressive — closes distance harder, commits to deflects earlier, leans spike.
+//   defensive  — holds depth, reacts more cautiously, leans safer lob when improvising.
+//   flanker    — strong lateral bias, mixes in more trick shots, roughly neutral timing.
+const BOT_TENDENCIES = ['aggressive', 'defensive', 'flanker'];
+
+// Multiplier/offset deltas layered on top of DIFFICULTY_SETTINGS. Every value stays
+// inside TENDENCY_BOUNDS below (asserted by tests/bot-tendency.test.mjs).
+const TENDENCY_PROFILES = {
+    aggressive: { reactionMul: 0.88, windUpMul: 0.85, approachMul: 1.25, lateralMul: 0.85, depthBias: -1.0, shotBias:  0.08, lobBias: -0.15 },
+    defensive:  { reactionMul: 1.12, windUpMul: 1.20, approachMul: 0.80, lateralMul: 1.00, depthBias:  1.0, shotBias: -0.05, lobBias:  0.10 },
+    flanker:    { reactionMul: 1.00, windUpMul: 1.00, approachMul: 0.95, lateralMul: 1.40, depthBias:  0.0, shotBias:  0.05, lobBias:  0.20 }
+};
+
+// Documented [min, max] envelope every TENDENCY_PROFILES value must live inside.
+const TENDENCY_BOUNDS = {
+    reactionMul: [0.85, 1.15],
+    windUpMul:   [0.80, 1.25],
+    approachMul: [0.75, 1.30],
+    lateralMul:  [0.80, 1.50],
+    depthBias:   [-1.5, 1.5],
+    shotBias:    [-0.10, 0.10],
+    lobBias:     [-0.20, 0.20]
+};
+
+// Picks a tendency from a single seed in [0,1) — pure/deterministic so game.js can drive
+// it with an injected RNG and tests can assert an exact outcome per seed.
+function pickTendency(seed) {
+    const clamped = Math.max(0, Math.min(0.999999, Number(seed) || 0));
+    const idx = Math.min(BOT_TENDENCIES.length - 1, Math.floor(clamped * BOT_TENDENCIES.length));
+    return BOT_TENDENCIES[idx];
+}
+
+// The fastest (lowest) reaction/wind-up time a tendency may push a bot to: one tier
+// below its own difficulty's baseline, or a small self-relative floor at the top tier.
+// This is what keeps "an easy aggressive bot is still easy" true (difficulty invariance).
+function tierFloor(param, difficulty) {
+    if (difficulty === 'easy') return DIFFICULTY_SETTINGS.medium[param];
+    if (difficulty === 'medium') return DIFFICULTY_SETTINGS.hard[param];
+    return DIFFICULTY_SETTINGS.hard[param] * 0.85; // hard (or unrecognized): absolute floor, no tier below
+}
+
+// Applies a tendency's reactionMul/windUpMul to a difficulty base value, clamped so the
+// result never reaches the tier above.
+function tendencyBoundedTime(param, difficulty, tendencyKey) {
+    const settings = DIFFICULTY_SETTINGS[difficulty] || DIFFICULTY_SETTINGS.medium;
+    const profile = TENDENCY_PROFILES[tendencyKey] || TENDENCY_PROFILES.flanker;
+    const mul = param === 'reactionTime' ? profile.reactionMul : profile.windUpMul;
+    const biased = settings[param] * mul;
+    return Math.max(biased, tierFloor(param, difficulty));
+}
+
 export class Bot {
     constructor(renderer, arena, name, team, difficulty = 'medium') {
         this.renderer = renderer;
@@ -22,18 +84,23 @@ export class Bot {
         this.team = team;
         this.difficulty = difficulty;
 
-        const diffSettings = {
-            easy:   { deflectChance: 0.35, reactionTime: 0.65, windUp: 0.30, mishitRate: 0.20, moveSpeed: 3.5, skillChance: 0.05 },
-            medium: { deflectChance: 0.75, reactionTime: 0.35, windUp: 0.15, mishitRate: 0.08, moveSpeed: 5.5, skillChance: 0.20 },
-            hard:   { deflectChance: 0.92, reactionTime: 0.18, windUp: 0.08, mishitRate: 0.02, moveSpeed: 7.5, skillChance: 0.45 }
-        };
-        const s = diffSettings[difficulty] || diffSettings.medium;
+        const s = DIFFICULTY_SETTINGS[difficulty] || DIFFICULTY_SETTINGS.medium;
         this.deflectChance = s.deflectChance;
         this.reactionTime = s.reactionTime;
         this.windUpTime = s.windUp;
         this.mishitRate = s.mishitRate;
         this.moveSpeed = s.moveSpeed;
         this.skillChance = s.skillChance;
+
+        // Round tendency (rollTendency, called by game.startRound each round) biases
+        // reactionTime/windUpTime plus the movement/shot-selection multipliers below.
+        // Neutral defaults here mean an un-rolled bot behaves exactly as before.
+        this.tendency = null;
+        this._tendencyApproachMul = 1;
+        this._tendencyLateralMul = 1;
+        this._tendencyDepthBias = 0;
+        this._tendencyShotBias = 0;
+        this._tendencyLobBias = 0;
 
         this.position = arena.getPlayerSpawn(team);
         this.velocity = new THREE.Vector3();
@@ -255,6 +322,22 @@ export class Bot {
         }
     }
 
+    // Rolls this bot's round tendency (see TENDENCY_PROFILES) and recomputes the
+    // tendency-biased decision parameters from the canonical difficulty table — so
+    // repeated calls across rounds never compound. `rng` is injectable (defaults to
+    // Math.random) so game.startRound() can drive it deterministically for replays/tests.
+    rollTendency(rng = Math.random) {
+        this.tendency = pickTendency(rng());
+        const profile = TENDENCY_PROFILES[this.tendency];
+        this.reactionTime = tendencyBoundedTime('reactionTime', this.difficulty, this.tendency);
+        this.windUpTime = tendencyBoundedTime('windUp', this.difficulty, this.tendency);
+        this._tendencyApproachMul = profile.approachMul;
+        this._tendencyLateralMul = profile.lateralMul;
+        this._tendencyDepthBias = profile.depthBias;
+        this._tendencyShotBias = profile.shotBias;
+        this._tendencyLobBias = profile.lobBias;
+    }
+
     onMissDeflect() { this.consecutiveMisses++; }
     recordDamageDealt(amount) { this.totalDamageDealt += amount; }
 
@@ -329,7 +412,7 @@ export class Bot {
 
             // Move toward ball's predicted path to intercept
             if (isTargeted && interceptDist > 2.5) {
-                const moveDir = toIntercept.normalize().multiplyScalar(moveSpeed * 0.85 * dt);
+                const moveDir = toIntercept.normalize().multiplyScalar(moveSpeed * 0.85 * this._tendencyApproachMul * dt);
                 this.position.add(moveDir);
             } else if (!isTargeted && ballDist < 8 && Math.random() < 0.3) {
                 // Even when not targeted, drift toward ball if close
@@ -340,7 +423,7 @@ export class Bot {
             // Perpendicular strafe relative to ball direction
             if (ballDist > 1.5) {
                 const perpDir = new THREE.Vector3(-toBall.z, 0, toBall.x).normalize();
-                const strafeAmount = moveSpeed * 0.4 * dt * this.strafeDir;
+                const strafeAmount = moveSpeed * 0.4 * dt * this.strafeDir * this._tendencyLateralMul;
                 this.position.add(perpDir.multiplyScalar(strafeAmount));
             }
         } else {
@@ -363,11 +446,12 @@ export class Bot {
         const ballZ = ball?.position?.z ?? 0;
         const sideLimit = 1.5;
         if (this.team === 'red') {
-            const pushUp = ballZ < -5 ? -3 : -1; // push forward when ball is on blue side
+            // depthBias<0 (aggressive) shifts pushUp toward 0 = more forward pressure allowed.
+            const pushUp = (ballZ < -5 ? -3 : -1) - this._tendencyDepthBias; // push forward when ball is on blue side
             if (this.position.z > pushUp) this.position.z = pushUp;
         }
         if (this.team === 'blue') {
-            const pushUp = ballZ > 5 ? 3 : 1;
+            const pushUp = (ballZ > 5 ? 3 : 1) + this._tendencyDepthBias;
             if (this.position.z < pushUp) this.position.z = pushUp;
         }
 

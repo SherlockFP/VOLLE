@@ -1,7 +1,7 @@
 // game.js — Full game: chat, team switch, death fx, minimap, aim deflection,
 // damage ramp, skill system, map ban, damage meter, portal handling.
 import * as THREE from 'three';
-import { Ball, networkBallStep } from './ball.js';
+import { Ball, networkBallStep, chargeProfile, CHARGE_OVERCHARGE_SECONDS, ballHeatLevel, BALL_HEAT_TIERS } from './ball.js';
 import { Bot } from './bot.js';
 import { Scoreboard } from './scoreboard.js';
 import { calcDamage, missRampDamage } from './characters.js';
@@ -167,6 +167,15 @@ export class Game {
         this.botCounter = 0;
         this.botDifficulty = 'hard';
         this.rallyCount = 0;
+        // Hold-to-charge deflect + rally heat (see _updateCharge/_applyRallyHeat).
+        this._charging = false;
+        this._chargeHeldSeconds = 0;
+        this._preChargeGlow = null;
+        this.chargeRatio = 0;
+        this.heatTier = BALL_HEAT_TIERS[0].id;
+        this.heatColor = BALL_HEAT_TIERS[0].color;
+        this.heatProgress = 0;
+        this.heatIntensity = 0;
 
         // DMC-style kill combo tracker
         this.killStreak = 0;
@@ -976,6 +985,10 @@ startGame(skipPreGame = false, matchId = null) {
             blue: this.scoreboard.blueScore
         });
         this.activateQueuedPlayers();
+        // Each bot rolls a fresh round tendency (aggressive/defensive/flanker) that
+        // biases its existing decision parameters for the whole round — see bot.js
+        // rollTendency/TENDENCY_PROFILES. Difficulty stats are untouched.
+        this.bots.forEach(b => b.rollTendency());
         if (this.affixes && !this._guidedDrillArmed) this.affixes.startRound();
         if (!this._guidedDrillArmed && this._chaosModeIds.has(this.mode?.id)) this.chaosManager.startRound();
         if (this.ball._warmup) { this.ball.deactivate(); this.ball._warmup = false; }
@@ -994,10 +1007,15 @@ startGame(skipPreGame = false, matchId = null) {
         });
         this._deflectHistory = []; // son 2 deflector (assist için)
         this.rallyCount = 0;
+        this.heatTier = BALL_HEAT_TIERS[0].id;
+        this.heatColor = BALL_HEAT_TIERS[0].color;
+        this.heatProgress = 0;
+        this.heatIntensity = 0;
+        this._cancelCharge();
         // ponytail: killStreak sadece yeni oyunda reset — FIRST BLOOD her round'da değil
         this._spectateTarget = null;
         // ponytail fix: ölü oyuncuları spawn noktasında dirilt
-        if (!this.player.alive) this.player.respawn();
+        if (!this.player.alive) { this.player.respawn(); this.audio.playCue('respawn'); }
         this.bots.forEach(b => { if (!b.alive) { b.alive = true; b.respawn(); } });
         this.remotePlayers.forEach(p => {
             if (p.queuedForNextRound) {
@@ -2062,6 +2080,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             }
         }
         if (!this.ball.active) return;
+        this._updateCharge(dt);
 
         // Spin-Dodge (A-D-A-D) — orbit the ball
         if (this.ball.state === 'orbiting') {
@@ -2069,7 +2088,13 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             if (this.player.attacking || timedOut) {
                 const aimDir = this.player.getAimDirection();
                 const target = this.getAimedEnemy(this.player.getPosition(), aimDir, this.player.team);
+                const chargeResult = this._releaseCharge();
+                if (chargeResult && chargeResult.spread > 0) this._applyChargeSpread(aimDir, chargeResult.spread);
                 const result = this.ball.orbitRelease(aimDir, target);
+                if (chargeResult && chargeResult.power !== 1) {
+                    this.ball.currentSpeed = Math.min(this.ball.currentSpeed * chargeResult.power, this.ball.maxSpeed);
+                    this.ball.velocity.multiplyScalar(chargeResult.power);
+                }
                 if (target) this.ball.setTarget(target);
                 this.player.attacking = false;
                 this.lastDeflector = this.player;
@@ -2078,6 +2103,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 this.ball.lastShotBy = this.playerName;
                 this._recordShotOrigin();
                 this.rallyCount++;
+                this._applyRallyHeat();
                 this.player.onSuccessfulDeflect?.();
                 this.audio.playSfx('tf2_hit', 0.35);
                 this.audio.playDeflect('flat');
@@ -2240,7 +2266,12 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             round: this.scoreboard.roundNum,
             deflections: this.rallyCount,
             hotPotato: this.getHotPotatoSnapshot(),
-            competitive: this.getCompetitiveHUDState()
+            competitive: this.getCompetitiveHUDState(),
+            heatTier: this.heatTier,
+            heatColor: this.heatColor,
+            heatProgress: this.heatProgress,
+            charging: this._charging,
+            chargeRatio: this.chargeRatio
         });
         this.ui.updateBallAffix(this.currentBallAffix);
         this.ui.updateVitals(this.player.hp, this.player.maxHp, this.player.shield,
@@ -2261,6 +2292,108 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         this.updateMinimap();
     }
 
+    // ---- Hold-to-charge deflect + rally heat --------------------------------
+    // Wires ball.js's pure, unit-tested chargeProfile/ballHeatLevel helpers into
+    // the live deflect loop (they previously had no caller in game.js).
+    // Charge: hold the deflect button while the ball is within attack range or
+    // orbiting you — power/spread apply to whichever deflect/orbitRelease
+    // actually connects next; movementScale slows you while winding up.
+    // Heat: every successful deflect (any source) restacks rallyCount into
+    // ballHeatLevel's ratio scale and tints the trail — this.heatTier drives HUD.
+    _updateCharge(dt) {
+        const eligible = this.player.alive
+            && this.state === 'PLAYING'
+            && this.ball.active
+            && !!this.player._deflectHeld
+            && (this.ball.isInAttackRange(this.player.position)
+                || (this.ball.state === 'orbiting' && this.ball.heldPlayer === this.player));
+        if (!eligible) {
+            if (this._charging) this._cancelCharge();
+            return;
+        }
+        if (!this._charging) {
+            this._charging = true;
+            this._chargeHeldSeconds = 0;
+            this._preChargeGlow = this.ball._affixGlowColor;
+        }
+        this._chargeHeldSeconds = Math.min(this._chargeHeldSeconds + dt, CHARGE_OVERCHARGE_SECONDS);
+        const profile = chargeProfile(this._chargeHeldSeconds);
+        this.chargeRatio = profile.ratio;
+        this.player._chargeMoveScale = profile.movementScale;
+        const glowBase = this._preChargeGlow ?? this.ball.skinConfig?.glow ?? 0xff8844;
+        this.ball._affixGlowColor = this._lerpHex(glowBase, BALL_HEAT_TIERS[1].color, profile.ratio);
+    }
+
+    // Cancels an in-progress charge without consuming it — button released
+    // early, ball left range/orbit, death, or a state change out of PLAYING.
+    // Restores movement + glow to their pre-charge values.
+    _cancelCharge() {
+        this._charging = false;
+        this._chargeHeldSeconds = 0;
+        this.chargeRatio = 0;
+        this.player._chargeMoveScale = 1;
+        if (this.ball) this.ball._affixGlowColor = this._preChargeGlow;
+        this._preChargeGlow = null;
+    }
+
+    // Consumes the current charge at the moment of an actual deflect/orbit
+    // release: returns the chargeProfile snapshot (or null when no charge was
+    // active) and resets state exactly like _cancelCharge.
+    _releaseCharge() {
+        if (!this._charging) return null;
+        const profile = chargeProfile(this._chargeHeldSeconds);
+        this._cancelCharge();
+        return profile;
+    }
+
+    // Deterministic aim perturbation for charge spread — seeded by rallyCount
+    // (never Math.random) so replays/tests get identical output for identical
+    // rally state. Returns an angle in [-spread, spread] radians.
+    _seededSpreadAngle(spread) {
+        if (!spread) return 0;
+        const seed = Math.sin((this.rallyCount + 1) * 12.9898) * 43758.5453;
+        const frac = seed - Math.floor(seed);
+        return (frac * 2 - 1) * spread;
+    }
+
+    // Rotates dir.{x,z} around Y by the seeded spread angle, in place (dir is
+    // always a fresh per-deflect Vector3, never a shared/pooled one).
+    _applyChargeSpread(dir, spread) {
+        const angle = this._seededSpreadAngle(spread);
+        if (!angle) return dir;
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        const x = dir.x * cos - dir.z * sin;
+        const z = dir.x * sin + dir.z * cos;
+        dir.x = x;
+        dir.z = z;
+        return dir;
+    }
+
+    _lerpHex(fromHex, toHex, t) {
+        const clamped = t < 0 ? 0 : t > 1 ? 1 : t;
+        const fr = (fromHex >> 16) & 0xff, fg = (fromHex >> 8) & 0xff, fb = fromHex & 0xff;
+        const tr = (toHex >> 16) & 0xff, tg = (toHex >> 8) & 0xff, tb = toHex & 0xff;
+        const r = Math.round(fr + (tr - fr) * clamped);
+        const g = Math.round(fg + (tg - fg) * clamped);
+        const b = Math.round(fb + (tb - fb) * clamped);
+        return (r << 16) | (g << 8) | b;
+    }
+
+    // Rally heat — call once per successful deflect (not per frame). Feeds
+    // rallyCount directly into ballHeatLevel's speed-ratio scale (baseSpeed=1)
+    // so consecutive deflects climb the same cool->overdrive tiers the ball's
+    // own speed-based heat uses (rally 2 -> warm, 4 -> blazing, 5 -> overdrive).
+    _applyRallyHeat() {
+        const heat = ballHeatLevel(this.rallyCount, 1);
+        this.heatTier = heat.tier;
+        this.heatColor = heat.color;
+        this.heatProgress = heat.progress;
+        this.heatIntensity = heat.intensity;
+        if (this.ball) this.ball._affixTrailColor = heat.color;
+        return heat;
+    }
+
     handlePlayerDeflection(skipAimCheck = false) {
         const pos = this.player.getPosition();
         const aimDir = this.player.getAimDirection();
@@ -2273,6 +2406,12 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         if (!skipAimCheck && aimDir.dot(ballDir) < -0.2) return;
         this._cancelPendingLethalHit(this.player);
 
+        // Charge consume — power/spread apply to *this* deflect if the button
+        // was held (see _updateCharge). Both branches below reuse chargedPower.
+        const chargeResult = this._releaseCharge();
+        const chargedPower = chargeResult ? this.player.deflectPower * chargeResult.power : this.player.deflectPower;
+        if (chargeResult && chargeResult.spread > 0) this._applyChargeSpread(aimDir, chargeResult.spread);
+
         // ponytail: client-side prediction. Deflect locally for instant feedback,
         // send intent to host. Host broadcasts authoritative state to correct if needed.
         const isClientCP = this.network?.connected && !this.network?.isHost;
@@ -2282,7 +2421,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             // Predict deflection locally
             const flick = this.player.getFlick();
             const nextTarget = this._goalRush ? null : this.getAimedEnemy(pos, aimDir, team);
-            const result = this.ball.deflectWithAim(pos, aimDir, nextTarget, flick, null, this.player.deflectPower);
+            const result = this.ball.deflectWithAim(pos, aimDir, nextTarget, flick, null, chargedPower);
             if (nextTarget) this.ball.setTarget(nextTarget);
             if (this.ball._affixSplit) this.spawnSplitBall(this.ball);
             this.lastDeflector = this.player;
@@ -2291,6 +2430,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             this.ball.lastShotBy = this.playerName;
             this._recordShotOrigin();
             this.rallyCount++;
+            this._applyRallyHeat();
             this.player.onSuccessfulDeflect();
             this.scoreboard.recordDeflection(this.playerName);
             // Update ball smoothing target to match predicted state
@@ -2330,7 +2470,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         const nextTarget = this._goalRush ? null : this.getAimedEnemy(pos, aimDir, team);
         const flick = this.player.getFlick();
         const momentum = this.player._frameVel;
-        const result = this.ball.deflectWithAim(pos, aimDir, nextTarget, flick, momentum, this.player.deflectPower);
+        const result = this.ball.deflectWithAim(pos, aimDir, nextTarget, flick, momentum, chargedPower);
         if (nextTarget) this.ball.setTarget(nextTarget);
         if (this.ball._affixSplit) this.spawnSplitBall(this.ball);
 
@@ -2353,6 +2493,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         this.ball.lastShotBy = this.playerName;
         this._recordShotOrigin();
         this.rallyCount++;
+        this._applyRallyHeat();
         this.player.onSuccessfulDeflect();
         this.scoreboard.recordDeflection(this.playerName);
         // Shot-dependent SFX: spike=pan clang, flat=standard hit
@@ -2453,13 +2594,19 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         const nextTarget = this.getClosestEnemy(pos, bot.team);
         if (!nextTarget) return;
 
-        // Botlar da lob/spike atsın — difficulty'e göre çeşitlilik
+        // Botlar da lob/spike atsın — difficulty'e göre çeşitlilik, round tendency ile hafif kaydırılır
         const diff = bot.difficulty || 'medium';
-        const skillRate = diff === 'hard' ? 0.4 : diff === 'medium' ? 0.2 : 0.05;
+        const baseSkillRate = diff === 'hard' ? 0.4 : diff === 'medium' ? 0.2 : 0.05;
+        // Difficulty invariance: the tendency-biased trick-shot rate is capped at the
+        // next tier's own base rate, so an easy bot's tendency can never make it play
+        // tricks as often as a medium bot does by default (bot.js TENDENCY_BOUNDS.shotBias).
+        const nextTierSkillRate = diff === 'hard' ? 0.5 : diff === 'medium' ? 0.4 : 0.2;
+        const skillRate = Math.max(0, Math.min(nextTierSkillRate, baseSkillRate + (bot._tendencyShotBias || 0)));
+        const lobLean = bot._tendencyLobBias || 0;
         const aimDir = new THREE.Vector3().subVectors(nextTarget.getPosition(), pos).normalize();
         if (Math.random() < skillRate) {
             const fakeFlick = {
-                vertical: Math.random() > 0.5 ? -35 : 35, // spike or lob
+                vertical: Math.random() < (0.5 + lobLean) ? -35 : 35, // -35=lob, 35=spike (see ball.js deflectWithAim)
                 horizontal: (Math.random() - 0.5) * 20,
                 power: 0.4 + Math.random() * 0.4
             };
@@ -2481,6 +2628,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         this.ball.lastShotBy = bot.name;
         this._recordShotOrigin();
         this.rallyCount++;
+        this._applyRallyHeat();
         bot.onSuccessfulDeflect();
         this.scoreboard.recordDeflection(bot.name);
         this.audio.playSfx('tf2_hit', 0.35);
@@ -4252,6 +4400,7 @@ spawnPowerUp() {
             this._pushDeflectHistory(p.name);
             this.ball.lastShotBy = p.name;
             this.rallyCount++;
+            this._applyRallyHeat();
             p.onSuccessfulDeflect();
             this.scoreboard.recordDeflection(p.name);
             this.matchAnalytics.recordDeflect({
@@ -5428,6 +5577,7 @@ spawnPowerUp() {
         this.lastDeflector = p;
         this.lastDeflectorTeam = p.team;
         this.rallyCount = Math.max(this.rallyCount, data.rally ?? this.rallyCount);
+        this._applyRallyHeat();
         this.audio?.playSfx?.('tf2_hit', 0.15);
         if (data.shot && this.audio?.playDeflect) {
             this.audio.playDeflect(data.shot);

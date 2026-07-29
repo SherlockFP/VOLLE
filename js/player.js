@@ -321,6 +321,7 @@ export class Player {
         this.position = new THREE.Vector3(0, 1.7, -10);
         this.velocity = new THREE.Vector3();
         this.speed = 10;
+        this._chargeMoveScale = 1; // set by Game._updateCharge while charging a deflect
         this.height = 1.7;
         this.radius = 0.7;          // ponytail: hand clipping fix — walls'a daha uzak
 
@@ -336,6 +337,7 @@ export class Player {
         // Mouse
         this.euler = new THREE.Euler(0, 0, 0, 'YXZ');
         this.sensitivity = 0.002;
+        this.invertY = false;
         this.locked = false;
 
         // Flick tracking — recent mouse motion for Genji-style spike/lob
@@ -352,6 +354,7 @@ export class Player {
         this.keys = {};
         this.team = 'red';
         this.attacking = false;
+        this._deflectHeld = false; // raw mouse-button state — Game._updateCharge gates on this
         this.catchRequested = false;
         this.attackCooldown = 0;
         this.attackDuration = ATTACK_COOLDOWN;
@@ -557,7 +560,7 @@ export class Player {
             if (this.game?.ui?.spectating) return;
             if (isEditableTarget(document.activeElement)) return;
             this.euler.y -= e.movementX * this.sensitivity;
-            this.euler.x -= e.movementY * this.sensitivity;
+            this.euler.x += (this.invertY ? 1 : -1) * e.movementY * this.sensitivity;
             this.euler.x = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, this.euler.x));
             this.camera.quaternion.setFromEuler(this.euler);
 
@@ -573,6 +576,7 @@ export class Player {
             const state = this.game?.state;
             if (e.button === 0 && this.alive && !this.game?.ui?.spectating && (state === 'PLAYING' || state === 'CELEBRATION')) {
                 this.tryAttack('slash');
+                this._deflectHeld = true;
             }
             if (e.button === 2 && this.alive && state === 'PLAYING' && this.charId === 'soldier' && this.rocketCooldown <= 0) {
                 e.preventDefault();
@@ -581,6 +585,11 @@ export class Player {
                 e.preventDefault();
                 this.tryAttack('stab');
             }
+        }, { signal });
+        document.addEventListener('mouseup', e => {
+            // Ends the hold-to-charge window (Game._updateCharge) regardless of
+            // game state — mirrors keyup's unconditional release semantics.
+            if (e.button === 0) this._deflectHeld = false;
         }, { signal });
         document.addEventListener('contextmenu', e => {
             if (this.game?.state === 'PLAYING') e.preventDefault();
@@ -649,6 +658,7 @@ export class Player {
         this._skillQueued = false;
         this._rocketQueued = false;
         this._strafeHistory = [];
+        this._deflectHeld = false;
     }
 
     lock() { try { this.renderer.domElement.requestPointerLock(); } catch (_) {} }
@@ -911,7 +921,7 @@ export class Player {
             const sprinting = moveDir.lengthSq() > 0 && holdingShift && this.onGround && this.stamina > 0;
             const spd = sprinting ? this.speed * this.sprintMultiplier : this.speed;
             if (sprinting) this.stamina = Math.max(0, this.stamina - this.sprintDrain * dt);
-            this._moveHorizontal(moveDir, spd * chillMul, dt);
+            this._moveHorizontal(moveDir, spd * chillMul * this._chargeMoveScale, dt);
         }
 
         // Dash trigger — Ctrl tap
@@ -1255,4 +1265,5 @@ export class Player {
     }
 
     setSensitivity(val) { this.sensitivity = val; }
+    setInvertY(val) { this.invertY = !!val; }
 }

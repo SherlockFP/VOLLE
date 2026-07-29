@@ -149,7 +149,7 @@ test('volume normalization: masterGain stays in 0..1 range', () => {
     assert.equal(audio.masterGain.gain.value, 0.5 * 0.4);
 });
 
-test('cue table exists and contains all 30 expected cue names', () => {
+test('cue table exists and contains all 33 expected cue names', () => {
     const expectedCues = [
         'ui-click', 'ui-hover', 'deflect-spike', 'deflect-lob', 'deflect-flat',
         'whoosh', 'dinging', 'jump', 'land', 'bounce',
@@ -158,7 +158,8 @@ test('cue table exists and contains all 30 expected cue names', () => {
         'voice-ping-incoming', 'voice-ping-help', 'voice-ping-save',
         'beep', 'go', 'speed-warning', 'score', 'chat',
         'hit-tf2', 'crit-tf2', 'frying-pan',
-        'match-win', 'match-loss', 'match-end'
+        'match-win', 'match-loss', 'match-end',
+        'respawn', 'equip-change', 'settings-apply'
     ];
     
     assert.equal(Object.keys(Audio.CUES).length, expectedCues.length, `cue table must have exactly ${expectedCues.length} cues`);
@@ -273,5 +274,45 @@ test('knife action cues', () => {
     for (const cue of actions) {
         const r = audio.playCue(cue);
         assert.equal(r, true, `${cue} must play`);
+    }
+});
+
+test('respawn cue plays and uses the default 50ms retrigger guard', () => {
+    const { audio } = createAudioHarness();
+    audio.soundVolume = 0.5;
+
+    const first = audio.playCue('respawn');
+    assert.equal(first, true, 'respawn cue must play');
+    assert.equal(Audio.CUES['respawn'].fn, 'playRespawn');
+    assert.equal(Audio.CUES['respawn'].retriggerMs, undefined, 'respawn has no custom retrigger override (defaults to 50ms)');
+
+    const second = audio.playCue('respawn');
+    assert.equal(second, false, 'immediate re-trigger within 50ms is blocked');
+});
+
+test('equip-change cue plays for character/knife loadout swaps', () => {
+    const { audio } = createAudioHarness();
+    audio.soundVolume = 0.5;
+
+    const result = audio.playCue('equip-change');
+    assert.equal(result, true, 'equip-change cue must play');
+    assert.equal(Audio.CUES['equip-change'].fn, 'playEquipChange');
+});
+
+test('settings-apply cue plays for settings confirmation', () => {
+    const { audio } = createAudioHarness();
+    audio.soundVolume = 0.5;
+
+    const result = audio.playCue('settings-apply');
+    assert.equal(result, true, 'settings-apply cue must play');
+    assert.equal(Audio.CUES['settings-apply'].fn, 'playSettingsApply');
+});
+
+test('new cues (respawn, equip-change, settings-apply) respect mute like every other cue', () => {
+    const { audio } = createAudioHarness();
+    audio.soundVolume = 0;
+
+    for (const cue of ['respawn', 'equip-change', 'settings-apply']) {
+        assert.equal(audio.playCue(cue), false, `${cue} must be silenced when muted`);
     }
 });

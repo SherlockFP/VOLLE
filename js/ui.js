@@ -162,7 +162,8 @@ export class UI {
     hideHUD() { if (this.screens.hud) this.screens.hud.classList.add('hidden'); }
 
     updateHUD(data) {
-        const { time, timeRemaining, redScore, blueScore, ballSpeed, hotPotato, competitive } = data;
+        const { time, timeRemaining, redScore, blueScore, ballSpeed, hotPotato, competitive,
+            heatTier, heatColor, heatProgress, charging, chargeRatio } = data;
         const el = id => document.getElementById(id);
 
         const timerEl = el('hud-round-timer');
@@ -192,6 +193,23 @@ export class UI {
             const heat = getBallHeat(ballSpeed);
             speedEl.textContent = Math.round(heat.speed);
             speedEl.parentElement.dataset.heat = heat.level;
+        }
+        // Rally heat pip — fills/tints as rallyCount climbs ball.js's heat tiers
+        // (Game._applyRallyHeat, called once per deflect, not per frame).
+        const heatPip = el('hud-heat-pip');
+        const heatFill = el('hud-heat-fill');
+        if (heatPip && heatFill) {
+            const tier = heatTier || 'cool';
+            if (heatPip.dataset.tier !== tier) heatPip.dataset.tier = tier;
+            heatFill.style.width = `${Math.round((heatProgress || 0) * 100)}%`;
+            if (Number.isFinite(heatColor)) heatFill.style.backgroundColor = `#${heatColor.toString(16).padStart(6, '0')}`;
+        }
+        // Charge bar — only visible while holding the deflect button (Game._updateCharge).
+        const chargeBar = el('hud-charge-bar');
+        const chargeFill = el('hud-charge-fill');
+        if (chargeBar && chargeFill) {
+            chargeBar.classList.toggle('hidden', !charging);
+            if (charging) chargeFill.style.width = `${Math.round((chargeRatio || 0) * 100)}%`;
         }
         this.updateHotPotato(hotPotato);
         this.updateCompetitiveHUD(competitive);

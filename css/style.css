@@ -117,6 +117,20 @@ body.social-hub-active #menu-particles {
     opacity: 0;
 }
 
+/* Menu 3D stage -- full-viewport Three.js backdrop (js/menu-stage.js). Lives as the first
+   child of #main-menu so it paints above that element's own CSS background/pseudo-elements
+   but below every menu panel; the character hero canvas (.ow-hero-stage) stays layered
+   above it too since .ow-menu carries a higher z-index. Never intercepts input. */
+#menu-stage-canvas {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    display: block;
+}
+
 /* Match intro overlay */
 #match-intro {
     position: fixed; inset: 0; z-index: 9999;
