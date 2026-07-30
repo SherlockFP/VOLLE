@@ -253,3 +253,37 @@ export function claimReward(progress, tier, track, { hasPremium = false } = {}) 
         reward
     };
 }
+
+// ===== UI-facing derivation (pure) =====
+// js/ui.js's battlepass screen used to re-derive claim/lock logic ad-hoc per
+// reward row, which produced the "everything shows a Premium lock" bug: a
+// premium-track reward 40 tiers away was flagged identically to one already
+// reached but unaffordable. This is the single source of truth instead, one
+// of four states, checked in priority order (claimed beats everything; an
+// unreached tier is just "future" regardless of track, so the premium-lock
+// badge only ever appears once a tier is actually reachable):
+//   'claimed'         — already claimed, on either track
+//   'locked-tier'      — bp.tier hasn't reached this tier yet (future reward)
+//   'locked-premium'  — tier reached, premium track, no premium pass owned
+//   'claimable'       — tier reached, claimable right now
+export function rewardRowState(progress, tier, track, { hasPremium = false } = {}) {
+    if (!progress || !isValidTier(tier) || !isValidTrack(track)) return 'locked-tier';
+    const claimedList = track === 'free' ? progress.claimedFree : progress.claimedPremium;
+    if (Array.isArray(claimedList) && claimedList.includes(tier)) return 'claimed';
+    if (clampTier(progress.tier) < tier) return 'locked-tier';
+    if (track === 'premium' && !hasPremium) return 'locked-premium';
+    return 'claimable';
+}
+
+// Tier-card-level state (independent of free/premium track) for the tier
+// strip: which card is the active/current one, which are already behind,
+// which are still ahead. bp.tier === 0 (fresh season) treats tier 1 as the
+// active card rather than leaving every card "future".
+export function tierCardState(progress, tier) {
+    if (!isValidTier(tier)) return 'future';
+    const reached = clampTier(progress?.tier);
+    const activeTier = reached === 0 ? 1 : reached;
+    if (tier < activeTier) return 'completed';
+    if (tier === activeTier) return 'current';
+    return 'future';
+}

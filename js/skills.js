@@ -138,6 +138,30 @@ export function tickSkillCooldowns(entity, dt, consecutivePerfectCount = 0) {
     }
 }
 
+// Perfect-deflect combo cooldown cut (V3_UX_ROADMAP.md 3.3). Chained perfect deflects
+// reward players by shaving flat seconds off their equipped skill's cooldown — pure and
+// separate from the drain-rate getComboAcceleration() above (that one accelerates the
+// per-frame tick for the whole cooldown window; this one is a one-off subtraction fired
+// per perfect hit). chainLength comes straight from perfect-deflect.js's
+// resolvePerfectDeflect().chain.count: 1 = first perfect of a new chain, 2+ = consecutive
+// (a normal/great/miss deflect resets the chain to 0 upstream, so callers naturally get 0
+// here too — no separate "chain broken" input needed).
+export const PERFECT_DEFLECT_COOLDOWN_CUT = Object.freeze({
+    first: 1.0,     // seconds off cooldown for the opening perfect of a chain
+    chained: 1.5,   // seconds off cooldown for every consecutive perfect after that
+    roundCap: 6.0   // max total seconds a single round can grant this way (anti-exploit)
+});
+
+export function perfectDeflectCooldownCut(chainLength, totalCutThisRound = 0) {
+    const chain = Number.isFinite(chainLength) ? Math.trunc(chainLength) : 0;
+    if (chain <= 0) return 0;
+    const already = Number.isFinite(totalCutThisRound) ? Math.max(0, totalCutThisRound) : 0;
+    const remaining = PERFECT_DEFLECT_COOLDOWN_CUT.roundCap - already;
+    if (remaining <= 0) return 0;
+    const raw = chain === 1 ? PERFECT_DEFLECT_COOLDOWN_CUT.first : PERFECT_DEFLECT_COOLDOWN_CUT.chained;
+    return Math.min(raw, remaining);
+}
+
 // Skill kullanmayı dene. Başarılıysa etkiyi uygula, true döndür.
 export function useSkill(entity, skillId, context = {}) {
     if (context.game?._skillsDisabled || entity?._gameRef?._skillsDisabled) return false;

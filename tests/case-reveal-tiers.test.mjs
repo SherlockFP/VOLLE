@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { revealPresentationForRarity, CASES } from '../js/cosmetics.js';
+import { revealPresentationForRarity, formatDuplicateConversion, CASES } from '../js/cosmetics.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -125,4 +125,105 @@ test('revealPresentationForRarity: uncommon tier maps to fast like common', () =
     const uncommon = revealPresentationForRarity('uncommon');
     assert.equal(uncommon.tier, common.tier, 'uncommon and common should have same tier');
     assert.equal(uncommon.spinMs, common.spinMs, 'uncommon and common should have same spinMs');
+});
+
+// ===== V3 3.4: rare/epic/legendary now diverge (used to be identical "medium"/"long") =====
+
+test('revealPresentationForRarity: rare/epic/legendary each get a distinct FX tier', () => {
+    const common = revealPresentationForRarity('common');
+    const rare = revealPresentationForRarity('rare');
+    const epic = revealPresentationForRarity('epic');
+    const legendary = revealPresentationForRarity('legendary');
+
+    // common: no glow, no pulse, no confetti, no pre-stop hitch, no flash, no sfx
+    assert.equal(common.glow, null);
+    assert.equal(common.pulse, false);
+    assert.equal(common.confetti, false);
+    assert.equal(common.preStop, false);
+    assert.equal(common.flash, 0);
+    assert.equal(common.sfx, null);
+
+    // rare: blue glow flash only, nothing else new
+    assert.equal(rare.glow, 'blue');
+    assert.ok(rare.flash > 0, 'rare should have a nonzero glow flash');
+    assert.equal(rare.pulse, false, 'rare should not get the epic screen pulse');
+    assert.equal(rare.confetti, false);
+    assert.equal(rare.preStop, false);
+    assert.equal(rare.sfx, null, 'rare has no dedicated cue in this pass');
+
+    // epic: purple glow + screen pulse + its own cue, no confetti/pre-stop
+    assert.equal(epic.glow, 'purple');
+    assert.ok(epic.flash > 0);
+    assert.equal(epic.pulse, true);
+    assert.equal(epic.confetti, false);
+    assert.equal(epic.preStop, false);
+    assert.ok(epic.sfx, 'epic should have a distinct sfx cue');
+    assert.notEqual(epic.sfx, legendary.sfx, 'epic sfx must differ from legendary fanfare');
+
+    // legendary: gold glow + pulse + confetti + pre-stop hitch + fanfare
+    assert.equal(legendary.glow, 'gold');
+    assert.equal(legendary.pulse, true);
+    assert.equal(legendary.confetti, true);
+    assert.equal(legendary.preStop, true);
+    assert.equal(legendary.sfx, 'tf2_domination');
+    assert.ok(legendary.flash > epic.flash, 'legendary flash should read stronger than epic');
+    assert.ok(epic.flash > rare.flash, 'epic flash should read stronger than rare');
+
+    // exotic mirrors legendary's flourishes, same as it already mirrors legendary's timing
+    const exotic = revealPresentationForRarity('exotic');
+    assert.equal(exotic.glow, legendary.glow);
+    assert.equal(exotic.pulse, legendary.pulse);
+    assert.equal(exotic.confetti, legendary.confetti);
+    assert.equal(exotic.preStop, legendary.preStop);
+    assert.equal(exotic.sfx, legendary.sfx);
+});
+
+test('revealPresentationForRarity: reduced motion also collapses the new rarity flourishes', () => {
+    for (const rarity of ['rare', 'epic', 'legendary', 'exotic']) {
+        const reduced = revealPresentationForRarity(rarity, { reducedMotion: true });
+        assert.equal(reduced.glow, null, `${rarity} glow should be off under reduced motion`);
+        assert.equal(reduced.pulse, false, `${rarity} pulse should be off under reduced motion`);
+        assert.equal(reduced.confetti, false, `${rarity} confetti should be off under reduced motion`);
+        assert.equal(reduced.preStop, false, `${rarity} pre-stop hitch should be off under reduced motion`);
+        assert.equal(reduced.flash, 0, `${rarity} flash should collapse to 0 under reduced motion`);
+        // Audio payoff still survives reduced motion — same rule as before.
+        const normal = revealPresentationForRarity(rarity, { reducedMotion: false });
+        assert.equal(reduced.sfx, normal.sfx, `${rarity} sfx should be unaffected by reduced motion`);
+    }
+});
+
+test('revealPresentationForRarity: ui.js wires the new rarity dataset + additive hooks', () => {
+    const uiPath = join(__dirname, '..', 'js', 'ui.js');
+    const uiSource = readFileSync(uiPath, 'utf8');
+    assert.match(uiSource, /overlay\.dataset\.revealRarity\s*=\s*presentation\.rarity/, 'ui.js must expose the resolved rarity on the overlay for CSS hooks');
+    assert.match(uiSource, /formatDuplicateConversion/, 'ui.js must use the pure duplicate-conversion formatter');
+    assert.match(uiSource, /presentation\.confetti/, 'ui.js must gate confetti behind presentation.confetti');
+    assert.match(uiSource, /presentation\.preStop/, 'ui.js must gate the pre-stop hitch behind presentation.preStop');
+});
+
+// ===== duplicate → coin conversion text (pure, no DOM) =====
+
+test('formatDuplicateConversion: renders the coin amount clearly', () => {
+    assert.equal(formatDuplicateConversion(35), 'Duplicate \u2192 +35 coins');
+    assert.equal(formatDuplicateConversion(182), 'Duplicate \u2192 +182 coins');
+});
+
+test('formatDuplicateConversion: rounds fractional refunds', () => {
+    assert.equal(formatDuplicateConversion(35.6), 'Duplicate \u2192 +36 coins');
+    assert.equal(formatDuplicateConversion(35.4), 'Duplicate \u2192 +35 coins');
+});
+
+test('formatDuplicateConversion: clamps bad input to 0 instead of throwing/NaN', () => {
+    for (const bad of [undefined, null, NaN, -50, 'x', {}, []]) {
+        assert.doesNotThrow(() => formatDuplicateConversion(bad));
+        assert.equal(formatDuplicateConversion(bad), 'Duplicate \u2192 +0 coins', `bad input ${JSON.stringify(bad)} should clamp to 0`);
+    }
+});
+
+test('formatDuplicateConversion: matches the real refund shape from store.js (35 or 35% of case price)', () => {
+    // store.js _openCase: refund = duplicate ? (free ? 35 : Math.floor(box.price * 0.35)) : 0
+    for (const box of Object.values(CASES)) {
+        const refund = Math.floor(box.price * 0.35);
+        assert.match(formatDuplicateConversion(refund), /^Duplicate → \+\d+ coins$/);
+    }
 });

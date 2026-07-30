@@ -4,7 +4,7 @@ import { CHARACTERS } from './characters.js';
 import { SKILLS, RUNES } from './skills.js';
 import { BALL_SKINS } from './ball.js';
 import { AVATAR_SKINS } from './avatar.js';
-import { CASES, KNIVES, getCaseDropRates, revealPresentationForRarity } from './cosmetics.js';
+import { CASES, KNIVES, getCaseDropRates, revealPresentationForRarity, formatDuplicateConversion } from './cosmetics.js';
 import { ACHIEVEMENTS } from './achievements.js';
 import { MatchHistory } from './matchhistory.js';
 import { getRank, getRankProgress } from './ranked.js';
@@ -15,6 +15,7 @@ import { accountRankLabel, accountRankShort, levelProgress, prestigeTitle } from
 import { Store } from './store.js';
 import { matchesShopFilter, deriveShopCardState } from './shop-clarity.js';
 import { classifyDamageTier, nextPoolCursor, damageJitterFor, comboTier } from './combat-fx.js';
+import { rewardRowState, tierCardState } from './battlepass.js';
 
 const CHARACTER_ATLAS = 'assets/generated/characters/character-atlas.png';
 const BALL_BASE_SPEED = 17;
@@ -1962,20 +1963,30 @@ export class UI {
             return `<div class="case-reel-item rarity-${rarity}" data-rarity="${rarity}"><span class="case-reel-orb" data-type="${kind}" aria-hidden="true"></span><small>${type}</small><b>${item.name || item.id}</b></div>`;
         }).join('');
         resultEl.textContent = '';
+        resultEl.removeAttribute('data-rarity');
         const preview = document.getElementById('case-reward-preview');
         if (preview) {
             preview.className = 'case-reward-preview';
             preview.removeAttribute('style');
         }
+        // Reset flourishes left over from a previous reveal on this reused
+        // overlay — confetti pieces are removed outright, not just hidden.
+        overlay.querySelectorAll('.case-confetti-piece').forEach(node => node.remove());
+        overlay.classList.remove('case-reveal-pulse', 'case-reveal-prestop');
+        const staleGlow = document.getElementById('case-reveal-glow');
+        if (staleGlow) { staleGlow.style.opacity = 0; staleGlow.className = 'case-reveal-glow'; }
         overlay.classList.remove('hidden');
         let settled = false;
         const presentation = revealPresentationForRarity(result.reward.rarity, { reducedMotion: this._isReducedMotion() });
         overlay.dataset.revealTier = presentation.tier;
+        overlay.dataset.revealRarity = presentation.rarity;
         let flashFadeTimer = null;
+        let preStopTimer = null;
         const finish = () => {
             if (settled) return;
             settled = true;
             clearTimeout(flashFadeTimer);
+            clearTimeout(preStopTimer);
             track.classList.add('settled');
             track.children[targetIndex]?.classList.add('is-winner');
             const rewardPreview = document.getElementById('case-reward-preview');
@@ -1984,24 +1995,28 @@ export class UI {
                 rewardPreview.style.setProperty('--reward-color', result.reward.color || result.reward.body || '#55eadc');
                 rewardPreview.style.setProperty('--reward-accent', result.reward.accent || result.reward.head || '#153e64');
             }
-            resultEl.innerHTML = `<span>${result.duplicate ? `Duplicate +${result.refund}` : 'UNLOCKED - INVENTORY READY'}</span><strong>${result.reward.name}</strong>`;
+            resultEl.dataset.rarity = result.reward.rarity || 'common';
+            resultEl.innerHTML = `<span>${result.duplicate ? formatDuplicateConversion(result.refund) : 'UNLOCKED - INVENTORY READY'}</span><strong>${result.reward.name}</strong>`;
             this.onCaseRewardReveal?.(result.reward);
-            if (presentation.flash > 0) {
+            // Rarity-tinted glow (blue/purple/gold) — dedicated element, not the
+            // shared #juice-flash combat uses, so colors never fight each other.
+            if (presentation.glow && presentation.flash > 0) {
                 flashFadeTimer = setTimeout(() => {
-                    this.updateFlash?.(presentation.flash);
+                    const glow = this._ensureCaseRevealGlow(presentation.rarity);
+                    glow.style.opacity = presentation.flash;
                     const decayTime = 280;
                     const decaySteps = 28;
                     let step = 0;
                     const fadeOut = () => {
                         step++;
-                        const opacity = presentation.flash * Math.max(0, 1 - step / decaySteps);
-                        const el = document.getElementById('juice-flash');
-                        if (el) el.style.opacity = opacity;
+                        glow.style.opacity = presentation.flash * Math.max(0, 1 - step / decaySteps);
                         if (step < decaySteps) flashFadeTimer = setTimeout(fadeOut, decayTime / decaySteps);
                     };
                     fadeOut();
                 }, 220);
             }
+            if (presentation.pulse) overlay.classList.add('case-reveal-pulse');
+            if (presentation.confetti) this._spawnCaseConfetti(overlay);
             if (presentation.sfx && this.audio?.playSfx) {
                 this.audio.playSfx(presentation.sfx, 0.7);
             }
@@ -2016,8 +2031,49 @@ export class UI {
             track.getBoundingClientRect();
             requestAnimationFrame(() => track.classList.add('spin'));
         });
+        // Legendary-only: a brief hitch just before the reel settles. This is
+        // a CSS filter pulse on the window frame, not a Juice.slowMo() call —
+        // the case reel is a shop/menu overlay with no live Juice instance in
+        // scope (Juice only exists per in-match Game), and cosmetics.js's own
+        // slowMo contract already drives spinMs via CSS transition-duration.
+        // A real timeScale call would either no-op here or bleed into an
+        // unrelated match loop, so the "slowdown" stays in the same CSS-driven
+        // lane as the rest of the reel's pacing.
+        if (presentation.preStop) {
+            const hitchLead = Math.min(260, Math.max(0, presentation.spinMs - 200));
+            preStopTimer = setTimeout(() => overlay.classList.add('case-reveal-prestop'), Math.max(0, presentation.spinMs + 100 - hitchLead));
+        }
         const timer = setTimeout(finish, presentation.spinMs + 100);
-        document.getElementById('case-reel-skip')?.addEventListener('click', () => { clearTimeout(timer); clearTimeout(flashFadeTimer); finish(); }, { once: true });
+        document.getElementById('case-reel-skip')?.addEventListener('click', () => { clearTimeout(timer); clearTimeout(flashFadeTimer); clearTimeout(preStopTimer); finish(); }, { once: true });
+    }
+
+    // Persistent full-screen rarity-tinted glow for case reveals (mirrors the
+    // updateFlash()/#juice-flash pattern but kept separate so combat's flash
+    // color never mixes with a case-reveal color).
+    _ensureCaseRevealGlow(rarity) {
+        let el = document.getElementById('case-reveal-glow');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'case-reveal-glow';
+            document.body.appendChild(el);
+        }
+        el.className = `case-reveal-glow rarity-${rarity}`;
+        return el;
+    }
+
+    // Lightweight DOM/CSS confetti burst for legendary reveals. Only ever
+    // called once per reveal (not per-frame), so per-piece allocation here is
+    // fine — this is not the render loop.
+    _spawnCaseConfetti(overlay) {
+        const colors = ['#ffd36b', '#ffc02e', '#fff3c4', '#ffe08a'];
+        for (let i = 0; i < 18; i++) {
+            const piece = document.createElement('span');
+            piece.className = 'case-confetti-piece';
+            piece.style.setProperty('--confetti-x', `${Math.round((Math.random() - 0.5) * 260)}px`);
+            piece.style.setProperty('--confetti-delay', `${Math.round(Math.random() * 160)}ms`);
+            piece.style.setProperty('--confetti-color', colors[i % colors.length]);
+            overlay.appendChild(piece);
+        }
     }
 
     // ===== BATTLEPASS EKRANI =====
@@ -2030,34 +2086,40 @@ export class UI {
 
     _buildBpTierRow(reward, track, bp, hasPremium) {
         const row = document.createElement('div');
-        const unlocked = bp.tier >= reward.tier;
-        const claimedList = track === 'free' ? bp.claimedFree : bp.claimedPremium;
-        const claimed = claimedList.includes(reward.tier);
-        const locked = track === 'premium' && !hasPremium;
-        row.className = `bp-reward bp-reward-row bp-reward-${track} ${claimed ? 'claimed' : ''} ${!unlocked || locked ? 'locked' : ''}`;
+        const state = rewardRowState(bp, reward.tier, track, { hasPremium });
+        row.className = `bp-reward bp-reward-row bp-reward-${track} bp-reward-${state}`;
+
+        const tag = document.createElement('span');
+        tag.className = `bp-track-tag bp-track-tag-${track}`;
+        tag.textContent = track === 'premium' ? '🔒 Premium' : 'Free';
+        row.appendChild(tag);
 
         const label = document.createElement('span');
+        label.className = 'bp-reward-label';
         label.textContent = `${this._bpRewardIcon(reward.kind)} ${reward.name}`;
         row.appendChild(label);
 
-        if (locked) {
-            const lockNote = document.createElement('span');
-            lockNote.className = 'char-price';
-            lockNote.textContent = '🔒 Premium';
-            row.appendChild(lockNote);
-        } else if (unlocked && !claimed) {
+        const status = document.createElement('span');
+        status.className = 'bp-reward-status';
+        if (state === 'claimable') {
             const btn = document.createElement('button');
             btn.type = 'button';
             btn.className = 'btn btn-primary btn-small bp-claim';
             btn.dataset.tier = String(reward.tier);
             btn.dataset.track = track;
             btn.textContent = 'Claim';
-            row.appendChild(btn);
-        } else if (claimed) {
-            const done = document.createElement('span');
-            done.textContent = 'Claimed';
-            row.appendChild(done);
+            status.appendChild(btn);
+        } else if (state === 'claimed') {
+            status.classList.add('bp-reward-done');
+            status.textContent = '✓ Claimed';
+        } else if (state === 'locked-premium') {
+            status.classList.add('bp-reward-need-premium');
+            status.textContent = 'Needs Premium';
         }
+        // 'locked-tier' (a future reward): status stays empty — the card's own
+        // dimmed "future" state already communicates that, without repeating
+        // a "Premium" badge on rewards nobody can act on yet.
+        row.appendChild(status);
         return row;
     }
 
@@ -2103,20 +2165,24 @@ export class UI {
         const { free, premium } = store.getBattlepassRewards();
         const nextFree = free.find(reward => reward.tier > bp.tier);
         const nextEl = document.getElementById('bp-next-reward');
+        const ringIconEl = document.getElementById('bp-progress-ring-icon');
         const ringEl = document.getElementById('bp-progress-ring');
         const ring = document.querySelector('.progression-ring');
         if (nextEl) nextEl.textContent = nextFree
             ? `Tier ${nextFree.tier}: ${nextFree.name}`
             : 'Season track complete';
+        if (ringIconEl) ringIconEl.textContent = nextFree ? this._bpRewardIcon(nextFree.kind) : '🏆';
         const ringPercent = xpNeeded ? Math.round((bp.xp / xpNeeded) * 100) : 100;
         if (ringEl) ringEl.textContent = `${ringPercent}%`;
         if (ring) ring.style.setProperty('--bp-progress', `${ringPercent}%`);
+        let currentCell = null;
         for (let tier = 1; tier <= free.length; tier++) {
             const freeReward = free[tier - 1];
             const premiumReward = premium[tier - 1];
             const cell = document.createElement('div');
-            const unlocked = bp.tier >= tier;
-            cell.className = `bp-tier ${!unlocked ? 'locked' : ''}`;
+            const cardState = tierCardState(bp, tier);
+            cell.className = `bp-tier ${cardState}`;
+            if (cardState === 'current') currentCell = cell;
             const num = document.createElement('div');
             num.className = 'bp-tier-num';
             num.textContent = String(tier);
@@ -2124,6 +2190,22 @@ export class UI {
             cell.appendChild(this._buildBpTierRow(freeReward, 'free', bp, hasPremium));
             cell.appendChild(this._buildBpTierRow(premiumReward, 'premium', bp, hasPremium));
             trackEl.appendChild(cell);
+        }
+        // Land on the tier the player is actually working toward, not tier 1
+        // of a 50-tier strip. main.js calls renderBattlepass() *before*
+        // showScreen() removes the "hidden" (display:none) class, so scrolling
+        // here would act on a zero-size container and silently no-op — defer
+        // one frame so showScreen has already run by the time this fires.
+        // Instant jump under reduced motion.
+        if (currentCell) {
+            const reducedMotion = this._isReducedMotion();
+            requestAnimationFrame(() => {
+                currentCell.scrollIntoView({
+                    behavior: reducedMotion ? 'auto' : 'smooth',
+                    inline: 'center',
+                    block: 'nearest'
+                });
+            });
         }
     }
 

@@ -400,8 +400,19 @@ body {
     display: block;
     margin: 7px 0;
     font: 800 clamp(1.35rem, 2.4vw, 2.2rem) var(--font-display, sans-serif);
+    color: var(--ui-text);
+    text-shadow: 0 2px 10px rgba(0, 8, 12, 0.55);
 }
 
+.progression-hero p {
+    margin: 0;
+    color: var(--ui-muted);
+}
+
+/* Was a near-black radial-gradient hole (#082832) that read as an unloaded
+   image, especially at low progress. Now: a lit sphere (same highlight +
+   solid-fill pattern as #main-menu .ow-featured-orb) holding the next
+   reward's icon, wrapped by the actual conic-gradient progress ring. */
 .progression-ring {
     width: 104px;
     aspect-ratio: 1;
@@ -409,14 +420,33 @@ body {
     display: grid;
     place-items: center;
     border-radius: 50%;
-    background:
-        radial-gradient(circle, #082832 55%, transparent 57%),
-        conic-gradient(#63e8dc var(--bp-progress, 0%), rgba(255, 255, 255, 0.08) 0);
-    box-shadow: 0 0 32px rgba(54, 216, 202, 0.2);
+    background: conic-gradient(var(--ui-primary, #63e8dc) var(--bp-progress, 0%), rgba(255, 255, 255, 0.14) 0);
+    box-shadow: 0 0 32px color-mix(in srgb, var(--ui-primary, #63e8dc) 45%, transparent);
 }
 
-.bp-track {
-    padding-bottom: 10px;
+.progression-ring-inner {
+    width: 76px;
+    aspect-ratio: 1;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.32) 0 8%, var(--ui-primary-strong, #1fa89c) 10% 60%, #0a2a30 100%);
+    box-shadow: inset 0 0 16px rgba(0, 0, 0, 0.35);
+}
+
+.progression-ring-icon {
+    font-size: 1.5rem;
+    line-height: 1;
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5));
+}
+
+.progression-ring-pct {
+    display: block;
+    margin-top: 1px;
+    font-size: 0.6rem;
+    font-weight: 800;
+    color: var(--ui-text);
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
 }
 
 .career-dashboard {
@@ -4406,6 +4436,79 @@ body.hit-flash {
 @media (prefers-reduced-motion: reduce) {
     .case-reel-item.is-winner .case-reel-orb { animation: none; }
     .case-reel-track.settled .case-reel-item { transition: none; }
+}
+
+/* ===== CASE REVEAL: RARITY-TIERED FLOURISHES ===== */
+/* Rare/epic used to be the same "medium" tier — no flash, no sfx, no visual
+   distinction beyond the reel-item border colour. This is what actually
+   tells rare, epic and legendary apart at the moment of reveal. All of it is
+   additive to the untouched reel spin/settle mechanics above. */
+
+/* Full-screen rarity-tinted glow (own element — never mixes with combat's
+   amber #juice-flash). Persistent node, opacity-driven, no per-reveal alloc. */
+.case-reveal-glow {
+    position: fixed;
+    inset: 0;
+    z-index: 730;
+    pointer-events: none;
+    opacity: 0;
+}
+.case-reveal-glow.rarity-rare { background: radial-gradient(ellipse at center, rgba(54, 168, 255, 0) 32%, rgba(54, 168, 255, .6) 100%); }
+.case-reveal-glow.rarity-epic { background: radial-gradient(ellipse at center, rgba(174, 124, 255, 0) 30%, rgba(174, 124, 255, .65) 100%); }
+.case-reveal-glow.rarity-legendary,
+.case-reveal-glow.rarity-exotic { background: radial-gradient(ellipse at center, rgba(255, 192, 46, 0) 26%, rgba(255, 192, 46, .72) 100%); }
+
+/* Epic: a light pulse on the reveal card itself. */
+.case-reel.case-reveal-pulse .case-reel-card { animation: case-epic-pulse 420ms ease-out; }
+@keyframes case-epic-pulse {
+    0%   { transform: scale(1); }
+    40%  { transform: scale(1.018); box-shadow: 0 30px 100px rgba(0, 0, 0, .72), inset 0 1px rgba(255, 255, 255, .08), 0 0 60px rgba(174, 124, 255, .55); }
+    100% { transform: scale(1); }
+}
+
+/* Legendary: a brief hitch on the reel window right before it settles — a
+   CSS filter pulse, not a track-transform change, so the reel core stays
+   untouched. See js/ui.js showCaseReel for why this is CSS-driven rather
+   than a Juice.slowMo()/hitStop() call. */
+.case-reel.case-reveal-prestop .case-reel-window { animation: case-prestop-hitch 240ms ease-out; }
+@keyframes case-prestop-hitch {
+    0%   { filter: brightness(1) saturate(1); }
+    45%  { filter: brightness(1.35) saturate(1.25); }
+    100% { filter: brightness(1) saturate(1); }
+}
+
+/* Legendary: light DOM/CSS confetti burst, gold-toned, capped at 18 pieces. */
+.case-confetti-piece {
+    position: absolute;
+    top: 28%;
+    left: 50%;
+    width: 7px;
+    height: 13px;
+    background: var(--confetti-color, #ffd36b);
+    opacity: 0;
+    transform: translate(calc(var(--confetti-x, 0px) * .2), -16px) rotate(0deg);
+    animation: case-confetti-fall 1100ms ease-in var(--confetti-delay, 0ms) forwards;
+    pointer-events: none;
+    z-index: 4;
+}
+@keyframes case-confetti-fall {
+    0%   { opacity: 0; transform: translate(calc(var(--confetti-x, 0px) * .2), -16px) rotate(0deg); }
+    15%  { opacity: 1; }
+    100% { opacity: 0; transform: translate(var(--confetti-x, 0px), 340px) rotate(540deg); }
+}
+
+/* Static rarity accent on the result text — this is the ONE thing reduced
+   motion never strips (a colour, not an animation), so rarity still reads
+   at a glance with every animation above disabled. */
+.case-reel-result[data-rarity="rare"] strong { color: #74d2ff; }
+.case-reel-result[data-rarity="epic"] strong { color: #c9a3ff; }
+.case-reel-result[data-rarity="legendary"] strong,
+.case-reel-result[data-rarity="exotic"] strong { color: #ffdf9b; text-shadow: 0 0 18px rgba(255, 192, 46, .5); }
+
+@media (prefers-reduced-motion: reduce) {
+    .case-reel.case-reveal-pulse .case-reel-card { animation: none; }
+    .case-reel.case-reveal-prestop .case-reel-window { animation: none; }
+    .case-confetti-piece { display: none; }
 }
 
 /* ===== MAIN MENU: LIVE 3D HERO ===== */

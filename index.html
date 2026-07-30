@@ -14,12 +14,12 @@
     <script type="importmap">
     {
         "imports": {
-            "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
-            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+            "three": "./vendor/three/three.module.js",
+            "three/addons/": "./vendor/three/addons/"
         }
     }
     </script>
-    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    <script src="vendor/peerjs/peerjs.min.js"></script>
 </head>
 <body>
     <svg class="ui-sprite" aria-hidden="true">
@@ -911,7 +911,7 @@
             </header>
             <div class="progression-hero">
                 <div><span class="shell-kicker">CURRENT RUN</span><strong id="bp-next-reward">Next reward loading...</strong><p>Free track. No pay-to-win stats.</p></div>
-                <div class="progression-ring"><span id="bp-progress-ring">0%</span></div>
+                <div class="progression-ring"><div class="progression-ring-inner"><span id="bp-progress-ring-icon" class="progression-ring-icon" aria-hidden="true">🪙</span><span id="bp-progress-ring" class="progression-ring-pct">0%</span></div></div>
             </div>
             <div class="bp-track" id="bp-track"></div>
             <button id="btn-bp-back" class="btn btn-secondary shell-back"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back to menu</button>

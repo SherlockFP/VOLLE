@@ -196,13 +196,31 @@ const REVEAL_FAMILIES = Object.freeze({
     legendary: 'long', exotic: 'long'
 });
 
+// Rarity-level reveal flourishes, layered on top of the tier timing above.
+// Rare/epic used to be visually identical (both "medium" tier, no flash, no
+// sfx) — this is what actually tells them apart: distinct glow colour, an
+// epic-only screen pulse + sting, a legendary-only pre-stop hitch + confetti.
+// Keyed by resolved rarity (not tier family) so rare and epic can diverge
+// while sharing the same spin/hold pacing. `sfx` here overrides the tier's
+// sfx when present; reduced motion never touches it (audio payoff survives).
+const RARITY_FX = Object.freeze({
+    common: Object.freeze({ flashAmt: 0, glow: null, pulse: false, confetti: false, preStop: false, sfx: null }),
+    uncommon: Object.freeze({ flashAmt: 0, glow: null, pulse: false, confetti: false, preStop: false, sfx: null }),
+    rare: Object.freeze({ flashAmt: 0.22, glow: 'blue', pulse: false, confetti: false, preStop: false, sfx: null }),
+    epic: Object.freeze({ flashAmt: 0.34, glow: 'purple', pulse: true, confetti: false, preStop: false, sfx: 'tf2_crit' }),
+    legendary: Object.freeze({ flashAmt: 0.55, glow: 'gold', pulse: true, confetti: true, preStop: true, sfx: 'tf2_domination' }),
+    exotic: Object.freeze({ flashAmt: 0.55, glow: 'gold', pulse: true, confetti: true, preStop: true, sfx: 'tf2_domination' })
+});
+
 export function revealPresentationForRarity(rarity, options = {}) {
     const key = typeof rarity === 'string' ? rarity.trim().toLowerCase() : '';
     const base = REVEAL_TIERS[REVEAL_FAMILIES[key]] || REVEAL_TIERS.fast;
+    const rarityFx = RARITY_FX[key] || RARITY_FX.common;
     const reducedMotion = options?.reducedMotion === true;
     // Reduced motion collapses the motion profile, never the audio payoff:
     // the sting is a reward cue, not an animation.
     const shape = reducedMotion ? REVEAL_TIERS.fast : base;
+    const fxShape = reducedMotion ? RARITY_FX.common : rarityFx;
     const spinMs = Math.round(REVEAL_BASE_SPIN_MS / shape.slowMo);
     return {
         rarity: key || 'common',
@@ -211,8 +229,19 @@ export function revealPresentationForRarity(rarity, options = {}) {
         spinMs,
         holdMs: shape.holdMs,
         durationMs: spinMs + shape.holdMs,
-        flash: shape.flash,
-        sfx: base.sfx,
+        flash: reducedMotion ? 0 : fxShape.flashAmt,
+        sfx: rarityFx.sfx ?? base.sfx,
+        glow: fxShape.glow,
+        pulse: fxShape.pulse,
+        confetti: fxShape.confetti,
+        preStop: fxShape.preStop,
         reducedMotion
     };
+}
+
+// Duplicate-case conversion line, pure + testable without touching the DOM.
+// Rounds/clamps so a bad refund number never renders "Duplicate -> +NaN coins".
+export function formatDuplicateConversion(refund) {
+    const amount = Math.max(0, Math.round(Number(refund) || 0));
+    return `Duplicate \u2192 +${amount} coins`;
 }

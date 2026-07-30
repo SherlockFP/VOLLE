@@ -413,3 +413,39 @@ in browser before commit.
 - **Image gen note**: Pollinations.ai works keyless for non-text art; AI wordmark generation
   produced garbled text ("WARBBALT") — existing `assets/generated/` logo marks remain the source
   of truth for branding.
+
+---
+
+## V4 Wave 3 — Battle Pass Fix, Case Reveal Tiers, Vendor Lock, Combo Charge, Trophy (2026-07-30)
+
+1081/1081 tests (was 1031), 91 files clean. Self-found complaints + roadmap backlog.
+
+- **Battle Pass screen looked broken** (self-found via screenshot audit). Root causes: (1) the
+  "black void circle" was `.progression-ring`'s radial-gradient painting a near-black #082832 hole —
+  pure CSS, not a missing asset; replaced with a bright orb + next-reward icon + real conic
+  progress ring; (2) hero text inherited dark `--shell-ink` onto a dark teal panel — scoped
+  `--ui-text` fix without touching the shared `.panel` rule; (3) "Premium lock everywhere"
+  perception was real: the lock state ignored whether the tier was even reached — new pure
+  `rewardRowState()`/`tierCardState()` in `js/battlepass.js` are the single source of truth
+  (claimed > locked-tier > locked-premium > claimable). Track is now a horizontal scroll-snap
+  strip auto-centered on the current tier (rAF-deferred — scrollIntoView while display:none was
+  a real no-op bug). Daily↔BP XP bridge already existed (50/task + 100 all-complete); ratio
+  verified sane and locked by `tests/battlepass-bridge.test.mjs` instead of duplicating.
+- **Case reveal rarity tiers** (`js/cosmetics.js` revealPresentationForRarity, `js/ui.js` reveal
+  region): rare and epic genuinely felt identical (same 'medium' tier, zero visual diff). Now:
+  rare blue glow → epic purple glow + pulse + tf2_crit → legendary gold + confetti + pre-stop
+  hitch + fanfare. CSS-driven, NOT `juice.slowMo()` — UI has no Juice instance and timeScale only
+  affects the 3D loop (documented decision). Reel core untouched. Pity refresh audited: not broken.
+- **Vendor lock** (`vendor/`, `index.html` head only): Three.js 0.170.0 + 7 addons + 9 transitive
+  deps + PeerJS 1.5.4 = 17 files, 1.6MB, committed. Gotcha for future edits: importmap addresses
+  MUST start with `./` (bare `vendor/...` silently resolves to null in Chromium). Verified live:
+  0 CDN requests, 0 page errors.
+- **Perfect-deflect combo → ability charge** (`js/skills.js` perfectDeflectCooldownCut, game.js):
+  chain 1 = −1.0s, chained = −1.5s, 6s/round cap. Key architecture note: skill cooldowns are
+  host-gated via mirror copies (`useSkill(p,...)` at ~4515), so the cut is applied BOTH on the
+  local path and in the host's remoteAttack handler with separate per-player round budgets —
+  local-only would desync host gating.
+- **Trophy celebration** (`js/game.js` celebration region): `window.arenaDecor.trophy` clone
+  spawns on MATCH end only (never round end), rises/rotates in the existing celebration update
+  (raw dt, 0 alloc), removed on teardown WITHOUT disposing shared geometry/material
+  (`trophyTeardownPlan()` contract in arena-decor.js). FFA uses a neutral center spot.

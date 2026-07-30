@@ -11,7 +11,7 @@ import { applyMode, GAME_MODES } from './gamemodes.js';
 import { ChaosManager, CHAOS_MODES } from './chaos.js';
 import { EmoteSystem } from './emotes.js';
 import { AffixManager } from './affixes.js';
-import { SKILLS, useSkill, ULTIMATES } from './skills.js';
+import { SKILLS, useSkill, ULTIMATES, perfectDeflectCooldownCut } from './skills.js';
 import { isNewerSequence } from './network.js';
 import { resolveKillerName, segmentIntersectsSphere, sweptHitStepCount, scaleDedupWindowMs, scaleLethalGraceMs, decayKillConfirmEntries } from './combat.js';
 import { comboTier, comboPitchRate } from './combat-fx.js';
@@ -54,6 +54,7 @@ import {
     normalizeRallyDuelMap,
     planRallyDuelRoster
 } from './rally-duel.js';
+import { shouldSpawnMatchTrophy, resolveTrophySpot, trophyTeardownPlan } from './arena-decor.js';
 
 const BASE_HIT_DAMAGE = 25;
 // Kill-confirm "hot ball" window (docs/V3_UX_ROADMAP.md 3.2) — shooter's next
@@ -128,6 +129,9 @@ export class Game {
         this.experimentalNetcode = normalizeNetcode();
         this.perfectDeflectChain = { count: 0, lastPerfectAt: null };
         this._remotePerfectChains = new Map();
+        // V3_UX_ROADMAP.md 3.3: roundKey ('local' | remote playerId) -> total cooldown
+        // seconds granted this round via perfectDeflectCooldownCut (cap enforced there).
+        this._perfectDeflectCutTotals = new Map();
         this.practiceMetrics = new PracticeLabMetrics();
         this.guidedDrill = new GuidedDeflectDrill();
         this._guidedDrillArmed = false;
@@ -970,6 +974,21 @@ startGame(skipPreGame = false, matchId = null) {
         }
     }
 
+    // V3_UX_ROADMAP.md 3.3: applies skills.js's perfectDeflectCooldownCut to entity's
+    // equipped skill. roundKey is 'local' for this.player or the remote playerId — the
+    // host mirrors remote players locally too, so each gets its own round-cut budget.
+    // No-op (and no budget spent) if the skill isn't actually on cooldown right now.
+    _applyPerfectDeflectCooldownCut(entity, chainCount, roundKey) {
+        const skillId = entity?.loadout?.skill;
+        if (!skillId || !entity.skillCooldowns || !(entity.skillCooldowns[skillId] > 0)) return 0;
+        const already = this._perfectDeflectCutTotals.get(roundKey) || 0;
+        const cut = perfectDeflectCooldownCut(chainCount, already);
+        if (cut <= 0) return 0;
+        entity.skillCooldowns[skillId] = Math.max(0, entity.skillCooldowns[skillId] - cut);
+        this._perfectDeflectCutTotals.set(roundKey, already + cut);
+        return cut;
+    }
+
     startRound() {
         this.clearBlackHoles();
         this.clearSplitBalls();
@@ -1011,6 +1030,7 @@ startGame(skipPreGame = false, matchId = null) {
         });
         this._deflectHistory = []; // son 2 deflector (assist için)
         this.rallyCount = 0;
+        this._perfectDeflectCutTotals.clear(); // V3_UX_ROADMAP.md 3.3: fresh 6s budget each round
         this.heatTier = BALL_HEAT_TIERS[0].id;
         this.heatColor = BALL_HEAT_TIERS[0].color;
         this.heatProgress = 0;
@@ -1789,6 +1809,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             this._celebWeapon = 'rocket';
             const wh = document.getElementById('celeb-weapon-hud');
             if (wh) wh.style.display = '';
+            this._updateCelebrationTrophy(dt);
 
             // Winner attacks losers with rockets only.
             if (this.player.attacking && this.player.team === this._winningTeam) {
@@ -2588,7 +2609,12 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             this.juice.burst(this.ball.position.clone(), 0xffcc33, 14, 9); // Altın radyal parçacık patlaması (perfect)
             this.juice.addCombo();
             this.ui.showCombo(this.juice.combo, this.juice.maxCombo);
-            this.ui.showMessage(`✨ PERFECT DEFLECT! x${this.juice.combo} combo`, 2500);
+            // V3_UX_ROADMAP.md 3.3: chained perfect deflects shave flat seconds off the
+            // equipped skill's cooldown (skills.js perfectDeflectCooldownCut), capped per
+            // round. Client-side only — see report for the P2P host-authoritative audit.
+            const cdCut = this._applyPerfectDeflectCooldownCut(this.player, this.perfectDeflectChain.count, 'local');
+            const cdSuffix = cdCut > 0 ? `  −${cdCut.toFixed(1)}s ${SKILLS[this.player.loadout?.skill]?.emoji || ''}` : '';
+            this.ui.showMessage(`✨ PERFECT DEFLECT! x${this.juice.combo} combo${cdSuffix}`, 2500);
             this.audio.playSfx('tf2_crit', 0.65, comboPitchRate(comboTier(this.juice.combo)));
         } else {
             // Normal deflect — spark + small flash for impact feel
@@ -3738,6 +3764,7 @@ spawnPowerUp() {
         this._finalStats = stats;
         this._finalWinner = winner;
         this._showCelebrationBanner(this._winningTeam);
+        this._maybeSpawnCelebrationTrophy(this._ffa ? winner !== 'DRAW' : this._winningTeam !== null);
 
         // ponytail: let everyone move/look, only winners shoot
         this.ball.deactivate();
@@ -3880,6 +3907,7 @@ spawnPowerUp() {
             wh.style.display = 'none';
         }
         this._hideCelebrationBanner();
+        this._teardownCelebrationTrophy();
         // Restore viewmodel to its pre-celebration state
         this.player.setHandVisible?.(this._prevHandVisible);
         if (this.player.handMesh) this.player.handMesh.visible = true;
@@ -4455,6 +4483,10 @@ spawnPowerUp() {
             if (isPerfect) {
                 this.ball.lastPerfectBy = p;
                 finalDeflectPower *= 1.3;
+                // V3_UX_ROADMAP.md 3.3: host mirrors the same cut onto its own copy of the
+                // remote player's cooldowns so useSkill() gating below doesn't desync from
+                // what that player's own client already shows in their UI.
+                this._applyPerfectDeflectCooldownCut(p, remoteResolved.chain.count, playerId);
             }
             const result = this.ball.deflectWithAim(attackPos, p.aimDir, target, data.flick || { vertical: 0, horizontal: 0, power: 0 }, null, finalDeflectPower);
             if (target) this.ball.setTarget(target);
@@ -5866,6 +5898,10 @@ applyPowerUpState(data) {
         }
         // ponytail: show winner banner at top during celebration
         this._showCelebrationBanner(data.winner);
+        // FFA celebrationStart never carries a draw signal (this._winningTeam
+        // is always null in FFA broadcasts, see endGame()) — mirrors the same
+        // ambiguity _showCelebrationBanner already has for FFA above.
+        this._maybeSpawnCelebrationTrophy(this._ffa ? true : this._winningTeam !== null);
     }
 
     _showCelebrationBanner(winner) {
@@ -5886,12 +5922,63 @@ applyPowerUpState(data) {
         document.getElementById('celebration-banner')?.classList.add('hidden');
     }
 
+    // MIMO V4 Pass: window.arenaDecor?.trophy is a shared template (see
+    // js/arena-decor.js preloadTrophyTemplate) — every consumer MUST clone it
+    // before adding to the scene. Object3D#clone() deep-clones the transform
+    // hierarchy only; the clone's geometry/material stay shared references
+    // with the template, so per-frame animation only ever touches the
+    // clone's own position/rotation, and teardown only ever removes it from
+    // the scene (see trophyTeardownPlan() in arena-decor.js — we never clone
+    // materials here, so nothing is disposed).
+    _maybeSpawnCelebrationTrophy(hasWinner) {
+        const template = window.arenaDecor?.trophy;
+        const teamSpawn = (!this._ffa && this._winningTeam) ? this.arena.getPlayerSpawn(this._winningTeam) : null;
+        const spot = shouldSpawnMatchTrophy({ isMatchEnd: true, hasWinner, hasTemplate: !!template })
+            ? resolveTrophySpot({ ffa: this._ffa, teamSpawn })
+            : null;
+        this._teardownCelebrationTrophy(); // idempotent guard against a stale instance
+        if (!template || !spot) return;
+        const clone = template.clone();
+        clone.position.set(spot.x, spot.y, spot.z);
+        this.renderer.scene.add(clone);
+        this._trophyClone = clone;
+        this._trophyBaseY = spot.y;
+        this._trophyElapsed = 0;
+    }
+
+    // Short rise + continuous slow spin. Called every celebration frame from
+    // the CELEBRATION branch of update(dt) with that branch's own raw dt —
+    // no separate RAF, no per-frame allocation.
+    _updateCelebrationTrophy(dt) {
+        const clone = this._trophyClone;
+        if (!clone) return;
+        this._trophyElapsed += dt;
+        const riseDuration = 1.2;
+        const t = Math.min(this._trophyElapsed / riseDuration, 1);
+        const eased = 1 - (1 - t) * (1 - t) * (1 - t); // ease-out cubic
+        clone.position.y = this._trophyBaseY - 0.6 * (1 - eased);
+        clone.rotation.y += dt * 0.5;
+    }
+
+    _teardownCelebrationTrophy() {
+        const clone = this._trophyClone;
+        if (!clone) return;
+        const plan = trophyTeardownPlan({ materialCloned: false });
+        if (plan.removeFromScene) clone.parent?.remove(clone);
+        // geometry/material are shared with window.arenaDecor.trophy — never
+        // disposed here (plan.disposeGeometry/disposeMaterial are both false
+        // since we never clone the material).
+        this._trophyClone = null;
+        this._trophyElapsed = 0;
+    }
+
     applyGameOver(data) {
         if (!data || this.network?.isHost) return;
         this.setState(STATES.GAME_OVER);
         this.player.unlock();
         this.player._celebNoAttack = false;
         this._hideCelebrationBanner();
+        this._teardownCelebrationTrophy();
         const weaponHud = document.getElementById('celeb-weapon-hud');
         if (weaponHud) {
             weaponHud.classList.add('hidden');

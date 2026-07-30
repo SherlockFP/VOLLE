@@ -200,3 +200,40 @@ export function preloadTrophyTemplate() {
         .catch(() => null);
     return trophyTemplatePromise;
 }
+
+// ---------------------------------------------------------------------------
+// Match-win trophy celebration — pure decision helpers only. The actual
+// clone/scene/animation wiring lives in js/game.js's celebration region; kept
+// here so the spawn/no-op/teardown contract is unit-testable without a
+// THREE/WebGL runtime (see tests/trophy-celebration.test.mjs).
+// ---------------------------------------------------------------------------
+
+// Gate for spawning a trophy clone: only on an actual MATCH end (never a
+// plain round end), only with a definite winner (never a draw), only once
+// the template has finished loading (window.arenaDecor?.trophy present).
+export function shouldSpawnMatchTrophy({ isMatchEnd, hasWinner, hasTemplate }) {
+    return !!isMatchEnd && !!hasWinner && !!hasTemplate;
+}
+
+// Side-blind celebration point for FFA — trophy never anchors to the winning
+// player's position, per MIMO's V4 Pass note.
+export const FFA_TROPHY_SPOT = Object.freeze({ x: 0, y: 0, z: 0 });
+
+// Resolves the ground point a trophy clone should stand at. `teamSpawn` is a
+// caller-supplied {x,y,z} (game.js already has arena.getPlayerSpawn(team) —
+// this file intentionally doesn't duplicate that math). Team mode with no
+// resolvable spawn (shouldn't happen once shouldSpawnMatchTrophy gates it)
+// returns null so callers stay a no-op instead of guessing a position.
+export function resolveTrophySpot({ ffa, teamSpawn }) {
+    if (ffa) return FFA_TROPHY_SPOT;
+    return teamSpawn ? { x: teamSpawn.x, y: 0, z: teamSpawn.z } : null;
+}
+
+// Teardown contract: Object3D#clone() deep-clones the transform hierarchy but
+// shares geometry/material references with the template it was cloned from,
+// so by default nothing needs disposing — only removal from the scene.
+// `materialCloned` exists for a future caller that clones the material too
+// (e.g. a per-instance tint); such a caller must dispose that material only.
+export function trophyTeardownPlan({ materialCloned }) {
+    return { removeFromScene: true, disposeMaterial: !!materialCloned, disposeGeometry: false };
+}
