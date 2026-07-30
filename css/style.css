@@ -503,7 +503,7 @@ body.social-hub-active #menu-particles {
 #pause-menu {
     position: fixed;
     inset: 0;
-    z-index: 200;
+    z-index: var(--z-overlay-active);
     display: flex;
     justify-content: center;
     align-items: center;
@@ -636,6 +636,45 @@ body.social-hub-active #menu-particles {
     text-transform: uppercase;
     letter-spacing: 3px;
 }
+/* Combo tier escalation (color/glow ramp) — shared by the continuous per-frame
+   juice.combo sync (updateCombo) and the one-shot perfect-deflect/kill-streak
+   pop-in (showCombo). tier comes from combat-fx.js#comboTier. */
+#combo-display.tier-1 .combo-num, #combo-display.tier-1 .combo-count {
+    color: #ffcc33;
+    text-shadow: 0 0 24px rgba(255, 204, 51, 0.55);
+}
+#combo-display.tier-2 .combo-num, #combo-display.tier-2 .combo-count {
+    color: #ff8833;
+    text-shadow: 0 0 30px rgba(255, 136, 51, 0.65);
+}
+#combo-display.tier-3 .combo-num, #combo-display.tier-3 .combo-count {
+    color: #ff4466;
+    text-shadow: 0 0 38px rgba(255, 68, 102, 0.8);
+}
+/* Combo break — short shatter/drop when a live combo resets (timeout decay or
+   a kill ending the rally). Triggered by js/ui.js#comboBreak(). */
+#combo-display.shatter {
+    animation: comboShatter 0.26s ease-in forwards;
+}
+@keyframes comboShatter {
+    0% { opacity: 1; transform: translate(-50%, -50%) scale(1); filter: blur(0); }
+    100% { opacity: 0; transform: translate(-50%, -50%) scale(0.55) rotate(-8deg); filter: blur(3px); }
+}
+/* Screen-edge accent glow — amber/gold only, never team red/blue, so it can
+   never read as ball/team ownership. Off entirely under reduced-motion. */
+#combo-edge-glow {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: var(--z-hud, 140);
+    opacity: 0;
+    box-shadow: inset 0 0 0 0 transparent;
+    transition: opacity var(--ui-motion-base) var(--ui-ease), box-shadow var(--ui-motion-base) var(--ui-ease);
+}
+#combo-edge-glow.tier-1 { opacity: 1; box-shadow: inset 0 0 70px 8px rgba(255, 204, 51, 0.10); }
+#combo-edge-glow.tier-2 { opacity: 1; box-shadow: inset 0 0 100px 12px rgba(255, 153, 51, 0.14); }
+#combo-edge-glow.tier-3 { opacity: 1; box-shadow: inset 0 0 140px 18px rgba(255, 221, 120, 0.20); }
+body.reduced-motion #combo-edge-glow { display: none; }
 #celeb-weapon-hud {
     position: fixed;
     bottom: 60px;
@@ -684,20 +723,21 @@ body.social-hub-active #menu-particles {
     position: fixed;
     pointer-events: none;
     font-family: var(--font);
-    font-size: 1.6em;
     font-weight: 900;
-    color: #ff4444;
-    text-shadow: 0 2px 6px rgba(0,0,0,0.7), 0 0 10px rgba(255,68,68,0.3);
     z-index: 200;
-    animation: dmgFloat 0.8s ease-out forwards;
+    opacity: 0;
     transform: translateY(0) scale(1);
     text-align: center;
 }
+/* Pooled reuse (js/ui.js#spawnDamageNumber): the animation only runs while
+   .active is present so a recycled element can be re-triggered on demand. */
+.dmg-num.active { animation: dmgFloat 0.8s ease-out forwards; }
+.dmg-num.charged.active { animation: dmgFloatCharged 0.8s ease-out forwards; }
 .dmg-num .dmg-value {
     font-size: 1em;
     font-weight: 900;
-    color: #ffdd44;
-    text-shadow: 0 2px 6px rgba(0,0,0,0.7);
+    color: inherit;
+    text-shadow: inherit;
 }
 .dmg-num .dmg-zone {
     display: block;
@@ -707,18 +747,40 @@ body.social-hub-active #menu-particles {
     text-transform: uppercase;
     letter-spacing: 1px;
 }
-.dmg-num.lethal {
-    font-size: 2.2em;
-    color: #ffdd00;
-    text-shadow: 0 3px 10px rgba(0,0,0,0.8), 0 0 25px rgba(255,200,0,0.6);
+/* Damage tier ladder (combat-fx.js#classifyDamageTier): small white -> medium
+   yellow -> large orange -> kill red+biggest. isLethal always wins tier-kill
+   regardless of raw magnitude. */
+.dmg-num.tier-small {
+    font-size: 1.3em;
+    color: #f2f2f2;
+    text-shadow: 0 2px 5px rgba(0,0,0,0.65);
 }
-.dmg-num.lethal .dmg-value {
-    color: #ffdd00;
+.dmg-num.tier-medium {
+    font-size: 1.7em;
+    color: #ffdd44;
+    text-shadow: 0 2px 6px rgba(0,0,0,0.7), 0 0 12px rgba(255,221,68,0.4);
+}
+.dmg-num.tier-large {
+    font-size: 2.2em;
+    color: #ff8833;
+    text-shadow: 0 2px 8px rgba(0,0,0,0.75), 0 0 18px rgba(255,136,51,0.5);
+}
+.dmg-num.tier-kill {
+    font-size: 2.7em;
+    color: #ff3333;
+    text-shadow: 0 3px 10px rgba(0,0,0,0.8), 0 0 26px rgba(255,51,51,0.65);
 }
 @keyframes dmgFloat {
     0% { opacity: 1; transform: translateY(0) scale(1.2); }
     30% { transform: translateY(-15px) scale(1); }
     100% { opacity: 0; transform: translateY(-50px) scale(0.7); }
+}
+/* Charged/perfect hit — extra overshoot scale-pop before the same float-away. */
+@keyframes dmgFloatCharged {
+    0% { opacity: 1; transform: translateY(0) scale(1.9); }
+    18% { transform: translateY(-4px) scale(0.95); }
+    40% { transform: translateY(-15px) scale(1.1); }
+    100% { opacity: 0; transform: translateY(-52px) scale(0.7); }
 }
 
 /* ===== SCOREBOARD OVERLAY ===== */
@@ -731,7 +793,7 @@ body.social-hub-active #menu-particles {
 #team-overlay {
     position: fixed;
     inset: 0;
-    z-index: 165;
+    z-index: var(--z-overlay-high);
     display: flex;
     justify-content: center;
     align-items: center;
@@ -1262,6 +1324,7 @@ body.social-hub-active #menu-particles {
     justify-content: flex-end;
     gap: 4px;
     pointer-events: none;
+    z-index: var(--z-overlay-active);
 }
 
 .chat-msg {
@@ -1302,6 +1365,7 @@ body.social-hub-active #menu-particles {
     border-radius: 12px;
     outline: none;
     pointer-events: auto;
+    z-index: var(--z-overlay-active);
     box-shadow: 0 0 20px var(--accent-glow);
 }
 
@@ -2308,6 +2372,50 @@ body.social-hub-active #menu-particles {
 .ball-preview[data-effect="toxic"]::before { background:radial-gradient(circle at 28% 72%,rgba(211,255,64,.86) 0 8%,transparent 9%),radial-gradient(circle at 72% 38%,rgba(211,255,64,.8) 0 10%,transparent 11%); }
 .ball-rarity { margin:0 0 7px; color:var(--text-dim); font-size:.67rem; font-weight:800; letter-spacing:.09em; text-transform:uppercase; }
 @keyframes ball-preview-spin { to { transform:rotate(360deg); } }
+.shop-card { position: relative; }
+.shop-card.shop-dim { opacity: .55; filter: grayscale(.3); }
+.shop-status-badge {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    font-size: .62rem;
+    font-weight: 900;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    pointer-events: none;
+}
+.shop-status-badge.is-owned { color: #063a1c; background: #44dd44; }
+.shop-status-badge.is-equipped { color: #06213a; background: #4da3ff; box-shadow: 0 0 0 2px rgba(77,163,255,.35); }
+.shop-shortfall-note {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    max-width: calc(100% - 16px);
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: rgba(40, 12, 6, .82);
+    color: #ffb37a;
+    font-size: .6rem;
+    font-weight: 800;
+    letter-spacing: .02em;
+    white-space: nowrap;
+    pointer-events: none;
+}
+.shop-filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.shop-filter-chip {
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.14);
+    background: transparent;
+    color: var(--text-dim);
+    font-size: .72rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+.shop-filter-chip.selected { color: #04120c; background: var(--accent); border-color: var(--accent); }
+.shop-card-filtered-out { display: none !important; }
 
 /* ===== BATTLEPASS ===== */
 .bp-track {
@@ -2446,7 +2554,7 @@ body.social-hub-active #menu-particles {
     position: fixed;
     top: 80px;
     right: 16px;
-    z-index: 200;
+    z-index: var(--z-toast);
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -2717,7 +2825,7 @@ body.social-hub-active #menu-particles {
     width: 200px;
     height: 200px;
     transform: translate(-50%, -50%);
-    z-index: 190;
+    z-index: var(--z-overlay-active);
     pointer-events: auto;
 }
 .emote-wheel-item {
@@ -3129,7 +3237,7 @@ body.social-hub-active #menu-particles {
 .settings-overlay {
     position: fixed;
     inset: 0;
-    z-index: 300;
+    z-index: var(--z-modal);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -3876,6 +3984,7 @@ body.social-hub-active #menu-particles {
 .mp-lobby-card .lobby-players { font-size: 0.9em; color: var(--text-dim); }
 .mp-lobby-card .btn-join { padding: 6px 14px; font-size: 0.85em; }
 .mp-lobby-empty { text-align: center; color: var(--text-dim); padding: 40px; font-size: 0.95em; }
+.mp-lobby-empty p { margin: 0 0 12px; }
 
 /* === FRIENDS SIDEBAR (Messenger-style) === */
 .friends-sidebar {
@@ -4170,12 +4279,36 @@ body.social-hub-active #menu-particles {
     text-transform: uppercase; letter-spacing: 4px;
     text-shadow: 0 0 40px rgba(255,136,0,0.6);
 }
-#streak-banner .streak-text.double { color: #ffaa33; }
-#streak-banner .streak-text.triple { color: #ff6644; }
-#streak-banner .streak-text.quadra { color: #ff3333; }
-#streak-banner .streak-text.penta { color: #ff00ff; }
-#streak-banner .streak-text.ace { color: #ffdd00; font-size: 4em; }
-@keyframes streakIn { from { transform: translate(-50%, -50%) scale(2); opacity: 0; } to { transform: translate(-50%, -50%) scale(1); opacity: 1; } }
+/* Rarity gradient text — clip a per-tier gradient onto the streak label
+   instead of a flat color, escalating double -> ace like the combo ladder. */
+#streak-banner .streak-text.double {
+    background: linear-gradient(135deg, #ffdd88 0%, #ff9933 100%);
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+}
+#streak-banner .streak-text.triple {
+    background: linear-gradient(135deg, #ff9955 0%, #ff3322 100%);
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+}
+#streak-banner .streak-text.quadra {
+    background: linear-gradient(135deg, #ff5533 0%, #cc1177 100%);
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+}
+#streak-banner .streak-text.penta {
+    background: linear-gradient(135deg, #ff44dd 0%, #8822ff 100%);
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+}
+#streak-banner .streak-text.ace {
+    color: #ffdd00; font-size: 4em;
+    background: linear-gradient(135deg, #fff2b0 0%, #ffcc00 45%, #fff2b0 100%);
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+}
+/* Impact-frame: the pop-in settles through a brief 1.15x overshoot before
+   landing at scale 1 — same entrance duration, extra punch on the landing. */
+@keyframes streakIn {
+    0% { transform: translate(-50%, -50%) scale(2); opacity: 0; }
+    55% { transform: translate(-50%, -50%) scale(1.15); opacity: 1; }
+    100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+}
 @keyframes streakOut { from { opacity: 1; } to { opacity: 0; transform: translate(-50%, -50%) scale(0.8); } }
 
 /* ===== VICTORY / DEFEAT OVERLAY ===== */

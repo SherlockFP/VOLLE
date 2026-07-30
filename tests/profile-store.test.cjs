@@ -107,6 +107,10 @@ test('match rewards are bounded and idempotent', t => {
         score: 9999
     });
     assert.equal(reward.status, 200);
-    assert.equal(reward.coins, 5);
+    assert.equal(reward.base, 120);
+    assert.equal(reward.bonus, 60);
+    assert.equal(reward.coins, 180);
     assert.equal(store.reward(profile, { matchId: 'match-1' }).status, 409);
+    const lossReward = store.reward(profile, { matchId: 'match-2', won: false, deflections: 0, score: 0 });
+    assert.equal(lossReward.coins, 40);
 });

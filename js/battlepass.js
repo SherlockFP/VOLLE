@@ -20,7 +20,16 @@ export const BALL_PRICES = Object.freeze({
     inferno: 220, frostbite: 220, voltstorm: 260, nebula: 280, creeper: 300,
     happy: 300, glitch: 340, void_eye: 340, candy: 260, solar: 360, toxic: 240, disco: 320,
     magma: 380, ocean: 300, honey: 280, dragon: 420, portal: 400,
-    moon: 260, pumpkin: 300, matrix: 340, sakura: 320, blackhole: 460
+    moon: 260, pumpkin: 300, matrix: 340, sakura: 320, blackhole: 460,
+    // ponytail: these 12 were added to js/ball.js BALL_SKINS by the .io shop
+    // expansion but never mirrored here, so buyBall() silently rejected every
+    // one of them (price lookup returned undefined). Fixed by syncing prices.
+    copper: 200, blizzard: 230, ember_wisp: 210, neon_dash: 240, bubblegum: 220,
+    cobalt_storm: 300, venom: 310, circuit: 340, aurora: 290,
+    phoenix: 430, cosmic_serpent: 450, prism_king: 480,
+    // ponytail: NewSkins pass — 6 more skins (js/ball.js BALL_SKINS).
+    emberfall: 210, glacies: 230, binary_ghost: 310, event_null: 320,
+    wildfire_phantom: 440, oblivion_shard: 470
 });
 
 const BALL_IDS = Object.keys(BALL_PRICES);

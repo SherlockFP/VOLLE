@@ -53,6 +53,25 @@ const PROFILE_FIELDS = {
     cosmetic: 'ownedCosmetics'
 };
 
+// Match reward: base pays for the result, bonus rewards performance but is
+// capped low so a stomp match can't out-earn several honest ones — coins stay
+// a cosmetic currency, never a competitive-power lever (docs/V3_ECONOMY.md).
+const MATCH_REWARD_WIN = 120;
+const MATCH_REWARD_LOSE = 40;
+const MATCH_REWARD_KILL_BONUS = 5;
+const MATCH_REWARD_DEFLECT_BONUS = 1;
+const MATCH_REWARD_BONUS_CAP = 60;
+
+// House-promo "watch & earn" — no real ad SDK (zero new deps), just a
+// server-enforced daily cap + cooldown so the coin faucet stays bounded.
+const AD_REWARD_COINS = 50;
+const AD_REWARD_DAILY_CAP = 5;
+const AD_REWARD_COOLDOWN_MS = 90 * 1000;
+
+function utcDateKey(ts = Date.now()) {
+    return new Date(ts).toISOString().slice(0, 10);
+}
+
 function defaults(id, name) {
     return {
         id,
@@ -72,6 +91,7 @@ function defaults(id, name) {
         rewardedMatches: [],
         purchaseReceipts: [],
         premiumTransactions: [],
+        adRewards: { day: '', count: 0, lastAt: 0, receipts: [] },
         economyRevision: 0,
         createdAt: Date.now(),
         updatedAt: Date.now()
@@ -108,6 +128,14 @@ class ProfileStore {
         }
         normalized.casePity = normalized.casePity && typeof normalized.casePity === 'object' ? normalized.casePity : {};
         normalized.caseReceipts = Array.isArray(normalized.caseReceipts) ? normalized.caseReceipts.slice(-50) : [];
+        normalized.adRewards = normalized.adRewards && typeof normalized.adRewards === 'object'
+            ? {
+                day: typeof normalized.adRewards.day === 'string' ? normalized.adRewards.day : '',
+                count: Math.max(0, Math.floor(Number(normalized.adRewards.count) || 0)),
+                lastAt: Math.max(0, Number(normalized.adRewards.lastAt) || 0),
+                receipts: Array.isArray(normalized.adRewards.receipts) ? normalized.adRewards.receipts.slice(-20) : []
+            }
+            : { day: '', count: 0, lastAt: 0, receipts: [] };
         normalized.equippedWearables = normalizeEquippedCosmetics(
             normalized.equippedWearables,
             normalized.ownedCosmetics,
@@ -127,9 +155,20 @@ class ProfileStore {
         return crypto.createHash('sha256').update(token).digest('hex');
     }
 
+    // Fresh-computed (never persists a stale value): remaining resets the
+    // instant UTC day rolls over, without needing a write on every read.
+    _adRewardStatus(record, now = Date.now()) {
+        const state = record.adRewards && typeof record.adRewards === 'object'
+            ? record.adRewards : { day: '', count: 0, lastAt: 0 };
+        const count = state.day === utcDateKey(now) ? Math.max(0, Number(state.count) || 0) : 0;
+        const cooldownRemainingMs = state.lastAt
+            ? Math.max(0, AD_REWARD_COOLDOWN_MS - (now - Number(state.lastAt) || 0))
+            : 0;
+        return { remaining: Math.max(0, AD_REWARD_DAILY_CAP - count), cap: AD_REWARD_DAILY_CAP, cooldownRemainingMs };
+    }
     _public(record) {
-        const { tokenHash, rewardedMatches, purchaseReceipts, premiumTransactions, caseReceipts, ...profile } = record;
-        return profile;
+        const { tokenHash, rewardedMatches, purchaseReceipts, premiumTransactions, caseReceipts, adRewards, ...profile } = record;
+        return { ...profile, adRewards: this._adRewardStatus(record) };
     }
 
     create(name, legacy) {
@@ -263,14 +302,58 @@ class ProfileStore {
         const matchId = typeof match?.matchId === 'string' ? match.matchId.slice(0, 64) : '';
         if (!matchId) return { status: 400, error: 'matchId required' };
         if (record.rewardedMatches.includes(matchId)) return { status: 409, error: 'reward already claimed' };
-        const coins = match.won === true ? 5 : 1;
+        const kills = Math.max(0, Math.floor(Number(match.score) || 0));
+        const deflects = Math.max(0, Math.floor(Number(match.deflections) || 0));
+        const base = match.won === true ? MATCH_REWARD_WIN : MATCH_REWARD_LOSE;
+        const bonus = Math.min(MATCH_REWARD_BONUS_CAP, kills * MATCH_REWARD_KILL_BONUS + deflects * MATCH_REWARD_DEFLECT_BONUS);
+        const coins = base + bonus;
         record.currency += coins;
         record.economyRevision = Math.max(0, Number(record.economyRevision) || 0) + 1;
         record.rewardedMatches.push(matchId);
         record.rewardedMatches = record.rewardedMatches.slice(-50);
         record.updatedAt = Date.now();
         this._save();
-        return { status: 200, coins, profile: this._public(record) };
+        return { status: 200, coins, base, bonus, profile: this._public(record) };
+    }
+
+    // House-promo watch & earn — bearer identity is the only trust boundary
+    // (same as purchase/openCase); daily cap + cooldown live here so a client
+    // can't just hammer the endpoint. `now` is injectable for tests.
+    adReward(record, requestId = '', now = Date.now()) {
+        const receiptId = typeof requestId === 'string' && /^[A-Za-z0-9._:-]{8,80}$/.test(requestId) ? requestId : '';
+        record.adRewards = record.adRewards && typeof record.adRewards === 'object'
+            ? record.adRewards : { day: '', count: 0, lastAt: 0, receipts: [] };
+        record.adRewards.receipts = Array.isArray(record.adRewards.receipts) ? record.adRewards.receipts : [];
+        const prior = receiptId ? record.adRewards.receipts.find(item => item.requestId === receiptId) : null;
+        if (prior) {
+            return { status: 200, coins: prior.coins, ...this._adRewardStatus(record, now), profile: this._public(record), replayed: true };
+        }
+        const today = utcDateKey(now);
+        if (record.adRewards.day !== today) {
+            record.adRewards.day = today;
+            record.adRewards.count = 0;
+        }
+        if (record.adRewards.count >= AD_REWARD_DAILY_CAP) {
+            return { status: 429, error: 'daily ad reward limit reached' };
+        }
+        if (record.adRewards.lastAt && now - record.adRewards.lastAt < AD_REWARD_COOLDOWN_MS) {
+            return {
+                status: 429,
+                error: 'ad reward cooldown active',
+                retryAfterMs: AD_REWARD_COOLDOWN_MS - (now - record.adRewards.lastAt)
+            };
+        }
+        record.currency += AD_REWARD_COINS;
+        record.adRewards.count += 1;
+        record.adRewards.lastAt = now;
+        if (receiptId) {
+            record.adRewards.receipts.push({ requestId: receiptId, coins: AD_REWARD_COINS, createdAt: now });
+            record.adRewards.receipts = record.adRewards.receipts.slice(-20);
+        }
+        record.economyRevision = Math.max(0, Number(record.economyRevision) || 0) + 1;
+        record.updatedAt = now;
+        this._save();
+        return { status: 200, coins: AD_REWARD_COINS, ...this._adRewardStatus(record, now), profile: this._public(record), replayed: false };
     }
 
     grantPremium(record, gems, transactionId) {

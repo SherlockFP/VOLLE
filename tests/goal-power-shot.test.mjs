@@ -1,4 +1,5 @@
 import { extractGameMethod, compileGameMethod } from './game-source.mjs';
+import { decayKillConfirmEntries } from '../js/combat.js';
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -118,10 +119,21 @@ test('applyGoalScore respects meta.points=1 even when power-shot logic runs', ()
 });
 
 // --- Kill-confirm: game.js method extraction ---
+// _grantKillConfirm/_updateKillConfirm/_consumeKillConfirm reference the
+// module-level KILL_CONFIRM_* constants, the imported decayKillConfirmEntries
+// helper, and `window` as free variables — supply them all so the extracted
+// method runs identically to the real shipped source. _clearKillConfirm no
+// longer exists (folded into decayKillConfirmEntries, which only deletes the
+// entries that actually expired instead of wiping every window).
+const KILL_CONFIRM_GLOBALS = {
+    KILL_CONFIRM_DURATION: 3.5,
+    KILL_CONFIRM_DAMAGE_MULTIPLIER: 1.15,
+    decayKillConfirmEntries,
+    window: {}
+};
 
 test('kill-confirm window grants bonus only if not in competitive mode', () => {
-    const updateKillConfirm = compileGameMethod('_updateKillConfirm', {});
-    const grantKillConfirm = compileGameMethod('_grantKillConfirm', {});
+    const grantKillConfirm = compileGameMethod('_grantKillConfirm', KILL_CONFIRM_GLOBALS);
 
     const mockGame = {
         _killConfirm: new Map(),
@@ -135,7 +147,7 @@ test('kill-confirm window grants bonus only if not in competitive mode', () => {
 });
 
 test('kill-confirm window does not grant in competitive mode', () => {
-    const grantKillConfirm = compileGameMethod('_grantKillConfirm', {});
+    const grantKillConfirm = compileGameMethod('_grantKillConfirm', KILL_CONFIRM_GLOBALS);
 
     const mockGame = {
         _killConfirm: new Map(),
@@ -149,16 +161,14 @@ test('kill-confirm window does not grant in competitive mode', () => {
 });
 
 test('kill-confirm window expires via accumulated dt', () => {
-    const updateKillConfirm = compileGameMethod('_updateKillConfirm', {});
-    const clearKillConfirm = compileGameMethod('_clearKillConfirm', {});
+    const updateKillConfirm = compileGameMethod('_updateKillConfirm', KILL_CONFIRM_GLOBALS);
 
     const mockGame = {
         _killConfirm: new Map([
             ['player1', { duration: 3.5, savedTrailColor: 0xffffff, savedGlowColor: 0xffffff }]
         ]),
         ball: { _affixTrailColor: 0xff6600, _affixGlowColor: 0xff4400, lastShotBy: 'player1' },
-        _powerUpsDisabled: false,
-        _clearKillConfirm: clearKillConfirm  // inject the helper
+        _powerUpsDisabled: false
     };
 
     // Tick 1.0 seconds: duration becomes 2.5
@@ -176,6 +186,25 @@ test('kill-confirm window expires via accumulated dt', () => {
     // Tick 1.0 seconds: duration becomes -0.5, should clear
     updateKillConfirm.call(mockGame, 1.0);
     assert.equal(mockGame._killConfirm.has('player1'), false);
+});
+
+test('kill-confirm window: an unrelated player survives another player expiring', () => {
+    // Regression guard for the bug the old _clearKillConfirm() call site had —
+    // it wiped this._killConfirm.clear() (every player) the instant any single
+    // window expired. decayKillConfirmEntries only reports/deletes the expired key.
+    const updateKillConfirm = compileGameMethod('_updateKillConfirm', KILL_CONFIRM_GLOBALS);
+
+    const mockGame = {
+        _killConfirm: new Map([
+            ['player1', { duration: 0.2, damageMultiplier: 1.15 }],
+            ['player2', { duration: 3.5, damageMultiplier: 1.15 }]
+        ]),
+        _powerUpsDisabled: false
+    };
+
+    updateKillConfirm.call(mockGame, 0.5); // player1 expires, player2 does not
+    assert.equal(mockGame._killConfirm.has('player1'), false);
+    assert.equal(mockGame._killConfirm.has('player2'), true);
 });
 
 test('kill-confirm is cleared on round start', () => {
@@ -198,17 +227,16 @@ test('kill-confirm is cleared on round start', () => {
     assert.equal(mockGame._killConfirm.has('player1'), false);
     assert.equal(mockGame._killConfirm.size, 0);
 });
+
 test('_consumeKillConfirm returns 1.15 and clears on active window', () => {
-    const consumeKillConfirm = compileGameMethod('_consumeKillConfirm', {});
-    const clearKillConfirm = compileGameMethod('_clearKillConfirm', {});
+    const consumeKillConfirm = compileGameMethod('_consumeKillConfirm', KILL_CONFIRM_GLOBALS);
 
     const mockGame = {
         _killConfirm: new Map([
             ['player1', { duration: 2.0, savedTrailColor: 0xffffff, savedGlowColor: 0xffffff }]
         ]),
         ball: { _affixTrailColor: 0xff6600, _affixGlowColor: 0xff4400, lastShotBy: 'player1' },
-        _powerUpsDisabled: false,
-        _clearKillConfirm: clearKillConfirm  // inject the helper
+        _powerUpsDisabled: false
     };
 
     const bonus = consumeKillConfirm.call(mockGame, 'player1');
@@ -217,7 +245,7 @@ test('_consumeKillConfirm returns 1.15 and clears on active window', () => {
 });
 
 test('_consumeKillConfirm returns 1.0 when no active window', () => {
-    const consumeKillConfirm = compileGameMethod('_consumeKillConfirm', {});
+    const consumeKillConfirm = compileGameMethod('_consumeKillConfirm', KILL_CONFIRM_GLOBALS);
 
     const mockGame = {
         _killConfirm: new Map(),
@@ -229,7 +257,7 @@ test('_consumeKillConfirm returns 1.0 when no active window', () => {
 });
 
 test('_consumeKillConfirm returns 1.0 in competitive mode even if active', () => {
-    const consumeKillConfirm = compileGameMethod('_consumeKillConfirm', {});
+    const consumeKillConfirm = compileGameMethod('_consumeKillConfirm', KILL_CONFIRM_GLOBALS);
 
     const mockGame = {
         _killConfirm: new Map([

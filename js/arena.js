@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { WeatherSystem } from './weather.js';
 import { computeGoalZones } from './goal-mode.js';
 import { getTexture, clearTextureCache } from './procedural-textures.js';
+import { loadArenaDecor, disposeArenaDecor, preloadTrophyTemplate } from './arena-decor.js';
 
 // Daha büyük court'lar + aydınlık temalar. dark space/neon → aydınlık palet.
 export const MAPS = {
@@ -58,7 +59,8 @@ export const MAPS = {
         floorRed: 0xff3d81, floorBlue: 0x2de2e6, wallColor: 0x4a3a7a,
         skyTop: 0x4a2a8a, skyBottom: 0x8a5acc, fogColor: 0x5a3a9a,
         hasOcean: false, hasGlass: true, isNeon: true, size: 'medium',
-        hasPortals: true, weather: 'rain', openSides: true
+        hasPortals: true, weather: 'rain', openSides: true,
+        decor: ['scoreboard', 'lights']
     },
     circuit_dome: {
         name: 'Circuit Dome',
@@ -85,7 +87,8 @@ export const MAPS = {
             { type: 'cylinder', pos: [-20, 3, 15], size: [0.3, 6], color: 0xff4400 },
             { type: 'cylinder', pos: [20, 3, -15], size: [0.3, 6], color: 0xff4400 }
         ],
-        weather: 'none'
+        weather: 'none',
+        decor: ['gym']
     },
     colosseum: {
         courtWidth: 100, courtLength: 70, wallHeight: 19, ceilingHeight: 27,
@@ -102,7 +105,8 @@ export const MAPS = {
             { type: 'cylinder', pos: [30, 5, 0], size: [2, 10], color: 0xC4A882 },
             { type: 'cylinder', pos: [0, 5, -25], size: [2, 10], color: 0xC4A882 }
         ],
-        weather: 'none'
+        weather: 'none',
+        decor: ['bleachers', 'lights']
     },
     volcano: {
         courtWidth: 88, courtLength: 60, wallHeight: 20, ceilingHeight: 28,
@@ -212,7 +216,8 @@ export const MAPS = {
         courtWidth: 67, courtLength: 44, wallHeight: 17, ceilingHeight: 24,
         floorRed: 0xcc3333, floorBlue: 0x3355cc, wallColor: 0xcccccc,
         skyTop: 0x88bbff, skyBottom: 0xddddee, fogColor: 0xccccdd,
-        hasOcean: false, hasGlass: true, isEsport: true, size: 'medium', weather: 'indoor', openSides: true
+        hasOcean: false, hasGlass: true, isEsport: true, size: 'medium', weather: 'indoor', openSides: true,
+        decor: ['bleachers', 'scoreboard', 'lights']
     },
     dropworks: {
         name: 'Dropworks Parkour',
@@ -260,7 +265,8 @@ export const MAPS = {
             playerSpawnZ: 39,
             symmetric: true
         },
-        sky: { horizonColor: 0xf0d8b8, sun: true, sunColor: 0xfff0c0, cloudAmount: 0.35 }
+        sky: { horizonColor: 0xf0d8b8, sun: true, sunColor: 0xfff0c0, cloudAmount: 0.35 },
+        decor: ['seats', 'scoreboard', 'lights']
     },
     mega_pinball: {
         name: 'Mega Pinball Complex',
@@ -457,6 +463,7 @@ export class Arena {
         this.build();
         // ponytail: apply initial map theme
         this._applyTheme(this.mapId);
+        preloadTrophyTemplate();
     }
 
     _ballSpawnHeight() {
@@ -526,6 +533,7 @@ export class Arena {
                 this.weather.setWeather(this.config.weather);
             }
             this.addAmbientParticles('dust');
+            this._loadArenaDecor();
             return;
         }
         this.buildFloor();
@@ -588,6 +596,28 @@ export class Arena {
             : (this.config.isSpace || this.config.isNeon || this.config.isCosmeticStudio) ? 'spark'
             : 'dust';
         this.addAmbientParticles(particleType);
+        this._loadArenaDecor();
+    }
+
+    // Optional GLB decor (bleachers/scoreboard/floodlights/etc — js/arena-decor.js) —
+    // async and best-effort so arena setup is never blocked or broken by it. `_decorToken`
+    // drops a load that resolves after the map was switched away from mid-flight.
+    _loadArenaDecor() {
+        disposeArenaDecor(this.decorGroup);
+        this.decorGroup = null;
+        if (!this.config.decor) return;
+        const token = this._decorToken = (this._decorToken || 0) + 1;
+        const arenaSize = {
+            courtWidth: this.courtWidth,
+            courtLength: this.courtLength,
+            wallHeight: this.wallHeight,
+            ceilingHeight: this.ceilingHeight,
+            allowDecorLight: this.renderer.shouldLightDecor ? this.renderer.shouldLightDecor() : true
+        };
+        loadArenaDecor(this.scene, this.config, arenaSize).then(group => {
+            if (token !== this._decorToken) { disposeArenaDecor(group); return; }
+            this.decorGroup = group;
+        });
     }
 
     buildCosmeticStudio() {
@@ -2911,6 +2941,9 @@ export class Arena {
         this.jumpPads = null;
         this.cosmeticStudio = null;
         if (this.weather) { this.weather.clear(); this.weather = null; }
+        disposeArenaDecor(this.decorGroup);
+        this.decorGroup = null;
+        this._decorToken = (this._decorToken || 0) + 1;
     }
 
     // Tear down and rebuild as a different map.

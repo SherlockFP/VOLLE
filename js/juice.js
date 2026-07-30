@@ -88,6 +88,9 @@ export class Juice {
     }
 
     resetCombo() {
+        // Combo kırılma anı — window.UI (js/ui.js) sahibi, burada sadece optional-
+        // chaining hook: UI yokken (headless/test) sessizce no-op.
+        if (this.combo > 0 && typeof window !== 'undefined') window.UI?.comboBreak?.();
         this.combo = 0;
         this.comboTimer = 0;
     }

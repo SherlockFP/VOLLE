@@ -6,7 +6,7 @@ const crypto = require('crypto');
 const { CATALOG, ProfileStore } = require('./server/profile-store');
 const { AccountStore } = require('./server/account-store');
 const { PresenceStore } = require('./server/presence-store');
-const { verifyMatchReceipt } = require('./server/match-receipt');
+const { verifyMatchReceipt, normalizeMatchReceipt } = require('./server/match-receipt');
 const { CreatorMapStore } = require('./server/creator-map-store');
 const { RequestLimiter } = require('./server/request-limiter');
 const { buildRtcConfig } = require('./server/rtc-config');
@@ -41,6 +41,7 @@ const RATE_LIMITS = {
     session: [10, 60000],
     purchase: [20, 60000],
     reward: [30, 60000],
+    adReward: [10, 60000],
     mapRead: [90, 60000],
     mapWrite: [10, 60000],
     mapVote: [30, 60000],
@@ -83,20 +84,21 @@ const SOCIAL_HUB_MAP_NAMES = Object.freeze({
     skyline: 'Skyline Deck',
     harbor: 'Harbor Commons'
 });
-const LOBBY_TTL = 30000; // 30s stale prune
+const LOBBY_TTL = 45000; // 45s stale prune — margin above the 12s host keep-alive
+// (background-tab setInterval throttling can stretch that cadence well past 12s)
 
 function pruneLobbies() {
     const now = Date.now();
     for (const [code, l] of lobbies) {
-        if (now - l.updatedAt > LOBBY_TTL) lobbies.delete(code);
+        if (now - (l.lastSeen ?? l.updatedAt) > LOBBY_TTL) lobbies.delete(code);
     }
     for (const [code, hub] of socialHubs) {
-        if (now - hub.updatedAt > LOBBY_TTL) socialHubs.delete(code);
+        if (now - (hub.lastSeen ?? hub.updatedAt) > LOBBY_TTL) socialHubs.delete(code);
     }
 }
 
 function normalizeLobbyRecord(record, timestamp) {
-    return Object.assign({}, record, { updatedAt: timestamp });
+    return Object.assign({}, record, { updatedAt: timestamp, lastSeen: timestamp });
 }
 
 function readBody(req, maxLength = 1e4) {
@@ -244,20 +246,59 @@ const server = http.createServer(async (req, res) => {
         if (!allowRequest(req, res, 'reward')) return;
         const profile = profiles.authenticate(bearer(req));
         if (!profile) { sendJson(res, { error: 'unauthorized' }, 401); return; }
-        if (MATCH_REWARD_SECRET.length < 32) {
-            sendJson(res, { error: 'reward service unavailable' }, 503);
-            return;
-        }
         const b = await readBody(req);
         const signature = req.headers['x-match-signature'] || b.signature;
-        const receipt = verifyMatchReceipt(MATCH_REWARD_SECRET, b.receipt, signature);
+        // Two receipt sources: (a) a pre-signed receipt verified against
+        // MATCH_REWARD_SECRET (host-authoritative flow, unchanged, still
+        // requires the secret) or (b) a self-issued receipt the server builds
+        // from the authenticated bearer identity when no signature is sent —
+        // the client never held the secret, so bearer auth was always the
+        // real trust boundary here, same as purchase/openCase below.
+        let receipt = null;
+        if (signature) {
+            if (MATCH_REWARD_SECRET.length < 32) {
+                sendJson(res, { error: 'reward service unavailable' }, 503);
+                return;
+            }
+            receipt = verifyMatchReceipt(MATCH_REWARD_SECRET, b.receipt, signature);
+        } else {
+            receipt = normalizeMatchReceipt({
+                profileId: profile.id,
+                matchId: b.matchId,
+                mode: b.mode,
+                won: b.won === true,
+                issuedAt: Date.now(),
+                expiresAt: Date.now() + 5000
+            });
+        }
         if (!receipt || receipt.profileId !== profile.id) {
             sendJson(res, { error: 'invalid match receipt' }, 403);
             return;
         }
-        const result = profiles.reward(profile, receipt);
+        const result = profiles.reward(profile, {
+            matchId: receipt.matchId,
+            won: receipt.won,
+            score: b.score,
+            deflections: b.deflections
+        });
         sendJson(res, result.error ? { error: result.error } : {
             coins: result.coins,
+            base: result.base,
+            bonus: result.bonus,
+            profile: result.profile
+        }, result.status);
+        return;
+    }
+    if (urlPath === '/api/profile/ad-reward' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'adReward')) return;
+        const profile = profiles.authenticate(bearer(req));
+        if (!profile) { sendJson(res, { error: 'unauthorized' }, 401); return; }
+        const b = await readBody(req);
+        const result = profiles.adReward(profile, b.requestId || req.headers['idempotency-key'] || '');
+        sendJson(res, result.error ? { error: result.error, retryAfterMs: result.retryAfterMs } : {
+            coins: result.coins,
+            remaining: result.remaining,
+            cap: result.cap,
             profile: result.profile
         }, result.status);
         return;
@@ -520,4 +561,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { normalizeLobbyRecord };
+module.exports = { normalizeLobbyRecord, pruneLobbies, lobbies, LOBBY_TTL };

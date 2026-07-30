@@ -22,6 +22,7 @@ import { DEFAULT_LOADOUT } from './skills.js';
 import { AvatarPainter, AVATAR_SKINS } from './avatar.js';
 import { createShowcaseAvatar, ShopShowcaseRenderer } from './shop-showcase.js';
 import { createMenuStage } from './menu-stage.js';
+import { deriveFeaturedStrip } from './menu-featured.js';
 import { COSMETIC_PRACTICE_MAP_ID, CosmeticPracticeSession } from './cosmetic-practice.js';
 import { CASES, KNIVES } from './cosmetics.js';
 import { createKnifeModel, disposeObject3D } from './weapon-models.js';
@@ -50,7 +51,7 @@ import {
     rankQueueCandidates,
     updateDraftPick
 } from './competitive-service.js';
-import { filterLobbies, pickQuickLobby } from './lobby-browser.js';
+import { filterLobbies, pickQuickLobby, formatLobbyAge, lobbyCapacity } from './lobby-browser.js';
 import {
     createParty,
     createSocialProfile,
@@ -437,6 +438,14 @@ class App {
                     return;
                 }
                 if (this.ui.isTeamPopupOpen()) { this.ui.hideTeamPopup(); return; }
+                const earnEl = document.getElementById('earn-overlay');
+                if (earnEl && !earnEl.classList.contains('hidden')) { this.ui.hideEarnOverlay(); return; }
+                const inspectorEl = document.getElementById('case-inspector');
+                if (inspectorEl && !inspectorEl.classList.contains('hidden')) {
+                    inspectorEl.classList.add('hidden');
+                    this.ui._closeExclusive('caseInspector');
+                    return;
+                }
                 const settingsModal = document.getElementById('unified-settings');
                 if (settingsModal && !settingsModal.classList.contains('hidden')) {
                     this.closeSettingsModal();
@@ -759,6 +768,61 @@ class App {
                 this.store.set('playerName', nameInput.value || 'Player');
             });
         }
+        this._renderMenuFeatured();
+    }
+
+    // Kompakt "FEATURED" vitrin: günün kasası + 1-2 top skin, tıklayınca shop'a
+    // götürür. Katalogdan dinamik (CASES/BALL_SKINS), yeni skin/kasa eklenince
+    // otomatik döner — bu dosyaya dokunmaya gerek yok.
+    _renderMenuFeatured() {
+        const root = document.getElementById('menu-featured');
+        if (!root) return;
+        const data = deriveFeaturedStrip({ cases: CASES, skins: BALL_SKINS, liveMarket: this.store.getLiveMarket?.(), count: 2 });
+        const items = [];
+        if (data.case) items.push({ kind: 'case', tab: 'cases', id: data.case.id, name: data.case.name, art: data.case.art, color: null });
+        for (const skin of data.skins) items.push({ kind: 'skin', tab: 'balls', id: skin.id, name: skin.name, art: null, color: skin.color });
+        root.replaceChildren();
+        if (!items.length) {
+            root.hidden = true;
+            return;
+        }
+        root.hidden = false;
+        const kicker = document.createElement('span');
+        kicker.className = 'ow-featured-kicker';
+        kicker.textContent = 'Featured';
+        root.appendChild(kicker);
+        for (const item of items) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = `ow-featured-item ow-featured-${item.kind}`;
+            btn.dataset.tab = item.tab;
+            btn.setAttribute('aria-label', `${item.name} — open in shop`);
+            if (item.art) {
+                const img = document.createElement('img');
+                img.className = 'ow-featured-art';
+                img.src = item.art;
+                img.alt = '';
+                img.loading = 'lazy';
+                btn.appendChild(img);
+            } else {
+                const orb = document.createElement('span');
+                orb.className = 'ow-featured-orb';
+                orb.setAttribute('aria-hidden', 'true');
+                orb.style.setProperty('--fs-color', `#${(item.color ?? 0).toString(16).padStart(6, '0')}`);
+                btn.appendChild(orb);
+            }
+            const label = document.createElement('span');
+            label.className = 'ow-featured-name';
+            label.textContent = item.name;
+            btn.appendChild(label);
+            btn.addEventListener('click', () => {
+                this.ui.renderShop(this.store, item.tab);
+                this.ui.showScreen('shop');
+                this._syncShopShowcase();
+                this.shopShowcase?.start();
+            });
+            root.appendChild(btn);
+        }
     }
 
     // Maç sonu reward: coins + xp, battlepass tier dolum, istatistik, achievement, daily.
@@ -807,8 +871,11 @@ class App {
             }
         }
         this._saveSocialProfile();
+        const isRanked = !!this._rankedMatch;
         this._rankedMatch = null;
-        const coins = won ? 5 : 1;
+        const rewardCalc = this.store.matchRewardBreakdown({
+            won, kills: myStat.score || 0, deflects: myStat.deflections || 0
+        });
         // Casual-first XP: weighted on how the match was played rather than on the
         // result, so a strong loss still out-earns a passive win (js/prestige.js).
         const xp = this.store.boostedXp(matchXp({
@@ -817,11 +884,16 @@ class App {
             survived: (myStat.deaths || 0) === 0,
             won
         }));
-        const result = this.store.grant({ currency: coins, xp });
+        // Optimistic local grant so guests (and any pre-sync window) never lose
+        // the reward; grantMatchRemote() below overwrites currency with the
+        // server's absolute total once it resolves, so this never double-counts.
+        const result = this.store.grant({ currency: rewardCalc.total, xp });
         const matchId = this.game.matchId || globalThis.crypto?.randomUUID?.()
             || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        this.ui._lastMatchReward = { ...rewardCalc, kills: myStat.score || 0, deflects: myStat.deflections || 0 };
         this.store.grantMatchRemote({
             matchId,
+            mode: isRanked ? 'ranked' : 'casual',
             won,
             deflections: myStat.deflections,
             score: myStat.score
@@ -869,7 +941,7 @@ class App {
         if (mastery.masteryLeveledUp) {
             this.ui.showMessage?.(`${CHARACTERS[this.player.charId]?.name || 'Character'} Mastery Lv ${mastery.masteryLevel}!`, 3000);
         }
-        this.ui.showMessage?.(`+${coins} coins, +${xp} XP`, 3000);
+        this.ui.showMessage?.(`+${rewardCalc.total} coins, +${xp} XP`, 3000);
 
         // Replay kaydet
         const replay = Replay.stopRecording();
@@ -941,11 +1013,6 @@ class App {
         });
         bind('btn-mp-refresh', () => {
             this._refreshLobbyList();
-        });
-        document.addEventListener('keydown', event => {
-            if (event.key !== 'Escape') return;
-            const inspector = document.getElementById('case-inspector');
-            if (!inspector?.classList.contains('hidden')) inspector.classList.add('hidden');
         });
         ['mp-lobby-mode-filter', 'mp-lobby-map-filter', 'mp-lobby-queue-filter', 'mp-lobby-open-filter'].forEach(id => {
             document.getElementById(id)?.addEventListener('change', () => this._refreshLobbyList());
@@ -1645,7 +1712,7 @@ bind('btn-remove-bot', () => {
         });
 
         // Tab close / refresh while in a lobby → free the lobby immediately
-        // instead of waiting for the 30s server TTL, and drop the P2P peer.
+        // instead of waiting for the server TTL, and drop the P2P peer.
         window.addEventListener('beforeunload', () => {
             this._stopHostCheckpointLifecycle();
             if (this.network?.isHost && this._lobbyCode) {
@@ -1656,7 +1723,12 @@ bind('btn-remove-bot', () => {
                     navigator.sendBeacon(url, '');
                 } catch (e) {}
             }
-            try { this.network?.disconnect?.(); } catch (e) {}
+            try {
+                // Host: closeLobby() messages survivors first (close for 1v1, migrate
+                // for 2v2+) instead of just vanishing like a crash (P2P_HOST_FIXES #1).
+                if (this.network?.isHost) this.network.closeLobby();
+                else this.network?.disconnect?.();
+            } catch (e) {}
         });
 
         // Game over
@@ -2524,6 +2596,7 @@ updateCSLobbyInfo();
             const caseClose = e.target.closest('#case-inspector-close');
             if (caseClose || (e.target.id === 'case-inspector')) {
                 document.getElementById('case-inspector')?.classList.add('hidden');
+                this.ui._closeExclusive('caseInspector');
                 return;
             }
             const caseSelect = e.target.closest('.case-select');
@@ -2551,6 +2624,7 @@ updateCSLobbyInfo();
                     open.lastChild.textContent = `Open for ${box.price} credits`;
                 }
                 inspector?.classList.remove('hidden');
+                this.ui._openExclusive('caseInspector', () => { document.getElementById('case-inspector')?.classList.add('hidden'); });
                 open?.focus();
                 return;
             }
@@ -2570,6 +2644,7 @@ updateCSLobbyInfo();
                     : `Need ${box.price} coins - Balance ${balance}`);
                 if (result) {
                     document.getElementById('case-inspector')?.classList.add('hidden');
+                    this.ui._closeExclusive('caseInspector');
                     this.ui.showCaseReel(box, result);
                 }
                 this.ui.renderShop(this.store, 'cases');
@@ -3226,6 +3301,7 @@ updateCSLobbyInfo();
 
     openEmoteWheel() {
         if (this.game.emotes.wheelOpen) return;
+        this.ui._openExclusive('emoteWheel', () => this.closeEmoteWheel());
         this.player.unlock();
         const cx = window.innerWidth / 2;
         const cy = window.innerHeight / 2;
@@ -3240,6 +3316,7 @@ updateCSLobbyInfo();
         if (!this.game.emotes.wheelOpen) return;
         // Seçilmediyse kapat, seçildiyse showEmote çağrıldı
         this.game.emotes.hideWheel();
+        this.ui._closeExclusive('emoteWheel');
         if ([STATES.PLAYING, STATES.COUNTDOWN, STATES.ROUND_END, STATES.CELEBRATION].includes(this.game.state)) this.player.lock();
     }
 
@@ -3849,6 +3926,7 @@ updateCarousel() {
 
     openSettingsModal() {
         this.ui.hideScoreboard();
+        this.ui._openExclusive('settings', () => this.closeSettingsModal());
         const modal = document.getElementById('unified-settings');
         if (modal) modal.classList.remove('hidden');
         this.applyCrosshair?.(0);
@@ -3866,6 +3944,7 @@ updateCarousel() {
     closeSettingsModal() {
         const modal = document.getElementById('unified-settings');
         if (modal) modal.classList.add('hidden');
+        this.ui._closeExclusive('settings');
     }
 
     // Practice range — bot yok, sınırsız top, spawn/taşı.
@@ -4471,6 +4550,14 @@ updateCarousel() {
             this.arena.config?.name || 'Unknown',
             this.game.mode?.name || 'Classic'
         );
+        // ponytail: migration promotes a new host mid-match — without a keep-alive
+        // handoff the re-registered lobby just expires at the server TTL (P2P_HOST_FIXES #2).
+        clearInterval(this._lobbyKeepAlive);
+        this._lobbyKeepAlive = setInterval(() => {
+            if (this.network.connected && this.network.isHost) {
+                this._registerLobby(this._lobbyCode || code, this._lobbyName || 'Migrated Lobby', this.network.connections.size + 1, this.arena?.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
+            }
+        }, 12000);
     }
 
     broadcastLobbyState() {
@@ -4670,12 +4757,25 @@ updateCarousel() {
         await this._lobbyApi(`/api/lobbies/${encodeURIComponent(code)}`, { method: 'DELETE' });
     }
 
+    // ponytail: shared empty-state renderer — clear message + a one-click way to
+    // fill the board yourself instead of staring at nothing (P2P_HOST_FIXES #4).
+    _renderLobbyEmpty(container, message) {
+        container.innerHTML = `
+            <div class="mp-lobby-empty">
+                <p>${this._esc(message)}</p>
+                <button class="btn btn-primary btn-small mp-lobby-empty-cta" type="button">Host a game</button>
+            </div>`;
+        container.querySelector('.mp-lobby-empty-cta')?.addEventListener('click', () => {
+            document.getElementById('btn-mp-create')?.click();
+        });
+    }
+
     async _refreshLobbyList() {
         const list = await this._lobbyApi('/api/lobbies', { method: 'GET' });
         const container = document.getElementById('mp-lobby-list');
         if (!container) return;
         if (!Array.isArray(list) || list.length === 0) {
-            container.innerHTML = '<div class="mp-lobby-empty">No open lobbies found. Create one or refresh.</div>';
+            this._renderLobbyEmpty(container, 'No open lobbies right now.');
             return;
         }
         const modeFilter = document.getElementById('mp-lobby-mode-filter');
@@ -4695,21 +4795,25 @@ updateCarousel() {
             openOnly: openFilter?.checked
         });
         if (!filtered.length) {
-            container.innerHTML = '<div class="mp-lobby-empty">No lobbies match these filters.</div>';
+            this._renderLobbyEmpty(container, 'No lobbies match these filters.');
             return;
         }
-        container.innerHTML = filtered.map(l => `
+        const now = Date.now();
+        container.innerHTML = filtered.map(l => {
+            const { players, maxPlayers } = lobbyCapacity(l);
+            return `
             <div class="mp-lobby-card" data-code="${this._esc(l.code)}">
                 <div class="lobby-icon">🏐</div>
                 <div class="lobby-info">
                     <div class="lobby-name">${this._esc(l.name || 'Lobby')}</div>
-                    <div class="lobby-meta">${this._esc(l.hostName)} · ${this._esc(l.map)}</div>
+                    <div class="lobby-meta">${this._esc(l.hostName)} · ${this._esc(l.map)} · ${this._esc(formatLobbyAge(l.lastSeen ?? l.updatedAt, now))}</div>
                 </div>
                 <div class="lobby-mode-badge">MODE: ${this._esc(l.mode || 'Classic')}</div>
-                <div class="lobby-players">👤 ${l.players || 1}</div>
+                <div class="lobby-players">👤 ${players}/${maxPlayers}</div>
                 <button class="btn btn-primary btn-join btn-small">Join</button>
             </div>
-        `).join('');
+        `;
+        }).join('');
         // Quick join click
         container.querySelectorAll('.mp-lobby-card').forEach(card => {
             card.querySelector('.btn-join').addEventListener('click', (e) => {
@@ -5160,6 +5264,7 @@ updateCarousel() {
 
     openChat() {
         this.ui.hideScoreboard();
+        this.ui._openExclusive('chat', () => this.closeChat());
         // In lobby, just focus the lobby chat panel input
         if (this.game.state === STATES.LOBBY) {
             const li = document.getElementById('lobby-chat-input');
@@ -5182,6 +5287,7 @@ updateCarousel() {
         const input = document.getElementById('chat-input');
         if (!input) return;
         this.chatOpen = false;
+        this.ui._closeExclusive('chat');
         input.classList.add('hidden');
         input.blur();
         if (this.game.state === STATES.PLAYING) this.player.lock();

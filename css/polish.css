@@ -1450,11 +1450,14 @@ body.high-contrast :is(button, input, select, textarea):focus-visible {
 }
 
 #main-menu .ow-logo {
-    color: #f8fbff;
-    background: none;
-    -webkit-text-fill-color: currentColor;
-    filter: none;
-    text-shadow: 4px 4px 0 rgba(240, 68, 85, 0.62), -4px -4px 0 rgba(59, 130, 246, 0.55);
+    background: linear-gradient(120deg, var(--menu-ink) 0%, var(--menu-cyan) 55%, var(--menu-gold) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -0.02em;
+    filter: drop-shadow(0 6px 22px color-mix(in srgb, var(--menu-cyan) 45%, transparent));
+    text-shadow: none;
 }
 
 #main-menu .ow-tagline {
@@ -1624,6 +1627,90 @@ body.high-contrast :is(button, input, select, textarea):focus-visible {
 
 #main-menu .ow-hint {
     color: #77859a;
+}
+
+/* FEATURED vitrin strip: today's case + 1-2 ball skins, deterministic
+   rotation from js/menu-featured.js, populated by main.js._renderMenuFeatured().
+   Sits between the secondary action row and the low-priority text links —
+   a sales tier that outranks utility links but never competes with Quick Play. */
+#main-menu .ow-featured {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border: 1px solid var(--menu-line);
+    border-radius: 11px;
+    background: var(--menu-panel-soft);
+}
+
+#main-menu .ow-featured[hidden] {
+    display: none;
+}
+
+#main-menu .ow-featured-kicker {
+    flex: 0 0 auto;
+    color: var(--menu-gold);
+    font-size: 0.6rem;
+    font-weight: 900;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+}
+
+#main-menu .ow-featured-item {
+    flex: 1 1 96px;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 9px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--menu-ink);
+    font-family: var(--font);
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-align: left;
+    cursor: pointer;
+    transition: transform var(--ui-motion-fast) var(--ui-ease), border-color var(--ui-motion-fast) var(--ui-ease), background var(--ui-motion-fast) var(--ui-ease);
+}
+
+#main-menu .ow-featured-item:hover,
+#main-menu .ow-featured-item:focus-visible {
+    border-color: color-mix(in srgb, var(--ui-primary) 55%, transparent);
+    background: color-mix(in srgb, var(--ui-primary) 14%, transparent);
+    transform: translateY(-1px);
+}
+
+#main-menu .ow-featured-art {
+    flex: 0 0 auto;
+    width: 28px;
+    height: 28px;
+    object-fit: contain;
+    filter: drop-shadow(0 3px 8px color-mix(in srgb, var(--ui-primary) 40%, transparent));
+}
+
+#main-menu .ow-featured-orb {
+    flex: 0 0 auto;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 32% 28%, #fff 0 8%, var(--fs-color, var(--ui-primary)) 10% 100%);
+    box-shadow: 0 0 9px color-mix(in srgb, var(--fs-color, var(--ui-primary)) 55%, transparent);
+}
+
+#main-menu .ow-featured-name {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #main-menu .ow-featured-item:hover,
+    #main-menu .ow-featured-item:focus-visible {
+        transform: none;
+    }
 }
 
 #main-menu .friends-sidebar {
@@ -2030,6 +2117,7 @@ body.high-contrast #main-menu :is(.ow-topbar, .ow-showcase, .ow-action-panel, .f
 }
 
 #unified-settings [data-settings-section="controls"] .settings-section-heading,
+#unified-settings [data-settings-section="controls"] .settings-subgroup-label,
 #unified-settings [data-settings-section="controls"] .crosshair-code-row {
     grid-column: 1 / -1;
 }
@@ -2054,6 +2142,10 @@ body.high-contrast #main-menu :is(.ow-topbar, .ow-showcase, .ow-action-panel, .f
 
 #unified-settings [data-settings-section="controls"] .settings-row-toggle {
     grid-template-columns: 1fr auto;
+}
+
+#unified-settings [data-settings-section="controls"] .settings-row-desc {
+    grid-column: 1 / -1;
 }
 
 #unified-settings [data-settings-section="controls"] .crosshair-preview-card {
@@ -2646,6 +2738,71 @@ body.photo-mode #hud,body.photo-mode #scoreboard-overlay,body.photo-mode .networ
     font-weight: 900;
     letter-spacing: .12em;
     text-transform: uppercase;
+}
+
+/* Reset-to-defaults: sits at the end of each tab's heading row (see
+   .settings-section-heading-side below). "Armed" (awaiting the confirming
+   second click) recolors with the theme's warning token instead of a fixed
+   hex so it still reads correctly under every theme. */
+#unified-settings .settings-reset-btn {
+    margin-left: auto;
+}
+#unified-settings .settings-reset-btn.is-armed {
+    color: var(--ui-warning);
+    border-color: var(--ui-warning);
+}
+
+/* Keeps .settings-section-heading's original two-child flex layout (title
+   block | this wrapper) instead of gaining a third space-between item. */
+#unified-settings .settings-section-heading-side {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+}
+
+/* One-line description under a setting. flex-wrap on .settings-row plus a
+   forced 100% basis here puts it on its own row without touching the
+   existing label/control layout above it. */
+#unified-settings .settings-row {
+    flex-wrap: wrap;
+}
+#unified-settings .settings-row-desc {
+    flex: 1 1 100%;
+    margin: 0;
+    color: var(--ui-muted);
+    font-size: .68rem;
+    font-weight: 400;
+    line-height: 1.3;
+}
+
+/* Instant "saved" pulse: one shared badge in the header (not one per row),
+   shown briefly whenever any control inside .settings-scroll changes. It
+   stays in the flex flow at all times (visibility/opacity toggle, not
+   display) so showing it never reflows the tabs/close button next to it.
+   The pulse itself is a CSS animation, so the existing global .reduce-motion
+   rule in css/ui-tokens.css already neutralizes it for reduced-motion users. */
+#unified-settings .settings-saved-indicator {
+    padding: 4px 10px;
+    color: var(--ui-success);
+    border: 1px solid var(--ui-success);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--ui-success) 12%, transparent);
+    font-size: .68rem;
+    font-weight: 800;
+    letter-spacing: .04em;
+    visibility: hidden;
+    opacity: 0;
+}
+#unified-settings .settings-saved-indicator.settings-saved-pulse {
+    visibility: visible;
+    opacity: 1;
+    animation: settings-saved-pulse 900ms ease-out;
+}
+@keyframes settings-saved-pulse {
+    0% { opacity: 0; transform: translateY(-2px) scale(.92); }
+    18% { opacity: 1; transform: translateY(0) scale(1); }
+    100% { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 /* Competitive ball heat and incoming threat readability. */
@@ -3278,7 +3435,7 @@ body.photo-mode #hud,body.photo-mode #scoreboard-overlay,body.photo-mode .networ
 .shop-catalog {
     padding: clamp(14px, 1.6vw, 22px);
     display: grid;
-    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-rows: auto auto minmax(0, 1fr);
     gap: 12px;
 }
 .shop-catalog-header { display: flex; align-items: end; justify-content: space-between; gap: 16px; }
@@ -3293,6 +3450,24 @@ body.photo-mode #hud,body.photo-mode #scoreboard-overlay,body.photo-mode .networ
     font-size: .72rem;
     font-variant-numeric: tabular-nums;
 }
+
+.shop-filters { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 2px; }
+#shop-screen .shop-filter-chip {
+    padding: 7px 13px;
+    color: #a9d4db;
+    border: 1px solid rgba(116, 237, 235, .22);
+    border-radius: 999px;
+    background: rgba(2, 17, 29, .5);
+    font-size: .68rem;
+    font-weight: 800;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    cursor: pointer;
+    touch-action: manipulation;
+    transition: color var(--ui-motion-base) var(--ui-ease), background-color var(--ui-motion-base) var(--ui-ease), border-color var(--ui-motion-base) var(--ui-ease);
+}
+#shop-screen .shop-filter-chip.selected { color: #032027; border-color: transparent; background: linear-gradient(135deg, var(--shop-accent), var(--shop-accent-cool)); }
+#shop-screen .shop-filter-chip:focus-visible { outline: 3px solid #d8fffa; outline-offset: 2px; }
 
 #shop-screen .shop-grid {
     min-width: 0;
@@ -3335,13 +3510,59 @@ body.photo-mode #hud,body.photo-mode #scoreboard-overlay,body.photo-mode .networ
     border-color: var(--shop-line-strong);
     box-shadow: 0 18px 38px rgba(0, 7, 16, .38), 0 0 0 1px rgba(105, 237, 223, .13);
 }
-#shop-screen .shop-card.owned { border-color: rgba(105, 237, 223, .44); }
-#shop-screen .shop-card.equipped { border-color: var(--shop-accent); box-shadow: 0 0 0 1px rgba(105, 237, 223, .28), 0 16px 34px rgba(20, 196, 182, .14); }
+#shop-screen .shop-card.owned { border-color: rgba(75, 224, 122, .5); }
+#shop-screen .shop-card.equipped { border-color: #4da3ff; box-shadow: 0 0 0 1px rgba(77, 163, 255, .32), 0 16px 34px rgba(45, 120, 255, .16); }
 #shop-screen .shop-card .char-name { margin: 0 0 5px; color: var(--shop-text); font-size: .96rem; }
 #shop-screen .shop-card .char-desc { min-height: 0; color: var(--shop-muted); font-size: .75rem; line-height: 1.45; }
 #shop-screen .shop-card > :is(.btn, .shop-owned, .inventory-actions) { margin-top: auto; }
 #shop-screen .shop-card .btn { min-height: 44px; touch-action: manipulation; }
 #shop-screen .shop-card .char-emoji { border-radius: 12px; }
+
+#shop-screen .shop-card { position: relative; }
+#shop-screen .shop-card.shop-dim { opacity: .5; filter: saturate(.6); }
+#shop-screen .shop-card::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 3px;
+    border-radius: 16px 16px 0 0;
+    background: var(--shop-rarity-stripe, transparent);
+    opacity: .9;
+}
+#shop-screen .shop-card.rarity-rare { --shop-rarity-stripe: #36a8ff; }
+#shop-screen .shop-card.rarity-epic { --shop-rarity-stripe: #ae7cff; }
+#shop-screen .shop-card.rarity-legendary { --shop-rarity-stripe: #ffc02e; }
+#shop-screen .shop-status-badge {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 2;
+    padding: 4px 9px;
+    border-radius: 999px;
+    font-size: .62rem;
+    font-weight: 900;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    pointer-events: none;
+}
+#shop-screen .shop-status-badge.is-owned { color: #062a17; background: #4be07a; box-shadow: 0 0 0 1px rgba(255, 255, 255, .2); }
+#shop-screen .shop-status-badge.is-equipped { color: #06213a; background: #4da3ff; box-shadow: 0 0 0 1px rgba(255, 255, 255, .24); }
+#shop-screen .shop-shortfall-note {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 2;
+    max-width: calc(100% - 20px);
+    padding: 4px 9px;
+    border-radius: 999px;
+    background: rgba(46, 16, 8, .86);
+    color: #ffb37a;
+    font-size: .6rem;
+    font-weight: 800;
+    letter-spacing: .02em;
+    white-space: nowrap;
+    pointer-events: none;
+}
 
 .shop-item-icon {
     width: 64px;
@@ -3656,10 +3877,16 @@ body.cosmetic-practice-active #friends-sidebar { display: none !important; }
 #shop-screen[data-shop-tab="inventory"] .shop-grid,
 #shop-screen[data-shop-tab="skills"] .shop-grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
 #shop-screen[data-shop-tab="inventory"] .shop-grid { grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); }
-#shop-screen .case-card { min-height: 0; padding: 12px; }
+/* min-height floor keeps the constrained shop grid from compressing this row to
+   nothing (auto min-size is 0 because .shop-card is overflow:hidden); flex-shrink:0
+   + height:auto stop the art from being the flex item that absorbs the deficit
+   (it used to collapse to 2px, hiding the artwork entirely). */
+#shop-screen .case-card { min-height: 340px; padding: 12px; }
 #shop-screen .case-art {
     width: 100%;
+    height: auto;
     aspect-ratio: 16 / 10;
+    flex-shrink: 0;
     margin-bottom: 14px;
     overflow: hidden;
     border: 1px solid rgba(128, 240, 234, .26);
@@ -3698,7 +3925,7 @@ body.cosmetic-practice-active #friends-sidebar { display: none !important; }
 .case-inspector {
     position: fixed;
     inset: 0;
-    z-index: 710;
+    z-index: var(--z-modal);
     padding: 24px;
     display: grid;
     place-items: center;

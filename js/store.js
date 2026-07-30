@@ -257,7 +257,7 @@ class StoreClass {
         const fields = [
             'currency', 'gems', 'ownedBalls',
             'ownedSkills', 'ownedItems', 'ownedAvatarSkins', 'ownedKnives',
-            'ownedCosmetics', 'casePity', 'equippedWearables', 'economyRevision'
+            'ownedCosmetics', 'casePity', 'equippedWearables', 'economyRevision', 'adRewards'
         ];
         fields.forEach(field => {
             if (profile[field] !== undefined) this.data[field] = profile[field];
@@ -319,20 +319,37 @@ class StoreClass {
         }
     }
 
+    // Duplicated from server/profile-store.js (ponytail: server.js is CJS,
+    // this is ESM — no shared import path without a build step). Both sides
+    // must move together if the formula ever changes.
+    matchRewardBreakdown({ won, kills = 0, deflects = 0 } = {}) {
+        const base = won === true ? 120 : 40;
+        const safeKills = Math.max(0, Math.floor(Number(kills) || 0));
+        const safeDeflects = Math.max(0, Math.floor(Number(deflects) || 0));
+        const bonus = Math.min(60, safeKills * 5 + safeDeflects * 1);
+        return { base, bonus, total: base + bonus };
+    }
+
+    // Server self-issues the receipt from the authenticated bearer token, so
+    // the client only needs to send the claim — see server.js /api/profile/reward.
     async grantMatchRemote(match) {
         if (!this.remoteReady) return false;
-        const receipt = match?.receipt;
-        const signature = match?.signature;
-        if (!receipt || typeof signature !== 'string') return false;
+        const matchId = typeof match?.matchId === 'string' ? match.matchId : '';
+        if (!matchId) return false;
         try {
             const response = await fetch('/api/profile/reward', {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${this.profileToken}`,
-                    'X-Match-Signature': signature,
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ receipt })
+                body: JSON.stringify({
+                    matchId,
+                    mode: match.mode === 'ranked' ? 'ranked' : 'casual',
+                    won: match.won === true,
+                    score: match.score,
+                    deflections: match.deflections
+                })
             });
             if (!response.ok) return false;
             const result = await response.json();
@@ -340,6 +357,35 @@ class StoreClass {
             return true;
         } catch {
             return false;
+        }
+    }
+
+    getAdRewardStatus() {
+        return this.data.adRewards || { remaining: 0, cap: 5, cooldownRemainingMs: 0 };
+    }
+
+    async claimAdReward(requestId) {
+        if (!this.remoteReady && !await this.connectRemote(this.get('playerName'))) {
+            return { ok: false, error: 'offline' };
+        }
+        try {
+            const response = await fetch('/api/profile/ad-reward', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${this.profileToken}`,
+                    'Idempotency-Key': requestId,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ requestId })
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                return { ok: false, error: result.error || 'ad reward unavailable', retryAfterMs: result.retryAfterMs };
+            }
+            this._applyRemoteProfile(result.profile);
+            return { ok: true, coins: result.coins, remaining: result.remaining, cap: result.cap };
+        } catch {
+            return { ok: false, error: 'network error' };
         }
     }
 

@@ -18,6 +18,24 @@ export function filterLobbies(lobbies, filters = {}) {
     });
 }
 
+// ponytail: shared player/maxPlayers bounding so the card UI and the "open slots"
+// filter above never disagree on what counts as full (P2P_HOST_FIXES #4).
+export function lobbyCapacity(lobby) {
+    return {
+        players: count(lobby?.players, 1),
+        maxPlayers: Math.max(2, count(lobby?.maxPlayers, 8))
+    };
+}
+
+// Formats a lobby's last-seen timestamp as a short relative age for the browser list.
+export function formatLobbyAge(timestamp, now = Date.now()) {
+    const seen = count(timestamp, now);
+    const seconds = Math.max(0, Math.floor((now - seen) / 1000));
+    if (seconds < 5) return 'just now';
+    if (seconds < 60) return `${seconds}s ago`;
+    return `${Math.floor(seconds / 60)}m ago`;
+}
+
 export function pickQuickLobby(lobbies, filters = {}) {
     return [...filterLobbies(lobbies, { ...filters, openOnly: true })]
         .sort((a, b) => count(b.players, 1) - count(a.players, 1)

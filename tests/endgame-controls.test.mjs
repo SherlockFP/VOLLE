@@ -86,11 +86,13 @@ test('new matches cancel old countdowns and rebuild a zero-score board', async (
     assert.match(ui, /cancelCountdown\(\)/);
 });
 
-test('match completion awards exactly five coins for wins and one for losses', async () => {
-    const source = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
+test('match completion awards a win/loss base plus capped performance bonus', async () => {
+    const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
+    const store = await readFile(new URL('../js/store.js', import.meta.url), 'utf8');
 
-    assert.match(source, /const coins = won \? 5 : 1;/);
-    assert.match(source, /this\.game\.onMatchComplete = \(\) => \{/);
+    assert.match(main, /this\.game\.onMatchComplete = \(\) => \{/);
+    assert.match(main, /const rewardCalc = this\.store\.matchRewardBreakdown\(\{/);
+    assert.match(store, /const base = won === true \? 120 : 40;/);
 });
 
 test('every non-practice match records an ELO result', async () => {

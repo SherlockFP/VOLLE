@@ -149,7 +149,7 @@ test('volume normalization: masterGain stays in 0..1 range', () => {
     assert.equal(audio.masterGain.gain.value, 0.5 * 0.4);
 });
 
-test('cue table exists and contains all 33 expected cue names', () => {
+test('cue table exists and contains all 34 expected cue names', () => {
     const expectedCues = [
         'ui-click', 'ui-hover', 'deflect-spike', 'deflect-lob', 'deflect-flat',
         'whoosh', 'dinging', 'jump', 'land', 'bounce',
@@ -159,7 +159,7 @@ test('cue table exists and contains all 33 expected cue names', () => {
         'beep', 'go', 'speed-warning', 'score', 'chat',
         'hit-tf2', 'crit-tf2', 'frying-pan',
         'match-win', 'match-loss', 'match-end',
-        'respawn', 'equip-change', 'settings-apply'
+        'respawn', 'equip-change', 'settings-apply', 'kill-confirm'
     ];
     
     assert.equal(Object.keys(Audio.CUES).length, expectedCues.length, `cue table must have exactly ${expectedCues.length} cues`);

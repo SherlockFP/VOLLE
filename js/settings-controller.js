@@ -21,9 +21,18 @@ export function initSettingsTabs(root = document) {
     return [tab, listener];
   });
   selectSettingsTab(tabs, sections, tabs[0]?.dataset.tab);
+  // main.js calls initSettingsTabs(document) exactly once and never gets a
+  // second call site for reset-buttons/saved-indicator wiring, so both live
+  // here rather than needing a main.js edit to add one.
+  const resetButtons = initSettingsResetButtons(root);
+  const savedIndicator = initSettingsSavedIndicator(root);
   return {
     select: id => selectSettingsTab(tabs, sections, id),
-    destroy: () => listeners.forEach(([tab, listener]) => tab.removeEventListener('click', listener))
+    destroy: () => {
+      listeners.forEach(([tab, listener]) => tab.removeEventListener('click', listener));
+      resetButtons?.destroy();
+      savedIndicator?.destroy();
+    }
   };
 }
 
@@ -84,6 +93,143 @@ export function initThemeSwatches(root = document) {
     destroy: () => {
       select.removeEventListener('input', sync);
       host.replaceChildren();
+    }
+  };
+}
+
+// --- Per-tab reset-to-defaults ----------------------------------------------
+// "Reset to defaults" needs no second table of default values to keep in
+// sync with index.html: every native control already remembers what it was
+// parsed with (input.defaultValue/.defaultChecked, option.defaultSelected),
+// so resetting is just writing that back and replaying the input/change
+// events every other listener (bindSetting in main.js, the change listeners
+// in initSettingsExtras below) already reacts to.
+export const RESET_CONFIRM_WINDOW_MS = 3000;
+
+// Two-tap confirm, pure: a bare click arms the button (label -> "Sure?") for
+// RESET_CONFIRM_WINDOW_MS; a second click inside that window confirms. A
+// reducer over one timestamp, so the decision is unit-testable without real
+// timers or DOM.
+export function nextResetConfirmState(armedAt, now) {
+  const stillArmed = typeof armedAt === 'number' && (now - armedAt) <= RESET_CONFIRM_WINDOW_MS;
+  return stillArmed ? { action: 'confirm', armedAt: null } : { action: 'arm', armedAt: now };
+}
+
+export function resetControlToDefault(el) {
+  if (!el) return false;
+  if (el.tagName === 'SELECT') {
+    const options = [...(el.options || [])];
+    const fallback = options.find(o => o.defaultSelected) || options[0];
+    if (!fallback || el.value === fallback.value) return false;
+    el.value = fallback.value;
+    return true;
+  }
+  if (el.type === 'checkbox') {
+    if (el.checked === el.defaultChecked) return false;
+    el.checked = el.defaultChecked;
+    return true;
+  }
+  if (typeof el.defaultValue === 'string') {
+    if (el.value === el.defaultValue) return false;
+    el.value = el.defaultValue;
+    return true;
+  }
+  return false;
+}
+
+// Sweeps every native control in one tab's section back to its HTML default
+// and replays input+change so every already-registered listener persists
+// and applies it exactly as if the user had done it by hand.
+export function resetSectionToDefaults(section) {
+  if (!section?.querySelectorAll) return [];
+  const changed = [];
+  for (const el of section.querySelectorAll('input, select')) {
+    if (!resetControlToDefault(el)) continue;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    changed.push(el);
+  }
+  return changed;
+}
+
+export function initSettingsResetButtons(root = document) {
+  const buttons = [...(root.querySelectorAll?.('.settings-reset-btn[data-reset-tab]') || [])];
+  const cleanups = buttons.map(btn => {
+    const label = btn.textContent;
+    let armedAt = null;
+    let revertTimer = null;
+    const disarm = () => {
+      armedAt = null;
+      clearTimeout(revertTimer);
+      revertTimer = null;
+      btn.textContent = label;
+      btn.classList?.remove('is-armed');
+    };
+    const onClick = () => {
+      const result = nextResetConfirmState(armedAt, Date.now());
+      if (result.action === 'confirm') {
+        disarm();
+        const section = root.querySelector?.(`[data-settings-section="${btn.dataset.resetTab}"]`);
+        resetSectionToDefaults(section);
+        return;
+      }
+      armedAt = result.armedAt;
+      btn.textContent = 'Sure?';
+      btn.classList?.add('is-armed');
+      clearTimeout(revertTimer);
+      revertTimer = setTimeout(disarm, RESET_CONFIRM_WINDOW_MS);
+    };
+    btn.addEventListener('click', onClick);
+    return () => {
+      btn.removeEventListener('click', onClick);
+      clearTimeout(revertTimer);
+    };
+  });
+  return { destroy: () => cleanups.forEach(fn => fn()) };
+}
+
+// --- Instant "saved" feedback ------------------------------------------------
+// One shared badge (not one per row) pulses whenever any control inside
+// .settings-scroll fires input/change. The pulse is a CSS animation
+// (css/polish.css), so the existing global .reduce-motion rule in
+// css/ui-tokens.css already neutralizes its motion for reduced-motion users
+// with no branch needed here. Marked aria-hidden in the markup: it is a
+// supplementary visual cue, not information — a live region would spam
+// screen readers on every tick of a dragged range slider.
+const SAVED_PULSE_HOLD_MS = 1200;
+
+export function pulseSavedIndicator(el) {
+  if (!el) return;
+  el.classList?.remove('settings-saved-pulse');
+  void el.offsetWidth; // restart the CSS animation on repeat triggers
+  el.classList?.add('settings-saved-pulse');
+}
+
+export function initSettingsSavedIndicator(root = document) {
+  const scroll = root.querySelector?.('.settings-scroll');
+  const indicator = root.querySelector?.('#settings-saved-indicator');
+  if (!scroll || !indicator) return null;
+  let hideTimer = null;
+  const onChange = event => {
+    const target = event.target;
+    if (!target || !/^(INPUT|SELECT)$/.test(target.tagName || '')) return;
+    if (!target.closest?.('.settings-row')) return;
+    // Skip the reflow-forcing restart while a pulse is already in flight
+    // (e.g. dragging a range fires many input events per second) — just
+    // keep extending the hold so it stays visible through the whole drag.
+    if (!indicator.classList?.contains('settings-saved-pulse')) {
+      pulseSavedIndicator(indicator);
+    }
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => indicator.classList?.remove('settings-saved-pulse'), SAVED_PULSE_HOLD_MS);
+  };
+  scroll.addEventListener('input', onChange);
+  scroll.addEventListener('change', onChange);
+  return {
+    destroy: () => {
+      scroll.removeEventListener('input', onChange);
+      scroll.removeEventListener('change', onChange);
+      if (hideTimer) clearTimeout(hideTimer);
     }
   };
 }

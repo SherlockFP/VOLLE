@@ -348,6 +348,10 @@ export class Player {
         // Camera kick (recoil punch on deflect) — decays back to 0
         this.kickAmt = 0;
         this.kickTarget = 0;
+        // FOV kick (short zoom punch on a charged deflect release) — same decay
+        // curve as kickAmt, applied to camera.fov instead of pitch.
+        this.fovKickAmt = 0;
+        this._fovKickApplied = 0;
         this.killcamLock = false;
 
         // Attack + SPAM PROTECTION (stamina gate)
@@ -737,6 +741,11 @@ export class Player {
         this.kickAmt = shot === 'spike' ? 0.12 : shot === 'lob' ? 0.06 : 0.08;
     }
 
+    // Short FOV punch on a charged deflect release — see fovKickAmt decay in update().
+    fovKick(amountDeg = 4) {
+        this.fovKickAmt = amountDeg;
+    }
+
     update(dt) {
         this.longJumpEvent = null;
         if (!this.alive) {
@@ -1096,6 +1105,18 @@ export class Player {
                 this.camera.quaternion.setFromEuler(kicked);
             } else {
                 this.camera.quaternion.setFromEuler(this.euler);
+            }
+
+            // FOV kick — same decay curve as the camera punch above, applied to fov
+            // instead of pitch. Delta-based (undoes last frame's addition before
+            // applying the new one) so it never fights a live settings FOV change.
+            this.fovKickAmt *= Math.exp(-14 * dt);
+            if (this.fovKickAmt < 0.01) this.fovKickAmt = 0;
+            if (this._fovKickApplied || this.fovKickAmt) {
+                if (this._fovKickApplied) this.camera.fov -= this._fovKickApplied;
+                this._fovKickApplied = this.fovKickAmt;
+                if (this._fovKickApplied) this.camera.fov += this._fovKickApplied;
+                this.camera.updateProjectionMatrix();
             }
         }
 

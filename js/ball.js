@@ -238,7 +238,17 @@ export const BALL_SKINS = {
     aurora:         { name: 'Aurora Veil',      price: 290, rarity: 'epic',      effect: 'frost', color: 0x0f3d3a, glow: 0x7dffe0, trail: 0x4fd8c7, starColor: 0xd9fff5, frostTrail: true, trailStyle: 'frost' },
     phoenix:        { name: 'Phoenix Rebirth',  price: 430, rarity: 'legendary', effect: 'flame', color: 0x5c0b0b, glow: 0xffb020, trail: 0xff5a1f, starColor: 0xffe08a, burstTrail: true, trailStyle: 'ember' },
     cosmic_serpent: { name: 'Cosmic Serpent',   price: 450, rarity: 'legendary', effect: 'void', color: 0x140430, glow: 0xb35cff, trail: 0x6b21c9, starColor: 0xe6ccff, burstTrail: true, trailStyle: 'void' },
-    prism_king:     { name: 'Prism King',       price: 480, rarity: 'legendary', effect: 'prism', color: 0xffffff, glow: 0xffffff, trail: 0xffffff, starColor: 0xffffff, rainbow: true, burstTrail: true, trailStyle: 'prism' }
+    prism_king:     { name: 'Prism King',       price: 480, rarity: 'legendary', effect: 'prism', color: 0xffffff, glow: 0xffffff, trail: 0xffffff, starColor: 0xffffff, rainbow: true, burstTrail: true, trailStyle: 'prism' },
+
+    // ponytail: NewSkins pass — 6 more purchasable skins reusing the existing
+    // flame/void/glitch/frost effect families (shader-finishers.js already
+    // covers all four). 2 rare (cheap), 2 epic (mid), 2 legendary (expensive).
+    emberfall:      { name: 'Emberfall',        price: 210, rarity: 'rare',      effect: 'flame',  color: 0x6b1907, glow: 0xff7a33, trail: 0xff9a44, starColor: 0xffe3ad, trailStyle: 'ember' },
+    glacies:        { name: 'Glacies Wraith',   price: 230, rarity: 'rare',      effect: 'frost',  color: 0x18354a, glow: 0xbfefff, trail: 0x8fd9ff, starColor: 0xffffff, frostTrail: true, trailStyle: 'frost' },
+    binary_ghost:   { name: 'Binary Ghost',     price: 310, rarity: 'epic',      effect: 'glitch', color: 0x0c1220, glow: 0x7dfcff, trail: 0x35e0ff, starColor: 0xffffff, burstTrail: true, trailStyle: 'plasma' },
+    event_null:     { name: 'Event Null',       price: 320, rarity: 'epic',      effect: 'void',   color: 0x1b0930, glow: 0xb46bff, trail: 0x7a3fd6, starColor: 0xe8cbff, burstTrail: true, trailStyle: 'void' },
+    wildfire_phantom: { name: 'Wildfire Phantom', price: 440, rarity: 'legendary', effect: 'flame', color: 0x2a0502, glow: 0xffae3d, trail: 0xff5a1a, starColor: 0xfff0c2, burstTrail: true, trailStyle: 'ember' },
+    oblivion_shard: { name: 'Oblivion Shard',   price: 470, rarity: 'legendary', effect: 'void',   color: 0x05010a, glow: 0xa15cff, trail: 0x4d1f99, starColor: 0xd9baff, burstTrail: true, trailStyle: 'void' }
 };
 
 // ---------------------------------------------------------------------------

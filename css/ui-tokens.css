@@ -260,6 +260,21 @@
   --screen-line: rgba(255, 170, 190, 0.18);
 }
 
+/* Overlay stacking scale — theme-independent (UIOverlapFix pass, 2026-07-30).
+   Layers low -> high. "Exclusive" overlays (pause, settings, emote wheel,
+   chat, team popup, case inspector, earn overlay) are mutually closed by
+   js/ui.js UI._openExclusive(); passive panels (scoreboard, kill feed)
+   are not. See docs note in js/ui.js for the registry contract. */
+:root {
+  --z-hud: 50;             /* always-on HUD chrome: score, timer, crosshair */
+  --z-overlay: 160;        /* passive secondary panel scale (scoreboard stays literal 160 — tests/ui-foundation.test.mjs pins that exact value) */
+  --z-overlay-high: 165;   /* passive/exclusive secondary panel: team popup (M) */
+  --z-overlay-active: 210; /* exclusive input-capturing overlay: pause, emote wheel, chat */
+  --z-modal: 300;          /* blocking modal dialog: settings, case inspector, earn overlay */
+  --z-toast: 700;          /* transient top-layer notification: kill feed */
+  --z-critical: 9999;      /* match intro, loading screen */
+}
+
 :focus-visible {
   outline: 3px solid var(--ui-focus);
   outline-offset: 3px;

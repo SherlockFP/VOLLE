@@ -13,7 +13,9 @@ import { EmoteSystem } from './emotes.js';
 import { AffixManager } from './affixes.js';
 import { SKILLS, useSkill, ULTIMATES } from './skills.js';
 import { isNewerSequence } from './network.js';
-import { resolveKillerName, segmentIntersectsSphere } from './combat.js';
+import { resolveKillerName, segmentIntersectsSphere, sweptHitStepCount, scaleDedupWindowMs, scaleLethalGraceMs, decayKillConfirmEntries } from './combat.js';
+import { comboTier, comboPitchRate } from './combat-fx.js';
+import './hit-feedback.js';
 import { goalScoringTeam, checkGoalEntry } from './goal-mode.js';
 import {
     applyHotPotatoSnapshot,
@@ -54,6 +56,10 @@ import {
 } from './rally-duel.js';
 
 const BASE_HIT_DAMAGE = 25;
+// Kill-confirm "hot ball" window (docs/V3_UX_ROADMAP.md 3.2) — shooter's next
+// connecting hit gets a small damage bump for a few seconds after a kill.
+const KILL_CONFIRM_DURATION = 3.5;           // seconds
+const KILL_CONFIRM_DAMAGE_MULTIPLIER = 1.15; // +15% damage, single-shot
 
 const POWERUP_TYPES = [
     { id: 'shield', color: 0x44aaff, label: '+SHIELD', duration: 0, weight: 32 },
@@ -185,11 +191,9 @@ export class Game {
         this._killStreaks = new Map();
         this._killStreakTimers = new Map();
 
-        // Kill-confirm burn window: shooter's next shot deals bonus damage for 3.5s after elimination
-        // Map: playerName -> { duration: seconds_remaining, damageMultiplier: 1.15 }
+        // Kill-confirm burn window state — see _grantKillConfirm/_consumeKillConfirm
+        // and the KILL_CONFIRM_* constants near the top of the file.
         this._killConfirm = new Map();
-        const KILL_CONFIRM_DURATION = 3.5;        // seconds
-        const KILL_CONFIRM_DAMAGE_MULTIPLIER = 1.15;  // 15% bonus
 
         // Occasional bot chatter for life
         this.botChatTimer = 8 + Math.random() * 8;
@@ -1693,26 +1697,22 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         // Grant burn window if not in competitive mode; return success
         if (!playerName || this._powerUpsDisabled) return false;
         this._killConfirm.set(playerName, {
-            duration: 3.5,
-            savedTrailColor: this.ball._affixTrailColor,
-            savedGlowColor: this.ball._affixGlowColor
+            duration: KILL_CONFIRM_DURATION,
+            damageMultiplier: KILL_CONFIRM_DAMAGE_MULTIPLIER
         });
+        if (playerName === this.playerName) {
+            window.hitFeedback?.showHotBall?.(KILL_CONFIRM_DURATION, Math.round((KILL_CONFIRM_DAMAGE_MULTIPLIER - 1) * 100));
+            this.audio.playCue('kill-confirm');
+        }
         return true;
     }
 
     _updateKillConfirm(dt) {
-        // Decrement burn window timers, remove expired entries
-        for (const [playerName, state] of this._killConfirm.entries()) {
-            state.duration -= dt;
-            if (state.duration <= 0) {
-                this._clearKillConfirm();  // Clear on expiry
-            }
-        }
-    }
-
-    _clearKillConfirm() {
-        // Clear all kill-confirm burn windows
-        this._killConfirm.clear();
+        // Decrement burn window timers, remove only the entries that actually
+        // expired (ponytail bug fix: this used to call _clearKillConfirm(), which
+        // wiped every player's window the instant any single one hit zero).
+        const expired = decayKillConfirmEntries(this._killConfirm, dt);
+        for (const key of expired) this._killConfirm.delete(key);
     }
 
     _consumeKillConfirm(playerName) {
@@ -1720,8 +1720,9 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         if (!playerName || this._powerUpsDisabled) return 1.0;  // No bonus in competitive mode
         const state = this._killConfirm.get(playerName);
         if (!state || state.duration <= 0) return 1.0;  // No active window
-        const multiplier = state.damageMultiplier || 1.15;
+        const multiplier = state.damageMultiplier || KILL_CONFIRM_DAMAGE_MULTIPLIER;
         this._killConfirm.delete(playerName);  // Single-shot reward on consumption
+        if (playerName === this.playerName) window.hitFeedback?.hideHotBall?.();
         return multiplier;
     }
 
@@ -2202,28 +2203,38 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 : (throwerTeam
                     ? this.getAllTargets().filter(p => p.team !== throwerTeam)
                     : (this.ball.targetPlayer ? [this.ball.targetPlayer] : []));
+            // ponytail: actual per-frame displacement (not speed*assumed-dt) — a dt
+            // spike (up to the 50ms clamp in main.js) inflates the swept gap just as
+            // much as high ball speed does, so measure the real segment length.
+            const ballTravelDist = this.ball._prevPosition ? this.ball._prevPosition.distanceTo(ballPos) : 0;
             for (const target of candidates) {
                 if (!target || target.alive === false) continue;
                 const headPos = target.getPosition();
                 const hitBonus = this.ball.effectiveHitRange ? (this.ball.effectiveHitRange - this.ball.hitRange) : 0;
                 const sizeScale = target._sizeScale || 1;
-                if (this.capsuleHitTest(ballPos, headPos, 1.7 * sizeScale, (0.4 + hitBonus) * sizeScale)) {
+                const capsuleRadius = (0.4 + hitBonus) * sizeScale;
+                if (this.capsuleHitTest(ballPos, headPos, 1.7 * sizeScale, capsuleRadius)) {
                     this.handleHit(target);
                     return;
                 }
-            // ponytail: swept sphere check — test ball trajectory for tunneling prevention
-            // Catches moderate-speed tunneling; steps scale with speed
-            if (this.ball._prevPosition && this.ball.currentSpeed > 12) {
-                const steps = Math.min(3, Math.ceil(this.ball.currentSpeed * 0.015));
-                for (let s = 1; s <= steps; s++) {
-                    const t = s / (steps + 1);
-                    const interpPos = new THREE.Vector3().lerpVectors(this.ball._prevPosition, ballPos, t);
-                    if (this.capsuleHitTest(interpPos, headPos, 1.7 * sizeScale, (0.4 + hitBonus) * sizeScale)) {
-                        this.handleHit(target);
-                        return;
+                // ponytail: swept check against the actual travelled segment — step
+                // count is derived from distance/radius so the sample gap can never
+                // exceed the capsule (old speed-only heuristic under-sampled on dt
+                // spikes: see sweptHitStepCount in combat.js for the math + tests).
+                if (ballTravelDist > 0) {
+                    const steps = sweptHitStepCount(ballTravelDist, this.ball.radius + capsuleRadius);
+                    if (steps > 0) {
+                        this._sweptInterp ??= new THREE.Vector3();
+                        for (let s = 1; s <= steps; s++) {
+                            const t = s / (steps + 1);
+                            this._sweptInterp.lerpVectors(this.ball._prevPosition, ballPos, t);
+                            if (this.capsuleHitTest(this._sweptInterp, headPos, 1.7 * sizeScale, capsuleRadius)) {
+                                this.handleHit(target);
+                                return;
+                            }
+                        }
                     }
                 }
-            }
                 // ponytail: proximity forced-hit — top hedefe çok yakınken oyuncu
                 // vurmazsa zorunlu hit. Sonsuz döngü engeli + tunneling fix.
                 if (this.ball._forceHit) {
@@ -2411,6 +2422,9 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         const chargeResult = this._releaseCharge();
         const chargedPower = chargeResult ? this.player.deflectPower * chargeResult.power : this.player.deflectPower;
         if (chargeResult && chargeResult.spread > 0) this._applyChargeSpread(aimDir, chargeResult.spread);
+        // Short FOV punch on a charged release — reuses player.js's camera-kick
+        // decay curve, just on the fov axis instead of pitch.
+        if (chargeResult && chargeResult.ratio > 0.15) this.player.fovKick(2 + chargeResult.ratio * 4);
 
         // ponytail: client-side prediction. Deflect locally for instant feedback,
         // send intent to host. Host broadcasts authoritative state to correct if needed.
@@ -2571,14 +2585,16 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             this.juice.shake(0.35);      // daha güçlü shake
             this.juice.sparks(this.ball.position.clone(), 0xffbb00, 16);
             this.juice.shockwave(this.ball.position.clone(), 0xffbb00); // Altın şok dalgası!
+            this.juice.burst(this.ball.position.clone(), 0xffcc33, 14, 9); // Altın radyal parçacık patlaması (perfect)
             this.juice.addCombo();
             this.ui.showCombo(this.juice.combo, this.juice.maxCombo);
             this.ui.showMessage(`✨ PERFECT DEFLECT! x${this.juice.combo} combo`, 2500);
-            this.audio.playSfx('tf2_crit', 0.65);
+            this.audio.playSfx('tf2_crit', 0.65, comboPitchRate(comboTier(this.juice.combo)));
         } else {
             // Normal deflect — spark + small flash for impact feel
             this.juice.sparks(this.ball.position.clone(), 0xff8844, 8);
             this.juice.shockwave(this.ball.position.clone(), 0xff8844);
+            this.juice.burst(this.ball.position.clone(), 0xff8844, 8, 7); // Radyal parçacık patlaması
             this.juice.shake(0.1);
             this.juice.flash(0.15);
         }
@@ -2743,15 +2759,20 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         );
         const shot = this.ball.lastShot;
 
-        // ponytail: host-side lethal hits get an 80ms grace window — late client
-        // attacks (remoteAttack) cancel the hit. Non-lethal hits go through fast.
+        // ponytail: host-side lethal hits get a grace window before applying — late
+        // client attacks (remoteAttack) cancel the hit. Base 80ms, scaled up by the
+        // victim's last known ping (remoteAttack stashes p._lastPing) so a laggy
+        // player's legitimate last-second deflect still lands in time; local player
+        // and bots have no _lastPing, so they keep the unscaled 80ms. Non-lethal hits
+        // go through fast.
         if (!isClient && hitTarget.alive !== false) {
             // ponytail: pre-check lethality without mutating state. oneHitKill / instagib
             // is always lethal; otherwise conservative worst-case estimate.
             const conservativeHp = this._oneHitKill ? 0 : (hitTarget.hp <= BASE_HIT_DAMAGE ? hitTarget.hp - 1 : 0);
             if (this._oneHitKill || conservativeHp <= 0) {
-                if (this._pendingLethalHit) clearTimeout(this._pendingLethalHit);
+                clearTimeout(this._pendingLethalHit);
                 this._pendingLethalVictim = hitTarget;
+                const graceMs = scaleLethalGraceMs(80, hitTarget._lastPing);
                 this._pendingLethalHit = setTimeout(() => {
                     this._pendingLethalHit = null;
                     this._pendingLethalVictim = null;
@@ -2762,7 +2783,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                     if (hitTarget.alive !== false) {
                         this._doApplyHit(hitTarget, name, scorerName, attacker, shot);
                     }
-                }, 80);
+                }, graceMs);
                 return;
             }
         }
@@ -2788,6 +2809,10 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         const damageMultiplier = attacker?._powerUpDamageMul
             || (attacker === this.player ? this._damageMul : null);
         if (damageMultiplier) dmg = Math.round(dmg * damageMultiplier);
+        // Kill-confirm "hot ball" bonus — single-shot damage bump on the shooter's
+        // next connecting hit after a kill (docs/V3_UX_ROADMAP.md 3.2).
+        const killConfirmMul = scorerName ? this._consumeKillConfirm(scorerName) : 1.0;
+        if (killConfirmMul !== 1) dmg = Math.round(dmg * killConfirmMul);
         // Body zone multiplier
         const hitZone = this.getBodyZone(this.ball.position, hitTarget.getPosition());
         dmg = Math.round(dmg * hitZone.multiplier);
@@ -2895,7 +2920,8 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         const scrPos = hitPos.clone().project(this.player.camera);
         const sx = (scrPos.x * 0.5 + 0.5) * window.innerWidth;
         const sy = (-scrPos.y * 0.5 + 0.5) * window.innerHeight;
-        this.ui.spawnDamageNumber(sx, sy, dmg, isLethal, hitZone.label);
+        const isPerfectHit = this.ball.lastPerfectBy === attacker;
+        this.ui.spawnDamageNumber(sx, sy, dmg, isLethal, hitZone.label, isPerfectHit);
 
         // Hit marker — show when the local player lands a hit
         if (attacker === this.player) {
@@ -2942,8 +2968,8 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             this.juice.hitBurst(hitPos);
         }
         this.juice.shockwave(hitPos, isLethal ? 0xff3333 : 0xff8844);
-        this.juice.hitStop(isLethal ? 120 : 50);
-        this.juice.flash(isLethal ? 0.5 : 0.3);
+        this.juice.hitStop(isLethal ? 150 : 35);
+        this.juice.flash(isLethal ? 0.55 : 0.22);
 
         // Death explosion + audio
         this.spawnDeathExplosion(hitPos, hitTarget.team);
@@ -3011,8 +3037,8 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 const idx = Math.min(this.killStreak, 6);
                 const comboName = comboNames[idx] || '';
                 if (comboName) {
-                    this._playComboSound(comboSounds[idx]);
-                    if (tf2ComboSounds[idx]) this.audio.playSfx(tf2ComboSounds[idx], 0.5);
+                    this._playComboSound(comboSounds[idx], comboPitchRate(comboTier(idx)));
+                    if (tf2ComboSounds[idx]) this.audio.playSfx(tf2ComboSounds[idx], 0.5, comboPitchRate(comboTier(idx)));
                     this.ui.showCombo(idx, 8.0);
                     this.announce(`🔥 ${comboName}!`, tf2ComboSounds[idx] || null, 0.5, 2500);
                 }
@@ -4141,11 +4167,12 @@ spawnPowerUp() {
         }
     }
 
-    _playComboSound(file) {
+    _playComboSound(file, rate = 1) {
         try {
             const a = this._comboAudio[file];
             if (a) {
                 a.volume = 0.12;
+                a.playbackRate = Number.isFinite(rate) && rate > 0 ? rate : 1;
                 a.currentTime = 0;
                 a.play().catch(() => {});
             }
@@ -4351,8 +4378,11 @@ spawnPowerUp() {
             this._remoteAttackIds.set(data.attackId, now);
             if (this._remoteAttackIds.size > 128) this._remoteAttackIds.delete(this._remoteAttackIds.keys().next().value);
         }
-        // A successful deflect can be followed by a fast return. Keep this below one attack animation.
-        if (this._lastRemoteAttack && this._lastRemoteAttack[playerId] && now - this._lastRemoteAttack[playerId] < 90) return;
+        // A successful deflect can be followed by a fast return. Keep this below one
+        // attack animation — scaled down at high ball speed: a fast rally's real
+        // round-trip is shorter than 90ms, so the fixed window ate legitimate returns.
+        const dedupWindowMs = scaleDedupWindowMs(90, this.ball.currentSpeed, this.ball.baseSpeed);
+        if (this._lastRemoteAttack && this._lastRemoteAttack[playerId] && now - this._lastRemoteAttack[playerId] < dedupWindowMs) return;
         if (!this._lastRemoteAttack) this._lastRemoteAttack = {};
 
         p.aimDir.set(data.ax ?? p.aimDir.x, data.ay ?? p.aimDir.y, data.az ?? p.aimDir.z).normalize();
@@ -4376,6 +4406,7 @@ spawnPowerUp() {
         const hostBallDist = attackPos.distanceTo(this.ball.position);
         const clientBallDist = attackPos.distanceTo(clientBallPos);
         const reportedPing = Math.min(250, Math.max(0, Number(data.ping) || 0));
+        p._lastPing = reportedPing; // ponytail: for handleHit's grace-window scaling
         const latencyAllowance = Math.min(
             10,
             (reportedPing / 1000) * Math.max(15, this.ball.currentSpeed || 0)
@@ -4384,7 +4415,7 @@ spawnPowerUp() {
         const predictionRange = this.ball.attackRange * 2.5 + latencyAllowance * 0.35;
         if (hostBallDist <= hostRange || clientBallDist <= predictionRange) {
             this._lastRemoteAttack[playerId] = now;
-            if (this._pendingLethalHit) {
+            if (this._pendingLethalHit && this._pendingLethalVictim === p) {
                 clearTimeout(this._pendingLethalHit);
                 this._pendingLethalHit = null;
                 this._pendingLethalVictim = null;
@@ -4646,16 +4677,19 @@ spawnPowerUp() {
             this.audio.preloadSfx('sfx/');
             this.initMinimap();
             this._skipPreGame = true;
-            // ponytail: apply host ball state immediately so late joiner starts synced
-            if (data.ball) {
-                this.ball.position.set(data.ball.x, data.ball.y, data.ball.z);
-                this.ball.velocity.set(data.ball.vx, data.ball.vy, data.ball.vz);
-                this.ball.currentSpeed = data.ball.speed || this.ball.currentSpeed;
-                this.ball.active = !!data.ball.active;
+            // ponytail: apply host ball state immediately so late joiner starts synced.
+            // welcome only carries `ball` inside `snapshot` (from snapshotState()) — the
+            // bare `data.ball` this checked before was always undefined (P2P_HOST_FIXES #3).
+            const lateJoinBall = data.snapshot?.ball || data.ball;
+            if (lateJoinBall) {
+                this.ball.position.set(lateJoinBall.x, lateJoinBall.y, lateJoinBall.z);
+                this.ball.velocity.set(lateJoinBall.vx, lateJoinBall.vy, lateJoinBall.vz);
+                this.ball.currentSpeed = lateJoinBall.speed || this.ball.currentSpeed;
+                this.ball.active = !!lateJoinBall.active;
                 this.ball.mesh.visible = this.ball.active;
-                this._ballTarget = { x: data.ball.x, y: data.ball.y, z: data.ball.z, vx: data.ball.vx, vy: data.ball.vy, vz: data.ball.vz };
+                this._ballTarget = { x: lateJoinBall.x, y: lateJoinBall.y, z: lateJoinBall.z, vx: lateJoinBall.vx, vy: lateJoinBall.vy, vz: lateJoinBall.vz };
                 this._ballTargetTime = performance.now();
-                this._ballTargetActive = data.ball.active;
+                this._ballTargetActive = lateJoinBall.active;
             }
             // Don't call startRound() — that spawns ball locally and desyncs from host.
             // Match host state; ball position comes from ballState broadcast.
@@ -4663,6 +4697,14 @@ spawnPowerUp() {
             this.clearSplitBalls();
             this.chaosManager?.clear();
             this._clearAllPowerUps();
+            // ponytail: restore mutator/map-hazard state so a late joiner sees the same
+            // active ball affix and chaos hazards the host already has (P2P_HOST_FIXES #3).
+            if (data.snapshot?.ballAffix) {
+                this.currentBallAffix = data.snapshot.ballAffix;
+                this.ball.affix = this.currentBallAffix;
+                this.ui.updateBallAffix(this.currentBallAffix);
+            }
+            if (data.snapshot?.chaos) this.applyChaosState(data.snapshot.chaos);
             // ponytail: host in COUNTDOWN -> show countdown on client too, then go PLAYING
             if (data.state === STATES.COUNTDOWN) {
                 this.setState(STATES.COUNTDOWN);
@@ -4708,7 +4750,7 @@ spawnPowerUp() {
             const scrPos = hitPos.clone().project(this.player.camera);
             const sx = (scrPos.x * 0.5 + 0.5) * window.innerWidth;
             const sy = (-scrPos.y * 0.5 + 0.5) * window.innerHeight;
-            this.ui.spawnDamageNumber(sx, sy, data.dmg || 0, isLethal, data.hitZone || null);
+            this.ui.spawnDamageNumber(sx, sy, data.dmg || 0, isLethal, data.hitZone || null, !!data.perfectTag);
 
             // Hit marker — show when the local player lands a hit
             if (data.attackerName === this.playerName) {
@@ -4981,6 +5023,23 @@ spawnPowerUp() {
             overtimeTimer: this._overtimeTimer,
             suddenDeathAnnounced: this._suddenDeathAnnounced,
             hotPotato: this.getHotPotatoSnapshot(),
+            // ponytail: settings/mutator/map-hazard state — late joiners and migrated
+            // hosts previously fell back to defaults for these (P2P_HOST_FIXES #3).
+            settings: {
+                matchTime: this.scoreboard.timeLimit,
+                maxRounds: this.scoreboard.maxRounds,
+                botDifficulty: this.botDifficulty
+            },
+            ballAffix: this.currentBallAffix
+                ? { id: this.currentBallAffix.id, color: this.currentBallAffix.color }
+                : null,
+            chaos: (this._chaosModeIds?.has(this.mode?.id) && this.chaosManager) ? {
+                tornadoes: this.chaosManager.tornadoes.map(t => ({
+                    x: t.x, z: t.z, radius: t.radius, strength: t.strength,
+                    life: t.life, age: t.age, rotation: t.rotation
+                })),
+                gravityFlipped: this.chaosManager.gravityFlipped
+            } : null,
             ball: b ? {
                 x: b.position.x, y: b.position.y, z: b.position.z,
                 vx: b.velocity.x, vy: b.velocity.y, vz: b.velocity.z,
@@ -5338,6 +5397,15 @@ spawnPowerUp() {
             } catch (_) {}
         }
         try { this.ui?.updateScores?.(score); } catch (_) {}
+        // ponytail: best-effort mutator resync, outside the atomic rollback above —
+        // a missed ball affix is cosmetic, never worth failing migration over (P2P_HOST_FIXES #3).
+        try {
+            if (state.ballAffix) {
+                this.currentBallAffix = state.ballAffix;
+                if (this.ball) this.ball.affix = this.currentBallAffix;
+                this.ui?.updateBallAffix?.(this.currentBallAffix);
+            }
+        } catch (_) {}
         return true;
     }
 
@@ -5626,10 +5694,13 @@ spawnPowerUp() {
             const hitPos = data.pos ? new THREE.Vector3(data.pos.x, data.pos.y, data.pos.z) : p.getPosition();
             this.juice.sparks(hitPos, 0xffbb00, 16);
             this.juice.shockwave(hitPos, 0xffbb00);
+            this.juice.burst(hitPos, 0xffcc33, 14, 9); // Altın radyal parçacık patlaması (uzak oyuncu, perfect)
             this.audio?.playSfx?.('tf2_crit', 0.55);
             this.juice.shake(0.2);
         } else if (data.pos && this.juice?.sparks) {
-            this.juice.sparks(new THREE.Vector3(data.pos.x, data.pos.y, data.pos.z), 0x88ddff, 4);
+            const hitPos = new THREE.Vector3(data.pos.x, data.pos.y, data.pos.z);
+            this.juice.sparks(hitPos, 0x88ddff, 4);
+            this.juice.burst?.(hitPos, 0x88ddff, 5, 6); // Küçük radyal patlama (uzak oyuncu, normal deflect)
         }
         setTimeout(() => { if (p) p.attacking = false; }, 300);
     }

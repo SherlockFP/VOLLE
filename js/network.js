@@ -1235,6 +1235,17 @@ export class Network {
             candidate.eligible === true
             && candidate.connected !== false
             && candidate.spectator !== true);
+        // ponytail: nobody left to hand the host role to (1v1, or last player
+        // standing) — close instead of self-promoting into an empty lobby.
+        // Root cause of P2P_HOST_FIXES #1: this used to fall through to
+        // selectHostCandidate() below and always "win" against zero rivals.
+        if (candidates.length < 2) {
+            this._migrationActive = false;
+            this._migrationElection = null;
+            this.onReconnectState?.('failed', this._reconnectAttempts);
+            this.onHostLeft?.();
+            return;
+        }
         const selected = selectHostCandidate(candidates);
         const epoch = nextMigrationEpoch(
             this.migrationEpoch,

@@ -207,6 +207,7 @@
                     <button id="btn-tournament" class="ow-sbtn"><svg class="ui-icon" aria-hidden="true"><use href="#i-trophy"></use></svg><span>Tournament</span></button>
                     <button id="btn-avatar" class="ow-sbtn"><svg class="ui-icon" aria-hidden="true"><use href="#i-user"></use></svg><span>Avatar</span></button>
                 </div>
+                <div class="ow-featured" id="menu-featured" aria-label="Featured in the shop today" hidden></div>
                 <div class="ow-extralinks">
                     <button id="btn-replays" class="ow-link"><svg class="ui-icon" aria-hidden="true"><use href="#i-replay"></use></svg>Replays</button>
                     <button id="btn-achievements" class="ow-link"><svg class="ui-icon" aria-hidden="true"><use href="#i-trophy"></use></svg>Achievements</button>
@@ -523,15 +524,23 @@
                     <button class="settings-tab" data-tab="game" role="tab"><svg class="ui-icon" aria-hidden="true"><use href="#i-ball"></use></svg>Game</button>
                     <button class="settings-tab" data-tab="access" role="tab"><svg class="ui-icon" aria-hidden="true"><use href="#i-access"></use></svg>Access</button>
                 </div>
+                <span id="settings-saved-indicator" class="settings-saved-indicator" aria-hidden="true">Saved</span>
                 <button id="btn-settings-close" class="settings-close-btn" aria-label="Close settings"><svg class="ui-icon" aria-hidden="true"><use href="#i-close"></use></svg></button>
             </div>
             <div class="settings-scroll">
                 <!-- Controls -->
                 <div class="settings-section" data-settings-section="controls">
-                    <div class="settings-section-heading"><div><span class="settings-kicker">AIM & INPUT</span><h3>Controls</h3></div><p>Tune response and reticle visibility.</p></div>
+                    <div class="settings-section-heading">
+                        <div><span class="settings-kicker">AIM & INPUT</span><h3>Controls</h3></div>
+                        <div class="settings-section-heading-side">
+                            <p>Tune response and reticle visibility.</p>
+                            <button type="button" class="settings-reset-btn btn btn-secondary btn-small" data-reset-tab="controls">Reset to defaults</button>
+                        </div>
+                    </div>
                     <div class="settings-row">
                         <label>Mouse Sensitivity</label>
                         <input type="range" id="setting-sensitivity" min="1" max="10" value="2" step="0.5">
+                        <small class="settings-row-desc">How fast the camera turns with mouse movement.</small>
                     </div>
                     <div class="settings-row settings-row-toggle">
                         <label for="setting-invert-y">Invert Look Y</label>
@@ -539,14 +548,19 @@
                             <input type="checkbox" id="setting-invert-y" aria-label="Invert vertical look axis">
                             <span class="toggle-slider"></span>
                         </label>
+                        <small class="settings-row-desc">Flips the vertical look axis (push down to look up).</small>
                     </div>
-                    <div class="settings-row"><label>Music</label><input type="range" id="setting-music-volume" min="0" max="100" value="2"></div>
-                    <div class="settings-row"><label>Sound</label><input type="range" id="setting-sound-volume" min="0" max="100" value="50"></div>
+                    <div class="settings-subgroup-label">Audio</div>
+                    <div class="settings-row"><label>Music</label><input type="range" id="setting-music-volume" min="0" max="100" value="2"><small class="settings-row-desc">Background music playback volume.</small></div>
+                    <div class="settings-row"><label>Sound</label><input type="range" id="setting-sound-volume" min="0" max="100" value="50"><small class="settings-row-desc">Sound effect volume (hits, throws, UI).</small></div>
+                    <div class="settings-subgroup-label">Camera</div>
                     <div class="settings-row">
                         <label>Field of View (FOV)</label>
                         <input type="range" id="setting-fov" min="60" max="110" value="75" step="5">
                         <span id="fov-value" style="font-weight:700;color:var(--accent);min-width:40px;text-align:right;">75°</span>
+                        <small class="settings-row-desc">Camera field of view in degrees. Higher sees more, feels faster.</small>
                     </div>
+                    <div class="settings-subgroup-label">Crosshair</div>
                     <div class="settings-row">
                         <label>Crosshair Style</label>
                         <select id="setting-crosshair">
@@ -554,22 +568,27 @@
                             <option value="cross">Cross</option>
                             <option value="circle">Circle</option>
                         </select>
+                        <small class="settings-row-desc">Reticle shape shown at screen center.</small>
                     </div>
                     <div class="settings-row">
                         <label>Crosshair Color</label>
                         <input type="color" id="setting-crosshair-color" value="#00ff88">
+                        <small class="settings-row-desc">Reticle color.</small>
                     </div>
                     <div class="settings-row">
                         <label>Crosshair Size</label>
                         <input type="range" id="setting-crosshair-size" min="6" max="30" value="12" step="1">
+                        <small class="settings-row-desc">Reticle arm length in pixels.</small>
                     </div>
                     <div class="settings-row">
                         <label>Crosshair Gap</label>
                         <input type="range" id="setting-crosshair-gap" min="2" max="24" value="6" step="1">
+                        <small class="settings-row-desc">Space between the reticle center and its arms.</small>
                     </div>
                     <div class="settings-row">
                         <label>Crosshair Thickness</label>
                         <input type="range" id="setting-crosshair-thickness" min="1" max="6" value="2" step="1">
+                        <small class="settings-row-desc">Reticle line thickness in pixels.</small>
                     </div>
                     <div class="settings-row settings-row-toggle">
                         <label>Crosshair Dot</label>
@@ -577,6 +596,7 @@
                             <input type="checkbox" id="setting-crosshair-dot" checked>
                             <span class="toggle-slider"></span>
                         </label>
+                        <small class="settings-row-desc">Shows a center dot inside the reticle.</small>
                     </div>
                     <div class="settings-row settings-row-toggle">
                         <label>Black Outline</label>
@@ -584,14 +604,17 @@
                             <input type="checkbox" id="setting-crosshair-outline">
                             <span class="toggle-slider"></span>
                         </label>
+                        <small class="settings-row-desc">Adds a dark outline so the reticle reads on bright backgrounds.</small>
                     </div>
                     <div class="settings-row">
                         <label>Opacity</label>
                         <input type="range" id="setting-crosshair-opacity" min="20" max="100" value="100" step="5">
+                        <small class="settings-row-desc">Reticle transparency.</small>
                     </div>
                     <div class="settings-row">
                         <label>Movement Gap</label>
                         <input type="range" id="setting-crosshair-dynamic" min="0" max="20" value="0" step="1">
+                        <small class="settings-row-desc">Widens the reticle gap while moving or firing.</small>
                     </div>
                     <div class="crosshair-preview-card">
                         <div>
@@ -612,25 +635,35 @@
                 </div>
                 <!-- Display -->
                 <div class="settings-section" data-settings-section="video">
-                    <div class="settings-section-heading"><div><span class="settings-kicker">DISPLAY</span><h3>Video</h3></div><p>Balance clarity and frame rate.</p></div>
-                    <div class="settings-row"><label>VSync</label><select id="setting-vsync"><option value="off">Off</option><option value="on" selected>On</option></select></div>
-                    <div class="settings-row"><label>FPS Limit</label><select id="setting-fps-limit"><option value="0">Unlimited</option><option value="30">30</option><option value="60" selected>60</option><option value="120">120</option><option value="144">144</option><option value="240">240</option></select></div>
-                    <div class="settings-row"><label>Quality</label><select id="setting-quality"><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option></select></div>
+                    <div class="settings-section-heading">
+                        <div><span class="settings-kicker">DISPLAY</span><h3>Video</h3></div>
+                        <div class="settings-section-heading-side">
+                            <p>Balance clarity and frame rate.</p>
+                            <button type="button" class="settings-reset-btn btn btn-secondary btn-small" data-reset-tab="video">Reset to defaults</button>
+                        </div>
+                    </div>
+                    <div class="settings-row"><label>VSync</label><select id="setting-vsync"><option value="off">Off</option><option value="on" selected>On</option></select><small class="settings-row-desc">Caps frame rate to your monitor refresh rate to prevent tearing.</small></div>
+                    <div class="settings-row"><label>FPS Limit</label><select id="setting-fps-limit"><option value="0">Unlimited</option><option value="30">30</option><option value="60" selected>60</option><option value="120">120</option><option value="144">144</option><option value="240">240</option></select><small class="settings-row-desc">Hard cap on rendered frames per second.</small></div>
+                    <div class="settings-row"><label>Quality</label><select id="setting-quality"><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option></select><small class="settings-row-desc">Overall graphics preset (shadows, effects, texture detail).</small></div>
                     <div class="settings-row settings-row-toggle">
                         <label>Auto Quality <span class="settings-hint">Reduce effects before frame rate drops</span></label>
                         <label class="toggle-switch"><input type="checkbox" id="setting-auto-quality" checked><span class="toggle-slider"></span></label>
+                        <small class="settings-row-desc">Lowers effects automatically before frame rate drops.</small>
                     </div>
-                    <div class="settings-row"><label>Resolution</label><select id="setting-resolution"><option value="1280x720">1280×720</option><option value="1366x768">1366×768</option><option value="1600x900">1600×900</option><option value="1920x1080" selected>1920×1080</option><option value="2560x1440">2560×1440</option><option value="3840x2160">3840×2160</option></select></div>
+                    <div class="settings-subgroup-label">Display</div>
+                    <div class="settings-row"><label>Resolution</label><select id="setting-resolution"><option value="1280x720">1280×720</option><option value="1366x768">1366×768</option><option value="1600x900">1600×900</option><option value="1920x1080" selected>1920×1080</option><option value="2560x1440">2560×1440</option><option value="3840x2160">3840×2160</option></select><small class="settings-row-desc">Render output resolution.</small></div>
                     <div class="settings-row settings-row-scale">
                         <label for="setting-render-scale">Resolution Scale <span class="settings-hint">Lower for more FPS</span></label>
                         <input type="range" id="setting-render-scale" min="50" max="150" value="100" step="5">
                         <output id="setting-render-scale-value" for="setting-render-scale">100%</output>
+                        <small class="settings-row-desc">Renders below native resolution for extra FPS, then upscales.</small>
                     </div>
                     <div class="settings-subgroup-label">Audio</div>
                     <div class="settings-row settings-row-scale">
                         <label for="setting-master-volume">Master Volume</label>
                         <input type="range" id="setting-master-volume" min="0" max="100" value="100" step="5" aria-label="Master volume">
                         <output id="setting-master-volume-value" for="setting-master-volume">100%</output>
+                        <small class="settings-row-desc">Overall volume applied on top of music and sound.</small>
                     </div>
                     <div class="settings-row settings-row-toggle">
                         <label for="setting-mute">Mute All Audio</label>
@@ -638,11 +671,18 @@
                             <input type="checkbox" id="setting-mute" aria-label="Mute all audio">
                             <span class="toggle-slider"></span>
                         </label>
+                        <small class="settings-row-desc">Silences music and sound without changing their sliders.</small>
                     </div>
                 </div>
                 <!-- Gameplay -->
                 <div class="settings-section" data-settings-section="game">
-                    <div class="settings-section-heading"><div><span class="settings-kicker">MATCH</span><h3>Gameplay</h3></div><p>Default rules for hosted and local games.</p></div>
+                    <div class="settings-section-heading">
+                        <div><span class="settings-kicker">MATCH</span><h3>Gameplay</h3></div>
+                        <div class="settings-section-heading-side">
+                            <p>Default rules for hosted and local games.</p>
+                            <button type="button" class="settings-reset-btn btn btn-secondary btn-small" data-reset-tab="game">Reset to defaults</button>
+                        </div>
+                    </div>
                     <div class="settings-row">
                         <label>Bot Difficulty</label>
                         <select id="setting-bot-difficulty">
@@ -650,6 +690,7 @@
                             <option value="medium" selected>Medium</option>
                             <option value="hard">Hard</option>
                         </select>
+                        <small class="settings-row-desc">AI skill level for practice and filler bots.</small>
                     </div>
                     <div class="settings-row">
                         <label>Match Time</label>
@@ -658,6 +699,7 @@
                             <option value="300" selected>5 min</option>
                             <option value="600">10 min</option>
                         </select>
+                        <small class="settings-row-desc">Round time limit before the timer ends play.</small>
                     </div>
                     <div class="settings-row">
                         <label>Max Rounds</label>
@@ -667,6 +709,7 @@
                             <option value="16" selected>16</option>
                             <option value="20">20</option>
                         </select>
+                        <small class="settings-row-desc">Rounds played before the match ends.</small>
                     </div>
                     <div class="settings-row">
                         <label>Damage Multiplier</label>
@@ -677,6 +720,7 @@
                             <option value="2">2x</option>
                             <option value="3">3x</option>
                         </select>
+                        <small class="settings-row-desc">Scales all damage dealt in hosted matches.</small>
                     </div>
                     <div class="settings-row settings-row-toggle">
                         <label>Enable Portals <span class="settings-hint">(on portal maps)</span></label>
@@ -684,6 +728,7 @@
                             <input type="checkbox" id="setting-portals" checked>
                             <span class="toggle-slider"></span>
                         </label>
+                        <small class="settings-row-desc">Allows portal pairs to spawn on maps that support them.</small>
                     </div>
                     <div class="settings-row settings-row-toggle">
                         <label>Auto Team Balance</label>
@@ -691,40 +736,57 @@
                             <input type="checkbox" id="setting-team-balance" checked>
                             <span class="toggle-slider"></span>
                         </label>
+                        <small class="settings-row-desc">Keeps red and blue team sizes even automatically.</small>
                     </div>
+                    <div class="settings-subgroup-label">Voice</div>
                     <div class="settings-row settings-row-toggle">
                         <label>Voice Chat <span class="settings-hint">V hold: team voice / FFA proximity</span></label>
                         <label class="toggle-switch"><input type="checkbox" id="setting-voice-chat" checked><span class="toggle-slider"></span></label>
+                        <small class="settings-row-desc">Enables proximity/team voice chat during matches.</small>
                     </div>
                     <div class="settings-row settings-row-toggle">
                         <label>Mute Microphone</label>
                         <label class="toggle-switch"><input type="checkbox" id="setting-voice-mute"><span class="toggle-slider"></span></label>
+                        <small class="settings-row-desc">Stops sending your microphone audio to others.</small>
                     </div>
+                    <div class="settings-subgroup-label">Network</div>
                     <div class="settings-row settings-row-toggle">
                         <label>Experimental Netcode <span class="settings-hint">Interpolation + prediction + lag compensation</span></label>
                         <label class="toggle-switch">
                             <input type="checkbox" id="setting-experimental-netcode">
                             <span class="toggle-slider"></span>
                         </label>
+                        <small class="settings-row-desc">May feel less stable in exchange for smoother remote players.</small>
                     </div>
+                    <div class="settings-subgroup-label">HUD</div>
                     <div class="settings-row settings-row-toggle">
                         <label for="setting-killfeed">Kill Feed</label>
                         <label class="toggle-switch">
                             <input type="checkbox" id="setting-killfeed" checked aria-label="Show kill feed">
                             <span class="toggle-slider"></span>
                         </label>
+                        <small class="settings-row-desc">Shows recent eliminations in the corner of the screen.</small>
                     </div>
                     <div class="settings-row settings-row-toggle">
                         <label>Public Diagnostics <span class="settings-hint">Show ping, loss and desync without private identifiers</span></label>
                         <label class="toggle-switch"><input type="checkbox" id="setting-public-diagnostics" checked><span class="toggle-slider"></span></label>
+                        <small class="settings-row-desc">Shares your connection quality with the lobby.</small>
                     </div>
+                    <div class="settings-subgroup-label">Support</div>
                     <div class="settings-row">
                         <label>Diagnostics <span class="settings-hint">Copy recent errors and state transitions</span></label>
                         <button id="copy-crash-report" class="btn btn-secondary btn-small" type="button">Copy crash report</button>
+                        <small class="settings-row-desc">Copies a report for bug submissions. Nothing is sent automatically.</small>
                     </div>
                 </div>
                 <div class="settings-section" data-settings-section="access">
-                    <div class="settings-section-heading"><div><span class="settings-kicker">COMFORT</span><h3>Accessibility</h3></div><p>Reduce visual intensity and improve readability.</p></div>
+                    <div class="settings-section-heading">
+                        <div><span class="settings-kicker">COMFORT</span><h3>Accessibility</h3></div>
+                        <div class="settings-section-heading-side">
+                            <p>Reduce visual intensity and improve readability.</p>
+                            <button type="button" class="settings-reset-btn btn btn-secondary btn-small" data-reset-tab="access">Reset to defaults</button>
+                        </div>
+                    </div>
                     <div class="settings-row">
                         <label for="setting-theme">Interface Theme</label>
                         <select id="setting-theme">
@@ -735,18 +797,22 @@
                             <option value="verdant">Verdant</option>
                             <option value="crimson-court">Crimson Court</option>
                         </select>
+                        <small class="settings-row-desc">Recolors menus and HUD. Team red/blue never change.</small>
                     </div>
                     <div id="setting-theme-preview" class="theme-swatch-grid" role="group" aria-label="Theme color previews"></div>
                     <div class="settings-row settings-row-scale">
                         <label for="setting-ui-scale">UI Scale</label>
                         <input id="setting-ui-scale" type="range" min="80" max="120" value="100" step="5">
                         <output id="setting-ui-scale-value" for="setting-ui-scale">100%</output>
+                        <small class="settings-row-desc">Resizes menu and HUD text and controls.</small>
                     </div>
-                    <div class="settings-row settings-row-toggle"><label>Reduce Motion</label><label class="toggle-switch"><input type="checkbox" id="setting-reduce-motion"><span class="toggle-slider"></span></label></div>
-                    <div class="settings-row settings-row-toggle"><label>Screen Shake</label><label class="toggle-switch"><input type="checkbox" id="setting-screen-shake" checked><span class="toggle-slider"></span></label></div>
-                    <div class="settings-row settings-row-toggle"><label>Screen Flash</label><label class="toggle-switch"><input type="checkbox" id="setting-screen-flash" checked><span class="toggle-slider"></span></label></div>
-                    <div class="settings-row settings-row-toggle"><label>High Contrast</label><label class="toggle-switch"><input type="checkbox" id="setting-high-contrast"><span class="toggle-slider"></span></label></div>
-                    <div class="settings-row"><label>Color Vision</label><select id="setting-color-blind"><option value="none">Default</option><option value="deuteranopia">Deuteranopia</option><option value="protanopia">Protanopia</option><option value="tritanopia">Tritanopia</option></select></div>
+                    <div class="settings-subgroup-label">Motion & Effects</div>
+                    <div class="settings-row settings-row-toggle"><label>Reduce Motion</label><label class="toggle-switch"><input type="checkbox" id="setting-reduce-motion"><span class="toggle-slider"></span></label><small class="settings-row-desc">Turns off animations, camera shake and flashes.</small></div>
+                    <div class="settings-row settings-row-toggle"><label>Screen Shake</label><label class="toggle-switch"><input type="checkbox" id="setting-screen-shake" checked><span class="toggle-slider"></span></label><small class="settings-row-desc">Camera shake on hits and explosions.</small></div>
+                    <div class="settings-row settings-row-toggle"><label>Screen Flash</label><label class="toggle-switch"><input type="checkbox" id="setting-screen-flash" checked><span class="toggle-slider"></span></label><small class="settings-row-desc">Full-screen flash effects on big moments.</small></div>
+                    <div class="settings-subgroup-label">Vision</div>
+                    <div class="settings-row settings-row-toggle"><label>High Contrast</label><label class="toggle-switch"><input type="checkbox" id="setting-high-contrast"><span class="toggle-slider"></span></label><small class="settings-row-desc">Boosts text and border contrast for readability.</small></div>
+                    <div class="settings-row"><label>Color Vision</label><select id="setting-color-blind"><option value="none">Default</option><option value="deuteranopia">Deuteranopia</option><option value="protanopia">Protanopia</option><option value="tritanopia">Tritanopia</option></select><small class="settings-row-desc">Adjusts colors for common color vision deficiencies.</small></div>
                 </div>
             </div>
         </div>
@@ -778,6 +844,7 @@
         <div class="panel wide-panel shell-panel shop-shell">
             <header class="shell-header shop-header">
                 <div class="shell-title"><span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-shop"></use></svg></span><div><span class="shell-kicker">WARRBALL COLLECTION</span><h1>Arena Shop</h1><p>Preview every look in 3D before it enters your loadout.</p></div></div>
+                <div id="shop-earn-slot"></div>
                 <div class="meta-stats"><span class="meta-stat" aria-label="Current credit balance"><svg class="ui-icon" aria-hidden="true"><use href="#i-coins"></use></svg><strong id="shop-coins">0</strong><small>credits</small></span></div>
             </header>
             <div class="shop-toolbar">
@@ -814,6 +881,14 @@
                         <div><span class="shell-kicker">CURATED LOADOUTS</span><h2 id="shop-catalog-title">Characters</h2></div>
                         <span id="shop-catalog-count" class="shop-catalog-count" role="status" aria-live="polite">Loading items</span>
                     </header>
+                    <div class="shop-filters" id="shop-filters" role="group" aria-label="Filter shop items">
+                        <button type="button" class="shop-filter-chip selected" data-filter="all" aria-pressed="true">All</button>
+                        <button type="button" class="shop-filter-chip" data-filter="ball" aria-pressed="false">Balls</button>
+                        <button type="button" class="shop-filter-chip" data-filter="cosmetic" aria-pressed="false">Cosmetics</button>
+                        <button type="button" class="shop-filter-chip" data-filter="knife" aria-pressed="false">Knives</button>
+                        <button type="button" class="shop-filter-chip" data-filter="owned" aria-pressed="false">Owned</button>
+                        <button type="button" class="shop-filter-chip" data-filter="affordable" aria-pressed="false">Affordable</button>
+                    </div>
                     <div class="shop-grid" id="shop-grid" role="tabpanel" aria-labelledby="shop-tab-chars" tabindex="0"></div>
                 </section>
             </main>
@@ -1119,7 +1194,7 @@
                     </ul>
                 </article>
             </div>
-            <footer class="patch-footer"><strong>By Sherlock</strong><span>Thanks for helping WARRBALL grow.</span></footer>
+            <footer class="patch-footer"><strong>By Sherlock</strong><span>Thanks for helping WARRBALL grow.</span><span>CC-BY models: see assets/cc-by/sketchfab/ATTRIBUTION.md</span></footer>
             <button id="btn-patchnotes-back" class="btn btn-secondary shell-back"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back to menu</button>
         </div>
     </div>
@@ -1592,6 +1667,14 @@
                     <div class="reward-name" id="pg-reward-name">Mystery Reward</div>
                     <div class="reward-eta" id="pg-reward-eta"></div>
                 </div>
+                <!-- Match coin breakdown — base result payout + capped performance
+                     bonus. ui.js _renderMatchRewardBreakdown() fills it from what
+                     awardMatchRewards() actually granted. -->
+                <div class="pg-reward-card" id="pg-coin-breakdown" style="display:none;text-align:left;">
+                    <div style="display:flex;justify-content:space-between;font-size:.85rem;opacity:.85;"><span>Match reward</span><span id="pgcb-base">+0</span></div>
+                    <div id="pgcb-bonus-row" style="display:flex;justify-content:space-between;font-size:.85rem;opacity:.85;"><span>Performance bonus</span><span id="pgcb-bonus">+0</span></div>
+                    <div style="display:flex;justify-content:space-between;font-weight:700;margin-top:4px;"><span>Total earned</span><span id="pgcb-total">+0</span></div>
+                </div>
                 <div class="pg-stats" id="postgame-stats"></div>
                 <!-- Per-round breakdown, filled from scoreboard.roundHistory. -->
                 <div class="pg-round-strip" id="pg-round-strip"></div>
@@ -1618,6 +1701,19 @@
                     <button id="pg-main-menu" class="btn btn-secondary"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Main Menu</button>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- ===== WATCH & EARN OVERLAY (house promo, no real ad SDK/dependency) ===== -->
+    <div id="earn-overlay" class="hidden" style="position:fixed;inset:0;z-index:var(--z-modal);background:rgba(6,8,14,.96);display:flex;align-items:center;justify-content:center;">
+        <div style="width:min(520px,92vw);background:#11131c;border:1px solid #2a2f42;border-radius:16px;padding:28px;text-align:center;color:#f2f4ff;">
+            <div style="font-size:.75rem;letter-spacing:.14em;text-transform:uppercase;opacity:.6;">House Promo</div>
+            <h2 style="margin:6px 0 18px;">Watch &amp; Earn</h2>
+            <div id="earn-showcase" style="height:120px;display:flex;align-items:center;justify-content:center;font-size:1.3rem;font-weight:700;border-radius:12px;margin-bottom:18px;transition:background-color .5s;"></div>
+            <div id="earn-countdown" style="font-size:2rem;font-weight:800;margin-bottom:16px;">20</div>
+            <button id="earn-claim-btn" class="btn btn-primary" disabled style="width:100%;">Claim +50</button>
+            <button id="earn-close-btn" class="btn btn-secondary" disabled style="width:100%;margin-top:8px;">Close</button>
+            <div id="earn-status" style="margin-top:10px;font-size:.85rem;opacity:.75;min-height:1.2em;"></div>
         </div>
     </div>
 

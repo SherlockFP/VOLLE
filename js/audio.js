@@ -92,6 +92,7 @@ export class Audio {
         'respawn': { fn: 'playRespawn' },
         'equip-change': { fn: 'playEquipChange' },
         'settings-apply': { fn: 'playSettingsApply' },
+        'kill-confirm': { fn: 'playKillConfirm', retriggerMs: 400 },
     };
 
     _cueCooldowns = {};
@@ -253,11 +254,14 @@ export class Audio {
         }
     }
 
-    // Play a preloaded TF2 sfx. Volume 0-1, defaults to 0.5.
-    playSfx(name, vol = 0.5) {
+    // Play a preloaded TF2 sfx. Volume 0-1, defaults to 0.5. rate is HTMLMediaElement
+    // playbackRate (default 1 = unchanged pitch) — used by the combo-tier pitch ramp
+    // in js/game.js so escalating combos/streaks sound bigger, not just louder.
+    playSfx(name, vol = 0.5, rate = 1) {
         const a = this._sfxAudios?.[name];
         if (!a) return;
         a.volume = vol * this.soundVolume;
+        a.playbackRate = Number.isFinite(rate) && rate > 0 ? rate : 1;
         a.currentTime = 0;
         a.play().catch(() => {}); // ignore autoplay blocking
     }
@@ -589,5 +593,29 @@ export class Audio {
         if (!this.ctx) return;
         this._osc('sine', 660, 0.12, 0.1);
         setTimeout(() => this._osc('sine', 880, 0.16, 0.1), 70);
+    }
+
+    // Kill-confirm "hot ball" window opened — quick rising three-note power-up
+    // chime with a shimmering tail. Distinct from the escalating streak/combo
+    // fanfares (comboSounds in game.js): those celebrate the kill itself, this
+    // one signals "your next hit is buffed", so it stays short and singular
+    // rather than layering onto the kill sound.
+    playKillConfirm() {
+        if (!this.ctx || !this.masterGain) return;
+        const t = this.ctx.currentTime;
+        [660, 880, 1180].forEach((freq, i) => {
+            const start = t + i * 0.045;
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(freq, start);
+            gain.gain.setValueAtTime(0.0001, start);
+            gain.gain.exponentialRampToValueAtTime(0.09, start + 0.015);
+            gain.gain.exponentialRampToValueAtTime(0.001, start + 0.16);
+            osc.connect(gain);
+            gain.connect(this.masterGain);
+            osc.start(start);
+            osc.stop(start + 0.18);
+        });
     }
 }

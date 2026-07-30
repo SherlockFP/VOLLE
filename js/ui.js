@@ -13,6 +13,8 @@ import { Arena } from './arena.js';
 import { COSMETICS, COSMETIC_TYPES, cosmeticsByType } from './cosmetic-catalog.js';
 import { accountRankLabel, accountRankShort, levelProgress, prestigeTitle } from './prestige.js';
 import { Store } from './store.js';
+import { matchesShopFilter, deriveShopCardState } from './shop-clarity.js';
+import { classifyDamageTier, nextPoolCursor, damageJitterFor, comboTier } from './combat-fx.js';
 
 const CHARACTER_ATLAS = 'assets/generated/characters/character-atlas.png';
 const BALL_BASE_SPEED = 17;
@@ -93,8 +95,15 @@ export class UI {
         };
         this._competitiveHUDKey = '';
         this._shopPreviewAvatar = null;
+        // Exclusive overlay registry (UIOverlapFix pass): tracks the single
+        // "exclusive" floating overlay currently open (pause/settings/emote
+        // wheel/chat/team popup/case inspector/earn overlay) so opening one
+        // closes any other, instead of stacking on top of it. Passive panels
+        // (scoreboard, kill feed) are not tracked here.
+        this._exclusiveOverlay = null;
         this.initSettings();
         this._setupHoverAudio();
+        if (typeof window !== 'undefined') window.UI = this;
     }
 
     initSettings() {
@@ -133,6 +142,7 @@ export class UI {
 
     showScreen(name) {
         this.hideScoreboard();
+        this._exclusiveOverlay = null;
         Object.values(this.screens).forEach(s => { if (s) s.classList.add('hidden'); });
         const target = this.screens[name];
         if (target) {
@@ -151,6 +161,26 @@ export class UI {
             const el = document.getElementById(id);
             if (el) el.classList.add('hidden');
         });
+    }
+
+    // _openExclusive('pause'|'settings'|'emoteWheel'|'chat'|'teamPopup'|
+    // 'caseInspector'|'earnOverlay', closeFn) — if a different exclusive
+    // overlay is already open, closes it first via its own closeFn, then
+    // tracks the new one. Callers still own their own DOM show/hide; this
+    // only prevents two exclusive overlays being visible at once.
+    _openExclusive(name, closeFn) {
+        if (this._exclusiveOverlay && this._exclusiveOverlay.name !== name) {
+            this._exclusiveOverlay.closeFn();
+        }
+        this._exclusiveOverlay = { name, closeFn };
+    }
+
+    _closeExclusive(name) {
+        if (this._exclusiveOverlay?.name === name) this._exclusiveOverlay = null;
+    }
+
+    exclusiveOverlayOpen() {
+        return this._exclusiveOverlay?.name || null;
     }
 
     hideAll() {
@@ -387,6 +417,7 @@ export class UI {
     showTeamPopup(game) {
         const overlay = document.getElementById('team-overlay');
         if (!overlay) return;
+        this._openExclusive('teamPopup', () => this.hideTeamPopup());
         overlay.classList.remove('hidden');
         const classSwitcher = document.getElementById('class-switcher-template');
         const popup = overlay.querySelector('.team-popup');
@@ -400,6 +431,7 @@ export class UI {
     hideTeamPopup() {
         const overlay = document.getElementById('team-overlay');
         if (overlay) overlay.classList.add('hidden');
+        this._closeExclusive('teamPopup');
     }
 
     isTeamPopupOpen() {
@@ -576,6 +608,7 @@ export class UI {
         }
         this._renderPostGameBattlepass(store);
         this._renderPostGameRewardCard(store);
+        this._renderMatchRewardBreakdown();
         this.renderMatchAnalysis(result.analytics);
         this._renderRoundStrip(result.roundHistory);
         // Ding count stays tied to the XP earned, so a big match still sounds big.
@@ -665,6 +698,116 @@ export class UI {
         // Apply rarity styling if available
         const rarity = nextReward.rarity || 'common';
         wrap.className = `pg-reward-card rarity-${rarity}`;
+    }
+
+    // Coin breakdown for the match just played — base result payout + capped
+    // performance bonus. Reads what awardMatchRewards() actually granted
+    // (js/main.js#awardMatchRewards sets ui._lastMatchReward before the local
+    // grant fires), so it never shows a fabricated number. No-ops quietly
+    // outside a real match (practice mode never sets it).
+    _renderMatchRewardBreakdown() {
+        const wrap = document.getElementById('pg-coin-breakdown');
+        if (!wrap) return;
+        const reward = this._lastMatchReward;
+        if (!reward) { wrap.style.display = 'none'; return; }
+        wrap.style.display = '';
+        const baseEl = document.getElementById('pgcb-base');
+        const bonusRow = document.getElementById('pgcb-bonus-row');
+        const bonusEl = document.getElementById('pgcb-bonus');
+        const totalEl = document.getElementById('pgcb-total');
+        if (baseEl) baseEl.textContent = `+${reward.base}`;
+        if (bonusRow) bonusRow.style.display = reward.bonus > 0 ? '' : 'none';
+        if (bonusEl) bonusEl.textContent = `+${reward.bonus}`;
+        if (totalEl) totalEl.textContent = `+${reward.total}`;
+        this._lastMatchReward = null;
+    }
+
+    // ===== Watch & Earn (house-promo ad-reward, no real ad SDK/dependency) =====
+    // Shop calls window.UI?.renderEarnSlot?.() into #shop-earn-slot (optional
+    // chained — silent no-op if that div or window.UI isn't wired up yet).
+    renderEarnSlot(store = Store) {
+        const el = document.getElementById('shop-earn-slot');
+        if (!el) return;
+        const status = store.getAdRewardStatus?.() || { remaining: 0, cap: 5 };
+        el.replaceChildren();
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-primary';
+        btn.textContent = `📺 Watch & Earn +50 (${status.remaining}/${status.cap})`;
+        btn.disabled = status.remaining <= 0;
+        btn.onclick = () => this.showEarnOverlay(store);
+        el.appendChild(btn);
+    }
+
+    // 20s unskippable house promo (rotating ball-skin showcase, no video file)
+    // then a "Claim +50" button that hits the real server-enforced ad-reward
+    // endpoint. Works for guests too — /api/profile/session already hands out
+    // a bearer token before this is ever reachable.
+    showEarnOverlay(store = Store) {
+        const el = document.getElementById('earn-overlay');
+        if (!el) return;
+        this._openExclusive('earnOverlay', () => this.hideEarnOverlay());
+        el.classList.remove('hidden');
+        const showcase = document.getElementById('earn-showcase');
+        const countdownEl = document.getElementById('earn-countdown');
+        const claimBtn = document.getElementById('earn-claim-btn');
+        const closeBtn = document.getElementById('earn-close-btn');
+        const statusEl = document.getElementById('earn-status');
+        if (statusEl) statusEl.textContent = '';
+        if (claimBtn) { claimBtn.disabled = true; claimBtn.textContent = 'Claim +50'; }
+        if (closeBtn) closeBtn.disabled = true;
+        const skinIds = Object.keys(BALL_SKINS).filter(id => id !== 'classic');
+        let skinIndex = 0;
+        const paintSkin = () => {
+            if (!showcase || !skinIds.length) return;
+            const skin = BALL_SKINS[skinIds[skinIndex % skinIds.length]];
+            const hex = Number.isFinite(skin?.glow) ? skin.glow : 0x333344;
+            showcase.style.backgroundColor = `#${hex.toString(16).padStart(6, '0')}`;
+            showcase.textContent = skin?.name || '';
+            skinIndex++;
+        };
+        paintSkin();
+        clearInterval(this._earnShowcaseTimer);
+        this._earnShowcaseTimer = setInterval(paintSkin, 2500);
+        let seconds = 20;
+        if (countdownEl) countdownEl.textContent = String(seconds);
+        clearInterval(this._earnCountdownTimer);
+        this._earnCountdownTimer = setInterval(() => {
+            seconds--;
+            if (countdownEl) countdownEl.textContent = String(Math.max(0, seconds));
+            if (seconds <= 0) {
+                clearInterval(this._earnCountdownTimer);
+                if (claimBtn) claimBtn.disabled = false;
+                if (closeBtn) closeBtn.disabled = false;
+            }
+        }, 1000);
+        const requestId = `adreward:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+        if (claimBtn) {
+            claimBtn.onclick = async () => {
+                claimBtn.disabled = true;
+                claimBtn.textContent = 'Claiming...';
+                const result = await store.claimAdReward(requestId);
+                if (result.ok) {
+                    if (statusEl) statusEl.textContent = `+${result.coins} coins!`;
+                    this.showMessage?.(`📺 Watch & Earn: +${result.coins} coins`, 2500);
+                    this.renderEarnSlot(store);
+                    setTimeout(() => this.hideEarnOverlay(), 900);
+                } else {
+                    if (statusEl) statusEl.textContent = result.error || 'Reward unavailable';
+                    claimBtn.disabled = false;
+                    claimBtn.textContent = 'Claim +50';
+                }
+            };
+        }
+        if (closeBtn) closeBtn.onclick = () => this.hideEarnOverlay();
+    }
+
+    hideEarnOverlay() {
+        const el = document.getElementById('earn-overlay');
+        if (el) el.classList.add('hidden');
+        this._closeExclusive('earnOverlay');
+        clearInterval(this._earnShowcaseTimer);
+        clearInterval(this._earnCountdownTimer);
     }
 
     renderMatchAnalysis(report, initialTab = 'overview') {
@@ -788,17 +931,26 @@ export class UI {
 
     showCombo(combo, maxCombo) {
         const el = document.getElementById('combo-display');
-        if (!el || combo < 2) { el?.classList.remove('active'); return; }
+        if (!el || combo < 2) { el?.classList.remove('active'); this._setComboGlow(0); return; }
         const labels = ['', '', 'DOUBLE!', 'TRIPLE!', 'QUAD!', 'PENTA!', 'HEXA!', 'ULTRA!', 'MEGA!'];
         const label = labels[Math.min(combo, labels.length - 1)] || 'GODLIKE!';
         const numEl = el.querySelector('.combo-num') || el.querySelector('.combo-count');
         const lblEl = el.querySelector('.combo-label');
         if (numEl) numEl.textContent = combo + 'x';
         if (lblEl) lblEl.textContent = label;
+        el.classList.remove('shatter');
         el.classList.add('active');
         el.classList.remove('hidden');
+        this._applyComboTier(el, combo);
         clearTimeout(this._comboHideTimer);
-        this._comboHideTimer = setTimeout(() => el.classList.remove('active'), 1500);
+        // Pin the display so game.js's per-frame updateCombo() (continuous juice.combo
+        // sync, same #combo-display element) can't stomp this one-shot pop-in mid-hold.
+        const HOLD_MS = 1500;
+        this._comboPinnedUntil = performance.now() + HOLD_MS;
+        this._comboHideTimer = setTimeout(() => {
+            el.classList.remove('active');
+            this._setComboGlow(0);
+        }, HOLD_MS);
     }
 
     showStreak(text, cls) {
@@ -812,27 +964,78 @@ export class UI {
         el.classList.add('show');
     }
 
-    spawnDamageNumber(screenX, screenY, dmg, lethal = false, zoneLabel = null) {
-        const existing = document.querySelectorAll('.dmg-num');
-        if (existing.length > 8) {
-            const oldest = existing[0];
-            if (oldest.parentNode) oldest.parentNode.removeChild(oldest);
+    // DOM element pool: after warm-up (first DMG_NUM_POOL_SIZE hits) every call
+    // reuses a pooled div by round-robin cursor instead of createElement — 0
+    // alloc in the hot combat path. Tier (color/scale) and a per-slot jitter
+    // (so stacked hits don't overlap pixel-for-pixel) come from combat-fx.js.
+    spawnDamageNumber(screenX, screenY, dmg, lethal = false, zoneLabel = null, charged = false) {
+        const DMG_NUM_POOL_SIZE = 14;
+        let pool = this._dmgNumPool;
+        if (!pool) {
+            pool = this._dmgNumPool = [];
+            for (let i = 0; i < DMG_NUM_POOL_SIZE; i++) {
+                const div = document.createElement('div');
+                div.className = 'dmg-num';
+                document.body.appendChild(div);
+                pool.push(div);
+            }
+            this._dmgNumCursor = -1;
         }
-        const el = document.createElement('div');
-        el.className = 'dmg-num' + (lethal ? ' lethal' : '');
+        this._dmgNumCursor = nextPoolCursor(this._dmgNumCursor, DMG_NUM_POOL_SIZE);
+        const el = pool[this._dmgNumCursor];
+        const tier = classifyDamageTier(dmg, lethal);
+        const jitter = damageJitterFor(this._dmgNumCursor);
         if (zoneLabel) {
             el.innerHTML = `<span class="dmg-value">-${dmg}</span><span class="dmg-zone">${zoneLabel}</span>`;
         } else {
             el.textContent = '-' + dmg;
         }
-        el.style.left = screenX + 'px';
-        el.style.top = screenY + 'px';
+        el.style.left = (screenX + jitter.x) + 'px';
+        el.style.top = (screenY + jitter.y) + 'px';
+        el.className = 'dmg-num tier-' + tier + (charged ? ' charged' : '');
+        void el.offsetWidth; // restart the float/pop animation even if this slot was still fading
+        el.classList.add('active');
+    }
+
+    // Combo-tier color/glow escalation shared by the continuous per-frame sync
+    // (updateCombo, driven every frame from juice.combo) and the one-shot event
+    // pop-ins (showCombo, on perfect-deflect / kill-streak). tier 0 = base,
+    // 1-3 = escalating brightness. The screen-edge glow stays amber/gold only —
+    // never team red/blue — so it can never read as ball/team ownership.
+    _applyComboTier(el, combo) {
+        const tier = comboTier(combo);
+        for (let t = 1; t <= 3; t++) el.classList.toggle('tier-' + t, t === tier);
+        this._setComboGlow(tier);
+        return tier;
+    }
+
+    _ensureComboGlow() {
+        if (this._comboGlowEl) return this._comboGlowEl;
+        const el = document.createElement('div');
+        el.id = 'combo-edge-glow';
+        el.setAttribute('aria-hidden', 'true');
         document.body.appendChild(el);
-        requestAnimationFrame(() => {
-            el.style.transform = 'translateY(-40px)';
-            el.style.opacity = '0';
-        });
-        setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 800);
+        this._comboGlowEl = el;
+        return el;
+    }
+
+    _setComboGlow(tier) {
+        const el = this._ensureComboGlow();
+        for (let t = 1; t <= 3; t++) el.classList.toggle('tier-' + t, t === tier);
+    }
+
+    // Combo kırıldığında (doğal timeout ya da bir kill'in resetCombo() çağırması)
+    // js/juice.js#resetCombo window.UI?.comboBreak?.() ile burayı tetikler — kısa
+    // "shatter" düşüş animasyonu oynatıp edge glow'u söndürür.
+    comboBreak() {
+        const el = document.getElementById('combo-display');
+        if (el && el.classList.contains('active')) {
+            el.classList.remove('active');
+            el.classList.add('shatter');
+            setTimeout(() => el.classList.remove('shatter'), 260);
+        }
+        this._comboPinnedUntil = 0;
+        this._setComboGlow(0);
     }
 
     // --- Map Voting UI ---
@@ -1133,14 +1336,21 @@ export class UI {
     updateCombo(combo, label) {
         const el = document.getElementById('combo-display');
         if (!el) return;
+        // A one-shot showCombo() pop-in (perfect deflect / kill-streak label) briefly
+        // pins the display so this continuous per-frame juice.combo sync can't stomp
+        // it mid-hold — see showCombo()'s _comboPinnedUntil.
+        if (this._comboPinnedUntil && performance.now() < this._comboPinnedUntil) return;
         if (combo > 1) {
             el.classList.add('active');
+            el.classList.remove('shatter');
             const numEl = el.querySelector('.combo-num') || el.querySelector('.combo-count');
             const lblEl = el.querySelector('.combo-label');
             if (numEl) numEl.textContent = combo;
             if (lblEl) lblEl.textContent = label || 'COMBO';
+            this._applyComboTier(el, combo);
         } else {
             el.classList.remove('active');
+            this._setComboGlow(0);
         }
     }
 
@@ -1391,12 +1601,59 @@ export class UI {
         grid.setAttribute?.('aria-busy', 'false');
     }
 
+    // Shop clarity: shared card decoration (badge/dim/rarity data) and the filter-chip
+    // predicate wiring. DOM-only, cheap — never rebuilds the grid, just toggles classes.
+    _decorateShopCard(card, { category = '', price = 0, owned = false, equipped = false, currency = 0 } = {}) {
+        const state = deriveShopCardState({ price, owned, equipped, currency });
+        card.dataset.shopCategory = category;
+        card.dataset.shopOwned = owned ? '1' : '0';
+        card.dataset.shopPrice = String(Number.isFinite(price) ? price : 0);
+        card.dataset.shopCurrency = String(Number.isFinite(currency) ? currency : 0);
+        card.classList.toggle('shop-dim', state.dim);
+        card.classList.toggle('owned', owned);
+        card.classList.toggle('equipped', equipped);
+        if (state.badge) {
+            const badge = document.createElement('span');
+            badge.className = `shop-status-badge is-${state.badge.toLowerCase()}`;
+            badge.textContent = state.badge;
+            card.appendChild(badge);
+        }
+        if (state.dim) {
+            const note = document.createElement('div');
+            note.className = 'shop-shortfall-note';
+            note.textContent = `${state.shortfall} coin short`;
+            card.appendChild(note);
+        }
+        return state;
+    }
+
+    _applyShopFilter(filterId) {
+        const id = filterId || 'all';
+        this._shopFilterId = id;
+        document.getElementById('shop-grid')?.querySelectorAll('.shop-card').forEach(card => {
+            const descriptor = {
+                category: card.dataset.shopCategory || '',
+                owned: card.dataset.shopOwned === '1',
+                price: Number(card.dataset.shopPrice) || 0,
+                currency: Number(card.dataset.shopCurrency) || 0
+            };
+            card.classList.toggle('shop-card-filtered-out', !matchesShopFilter(id, descriptor));
+        });
+        document.querySelectorAll('#shop-filters .shop-filter-chip').forEach(chip => {
+            const selected = chip.dataset.filter === id;
+            chip.classList.toggle('selected', selected);
+            chip.setAttribute('aria-pressed', String(selected));
+        });
+    }
+
     // ===== SHOP EKRANI =====
     renderShop(store, tab = 'chars') {
         const grid = document.getElementById('shop-grid');
         const coinsEl = document.getElementById('shop-coins');
         if (coinsEl) coinsEl.textContent = store.get('currency');
         if (!grid) return;
+        window.UI?.renderEarnSlot?.();
+        const coinBalance = store.get('currency') || 0;
         this._syncShopTabs(tab);
         grid.setAttribute?.('aria-busy', 'true');
         if (typeof grid.replaceChildren === 'function') grid.replaceChildren();
@@ -1428,9 +1685,10 @@ export class UI {
                 const visual = offer.kind === 'cosmetic'
                     ? `<div class="cosmetic-preview cosmetic-preview-${item.type}" style="--cosmetic-primary:${item.colors[0]};--cosmetic-secondary:${item.colors[1]}"></div>`
                     : '<div class="ball-inspect-stage"><div class="ball-preview"></div><span class="ball-inspect-trail" aria-hidden="true"></span></div>';
-                card.innerHTML = `<div class="live-deal-badge">-${offer.discount}% TODAY</div>${visual}<div class="char-name">${item.name}</div><div class="char-desc">Rotates at ${until || 'midnight'}.</div>${owned ? '<div class="shop-owned">Owned</div>' : `<button class="btn btn-primary btn-small live-offer-buy" data-offer-id="${offer.id}"><s>${offer.basePrice}</s> COINS ${offer.price}</button>`}`;
+                card.innerHTML = `<div class="live-deal-badge">-${offer.discount}% TODAY</div>${visual}<div class="char-name">${item.name}</div><div class="char-desc">Rotates at ${until || 'midnight'}.</div>${owned ? '<div class="shop-owned">Owned</div>' : `<button class="btn btn-primary btn-small live-offer-buy" data-offer-id="${offer.id}"><s>${offer.basePrice}</s> Buy — ${offer.price}</button>`}`;
                 const preview = card.querySelector('.ball-preview');
                 if (preview) preview.dataset.effect = item.effect || 'core';
+                this._decorateShopCard(card, { category: offer.kind === 'cosmetic' ? 'cosmetic' : 'ball', price: offer.price, owned, currency: coinBalance });
                 grid.appendChild(card);
             });
         } else if (tab === 'chars') {
@@ -1439,7 +1697,8 @@ export class UI {
                 const owned = store.ownsCharacter(c.id);
                 const card = document.createElement('div');
                 card.className = `shop-card char-${c.id} ${owned ? 'owned' : ''}`;
-                card.innerHTML = `<div class="char-emoji">${c.emoji}</div><div class="char-name">${c.name}</div><div class="char-desc">${c.desc}</div>${owned ? '<div class="shop-owned">Owned</div>' : `<button class="btn btn-primary btn-small shop-buy" data-type="char" data-id="${c.id}">COINS ${c.price}</button>`}`;
+                card.innerHTML = `<div class="char-emoji">${c.emoji}</div><div class="char-name">${c.name}</div><div class="char-desc">${c.desc}</div>${owned ? '<div class="shop-owned">Owned</div>' : `<button class="btn btn-primary btn-small shop-buy" data-type="char" data-id="${c.id}">Buy — ${c.price}</button>`}`;
+                this._decorateShopCard(card, { category: 'character', price: c.price, owned, currency: coinBalance });
                 grid.appendChild(card);
             });
         } else if (tab === 'balls') {
@@ -1464,7 +1723,8 @@ export class UI {
                     card.querySelector('.char-name')?.after(rarity);
                 }
                 const buy = card.querySelector('.shop-buy');
-                if (buy) buy.textContent = `COINS ${b.price || 150}`;
+                if (buy) buy.textContent = `Buy — ${b.price || 150}`;
+                this._decorateShopCard(card, { category: 'ball', price: b.price || 150, owned, equipped, currency: coinBalance });
                 grid.appendChild(card);
             });
         } else if (tab === 'skills') {
@@ -1484,7 +1744,8 @@ export class UI {
                     <div class="char-name">${s.name}</div>
                     <div class="char-desc">${s.desc}</div>
                     <div class="skill-cooldown"><span>Cooldown</span><strong>${s.cooldown}s</strong><i style="--cooldown:${Math.min(100, Math.round(s.cooldown / 105 * 100))}%"></i></div>
-                    ${equipped ? '<div class="shop-owned">Equipped</div>' : owned ? `<button class="btn btn-secondary btn-small skill-equip" data-id="${s.id}">Equip skill</button>` : `<button class="btn btn-primary btn-small shop-buy" data-type="skill" data-id="${s.id}">COINS 100</button>`}`;
+                    ${equipped ? '<div class="shop-owned">Equipped</div>' : owned ? `<button class="btn btn-secondary btn-small skill-equip" data-id="${s.id}">Equip skill</button>` : `<button class="btn btn-primary btn-small shop-buy" data-type="skill" data-id="${s.id}">Buy — 100</button>`}`;
+                this._decorateShopCard(card, { category: 'skill', price: 100, owned, equipped, currency: coinBalance });
                 grid.appendChild(card);
             });
         } else if (tab === 'avatars') {
@@ -1525,7 +1786,7 @@ export class UI {
                     action.className = owned ? 'btn btn-small shop-equip' : 'btn btn-primary btn-small shop-buy';
                     action.dataset.type = 'avatar';
                     action.dataset.id = s.id;
-                    action.textContent = owned ? 'Equip' : `COINS ${s.price}`;
+                    action.textContent = owned ? 'Equip' : `Buy — ${s.price}`;
                     actions.appendChild(action);
                 }
                 if (!owned) {
@@ -1537,6 +1798,7 @@ export class UI {
                     actions.appendChild(trial);
                 }
                 card.appendChild(actions);
+                this._decorateShopCard(card, { category: 'cosmetic', price: s.price, owned, equipped, currency: coinBalance });
                 grid.appendChild(card);
             });
             const selectedSkin = AVATAR_SKINS[previewId] || equippedSkin;
@@ -1580,16 +1842,18 @@ export class UI {
                     action.className = owned ? 'btn btn-small shop-equip' : 'btn btn-primary btn-small shop-buy';
                     action.dataset.type = 'cosmetic';
                     action.dataset.id = item.id;
-                    action.textContent = active ? 'Equipped' : owned ? 'Equip' : `COINS ${item.price}`;
+                    action.textContent = active ? 'Equipped' : owned ? 'Equip' : `Buy — ${item.price}`;
                     action.disabled = active;
                     card.append(preview, name, rarity, description, action);
+                    this._decorateShopCard(card, { category: 'cosmetic', price: item.price, owned, equipped: active, currency: coinBalance });
                     grid.appendChild(card);
                 });
             });
         } else if (tab === 'boosts') {
             const card = document.createElement('div');
             card.className = 'shop-card';
-            card.innerHTML = '<div class="skill-emoji">XP</div><div class="char-name">Arcade XP Boost</div><div class="char-desc">1.5x match XP for 60 minutes.</div><button class="btn btn-primary btn-small shop-buy" data-type="boost" data-id="xp-15">120 coins</button>';
+            card.innerHTML = '<div class="skill-emoji">XP</div><div class="char-name">Arcade XP Boost</div><div class="char-desc">1.5x match XP for 60 minutes.</div><button class="btn btn-primary btn-small shop-buy" data-type="boost" data-id="xp-15">Buy — 120</button>';
+            this._decorateShopCard(card, { category: 'boost', price: 120, owned: false, currency: coinBalance });
             grid.appendChild(card);
         } else if (tab === 'cases') {
             Object.values(CASES).forEach(box => {
@@ -1604,6 +1868,7 @@ export class UI {
                         Epic+ guarantee: ${pity.nextGuaranteed ? 'NEXT OPEN' : `${pity.count}/${pity.threshold}`}
                     </div>
                     <button class="btn btn-primary btn-small case-select" type="button" data-id="${box.id}" aria-label="Inspect ${box.name}">Inspect and open</button>`;
+                this._decorateShopCard(card, { category: 'case', price: box.price, owned: false, currency: coinBalance });
                 grid.appendChild(card);
             });
         } else if (tab === 'inventory') {
@@ -1615,11 +1880,20 @@ export class UI {
                 card.className = `shop-card inventory-card rarity-${knife.rarity}`;
                 const kills = Number(store.get('knifeStats')?.[knife.id]) || 0;
                 card.innerHTML = `<div class="knife-preview knife-preview-3d model-${knife.model}" style="--knife-color:${knife.color};--knife-accent:${knife.accent}" aria-hidden="true"></div><div class="inventory-card-copy"><span class="skin-rarity rarity-${knife.rarity}">${knife.rarity}</span><div class="char-name">${knife.name}</div><div class="char-desc">${knife.model.toUpperCase()} / ${(knife.finish || 'satin').toUpperCase()}</div></div><div class="stat-track"><span>STATTRACK</span><b>${String(kills).padStart(6, '0')}</b></div><button class="btn btn-small knife-inspect" data-id="${knife.id}">3D Inspect</button><div class="inventory-actions">${knife.teams.map(team => equipped[team] === knife.id ? `<span class="shop-owned">${team.toUpperCase()} equipped</span>` : `<button class="btn btn-small knife-equip" data-id="${knife.id}" data-team="${team}">Equip ${team}</button>`).join('')}</div>`;
+                this._decorateShopCard(card, { category: 'knife', price: 0, owned: true, currency: coinBalance });
                 grid.appendChild(card);
             });
             if (!inventory.length) grid.innerHTML = '<p class="shop-empty">Your inventory is empty. Open a case to add your first item.</p>';
         }
         this._finalizeShopCatalog(grid);
+        if (!this._shopFiltersBound) {
+            document.getElementById('shop-filters')?.addEventListener('click', e => {
+                const chip = e.target.closest('.shop-filter-chip');
+                if (chip) this._applyShopFilter(chip.dataset.filter);
+            });
+            this._shopFiltersBound = true;
+        }
+        this._applyShopFilter(this._shopFilterId || 'all');
     }
 
     updateContractTracker(daily, store) {

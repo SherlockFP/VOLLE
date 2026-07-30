@@ -133,6 +133,13 @@ export class Renderer {
         this.setQuality(this._quality);
     }
 
+    // Gate for js/arena-decor.js's single optional PointLight (stadium-light glow).
+    // Never a shadowed light itself, but still skipped outright on 'low' quality or
+    // hub-performance mode so decor-heavy maps stay cheap where it matters most.
+    shouldLightDecor() {
+        return this._quality !== 'low' && !this._hubPerformanceMode;
+    }
+
     createToonMaterial(color, texture = null) {
         return new THREE.ShaderMaterial({
             vertexShader: toonVertexShader,
