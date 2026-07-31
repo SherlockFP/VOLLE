@@ -564,3 +564,43 @@ Ball/bot logic itself was never broken — regression blamed to `5a29b05`, not t
 opens hub; solo bot match cycles ROUND_END→PLAYING→ROUND_END with ball moving and hitting.
 Known cosmetic: during the 10s pre-game countdown the warmup ball floats untargeted and bots
 stand still — by design, predates V4, looks similar to the stall bug's first seconds.
+
+---
+
+## V4 Wave 8 — Retention Loop, FTUE, 4 Arenas, Aurora Hub, Cosmetics, Viewmodel, UI Overhaul (2026-07-31)
+
+Orchestrated as Fable 5 plan/control + Opus/Sonnet execution agents + Haiku commits (user mandate).
+Commits: `17218aa` (waves A-D), see also `1741825` (Wave 7 fixes). Full suite grew 1222 → 1272, all green.
+
+- **Post-match reward flow** (`js/ui.js` `_renderRewardFlow`, `js/match-analytics.js` `buildRewardSummary`):
+  XP count-up with per-source rows (`xpSources` from `game.js` — same totals, decomposed), coin
+  breakdown + first-of-day row, battlepass tick + next-reward kind icon, daily challenge deltas
+  (`Daily.takeLastMatchProgress()` one-shot handoff), dominant PLAY AGAIN. MP client path untouched
+  (no `xpSources` in client payload → flow hides itself). `tests/post-match-rewards.test.mjs`.
+- **Main-menu retention strip** (`#menu-retention-strip`): daily progress, battlepass tier + next
+  reward, existing streak badge folded in as third card. Hover-lift/press-scale on primary surfaces
+  only (Menu Identity Pass decision respected).
+- **FTUE**: `#ftue-welcome` overlay (real bindings verified from player.js: WASD/Space/Ctrl,
+  hold-LMB flick throw/deflect, RMB stab), `#btn-how-to-play` reopener, first-solo-match timed
+  hints via `ui.showMessage`. Flags `ftueSeen`/`ftueMatchHintsSeen` in store DEFAULTS.
+- **4 new arenas** (`js/arena.js` +880): `aquarium` (glass vault, fish schools/mantas/whale shark
+  outside), `museum` (colonnades, twin dino skeletons, oculus), `casino` (marquee arches, spinning
+  roulettes, slot-cabinet cover), `subway` (two trains, mezzanine platforms + stairs). One
+  allocation-free `_mapAnimators` loop; picker auto-registers (25→29). `tests/new-arenas.test.mjs`.
+- **Aurora Grand Plaza** (`js/social-lobby.js` rewrite): estate/skyline/harbor DELETED, single
+  flagship hub ±250×±230 — Aurora Spire in swimmable fountain, amphitheatre with walkable rim,
+  parkour terraces (jump-budget-verified), Lantern Bazaar, Observatory. One block table drives
+  collision+platforms+meshes. `SOCIAL_HUB_MAP_ID` export; server.js allowlist `{plaza}`.
+- **Cosmetics**: ball SHAPE skins `shuriken/baseball/blockball/dark_eater` (visual mesh swap via
+  `_applyShape`, physics radius single constant, geometry cached at module level), knives
+  `tanto/cleaver/dagger` in `js/weapon-models.js` + case drops (`dark_eater/cleaver/stiletto`),
+  Dark Eater 5-piece set reusing `void` style. `server/case-catalog.js` mirrored.
+- **Viewmodel**: Roblox-style mitt hand (`buildHandMesh`), unified `MODEL_FRAME_OFFSET` table in
+  `knife-animation.js` (incl. rocket, was hardcoded branch) — clipping measured via AABB before/after.
+- **UI overhaul**: 7 distinct CSS knife silhouettes (was 1 for all), ball-shape 2D badges + real-
+  geometry 3D inspect (cloned from `ballShapeParts`), CS-style inventory grid (rarity edge/glow,
+  reused `#shop-filters`), HUD sheen/score-pop/low-health vignette (`#hud.hud-critical` — `:has()`
+  doesn't match in Chromium here), settings row/toggle/tab polish, patch notes v0.11 entry.
+  Fixed pre-existing clipped Buy/Equip buttons on avatar/ball/inventory cards.
+- **Session memory**: `vault/` (STATUS.md + sessions/) is now the cross-session source of truth,
+  wired into CLAUDE.md; graphify graph updated same day.

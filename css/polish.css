@@ -5024,3 +5024,330 @@ body.reduced-motion .pg-flow-row,
 
 body.reduced-motion .ftue-card,
 .reduce-motion .ftue-card { animation: none !important; }
+
+/* ==========================================================================
+   MENU OVERHAUL WAVE — knife silhouettes, CS-style inventory, ball model
+   skins, live HUD frame, settings readability.
+   Everything below is theme-token driven (no fixed palette literals) and
+   motion-only-in-CSS, so nothing here costs a frame in-match.
+   ========================================================================== */
+
+/* --- 1. Knife silhouettes ------------------------------------------------
+   .knife-preview used to draw one generic blade for all seven KNIFE_MODELS,
+   so a tanto, a cleaver and a karambit were pixel-identical in the grid. The
+   blade/grip geometry is now driven by custom properties the model class sets,
+   which keeps the base rule (polish.css ~1104) as the single drawing code. */
+.knife-preview::before {
+    width: var(--blade-w, 112px);
+    height: var(--blade-h, 15px);
+    left: var(--blade-x, 8px);
+    top: var(--blade-y, 24px);
+    border-radius: var(--blade-round, 0);
+    clip-path: var(--blade-clip, polygon(0 0, 88% 0, 100% 50%, 88% 100%, 0 100%));
+    transform: rotate(var(--blade-tilt, -13deg));
+}
+.knife-preview::after {
+    width: var(--grip-w, 42px);
+    height: var(--grip-h, 19px);
+    top: var(--grip-y, 35px);
+    border-radius: var(--grip-round, 4px);
+    background: linear-gradient(180deg, var(--knife-accent, rgba(255, 255, 255, .3)), rgba(4, 12, 20, .95));
+    box-shadow: var(--grip-shadow, none);
+    transform: rotate(var(--blade-tilt, -13deg));
+}
+/* Utility blade — the default shape, spelled out so the class is inspectable. */
+.knife-preview.model-classic { --blade-w: 104px; --blade-h: 14px; }
+/* Long spear-point bayonet. */
+.knife-preview.model-bayonet {
+    --blade-w: 124px; --blade-h: 13px; --blade-x: 2px;
+    --blade-clip: polygon(0 0, 80% 0, 100% 40%, 100% 60%, 80% 100%, 0 100%);
+}
+/* Butterfly: narrow blade riding between two handle halves (the second half is
+   the grip's own offset shadow — no third pseudo-element needed). */
+.knife-preview.model-butterfly {
+    --blade-w: 100px; --blade-h: 11px; --blade-x: 14px; --blade-y: 26px;
+    --grip-w: 52px; --grip-h: 8px; --grip-y: 30px; --grip-round: 6px;
+    --grip-shadow: 0 13px 0 -1px var(--knife-accent, rgba(255, 255, 255, .3));
+}
+/* Karambit: crescent claw plus a ring-ish stubby grip. */
+.knife-preview.model-karambit {
+    --blade-w: 92px; --blade-h: 40px; --blade-x: 16px; --blade-y: 16px;
+    --blade-clip: none;
+    --blade-round: 0 0 96% 6px / 0 0 100% 6px;
+    --blade-tilt: -4deg;
+    --grip-w: 34px; --grip-h: 16px; --grip-y: 40px; --grip-round: 4px 12px 12px 4px;
+}
+/* Tanto: flat spine with an angled chisel tip. */
+.knife-preview.model-tanto {
+    --blade-w: 112px; --blade-h: 19px; --blade-y: 22px;
+    --blade-clip: polygon(0 0, 84% 0, 100% 46%, 100% 100%, 0 100%);
+    --blade-tilt: -9deg;
+    --grip-w: 40px; --grip-h: 15px; --grip-y: 34px;
+}
+/* Cleaver: tall rectangular chopper with a clipped bottom corner. */
+.knife-preview.model-cleaver {
+    --blade-w: 84px; --blade-h: 38px; --blade-x: 12px; --blade-y: 16px;
+    --blade-clip: polygon(0 0, 100% 0, 100% 74%, 88% 100%, 0 100%);
+    --blade-round: 3px;
+    --blade-tilt: -6deg;
+    --grip-w: 38px; --grip-h: 14px; --grip-y: 36px;
+}
+/* Dagger: symmetric double-edged spike. */
+.knife-preview.model-dagger {
+    --blade-w: 116px; --blade-h: 16px; --blade-x: 6px;
+    --blade-clip: polygon(0 50%, 12% 0, 88% 0, 100% 50%, 88% 100%, 12% 100%);
+    --blade-tilt: -11deg;
+    --grip-w: 36px; --grip-h: 20px; --grip-y: 33px; --grip-round: 3px 8px 8px 3px;
+}
+
+/* --- 2. CS-style inventory grid -----------------------------------------
+   Dense tiles, rarity-coloured base edge + glow, hover enlarge, and the
+   existing #shop-filters chip row acts as the category filter (All / Balls /
+   Cosmetics / Knives / Owned / Affordable) — no second filter UI. */
+#shop-screen[data-shop-tab="inventory"] .shop-grid {
+    grid-template-columns: repeat(auto-fill, minmax(208px, 1fr));
+    gap: 10px;
+    padding-bottom: 18px;
+}
+#shop-screen .shop-card.rarity-common { --shop-rarity-stripe: color-mix(in srgb, var(--screen-line) 42%, transparent); }
+#shop-screen .inventory-tile {
+    /* Tall enough for icon + copy + StatTrak + inspect + both team equip buttons.
+       .shop-card is overflow:hidden, so anything short silently eats the actions row. */
+    min-height: 344px;
+    padding: 12px 12px 14px;
+    isolation: isolate;
+    transition:
+        transform var(--ui-motion-base) var(--ui-ease),
+        box-shadow var(--ui-motion-base) var(--ui-ease),
+        border-color var(--ui-motion-base) var(--ui-ease);
+}
+/* Rarity reads from the base edge, the way a CS item tile does. */
+#shop-screen .inventory-tile::after {
+    content: "";
+    position: absolute;
+    inset: auto 0 0 0;
+    height: 4px;
+    border-radius: 0 0 16px 16px;
+    background: var(--shop-rarity-stripe, transparent);
+    box-shadow: 0 -8px 20px -6px var(--shop-rarity-stripe, transparent);
+    pointer-events: none;
+}
+#shop-screen .inventory-tile:hover,
+#shop-screen .inventory-tile:focus-within {
+    z-index: 3;
+    transform: translateY(-5px) scale(1.028);
+    border-color: color-mix(in srgb, var(--shop-rarity-stripe, var(--screen-line)) 65%, transparent);
+    box-shadow:
+        0 22px 42px rgba(0, 6, 14, .46),
+        0 0 0 1px color-mix(in srgb, var(--shop-rarity-stripe, var(--screen-line)) 45%, transparent);
+}
+#shop-screen .inventory-tile .inventory-icon-area {
+    position: relative;
+    flex: 0 0 auto;
+    min-height: 96px;
+    margin: -6px -6px 10px;
+    overflow: hidden;
+    background:
+        radial-gradient(ellipse at 50% 118%, color-mix(in srgb, var(--shop-rarity-stripe, transparent) 32%, transparent), transparent 66%),
+        linear-gradient(145deg, rgba(255, 255, 255, .06), rgba(0, 0, 0, .16));
+}
+#shop-screen .inventory-tile .inventory-card-copy { gap: 4px; }
+#shop-screen .inventory-tile .char-name { font-size: .9rem; line-height: 1.25; overflow-wrap: break-word; }
+#shop-screen .inventory-tile .char-desc { font-size: .66rem; letter-spacing: .08em; font-weight: 800; }
+#shop-screen .inventory-tile .skin-rarity {
+    align-self: flex-start;
+    padding: 2px 8px;
+    border-radius: 999px;
+    color: var(--shop-text);
+    background: color-mix(in srgb, var(--shop-rarity-stripe, transparent) 26%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--shop-rarity-stripe, transparent) 52%, transparent);
+    font-size: .58rem;
+    font-weight: 950;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+}
+#shop-screen .inventory-tile .stat-track {
+    justify-content: space-between;
+    padding: 5px 8px;
+    border-radius: 8px;
+    background: rgba(0, 0, 0, .26);
+}
+#shop-screen .inventory-tile .knife-inspect { align-self: stretch; }
+/* Both team-equip buttons must share one row — the inherited `flex: 1 1 100px`
+   wrapped them onto two rows at tile width, which pushed the actions out of the
+   (overflow: hidden) card entirely. */
+#shop-screen .inventory-tile .inventory-actions > * { flex: 1 1 0; min-width: 0; padding-inline: 6px; font-size: .72em; }
+/* Section bars between the knives / cosmetics groups. */
+#shop-screen[data-shop-tab="inventory"] .cosmetic-category-title {
+    grid-column: 1 / -1;
+    margin: 6px 0 0;
+    padding: 7px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    border-left: 3px solid var(--screen-accent);
+    border-radius: 4px 10px 10px 4px;
+    background: linear-gradient(90deg, rgba(255, 255, 255, .08), transparent 68%);
+    font-size: .72rem;
+    font-weight: 950;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+}
+
+/* --- 3. Ball model skins ------------------------------------------------
+   The four BALL_SKINS entries with a `shape` were flat discs identical to every
+   other skin. The silhouette now differs at a glance, and .ball-inspect swaps
+   in the real geometry (js/main.js _buildBallPreviewModel). */
+/* The ball card was already taller than the 222px .shop-card floor (stage + name +
+   rarity + two buttons), so `overflow: hidden` was clipping the Buy button. The
+   bigger stage makes that worse, hence an explicit floor for this card type.
+   flex-shrink:0 — the card is a column flexbox, so without it the stage collapses
+   to the disc's own height and the 3D canvas gets no room. */
+#shop-screen .shop-card.ball-skin { min-height: 296px; }
+/* Same pre-existing clip on the character-skin cards: preview + actions ran past
+   the 222px floor, so Buy / Equip / 15m Trial were cut off by the card's
+   overflow: hidden. Found while measuring the ball cards. */
+#shop-screen .shop-card.avatar-skin-card { min-height: 268px; }
+#shop-screen .ball-skin .ball-inspect-stage { flex: 0 0 auto; width: 100%; height: 96px; margin-bottom: 8px; }
+#shop-screen .ball-skin .ball-preview { width: 66px; height: 66px; }
+.ball-preview[data-shape="shuriken"] {
+    border-radius: 6px;
+    clip-path: polygon(50% 0, 62% 34%, 96% 21%, 74% 50%, 96% 79%, 62% 66%, 50% 100%, 38% 66%, 4% 79%, 26% 50%, 4% 21%, 38% 34%);
+}
+.ball-preview[data-shape="cube"] { border-radius: 12%; }
+.ball-preview[data-shape="baseball"] { background-image: repeating-linear-gradient(72deg, transparent 0 12px, color-mix(in srgb, var(--ball-glow), transparent 30%) 12px 14px, transparent 14px 26px), radial-gradient(circle at 34% 28%, white 0 5%, var(--ball-color) 25%, rgba(6, 14, 26, .96) 75%); }
+.ball-preview[data-shape="orb"] { box-shadow: 0 0 20px var(--ball-glow), 0 0 0 3px color-mix(in srgb, var(--ball-glow), transparent 58%), 0 0 0 6px color-mix(in srgb, var(--ball-glow), transparent 82%); }
+.ball-shape-tag {
+    position: absolute;
+    left: 50%;
+    bottom: 0;
+    z-index: 2;
+    padding: 2px 8px;
+    transform: translateX(-50%);
+    border-radius: 999px;
+    color: var(--shop-text, #fff);
+    background: rgba(0, 0, 0, .55);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--screen-accent) 46%, transparent);
+    font-size: .54rem;
+    font-weight: 950;
+    letter-spacing: .12em;
+}
+/* WebGL preview takes over the stage while inspecting. */
+.ball-inspect-stage.actual-preview .ball-preview,
+.ball-inspect-stage.actual-preview .ball-inspect-trail,
+.ball-inspect-stage.actual-preview .ball-shape-tag { display: none; }
+.ball-inspect-stage.actual-preview canvas { width: 100% !important; height: 100% !important; display: block; }
+
+/* --- 4. Live HUD frame ---------------------------------------------------
+   CSS-only: no per-frame JS, no layout thrash. The score pop is triggered by a
+   class js/ui.js only adds when the number actually changes, and the low-health
+   vignette reads the .low class updateVitals already writes on #hp-fill. */
+#hud .hud-score-panel { position: relative; overflow: hidden; }
+#hud .hud-score-panel::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(112deg, transparent 42%, rgba(255, 255, 255, .07) 50%, transparent 58%);
+    transform: translateX(-130%);
+    animation: hud-frame-sheen 9s var(--ui-ease-smooth) infinite;
+}
+@keyframes hud-frame-sheen {
+    0%, 78% { transform: translateX(-130%); }
+    100% { transform: translateX(130%); }
+}
+.hud-team-score { position: relative; transition: color var(--ui-motion-fast) var(--ui-ease); }
+.hud-team-score.score-pop { animation: hud-score-pop 460ms var(--ui-ease); }
+@keyframes hud-score-pop {
+    0% { transform: scale(1); }
+    38% { transform: scale(1.24); filter: brightness(1.55); }
+    100% { transform: scale(1); }
+}
+/* Low-health vignette. Fully transparent through the middle 55% so nothing that
+   matters for aiming is tinted; only the screen edge breathes. */
+#hud::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    opacity: 0;
+    pointer-events: none;
+    background: radial-gradient(ellipse at center, transparent 55%, color-mix(in srgb, var(--ui-danger) 34%, transparent) 100%);
+    transition: opacity var(--ui-motion-slow) var(--ui-ease);
+}
+#hud.hud-critical::after { opacity: 1; animation: hud-critical-breathe 2.1s var(--ui-ease-smooth) infinite; }
+@keyframes hud-critical-breathe {
+    50% { opacity: .55; }
+}
+
+/* --- 5. Settings + secondary menu readability ---------------------------- */
+#unified-settings .settings-row {
+    margin-inline: -8px;
+    padding-inline: 8px;
+    border-radius: 10px;
+    transition: background-color var(--ui-motion-fast) var(--ui-ease), box-shadow var(--ui-motion-fast) var(--ui-ease);
+}
+#unified-settings .settings-row:hover,
+#unified-settings .settings-row:focus-within {
+    background: rgba(255, 255, 255, .05);
+    box-shadow: inset 2px 0 0 var(--screen-accent);
+}
+#unified-settings .settings-subgroup-label {
+    margin-top: 14px;
+    padding: 5px 0 4px;
+    border-bottom: 1px solid color-mix(in srgb, var(--screen-line) 26%, transparent);
+    font-size: .64rem;
+    font-weight: 950;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+}
+#unified-settings .settings-tab {
+    position: relative;
+    transition: color var(--ui-motion-fast) var(--ui-ease), background-color var(--ui-motion-fast) var(--ui-ease);
+}
+#unified-settings .settings-tab::after {
+    content: "";
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    bottom: 2px;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--screen-accent);
+    transform: scaleX(0);
+    transition: transform var(--ui-motion-base) var(--ui-ease);
+}
+#unified-settings .settings-tab.selected::after { transform: scaleX(1); }
+#unified-settings .settings-row input[type="range"] { accent-color: var(--ui-primary); }
+/* Theme-driven toggle: the checked fill used to be a fixed cyan, which read as
+   the wrong accent in five of the six themes. The darker stop is mixed from
+   --ui-primary rather than --ui-primary-strong because runtime skin presets can
+   override the former without the latter, which produced a two-hue slider. */
+.toggle-switch input:checked + .toggle-slider {
+    background: linear-gradient(135deg, var(--ui-primary), color-mix(in srgb, var(--ui-primary) 62%, black));
+    border-color: var(--ui-primary);
+}
+.toggle-switch input:focus-visible + .toggle-slider { outline: 3px solid var(--ui-focus); outline-offset: 2px; }
+.toggle-switch:hover .toggle-slider::before { box-shadow: 0 1px 6px rgba(0, 0, 0, .4); transform: scale(1.08); }
+.toggle-switch input:checked + .toggle-slider::before { transform: translateX(18px); }
+.toggle-switch:hover input:checked + .toggle-slider::before { transform: translateX(18px) scale(1.08); }
+
+/* --- 6. Motion opt-out ---------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+    #hud .hud-score-panel::after,
+    #hud.hud-critical::after,
+    .hud-team-score.score-pop { animation: none !important; }
+    #hud .hud-score-panel::after { opacity: 0; }
+    #shop-screen .inventory-tile:hover,
+    #shop-screen .inventory-tile:focus-within { transform: none; }
+}
+body.reduced-motion #hud .hud-score-panel::after,
+.reduce-motion #hud .hud-score-panel::after { opacity: 0; animation: none !important; }
+body.reduced-motion #shop-screen .inventory-tile:hover,
+.reduce-motion #shop-screen .inventory-tile:hover { transform: none; }
+
+@media (max-width: 700px) {
+    #shop-screen[data-shop-tab="inventory"] .shop-grid { grid-template-columns: 1fr; }
+    #shop-screen .inventory-tile { min-height: 0; }
+}

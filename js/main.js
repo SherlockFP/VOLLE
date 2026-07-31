@@ -35,7 +35,7 @@ import { getReward as getBattlepassRewardEntry } from './battlepass.js';
 import { Replay, extractReplayHighlight } from './replay.js';
 import { ReplayView } from './replay-view.js';
 import { Spectator } from './spectator.js';
-import { BALL_SKINS } from './ball.js';
+import { BALL_SKINS, ballShapeParts } from './ball.js';
 import { accountRankLabel, matchXp, prestigeTitle } from './prestige.js';
 import { Console } from './console.js';
 import { tournament } from './tournament.js';
@@ -2636,9 +2636,18 @@ updateCSLobbyInfo();
                 const card = ballInspect.closest('.ball-skin');
                 const inspecting = card?.classList.toggle('inspecting') === true;
                 ballInspect.setAttribute('aria-pressed', String(inspecting));
-                ballInspect.textContent = inspecting ? 'Stop preview' : 'Inspect trail';
                 const skin = BALL_SKINS[ballInspect.dataset.id];
-                this.ui.showMessage?.(inspecting ? `${skin?.name || 'Ball'} trail preview` : 'Preview stopped', 1100);
+                const stage = card?.querySelector('.ball-inspect-stage');
+                // Model skins (shuriken / baseball / blockball / dark eater) are only
+                // distinguishable as geometry, so inspect spins the real mesh for them.
+                if (skin?.shape && stage) {
+                    if (inspecting) this._renderCosmeticPreview(stage, skin, () => this._buildBallPreviewModel(skin));
+                    else this._disposeCosmeticPreview(stage);
+                    ballInspect.textContent = inspecting ? 'Stop 3D preview' : 'Inspect in 3D';
+                } else {
+                    ballInspect.textContent = inspecting ? 'Stop preview' : 'Inspect trail';
+                }
+                this.ui.showMessage?.(inspecting ? `${skin?.name || 'Ball'} preview` : 'Preview stopped', 1100);
             }
             // Battlepass claim
             const claimBtn = e.target.closest('.bp-claim');
@@ -3978,6 +3987,26 @@ updateCSLobbyInfo();
         this.player.unlock();
     }
 
+    _disposeCosmeticPreview(container) {
+        if (!container) return;
+        this._cosmeticPreviews?.get(container)?.dispose();
+        this._cosmeticPreviews?.delete(container);
+    }
+
+    // Shop preview for a BALL_SKINS entry that carries a `shape`. Geometry comes from
+    // js/ball.js's shared cache, so it is cloned here: _renderCosmeticPreview disposes
+    // whatever it is handed, and disposing the cached buffers would break every ball
+    // that equips the same shape later in the session.
+    _buildBallPreviewModel(skin) {
+        const group = new THREE.Group();
+        const body = new THREE.MeshStandardMaterial({ color: skin.color, roughness: .44, metalness: .24, emissive: skin.glow, emissiveIntensity: .16 });
+        const accent = new THREE.MeshStandardMaterial({ color: skin.glow, roughness: .3, metalness: .5, emissive: skin.glow, emissiveIntensity: .34 });
+        for (const part of ballShapeParts(skin.shape, .45, THREE)) {
+            group.add(new THREE.Mesh(part.geo.clone(), part.tint === 'accent' ? accent : body));
+        }
+        return group;
+    }
+
     _togglePhotoMode() {
         this._photoMode = !this._photoMode;
         document.body.classList.toggle('photo-mode', this._photoMode);
@@ -3986,7 +4015,9 @@ updateCSLobbyInfo();
         this.ui.showMessage?.(this._photoMode ? 'Photo mode: HUD hidden.' : 'Photo mode closed.', 1200);
     }
 
-    _renderCosmeticPreview(container, style) {
+    // `build` lets a caller supply its own Object3D (the model-skin balls do); without
+    // it this stays exactly the knife preview it always was.
+    _renderCosmeticPreview(container, style, build = null) {
         if (!container || !style) return;
         try {
             this._cosmeticPreviews ??= new Map();
@@ -4005,7 +4036,7 @@ updateCSLobbyInfo();
             const key = new THREE.DirectionalLight(0xffffff, 3);
             key.position.set(2, 3, 4);
             scene.add(key);
-            const model = createKnifeModel(style);
+            const model = build ? build() : createKnifeModel(style);
             const bounds = new THREE.Box3().setFromObject(model);
             const center = bounds.getCenter(new THREE.Vector3());
             const size = bounds.getSize(new THREE.Vector3());

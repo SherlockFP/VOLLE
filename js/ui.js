@@ -216,8 +216,21 @@ export class UI {
                 timerEl.dataset.urgency = urgency;
             }
         }
-        if (el('hud-score-red')) el('hud-score-red').textContent = redScore;
-        if (el('hud-score-blue')) el('hud-score-blue').textContent = blueScore;
+        // updateHUD runs every frame, so the score digits are written only when the
+        // value actually changes. That skips ~99% of the DOM writes and gives the
+        // CSS pop (.score-pop, css/polish.css) a natural once-per-goal trigger.
+        this._hudScores ??= { red: null, blue: null };
+        for (const side of ['red', 'blue']) {
+            const value = side === 'red' ? redScore : blueScore;
+            if (this._hudScores[side] === value) continue;
+            this._hudScores[side] = value;
+            const node = el(`hud-score-${side}`);
+            if (!node) continue;
+            node.textContent = value;
+            node.classList.remove('score-pop');
+            void node.offsetWidth; // restart the animation on repeat scores
+            node.classList.add('score-pop');
+        }
         if (el('hud-speed')) {
             const heat = getBallHeat(ballSpeed);
             el('hud-speed').textContent = `${heat.label} ${heat.percent}%`;
@@ -1353,6 +1366,14 @@ export class UI {
             hpFill.style.width = hpPct + '%';
             hpFill.className = 'vital-fill hp' + (hpPct < 30 ? ' low' : hpPct < 60 ? ' mid' : '');
         }
+        // Low-health vignette lives on #hud itself (a CSS :has(#hp-fill.low) selector does
+        // not match reliably here). updateVitals runs every frame, so the class is only
+        // written when the threshold is actually crossed — the rest is a CSS transition.
+        const critical = hpPct < 30;
+        if (this._hudCritical !== critical) {
+            this._hudCritical = critical;
+            this.screens?.hud?.classList.toggle('hud-critical', critical);
+        }
         if (shieldFill) shieldFill.style.width = `${Math.max(0, (shield || 0) / maxHp * 100)}%`;
         if (staFill) {
             staFill.style.width = stPct + '%';
@@ -1870,8 +1891,14 @@ export class UI {
                 const equipped = store.get('equippedBall') === id;
                 card.innerHTML = `<div class="ball-inspect-stage"><div class="ball-preview" style="background:${'#'+b.color.toString(16).padStart(6,'0')}"></div><span class="ball-inspect-trail" aria-hidden="true"></span></div><div class="char-name">${b.name}</div><button class="btn btn-small ball-inspect" data-id="${id}" aria-pressed="false">Inspect trail</button>${owned ? (equipped ? '<div class="shop-owned">Equipped</div>' : `<button class="btn btn-small shop-equip" data-type="ball" data-id="${id}">Equip</button>`) : `<button class="btn btn-primary btn-small shop-buy" data-type="ball" data-id="${id}">COINS 150</button>`}`;
                 const preview = card.querySelector('.ball-preview');
+                // Model skins (js/ball.js BALL_SKINS carry a `shape`) look identical to every
+                // other skin as a flat CSS disc. The shape rides on the card and the preview so
+                // the silhouette reads in the grid, and .ball-inspect can spin the real geometry.
+                const shape = b.shape || 'sphere';
+                card.dataset.ballShape = shape;
                 if (preview) {
                     preview.style.background = '';
+                    preview.dataset.shape = shape;
                     preview.dataset.effect = b.effect || 'core';
                     preview.style.setProperty('--ball-color', `#${b.color.toString(16).padStart(6, '0')}`);
                     preview.style.setProperty('--ball-glow', `#${b.glow.toString(16).padStart(6, '0')}`);
@@ -1881,6 +1908,14 @@ export class UI {
                     rarity.className = 'ball-rarity';
                     rarity.textContent = b.rarity;
                     card.querySelector('.char-name')?.after(rarity);
+                }
+                if (b.shape) {
+                    const shapeTag = document.createElement('span');
+                    shapeTag.className = 'ball-shape-tag';
+                    shapeTag.textContent = 'MODEL SKIN';
+                    card.querySelector('.ball-inspect-stage')?.appendChild(shapeTag);
+                    const inspect = card.querySelector('.ball-inspect');
+                    if (inspect) inspect.textContent = 'Inspect in 3D';
                 }
                 const buy = card.querySelector('.shop-buy');
                 if (buy) buy.textContent = `Buy — ${b.price || 150}`;
@@ -2049,19 +2084,25 @@ export class UI {
                 grid.appendChild(heading);
                 group.items.forEach(({ type, item }) => {
                     const card = document.createElement('article');
+                    // CS-style tile: the type/model/rarity live on the element so the grid can
+                    // draw a per-model silhouette and a rarity-coloured base edge in pure CSS.
+                    card.dataset.invType = type;
+                    card.dataset.invRarity = item.rarity || 'common';
                     if (type === 'knife') {
                         const knife = item;
                         const equippedAny = isKnifeEquippedAny(knife.id, equippedKnives);
                         const kills = Number(knifeStats[knife.id]) || 0;
                         const restriction = knifeTeamRestriction(knife.teams);
                         const restrictBadge = restriction ? `<span class="inventory-team-restrict team-${restriction}">${restriction.toUpperCase()} ONLY</span>` : '';
-                        card.className = `shop-card inventory-card rarity-${knife.rarity}`;
+                        card.dataset.invModel = knife.model;
+                        card.className = `shop-card inventory-card inventory-tile rarity-${knife.rarity}`;
                         card.innerHTML = `<div class="inventory-icon-area"><div class="knife-preview knife-preview-3d model-${knife.model}" style="--knife-color:${knife.color};--knife-accent:${knife.accent}" aria-hidden="true"></div></div><div class="inventory-card-copy"><span class="skin-rarity rarity-${knife.rarity}">${knife.rarity}</span>${restrictBadge}<div class="char-name">${knife.name}</div><div class="char-desc">${knife.model.toUpperCase()} / ${(knife.finish || 'satin').toUpperCase()}</div></div><div class="stat-track"><span>STATTRACK</span><b>${String(kills).padStart(6, '0')}</b></div><button class="btn btn-small knife-inspect" data-id="${knife.id}">3D Inspect</button><div class="inventory-actions">${knife.teams.map(team => equippedKnives[team] === knife.id ? `<span class="shop-owned">${team.toUpperCase()} equipped</span>` : `<button class="btn btn-small knife-equip" data-id="${knife.id}" data-team="${team}">Equip ${team}</button>`).join('')}</div>`;
                         this._decorateShopCard(card, { category: 'knife', price: 0, owned: true, equipped: equippedAny, currency: coinBalance });
                     } else {
                         const cosmetic = item;
                         const equippedC = equippedWearables[cosmetic.type] === cosmetic.id;
-                        card.className = `shop-card inventory-card cosmetic-card rarity-${cosmetic.rarity}`;
+                        card.dataset.invModel = cosmetic.type;
+                        card.className = `shop-card inventory-card inventory-tile cosmetic-card rarity-${cosmetic.rarity}`;
                         card.style.setProperty('--cosmetic-primary', cosmetic.colors[0]);
                         card.style.setProperty('--cosmetic-secondary', cosmetic.colors[1]);
                         card.innerHTML = `<div class="inventory-icon-area"><div class="cosmetic-preview cosmetic-preview-${cosmetic.type}" data-style="${cosmetic.style}" aria-hidden="true"></div></div><div class="inventory-card-copy"><span class="skin-rarity rarity-${cosmetic.rarity}">${cosmetic.rarity}</span><div class="char-name">${cosmetic.name}</div><div class="char-desc">${COSMETIC_TYPES[cosmetic.type] || cosmetic.type}</div></div>${equippedC ? '<div class="shop-owned">Equipped</div>' : `<button class="btn btn-small shop-equip" data-type="cosmetic" data-id="${cosmetic.id}">Equip</button>`}`;
