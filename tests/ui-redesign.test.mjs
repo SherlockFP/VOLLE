@@ -28,7 +28,8 @@ test('case catalog uses unique image-backed cards and a confirmation dialog', ()
 test('inventory is standalone and collection layouts are spacious', () => {
     assert.doesNotMatch(html, /id="cosmetic-customizer"/);
     assert.match(css, /data-shop-tab="inventory"[\s\S]*?grid-template-columns: 1fr;/);
-    assert.match(css, /\.inventory-card \{[\s\S]*?grid-template-columns: minmax\(150px, \.9fr\) minmax\(140px, 1fr\);/);
+    assert.match(css, /#shop-screen \.inventory-card \{ min-height: 280px; \}/);
+    assert.match(css, /#shop-screen \.inventory-card \.inventory-icon-area \{/);
 });
 
 test('quick play, progression, and hero dashboards keep stable hooks', () => {

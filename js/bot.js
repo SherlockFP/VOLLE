@@ -487,11 +487,16 @@ export class Bot {
         if (!this.alive || this.attacking || this.attackTimer > 0) return false;
         const dist = ball.distanceTo(this.getPosition());
 
-        // Build reaction timer when ball is within alert range (~8 units),
-        // not just attackRange (2.0). Ball at 17u/s crosses 2.0 in 0.12s,
-        // shorter than any bot's reactionTime — old code never filled timer.
-        // ponytail: alert range ~ ballSpeed * maxReactionTime + attackRange
-        if (dist > 8) {
+        // Alert range must cover the FULL commit budget — reaction time AND the
+        // wind-up telegraph that follows it, not just reaction time. Wind-up was
+        // added later (telegraphed wind-ups, ea037d5) but this range was never
+        // widened to cover it, so the ball crossed the whole engagement window
+        // before a bot ever finished committing — it never got a chance to
+        // deflect at all. Scales with the ball's actual current speed so slow
+        // and fast throws both leave a fair window.
+        // ponytail: alert range ~ ballSpeed * (reactionTime + windUpTime) + attackRange
+        const alertRange = ball.currentSpeed * (this.reactionTime + this.windUpTime) + ball.attackRange;
+        if (dist > alertRange) {
             this.reactionTimer = 0;
             this._deflectDecided = false;
             this.windUpTimer = 0;

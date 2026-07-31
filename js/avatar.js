@@ -1,5 +1,5 @@
-const ATLAS_SIZE = 64;
-const FACE_SIZE = 8;
+export const ATLAS_SIZE = 64;
+export const FACE_SIZE = 8;
 const EDITOR_SCALE = 16;
 
 export const HEAD_FRONT = Object.freeze({ x: 8, y: 8, width: 8, height: 8 });
@@ -59,7 +59,7 @@ const PALETTE = [
     '#88ccff', '#ffd8a8', '#8b4513', '#dddddd', '#ff8844', '#66ffaa', '#ffdd44', '#888888'
 ];
 
-const FRONT_UV = Object.freeze({
+export const FRONT_UV = Object.freeze({
     head: Object.freeze({ x: 8, y: 8, width: 8, height: 8 }),
     body: Object.freeze({ x: 20, y: 20, width: 8, height: 12 }),
     leftArm: Object.freeze({ x: 36, y: 52, width: 4, height: 12 }),
@@ -84,6 +84,37 @@ export const getAvatarArmScale = (modelId = 'classic') => {
     // in-game arm meshes so they match what the avatar editor draws.
     return model.arm.width / 4;
 };
+
+// Averages the team-tint-preserving front-face regions (FRONT_UV) of a composed 64x64
+// atlas into numeric hex colors for rig.setPartColors() -- shared by the avatar editor's
+// live 3D preview and main.js's shop/menu-hero consistency wiring so both read the exact
+// same painted pixels instead of re-deriving colors from a re-decoded PNG.
+export function sampleAvatarPartColors(atlasPixels) {
+    if (!Array.isArray(atlasPixels) || atlasPixels.length !== ATLAS_SIZE * ATLAS_SIZE) return null;
+    const avgRegion = regions => {
+        let r = 0, g = 0, b = 0, n = 0;
+        for (const region of regions) {
+            for (let y = region.y; y < region.y + region.height; y++) {
+                for (let x = region.x; x < region.x + region.width; x++) {
+                    const color = atlasPixels[y * ATLAS_SIZE + x];
+                    if (typeof color !== 'string') continue;
+                    const hex = color.replace('#', '');
+                    if (hex.length !== 6) continue;
+                    r += parseInt(hex.slice(0, 2), 16);
+                    g += parseInt(hex.slice(2, 4), 16);
+                    b += parseInt(hex.slice(4, 6), 16);
+                    n++;
+                }
+            }
+        }
+        return n > 0 ? ((Math.round(r / n) << 16) | (Math.round(g / n) << 8) | Math.round(b / n)) : null;
+    };
+    return {
+        body: avgRegion([FRONT_UV.body]),
+        arms: avgRegion([FRONT_UV.leftArm, FRONT_UV.rightArm]),
+        legs: avgRegion([FRONT_UV.leftLeg, FRONT_UV.rightLeg])
+    };
+}
 
 const shade = (color, factor) => {
     const hex = color.replace('#', '');
@@ -259,6 +290,7 @@ export class AvatarPainter {
             saved?.bodyOverlay,
             saved?.overlay || saved?.pixels
         );
+        this.presetId = saved?.presetId || null;
         this.drawing = false;
         this.onchange = null;
         this._bind();
@@ -390,7 +422,8 @@ export class AvatarPainter {
             dataURL,
             model: preset.model,
             baseSkinId: preset.id,
-            skinId: preset.id
+            skinId: preset.id,
+            presetId: this.presetId || null
         });
         this.store?.set?.('equippedAvatarSkin', preset.id);
         this.onchange?.(dataURL);
@@ -399,7 +432,22 @@ export class AvatarPainter {
     applyPreset(skinId) {
         if (!AVATAR_SKINS[skinId]) return false;
         this.skinId = skinId;
+        this.presetId = null;
         this.bodyOverlay.fill(null);
+        this.render();
+        this._save();
+        return true;
+    }
+
+    // Applies a fully-rendered skin-presets.js atlas (js/skin-presets.js owns face/motif
+    // pixel data; this method just adopts the finished 64x64 array as the paint layer so
+    // team dominance/atlas shape stays validated in one place, not duplicated here).
+    applySkinPreset(presetId, atlas, team) {
+        if (!Array.isArray(atlas) || atlas.length !== ATLAS_SIZE * ATLAS_SIZE) return false;
+        const teamSkinId = getTeamPresetSkinId(team);
+        if (teamSkinId) this.skinId = teamSkinId;
+        this.presetId = presetId || null;
+        this.bodyOverlay = atlas.slice();
         this.render();
         this._save();
         return true;

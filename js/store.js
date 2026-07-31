@@ -57,6 +57,63 @@ function previousLocalDateKey(value = new Date()) {
     return localDateKey(date);
 }
 
+// UTC-day helpers — retention features (first-of-day match bonus, login
+// streak badge) key off UTC so the day boundary can't be gamed by flipping
+// the device clock/timezone. Deliberately separate from localDateKey/
+// previousLocalDateKey above, which the existing local-only Daily Login
+// card (claimDailyLogin/getDailyRewardState) still uses unchanged.
+function utcDateKey(value = new Date()) {
+    const date = value instanceof Date ? value : new Date(value);
+    return Number.isFinite(date.getTime()) ? date.toISOString().slice(0, 10) : '';
+}
+
+function previousUtcDateKey(value = new Date()) {
+    const ts = (value instanceof Date ? value.getTime() : new Date(value).getTime()) - 86400000;
+    return utcDateKey(ts);
+}
+
+// Free earning route (docs/V3_ECONOMY.md "First match of day"): today's
+// first completed match pays a flat bonus regardless of win/loss. Guests
+// track this locally (DEFAULTS.lastFirstMatchDay below); account players
+// get the server-owned equivalent in server/profile-store.js#reward
+// (client is never trusted for that path).
+export const FIRST_MATCH_OF_DAY_BONUS = 80;
+
+// Main-menu login-streak badge — UTC-day consecutive counter, +20/day with
+// a +150 bonus every 7th day (cycles, does not cap). Independent of the
+// Daily Challenges screen's local-only "Daily Login" card above (different
+// UI surface, different formula, different persisted field).
+export const LOGIN_STREAK_DAILY_COINS = 20;
+export const LOGIN_STREAK_DAY7_COINS = 150;
+export const LOGIN_STREAK_CYCLE = 7;
+
+// Pure: given persisted lastFirstMatchDay and "now", decides whether today's
+// match is the first-of-day without mutating anything.
+export function isFirstMatchOfDay(lastFirstMatchDay, now = new Date()) {
+    const today = utcDateKey(now);
+    return !!today && lastFirstMatchDay !== today;
+}
+
+export function loginStreakReward(day) {
+    return day > 0 && day % LOGIN_STREAK_CYCLE === 0 ? LOGIN_STREAK_DAY7_COINS : LOGIN_STREAK_DAILY_COINS;
+}
+
+// Pure: mirrors getDailyRewardState's "prospective streak" shape below but
+// UTC-keyed and uncapped. `claimed` tells the badge to render the passive
+// "✓ Day N" state instead of the claim CTA.
+export function computeStreakState(streak, now = new Date()) {
+    const today = utcDateKey(now);
+    const last = streak?.lastClaimDay || '';
+    const prevCount = Math.max(0, Math.floor(Number(streak?.count) || 0));
+    const claimed = !!today && last === today;
+    const day = claimed
+        ? Math.max(1, prevCount)
+        : last === previousUtcDateKey(now)
+            ? prevCount + 1
+            : 1;
+    return { today, day, claimed, reward: loginStreakReward(day) };
+}
+
 const DEFAULTS = {
     currency: 200,
     gems: 0,
@@ -96,6 +153,8 @@ const DEFAULTS = {
         duplicates: {}
     },
     dailyRewards: { lastLoginClaim: '', loginStreak: 0, lastFreeCase: '' },
+    lastFirstMatchDay: '',
+    dailyStreak: { count: 0, lastClaimDay: '' },
     casePity: {},
     seasonContracts: createSeasonContractState(),
     movementTrials: { best: {}, rewarded: [] },
@@ -179,6 +238,7 @@ class StoreClass {
                 equippedKnives: { ...DEFAULTS.equippedKnives, ...(parsed.equippedKnives || {}) },
                 knifeStats: parsed.knifeStats && typeof parsed.knifeStats === 'object' ? parsed.knifeStats : {},
                 dailyRewards: { ...DEFAULTS.dailyRewards, ...(parsed.dailyRewards || {}) },
+                dailyStreak: { ...DEFAULTS.dailyStreak, ...(parsed.dailyStreak || {}) },
                 casePity: parsed.casePity && typeof parsed.casePity === 'object' ? parsed.casePity : {},
                 seasonContracts: createSeasonContractState(parsed.seasonContracts),
                 movementTrials: {
@@ -257,7 +317,7 @@ class StoreClass {
         const fields = [
             'currency', 'gems', 'ownedBalls',
             'ownedSkills', 'ownedItems', 'ownedAvatarSkins', 'ownedKnives',
-            'ownedCosmetics', 'casePity', 'equippedWearables', 'economyRevision', 'adRewards'
+            'ownedCosmetics', 'casePity', 'equippedWearables', 'economyRevision', 'adRewards', 'dailyStreak'
         ];
         fields.forEach(field => {
             if (profile[field] !== undefined) this.data[field] = profile[field];
@@ -322,12 +382,27 @@ class StoreClass {
     // Duplicated from server/profile-store.js (ponytail: server.js is CJS,
     // this is ESM — no shared import path without a build step). Both sides
     // must move together if the formula ever changes.
-    matchRewardBreakdown({ won, kills = 0, deflects = 0 } = {}) {
+    // firstOfDay: today's first completed match bonus (docs/V3_ECONOMY.md
+    // "First match of day") — additive, decided by the caller (guests via
+    // claimFirstMatchOfDay() below; account players via the server's own
+    // lastFirstMatchDay in server/profile-store.js#reward).
+    matchRewardBreakdown({ won, kills = 0, deflects = 0, firstOfDay = false } = {}) {
         const base = won === true ? 120 : 40;
         const safeKills = Math.max(0, Math.floor(Number(kills) || 0));
         const safeDeflects = Math.max(0, Math.floor(Number(deflects) || 0));
         const bonus = Math.min(60, safeKills * 5 + safeDeflects * 1);
-        return { base, bonus, total: base + bonus };
+        const firstOfDayBonus = firstOfDay ? FIRST_MATCH_OF_DAY_BONUS : 0;
+        return { base, bonus, firstOfDay: firstOfDayBonus, total: base + bonus + firstOfDayBonus };
+    }
+
+    // Guest/local path for the "first match of day" bonus above — mutates
+    // lastFirstMatchDay at most once per UTC day. Called once per completed
+    // match from js/main.js#awardMatchRewards before matchRewardBreakdown().
+    claimFirstMatchOfDay(now = new Date()) {
+        if (!isFirstMatchOfDay(this.data.lastFirstMatchDay, now)) return false;
+        this.data.lastFirstMatchDay = utcDateKey(now);
+        this.save();
+        return true;
     }
 
     // Server self-issues the receipt from the authenticated bearer token, so
@@ -384,6 +459,48 @@ class StoreClass {
             }
             this._applyRemoteProfile(result.profile);
             return { ok: true, coins: result.coins, remaining: result.remaining, cap: result.cap };
+        } catch {
+            return { ok: false, error: 'network error' };
+        }
+    }
+
+    getLoginStreakState(now = new Date()) {
+        return computeStreakState(this.data.dailyStreak, now);
+    }
+
+    // Guest/local claim — coin-only grant (no XP), mirrors claimDailyLogin's
+    // shape but UTC-keyed and uncapped (see computeStreakState above).
+    _claimLoginStreakLocal(now = new Date()) {
+        const state = computeStreakState(this.data.dailyStreak, now);
+        if (state.claimed) return { ok: false, error: 'already claimed today' };
+        this.data.dailyStreak = { count: state.day, lastClaimDay: state.today };
+        this.data.currency += state.reward;
+        this.save();
+        return { ok: true, day: state.day, reward: state.reward };
+    }
+
+    // Account players claim server-side (server owns lastClaimDay — never
+    // trust the client); guests/pre-sync fall back to the local path so the
+    // badge always works offline. See server/profile-store.js#streakClaim
+    // and server.js /api/profile/streak-claim.
+    async claimLoginStreak(requestId, now = new Date()) {
+        if (!this.remoteReady) return this._claimLoginStreakLocal(now);
+        try {
+            const response = await fetch('/api/profile/streak-claim', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${this.profileToken}`,
+                    'Idempotency-Key': requestId,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ requestId })
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                return { ok: false, error: result.error || 'streak claim unavailable' };
+            }
+            this._applyRemoteProfile(result.profile);
+            return { ok: true, day: result.day, reward: result.reward };
         } catch {
             return { ok: false, error: 'network error' };
         }

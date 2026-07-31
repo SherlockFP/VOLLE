@@ -182,12 +182,19 @@ export function canEquipKnife(knifeId, team) {
 // must never cost the player time, while a legendary earns the long beat.
 // `slowMo` mirrors Juice.slowMo's scale contract (<1 = slower) and is what
 // stretches the reel, so the drama comes from one number instead of a table.
-const REVEAL_BASE_SPIN_MS = 1200;
+// CS:GO's real case reel runs ~6-7s total regardless of what was rolled (only
+// the post-stop flourish differs by rarity) — REVEAL_BASE_SPIN_MS was 1200 (a
+// 1.2s-3.4s spin the user correctly called "too fast/flat"). Tiers now cluster
+// tightly in the 6.3s-7.0s band instead of spanning 1.2s-3.4s: the ordering
+// invariant (legendary > rare > common) is preserved for tests/tuning, but the
+// spread is small enough that every open reads as "the CS:GO wait", not a
+// rarity-gated timer.
+const REVEAL_BASE_SPIN_MS = 6300;
 
 const REVEAL_TIERS = Object.freeze({
     fast: Object.freeze({ tier: 'fast', slowMo: 1, holdMs: 900, flash: 0, sfx: null }),
-    medium: Object.freeze({ tier: 'medium', slowMo: 0.6, holdMs: 1800, flash: 0, sfx: null }),
-    long: Object.freeze({ tier: 'long', slowMo: 0.35, holdMs: 3200, flash: 0.45, sfx: 'tf2_domination' })
+    medium: Object.freeze({ tier: 'medium', slowMo: 0.955, holdMs: 1800, flash: 0, sfx: null }),
+    long: Object.freeze({ tier: 'long', slowMo: 0.9, holdMs: 3200, flash: 0.45, sfx: 'tf2_domination' })
 });
 
 const REVEAL_FAMILIES = Object.freeze({
@@ -244,4 +251,111 @@ export function revealPresentationForRarity(rarity, options = {}) {
 export function formatDuplicateConversion(refund) {
     const amount = Math.max(0, Math.round(Number(refund) || 0));
     return `Duplicate \u2192 +${amount} coins`;
+}
+
+// ===== CS:GO-style reel pacing: tick schedule + near-miss arrangement =====
+// Both pure (no DOM), so they're directly unit-testable and reusable if the
+// reel ever needs a second driver (e.g. a replay/preview).
+
+// Single bezier drives both the CSS spin animation (css/polish.css
+// .case-reel-track.spin @keyframes case-reel-spin) and this tick math — they
+// MUST stay the same curve or the clicks drift out of sync with the tiles.
+const REEL_SPIN_BEZIER = Object.freeze({ x1: 0.08, y1: 0.6, x2: 0.1, y2: 1 });
+// The last 8% of the animation is the tiny overshoot/back-correction wobble
+// (see the keyframes), not real tile travel, so ticks only span the first 92%.
+const REEL_TRAVEL_FRACTION = 0.92;
+// Below this gap two "crossings" would sound like one smeared click — the
+// bezier's fast-launch phase packs many tiles into the first handful of ms.
+const REEL_TICK_MIN_GAP_MS = 20;
+
+function cubicBezierComponent(t, c1, c2) {
+    const mt = 1 - t;
+    return 3 * mt * mt * t * c1 + 3 * mt * t * t * c2 + t * t * t;
+}
+
+// Bisection is enough here — this schedules audio cues, not pixels, and it
+// runs once per reel open (well under 1ms for ~30 tiles x 12 iterations).
+function solveBezierTForY(targetY, y1, y2, iterations = 16) {
+    let lo = 0, hi = 1;
+    for (let i = 0; i < iterations; i++) {
+        const mid = (lo + hi) / 2;
+        if (cubicBezierComponent(mid, y1, y2) < targetY) lo = mid; else hi = mid;
+    }
+    return (lo + hi) / 2;
+}
+
+// Computes the elapsed-time offsets (ms, from spin start) at which each tile
+// boundary crosses the center marker, by inverting the same cubic-bezier the
+// CSS spin animation runs. `crossingCount` is the number of crossings before
+// AND including the landing tile (== targetIndex, since tile 0 is the start
+// and tile targetIndex is the winner) — tiles are evenly spaced in DISTANCE,
+// so crossing i happens when the bezier's output (distance) reaches
+// i/crossingCount, solved via bisection on the curve's y (distance)
+// component, then mapped back to real elapsed time via its x (time)
+// component at that same parametric t. i === crossingCount lands at
+// distanceFrac 1.0, i.e. exactly at the travel-fraction boundary — matching
+// the CSS keyframes, where the tile is already visually in place by 92% and
+// the last 8% is only the overshoot/back-correction wobble.
+export function computeCaseReelTickSchedule(spinMs, crossingCount, options = {}) {
+    const duration = Number(spinMs);
+    const tiles = Math.floor(Number(crossingCount));
+    if (!Number.isFinite(duration) || duration <= 0 || !Number.isFinite(tiles) || tiles < 1) return [];
+    const bezier = options.bezier || REEL_SPIN_BEZIER;
+    const travelFraction = Number.isFinite(options.travelFraction) ? options.travelFraction : REEL_TRAVEL_FRACTION;
+    const minGapMs = Number.isFinite(options.minGapMs) ? options.minGapMs : REEL_TICK_MIN_GAP_MS;
+    const travelMs = duration * travelFraction;
+    const schedule = [];
+    let lastTime = -Infinity;
+    for (let i = 1; i <= tiles; i++) {
+        const distanceFrac = i / tiles;
+        const t = solveBezierTForY(distanceFrac, bezier.y1, bezier.y2);
+        const timeMs = Math.round(cubicBezierComponent(t, bezier.x1, bezier.x2) * travelMs);
+        if (timeMs - lastTime < minGapMs) continue; // dedupe the fast-launch blur into one click
+        schedule.push({ index: i, timeMs });
+        lastTime = timeMs;
+    }
+    return schedule;
+}
+
+// Rarities that count as a "near miss" when sitting beside the winner.
+const HIGH_RARITY_NEAR_MISS = Object.freeze(['epic', 'legendary', 'exotic']);
+
+// CS:GO-style tension: reposition (never replace) filler tiles so a
+// high-rarity item often sits right next to the winner. `items[targetIndex]`
+// is the already-decided winner and is never touched or counted as a donor —
+// this only swaps WHERE already-rolled filler tiles land, so drop-rate odds
+// (which picked those fillers before this ever runs) are untouched.
+export function arrangeNearMissFillers(items, targetIndex, options = {}) {
+    const arranged = Array.isArray(items) ? items.slice() : [];
+    const target = Number(targetIndex);
+    if (!arranged.length || !Number.isInteger(target) || target < 0 || target >= arranged.length) return arranged;
+
+    const windowSize = Number.isFinite(options.windowSize) ? Math.max(1, Math.floor(options.windowSize)) : 2;
+    const minAdjacent = Number.isFinite(options.minAdjacent) ? Math.max(0, Math.floor(options.minAdjacent)) : 1;
+    const highRarities = options.highRarities || HIGH_RARITY_NEAR_MISS;
+    const isHigh = item => highRarities.includes(item?.rarity);
+
+    const windowIndices = [];
+    for (let d = 1; d <= windowSize; d++) {
+        if (target - d >= 0) windowIndices.push(target - d);
+        if (target + d < arranged.length) windowIndices.push(target + d);
+    }
+
+    const have = windowIndices.filter(i => isHigh(arranged[i])).length;
+    if (have >= minAdjacent) return arranged;
+
+    const donors = [];
+    for (let i = 0; i < arranged.length; i++) {
+        if (i === target || windowIndices.includes(i)) continue;
+        if (isHigh(arranged[i])) donors.push(i);
+    }
+    const slots = windowIndices.filter(i => !isHigh(arranged[i]));
+
+    const needed = minAdjacent - have;
+    for (let k = 0; k < needed && k < donors.length && k < slots.length; k++) {
+        const from = donors[k];
+        const to = slots[k];
+        [arranged[from], arranged[to]] = [arranged[to], arranged[from]];
+    }
+    return arranged;
 }

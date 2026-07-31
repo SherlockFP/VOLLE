@@ -19,7 +19,8 @@ import { Network } from './network.js';
 import { VoiceChat } from './voice.js';
 import { Store } from './store.js';
 import { DEFAULT_LOADOUT } from './skills.js';
-import { AvatarPainter, AVATAR_SKINS } from './avatar.js';
+import { AvatarPainter, AVATAR_SKINS, cropAtlasFace, sampleAvatarPartColors } from './avatar.js';
+import { SKIN_PRESETS, SKIN_PRESET_IDS, renderSkinPreset } from './skin-presets.js';
 import { createShowcaseAvatar, ShopShowcaseRenderer } from './shop-showcase.js';
 import { createMenuStage } from './menu-stage.js';
 import { deriveFeaturedStrip } from './menu-featured.js';
@@ -118,6 +119,8 @@ class App {
         const voiceMuteToggle = document.getElementById('setting-voice-mute');
         if (voiceMuteToggle) voiceMuteToggle.checked = this.store.get('voiceMuted') === true;
         this.avatarPainter = null;
+        this.avatarStage3D = null;
+        this._avatarPreviewMode = '2d';
         this.shopShowcase = null;
         this.cosmeticPractice = new CosmeticPracticeSession({
             currency: this.store.get('currency'),
@@ -769,6 +772,7 @@ class App {
             });
         }
         this._renderMenuFeatured();
+        this._renderRetentionBadge();
     }
 
     // Kompakt "FEATURED" vitrin: günün kasası + 1-2 top skin, tıklayınca shop'a
@@ -825,6 +829,43 @@ class App {
         }
     }
 
+    // Retention: main-menu login-streak badge (js/store.js#getLoginStreakState /
+    // #claimLoginStreak). Separate surface from the Daily Challenges screen's
+    // "Daily Login" card (js/ui.js#renderDaily) — different formula, different
+    // persisted state, always visible instead of buried in a sub-screen.
+    _renderRetentionBadge() {
+        const badge = document.getElementById('menu-streak-badge');
+        if (!badge) return;
+        const state = this.store.getLoginStreakState();
+        badge.hidden = false;
+        badge.disabled = state.claimed;
+        badge.classList.toggle('claimed', state.claimed);
+        badge.replaceChildren();
+        const fire = document.createElement('span');
+        fire.className = 'ow-streak-fire';
+        fire.setAttribute('aria-hidden', 'true');
+        fire.textContent = state.claimed ? '✓' : '🔥';
+        const label = document.createElement('span');
+        label.className = 'ow-streak-label';
+        label.textContent = state.claimed
+            ? `Day ${state.day}`
+            : `Daily Streak: ${state.day} — Claim +${state.reward}`;
+        badge.appendChild(fire);
+        badge.appendChild(label);
+    }
+
+    async _claimRetentionStreak() {
+        const badge = document.getElementById('menu-streak-badge');
+        if (!badge || badge.disabled) return;
+        badge.disabled = true;
+        const requestId = `streak:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+        const result = await this.store.claimLoginStreak(requestId);
+        if (result?.ok) {
+            this.ui.showMessage?.(`Daily Streak Day ${result.day}: +${result.reward} coins`, 2500);
+        }
+        this._renderRetentionBadge();
+    }
+
     // Maç sonu reward: coins + xp, battlepass tier dolum, istatistik, achievement, daily.
     awardMatchRewards() {
         if (!isTerminalRematchState(this.game.state)) return;
@@ -873,8 +914,13 @@ class App {
         this._saveSocialProfile();
         const isRanked = !!this._rankedMatch;
         this._rankedMatch = null;
+        // Free earning route: today's first completed match pays a flat bonus
+        // (docs/V3_ECONOMY.md "First match of day"). Guest truth lives here;
+        // account players get the server's own decision inside grantMatchRemote()
+        // below (server never trusts this local guess for the real grant).
+        const firstOfDay = this.store.claimFirstMatchOfDay();
         const rewardCalc = this.store.matchRewardBreakdown({
-            won, kills: myStat.score || 0, deflects: myStat.deflections || 0
+            won, kills: myStat.score || 0, deflects: myStat.deflections || 0, firstOfDay
         });
         // Casual-first XP: weighted on how the match was played rather than on the
         // result, so a strong loss still out-earns a passive win (js/prestige.js).
@@ -984,6 +1030,8 @@ class App {
             if (el) el.addEventListener('click', fn);
         };
 
+        bind('menu-streak-badge', () => this._claimRetentionStreak());
+
         bind('btn-play-solo', () => {
             // Button copy promises "Jump into a bot match", so start one instead of
             // detouring to the lobby browser. Same path as btn-mp-solo.
@@ -1038,12 +1086,12 @@ class App {
             Spectator.setCameraMode(event.target.value);
         });
 
-        bind('btn-host-game', async () => { this._doHostGame(); });
-
-        bind('btn-join-game', () => {
-            // Lobby browser (create / join-by-code / open lobbies). Reached from here
-            // now that QUICK PLAY goes straight into a match; btn-mp-join still
-            // opens the raw code prompt from inside.
+        bind('btn-play-online', () => {
+            // Single main-menu entry point into the multiplayer screen (lobby browser +
+            // create/host + join-by-code). Host used to be its own main-menu button
+            // (btn-host-game -> _doHostGame directly); now hosting is reached one click
+            // further in via btn-mp-create inside this screen, same as btn-join-game
+            // used to route here. Identical routing to the old btn-join-game handler.
             this.ui.showScreen('multiplayerMenu');
             this._refreshLobbyList();
             this._mpRefreshTimer = setInterval(() => this._refreshLobbyList(), 5000);
@@ -1359,6 +1407,7 @@ class App {
         });
 
         bind('btn-avatar-back', () => {
+            this.avatarStage3D?.stop();
             this.ui.showScreen('mainMenu');
             this.refreshMetaStats();
         });
@@ -3337,9 +3386,42 @@ updateCSLobbyInfo();
             this.avatarPainter.renderPreview(preview, teamColor);
             const selected = document.getElementById('avatar-selected-skin');
             if (selected) selected.textContent = AVATAR_SKINS[this.avatarPainter.skinId]?.name || 'Selected skin';
+            this._updateAvatar3DStage();
         };
         this.avatarPainter.onchange = updatePreview;
         updatePreview(); // initial render
+        // 2D/3D preview toggle -- 3D reuses ShopShowcaseRenderer through the same public API
+        // as the shop/menu hero (sync/setHeadTexture/setPartColors), so there is no second
+        // renderer path (MIMO.md convention).
+        const stage3dEl = document.getElementById('avatar-3d-stage');
+        const btn2d = document.getElementById('btn-avatar-mode-2d');
+        const btn3d = document.getElementById('btn-avatar-mode-3d');
+        const previewWrap = document.querySelector('.avatar-preview-wrap');
+        const setPreviewMode = mode => {
+            this._avatarPreviewMode = mode;
+            if (previewWrap) previewWrap.dataset.mode = mode;
+            if (preview) preview.hidden = mode !== '2d';
+            if (stage3dEl) stage3dEl.hidden = mode !== '3d';
+            btn2d?.classList.toggle('selected', mode === '2d');
+            btn2d?.setAttribute('aria-pressed', String(mode === '2d'));
+            btn3d?.classList.toggle('selected', mode === '3d');
+            btn3d?.setAttribute('aria-pressed', String(mode === '3d'));
+            if (mode === '3d' && this._ensureAvatar3DStage()) {
+                this.avatarStage3D.start();
+                this._updateAvatar3DStage();
+            } else {
+                this.avatarStage3D?.stop();
+            }
+        };
+        if (btn2d && !btn2d.dataset.avatarBound) {
+            btn2d.dataset.avatarBound = 'true';
+            btn2d.addEventListener('click', () => setPreviewMode('2d'));
+        }
+        if (btn3d && !btn3d.dataset.avatarBound) {
+            btn3d.dataset.avatarBound = 'true';
+            btn3d.addEventListener('click', () => setPreviewMode('3d'));
+        }
+        setPreviewMode(this._avatarPreviewMode || '2d');
         // Palette
         const paletteEl = document.getElementById('avatar-palette');
         if (paletteEl) {
@@ -3394,6 +3476,83 @@ updateCSLobbyInfo();
                 return card;
             }));
         }
+        // Preset strip -- click a preset to apply it as a starting point (team-tinted atlas,
+        // still fully editable with the paint tools above).
+        const presetStrip = document.getElementById('avatar-preset-strip');
+        if (presetStrip) {
+            presetStrip.replaceChildren(...SKIN_PRESET_IDS.map(id => {
+                const meta = SKIN_PRESETS[id];
+                const card = document.createElement('button');
+                card.type = 'button';
+                card.setAttribute('role', 'listitem');
+                card.className = `avatar-preset-card${this.avatarPainter.presetId === id ? ' selected' : ''}`;
+                const thumb = document.createElement('canvas');
+                thumb.className = 'avatar-preset-thumb';
+                thumb.width = 40;
+                thumb.height = 40;
+                const thumbCtx = thumb.getContext('2d');
+                thumbCtx.imageSmoothingEnabled = false;
+                for (let y = 0; y < 8; y++) {
+                    for (let x = 0; x < 8; x++) {
+                        const color = meta.face[y * 8 + x];
+                        if (color) {
+                            thumbCtx.fillStyle = color;
+                            thumbCtx.fillRect(x * 5, y * 5, 5, 5);
+                        }
+                    }
+                }
+                const label = document.createElement('b');
+                label.textContent = meta.name;
+                const tag = document.createElement('small');
+                tag.textContent = meta.theme === 'themed' ? 'Themed' : 'Expression';
+                card.append(thumb, label, tag);
+                card.addEventListener('click', () => {
+                    const team = this.game?.player?.team === 'blue' ? 'blue' : 'red';
+                    const atlas = renderSkinPreset(id, team);
+                    if (!atlas || !this.avatarPainter.applySkinPreset(id, atlas, team)) return;
+                    presetStrip.querySelectorAll('.avatar-preset-card').forEach(item => item.classList.remove('selected'));
+                    card.classList.add('selected');
+                    library?.querySelectorAll('.avatar-skin-card').forEach(item => item.classList.remove('selected'));
+                    updatePreview();
+                });
+                return card;
+            }));
+        }
+    }
+
+    // Lazily creates the avatar editor's live 3D cube-rig preview the first time the user
+    // switches to 3D mode -- avoids a second WebGL context while the toggle sits unused.
+    _ensureAvatar3DStage() {
+        if (this.avatarStage3D) return this.avatarStage3D;
+        const canvas = document.getElementById('avatar-3d-canvas');
+        if (!canvas) return null;
+        try {
+            this.avatarStage3D = new ShopShowcaseRenderer(canvas, {
+                characterId: this.store.get('selectedChar'),
+                skinId: this.avatarPainter?.skinId || 'default',
+                autoStart: false,
+                // Closer "bust" framing (vs. the full-body shop/menu default) so the painted
+                // face is actually legible while editing -- same options.camera override
+                // mechanism _initMenuHero() uses, no second renderer path.
+                camera: { fov: 34, position: [0, 1.62, 1.85], target: [0, 1.55, 0] }
+            });
+        } catch (error) {
+            this.avatarStage3D = null;
+        }
+        return this.avatarStage3D;
+    }
+
+    // Repaints the 3D preview's rig from the painter's live atlas -- same
+    // rig.setHeadTexture()/setPartColors() pipeline as _syncShopShowcase/_syncMenuHero, so the
+    // editor shows exactly what the shop and menu hero will show once saved.
+    _updateAvatar3DStage() {
+        if (!this.avatarStage3D || !this.avatarPainter) return;
+        this.avatarStage3D.sync({
+            characterId: this.store.get('selectedChar'),
+            skinId: AVATAR_SKINS[this.avatarPainter.skinId] ? this.avatarPainter.skinId : 'default'
+        });
+        this._applyAvatarAtlasToRig(this.avatarStage3D.avatar?.rig, this.avatarPainter.getAtlasPixels());
+        this.avatarStage3D.resize();
     }
 
     async refreshWorkshop(mine = false) {
@@ -3971,14 +4130,53 @@ updateCarousel() {
         }, { signal: this._mainAbort.signal });
     }
 
+    // Shared consistency-wiring helper: paints the player's live-painted 64x64 atlas onto a
+    // ShopShowcaseRenderer rig's face decal + body/arm/leg materials, reusing the exact same
+    // rig.setHeadTexture()/rig.setPartColors() pipeline js/game.js already uses for in-game
+    // players -- so menu hero, shop showcase, and the avatar editor's 3D preview all read the
+    // same painted pixels instead of three separate re-implementations.
+    _applyAvatarAtlasToRig(rig, pixels) {
+        if (!rig) return;
+        if (!Array.isArray(pixels) || pixels.length !== 4096) {
+            rig.setHeadTexture(null);
+            rig.setPartColors(null);
+            return;
+        }
+        const face = cropAtlasFace(pixels);
+        const canvas = document.createElement('canvas');
+        canvas.width = 8;
+        canvas.height = 8;
+        const ctx = canvas.getContext('2d');
+        for (let y = 0; y < 8; y++) {
+            for (let x = 0; x < 8; x++) {
+                const color = face[y * 8 + x];
+                if (color) {
+                    ctx.fillStyle = color;
+                    ctx.fillRect(x, y, 1, 1);
+                }
+            }
+        }
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.magFilter = THREE.NearestFilter;
+        texture.minFilter = THREE.NearestFilter;
+        rig.setHeadTexture(texture);
+        rig.setPartColors(sampleAvatarPartColors(pixels));
+    }
+
     _syncShopShowcase(skinId = null) {
         const selected = skinId
             || document.getElementById('shop-showcase-stage')?.dataset.skinId
             || this.store.get('equippedAvatarSkin');
+        const resolved = AVATAR_SKINS[selected] ? selected : 'default';
         this.shopShowcase?.sync({
             characterId: this.store.get('selectedChar'),
-            skinId: AVATAR_SKINS[selected] ? selected : 'default'
+            skinId: resolved
         });
+        const customAvatar = this.store.get('customAvatar');
+        this._applyAvatarAtlasToRig(
+            this.shopShowcase?.avatar?.rig,
+            customAvatar?.skinId === resolved ? customAvatar.pixels : null
+        );
         this.shopShowcase?.resize();
     }
 
@@ -4040,10 +4238,16 @@ updateCarousel() {
 
     _syncMenuHero() {
         const skinId = this.store.get('equippedAvatarSkin');
+        const resolved = AVATAR_SKINS[skinId] ? skinId : 'default';
         this.menuHero?.sync({
             characterId: this.store.get('selectedChar'),
-            skinId: AVATAR_SKINS[skinId] ? skinId : 'default'
+            skinId: resolved
         });
+        const customAvatar = this.store.get('customAvatar');
+        this._applyAvatarAtlasToRig(
+            this.menuHero?.avatar?.rig,
+            customAvatar?.skinId === resolved ? customAvatar.pixels : null
+        );
         // Apply equipped cosmetics to the hero avatar
         if (this.menuHero?.root?.rig) {
             const knifeId = this.store.get('equippedKnife');
@@ -4735,8 +4939,19 @@ updateCarousel() {
     }
 
     // --- Lobby Browser API helpers ---
+    // Lobby cross-tab bug audit: this used to swallow every failure into a bare `{}`,
+    // so a broken fetch (offline dev server, CORS misconfig, non-2xx response) looked
+    // identical to "server has zero lobbies" — nothing in the console, no way to tell
+    // the two apart. Surface a console.warn and a distinct marker so _refreshLobbyList
+    // can show "Lobby service unreachable" instead of the misleading empty-lobby state.
     _lobbyApi(path, opts = {}) {
-        return fetch(path, opts).then(r => r.json()).catch(() => ({}));
+        return fetch(path, opts).then(r => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return r.json();
+        }).catch(err => {
+            console.warn('[lobby] API request failed:', path, err?.message || err);
+            return { __lobbyApiError: true };
+        });
     }
 
     async _registerLobby(code, name, players, map, mode) {
@@ -4774,6 +4989,10 @@ updateCarousel() {
         const list = await this._lobbyApi('/api/lobbies', { method: 'GET' });
         const container = document.getElementById('mp-lobby-list');
         if (!container) return;
+        if (list?.__lobbyApiError) {
+            this._renderLobbyEmpty(container, 'Lobby service unreachable. Check your connection and try again.');
+            return;
+        }
         if (!Array.isArray(list) || list.length === 0) {
             this._renderLobbyEmpty(container, 'No open lobbies right now.');
             return;

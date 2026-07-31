@@ -449,3 +449,60 @@ in browser before commit.
   spawns on MATCH end only (never round end), rises/rotates in the existing celebration update
   (raw dt, 0 alloc), removed on teardown WITHOUT disposing shared geometry/material
   (`trophyTeardownPlan()` contract in arena-decor.js). FFA uses a neutral center spot.
+
+---
+
+## V4 Waves 4-5 — Theme Spread, Retention, PWA, Bot Fix, Lobby Fix, Case Reel, Avatars (2026-07-30)
+
+1186/1186 tests (was 1081), 93 files clean. Wave 4 = backlog burn-down; Wave 5 = user-reported bugs.
+
+### Wave 4
+- **Theme spread** (roadmap 2.1): shop/lobby/career/social fixed turquoise hexes → `--screen-*`
+  tokens (79 lines). Dark theme pixel-identical; ember theme now actually recolors these screens.
+  `tests/theme-spread.test.mjs` locks those screens at 0 fixed-hex budget; 368 remain globally
+  (inventoried in the test). Console `:root` vars in polish.css head are orphaned (only console.js
+  reads them) — flagged, not touched.
+- **Retention**: first-match-of-day (+80, was documented-but-never-built) on BOTH guest and
+  server-authoritative paths; login streak (+20/day, +150 on day 7, cycling, UTC) with menu badge
+  `#menu-streak-badge` + `POST /api/profile/streak-claim` (idempotent). Coexists with the older
+  Daily-Login card (different formula) — intentionally separate state.
+- **PWA**: `manifest.webmanifest` + `sw.js` (network-first, small shell precache, `/api` +
+  peerjs + cross-origin bypass). BUMP `CACHE_V1` on production deploys. Installable on phones.
+- **Achievements**: +10 (29 total) with progress bars; triggers restricted to data that actually
+  reaches `checkAchievements` ctx — see agent report for rejected candidates.
+- **Target outline (roadmap 4.3): ALREADY DONE** — restored in f6a8c60 after being collaterally
+  deleted in the 5a29b05 rig migration; roadmap doc was stale. No changes made.
+
+### Wave 5 (user-reported)
+- **Bots not deflecting** — root cause was PRE-EXISTING (ea037d5 added windUp delay but never
+  updated the fixed 8-unit alert range in `bot.js tryDeflect`; reaction+windup budget exceeded the
+  engagement window). Fix: dynamic `alertRange = speed*(reaction+windUp)+attackRange`. Measured:
+  medium isolated 0/40 → 32/40; live matches score again. Known follow-up: hard bots dodge so
+  aggressively they leave deflect range (separate issue, documented).
+- **Cross-tab lobby failures** — root cause: browser "Duplicate Tab" CLONES sessionStorage, so two
+  tabs shared playerId+resumeToken and the host's identity-dedup silently rejected the second
+  join. Fix: `dodgb.identityClaims` localStorage liveness registry (5s heartbeat, 15s TTL,
+  pagehide release) regenerates identity when the stored id is claimed by another live tab.
+  Also: `_lobbyApi` no longer swallows errors silently (warn + 'Lobby service unreachable').
+- **Case reel**: CS:GO pacing 6.3-7.0s (was 1.2-3.4s), single transform keyframe (fast launch →
+  long deceleration → crawl → 16px overshoot settle), analytic tick scheduling (bezier inversion,
+  setTimeout batch — cheaper than rAF polling), near-miss filler arrangement (odds untouched),
+  bigger rarity-gradient tiles. Reduced-motion skips spin entirely.
+- **Shop UX2**: 15 AI-generated character portraits (`assets/generated/characters/portrait-*.jpg`,
+  Pollinations, emoji fallback on 404), name-fit tiers (no more clipping), inventory tab rebuilt
+  (rarity stripes, EQUIPPED/OWNED badges, RED/BLUE ONLY pills, grouped sections), footer -40%.
+  Duplicate inline 'Owned' labels removed (badge is the single owned indicator).
+- **Menu flow**: single `btn-play-online` replaces main-menu Host/Join buttons (multiplayer screen
+  handles both). Victory-screen dark frame root-caused: `#celebration-banner` was a short strip
+  whose gradient hard-cut at its own edge — now `inset:0` vignette with 30vh fade.
+- **Minecraft avatars**: 16 skin presets (`js/skin-presets.js` — 6 expressions + 10 ORIGINAL
+  themed archetypes; IP-safe: palettes/motifs only, trademark blacklist test), avatar editor
+  2D↔3D toggle (reuses ShopShowcaseRenderer via options.camera bust framing — still one renderer
+  path), preset strip, customAvatar atlas wired to shop showcase + menu hero + editor 3D.
+- **Test-harness gotcha (recurring)**: several tests load `js/ui.js` via data-URL after stripping
+  imports with a SINGLE-LINE regex — keep every ui.js import on one line or the loader breaks
+  with ERR_UNSUPPORTED_RESOLVE_REQUEST.
+
+### Session assets/tools note
+- Pollinations.ai (keyless) is the working free image-gen route; used for the 15 portraits.
+- `last30days` skill v3.18.4 installed at `C:/Users/Sher/.claude/skills/last30days` (user request).

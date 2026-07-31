@@ -1,0 +1,18 @@
+{
+    "name": "Warrball",
+    "short_name": "Warrball",
+    "description": "Warrball is a fast, competitive first-person ball combat game.",
+    "start_url": ".",
+    "display": "standalone",
+    "orientation": "landscape",
+    "theme_color": "#06151b",
+    "background_color": "#06151b",
+    "icons": [
+        {
+            "src": "assets/generated/volle-logo-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any maskable"
+        }
+    ]
+}

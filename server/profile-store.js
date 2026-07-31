@@ -68,6 +68,19 @@ const AD_REWARD_COINS = 50;
 const AD_REWARD_DAILY_CAP = 5;
 const AD_REWARD_COOLDOWN_MS = 90 * 1000;
 
+// Free earning route (docs/V3_ECONOMY.md "First match of day") — flat bonus
+// on today's first rewarded match, independent of win/loss. Server owns
+// lastFirstMatchDay per profile; never trust a client-sent "is this my
+// first match today" flag.
+const FIRST_MATCH_OF_DAY_BONUS = 80;
+
+// Main-menu login-streak badge (js/store.js#claimLoginStreak) — UTC-day
+// consecutive counter, +20/day with a +150 bonus every 7th day (cycles,
+// doesn't cap). Independent of the client's local-only Daily Login card.
+const LOGIN_STREAK_DAILY_COINS = 20;
+const LOGIN_STREAK_DAY7_COINS = 150;
+const LOGIN_STREAK_CYCLE = 7;
+
 function utcDateKey(ts = Date.now()) {
     return new Date(ts).toISOString().slice(0, 10);
 }
@@ -92,6 +105,8 @@ function defaults(id, name) {
         purchaseReceipts: [],
         premiumTransactions: [],
         adRewards: { day: '', count: 0, lastAt: 0, receipts: [] },
+        lastFirstMatchDay: '',
+        dailyStreak: { count: 0, lastClaimDay: '', receipts: [] },
         economyRevision: 0,
         createdAt: Date.now(),
         updatedAt: Date.now()
@@ -136,6 +151,14 @@ class ProfileStore {
                 receipts: Array.isArray(normalized.adRewards.receipts) ? normalized.adRewards.receipts.slice(-20) : []
             }
             : { day: '', count: 0, lastAt: 0, receipts: [] };
+        normalized.lastFirstMatchDay = typeof normalized.lastFirstMatchDay === 'string' ? normalized.lastFirstMatchDay : '';
+        normalized.dailyStreak = normalized.dailyStreak && typeof normalized.dailyStreak === 'object'
+            ? {
+                count: Math.max(0, Math.floor(Number(normalized.dailyStreak.count) || 0)),
+                lastClaimDay: typeof normalized.dailyStreak.lastClaimDay === 'string' ? normalized.dailyStreak.lastClaimDay : '',
+                receipts: Array.isArray(normalized.dailyStreak.receipts) ? normalized.dailyStreak.receipts.slice(-20) : []
+            }
+            : { count: 0, lastClaimDay: '', receipts: [] };
         normalized.equippedWearables = normalizeEquippedCosmetics(
             normalized.equippedWearables,
             normalized.ownedCosmetics,
@@ -167,8 +190,19 @@ class ProfileStore {
         return { remaining: Math.max(0, AD_REWARD_DAILY_CAP - count), cap: AD_REWARD_DAILY_CAP, cooldownRemainingMs };
     }
     _public(record) {
-        const { tokenHash, rewardedMatches, purchaseReceipts, premiumTransactions, caseReceipts, adRewards, ...profile } = record;
-        return { ...profile, adRewards: this._adRewardStatus(record) };
+        const { tokenHash, rewardedMatches, purchaseReceipts, premiumTransactions, caseReceipts, adRewards, dailyStreak, ...profile } = record;
+        return { ...profile, adRewards: this._adRewardStatus(record), dailyStreak: this._dailyStreakStatus(record) };
+    }
+
+    // Fresh public view of the login streak — drops the idempotency receipts
+    // array, same treatment as _adRewardStatus above.
+    _dailyStreakStatus(record) {
+        const state = record.dailyStreak && typeof record.dailyStreak === 'object'
+            ? record.dailyStreak : { count: 0, lastClaimDay: '' };
+        return {
+            count: Math.max(0, Math.floor(Number(state.count) || 0)),
+            lastClaimDay: typeof state.lastClaimDay === 'string' ? state.lastClaimDay : ''
+        };
     }
 
     create(name, legacy) {
@@ -298,7 +332,7 @@ class ProfileStore {
         return { status: 200, profile: this._public(record), result, replayed: false };
     }
 
-    reward(record, match) {
+    reward(record, match, now = Date.now()) {
         const matchId = typeof match?.matchId === 'string' ? match.matchId.slice(0, 64) : '';
         if (!matchId) return { status: 400, error: 'matchId required' };
         if (record.rewardedMatches.includes(matchId)) return { status: 409, error: 'reward already claimed' };
@@ -307,13 +341,52 @@ class ProfileStore {
         const base = match.won === true ? MATCH_REWARD_WIN : MATCH_REWARD_LOSE;
         const bonus = Math.min(MATCH_REWARD_BONUS_CAP, kills * MATCH_REWARD_KILL_BONUS + deflects * MATCH_REWARD_DEFLECT_BONUS);
         const coins = base + bonus;
-        record.currency += coins;
+        // Free earning route: today's first rewarded match pays a flat bonus
+        // on top, server-owned (docs/V3_ECONOMY.md "First match of day").
+        const today = utcDateKey(now);
+        const firstOfDay = record.lastFirstMatchDay !== today;
+        const firstOfDayBonus = firstOfDay ? FIRST_MATCH_OF_DAY_BONUS : 0;
+        if (firstOfDay) record.lastFirstMatchDay = today;
+        record.currency += coins + firstOfDayBonus;
         record.economyRevision = Math.max(0, Number(record.economyRevision) || 0) + 1;
         record.rewardedMatches.push(matchId);
         record.rewardedMatches = record.rewardedMatches.slice(-50);
-        record.updatedAt = Date.now();
+        record.updatedAt = now;
         this._save();
-        return { status: 200, coins, base, bonus, profile: this._public(record) };
+        return { status: 200, coins, base, bonus, firstOfDay: firstOfDayBonus, profile: this._public(record) };
+    }
+
+    // Login streak — main-menu badge (js/store.js#claimLoginStreak). UTC-day
+    // counter, +20/day, +150 every 7th day (cycles, uncapped). Idempotent per
+    // requestId; a genuine double-claim on the same UTC day is rejected 409.
+    streakClaim(record, requestId = '', now = Date.now()) {
+        const receiptId = typeof requestId === 'string' && /^[A-Za-z0-9._:-]{8,80}$/.test(requestId) ? requestId : '';
+        record.dailyStreak = record.dailyStreak && typeof record.dailyStreak === 'object'
+            ? record.dailyStreak : { count: 0, lastClaimDay: '', receipts: [] };
+        record.dailyStreak.receipts = Array.isArray(record.dailyStreak.receipts) ? record.dailyStreak.receipts : [];
+        const prior = receiptId ? record.dailyStreak.receipts.find(item => item.requestId === receiptId) : null;
+        if (prior) {
+            return { status: 200, day: prior.day, reward: prior.reward, profile: this._public(record), replayed: true };
+        }
+        const today = utcDateKey(now);
+        if (record.dailyStreak.lastClaimDay === today) {
+            return { status: 409, error: 'streak already claimed today' };
+        }
+        const yesterday = utcDateKey(now - 86400000);
+        const prevCount = Math.max(0, Math.floor(Number(record.dailyStreak.count) || 0));
+        const day = record.dailyStreak.lastClaimDay === yesterday ? prevCount + 1 : 1;
+        const reward = day > 0 && day % LOGIN_STREAK_CYCLE === 0 ? LOGIN_STREAK_DAY7_COINS : LOGIN_STREAK_DAILY_COINS;
+        record.currency += reward;
+        record.dailyStreak.count = day;
+        record.dailyStreak.lastClaimDay = today;
+        if (receiptId) {
+            record.dailyStreak.receipts.push({ requestId: receiptId, day, reward, createdAt: now });
+            record.dailyStreak.receipts = record.dailyStreak.receipts.slice(-20);
+        }
+        record.economyRevision = Math.max(0, Number(record.economyRevision) || 0) + 1;
+        record.updatedAt = now;
+        this._save();
+        return { status: 200, day, reward, profile: this._public(record), replayed: false };
     }
 
     // House-promo watch & earn — bearer identity is the only trust boundary

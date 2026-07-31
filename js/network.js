@@ -21,6 +21,18 @@ const COSMETIC_TYPE_IDS = Object.freeze(Object.keys(COSMETIC_TYPES));
 const BIN = { BALL: 1, POS: 2, POS_V2: 3 };
 const PLAYER_ID_KEY = 'dodgb.playerId';
 const RESUME_TOKEN_KEY = 'dodgb.resumeToken';
+// Cross-tab identity collision guard (lobby cross-tab bug): browsers CLONE sessionStorage
+// when a tab is duplicated or a crashed session is restored, so two tabs can briefly hold
+// the identical playerId+resumeToken pair. If both then talk to the same host, the host's
+// resume-identity dedup (_beginIdentityAdmission) binds the second connection to a
+// playerId it already reserved for another live peer and silently rejects it — join just
+// "does nothing", no visible error. localStorage IS live-shared across tabs of the same
+// origin (unlike sessionStorage), so it doubles as a liveness registry: each open tab
+// stamps a heartbeat under its own id, and a freshly-loaded page only reuses its
+// persisted sessionStorage id when no OTHER still-open tab currently claims it.
+const IDENTITY_CLAIMS_KEY = 'dodgb.identityClaims';
+const IDENTITY_CLAIM_TTL_MS = 15000;
+const IDENTITY_CLAIM_HEARTBEAT_MS = 5000;
 export const TARGET_ID_MAX_BYTES = 128;
 export const NETWORK_WORLD_BOUND = 512;
 export const NETWORK_SPEED_BOUND = 512;
@@ -145,15 +157,67 @@ function readBinaryText(dv, offset, { maxBytes = 255, validate = null } = {}) {
     return { next, value };
 }
 
-function createSessionValue(key, prefix) {
+// Pure: drops claims whose heartbeat is older than ttlMs. Exported for tests.
+export function pruneIdentityClaims(claims, now, ttlMs = IDENTITY_CLAIM_TTL_MS) {
+    const pruned = {};
+    for (const [id, ts] of Object.entries(claims || {})) {
+        if (typeof ts === 'number' && Number.isFinite(ts) && now - ts < ttlMs) pruned[id] = ts;
+    }
+    return pruned;
+}
+
+function readIdentityClaims() {
     try {
-        const stored = globalThis.sessionStorage?.getItem(key);
-        if (stored) return stored;
+        const raw = globalThis.localStorage?.getItem(IDENTITY_CLAIMS_KEY);
+        const parsed = raw ? JSON.parse(raw) : null;
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (_) { return {}; }
+}
+
+function writeIdentityClaims(claims) {
+    try { globalThis.localStorage?.setItem(IDENTITY_CLAIMS_KEY, JSON.stringify(claims)); } catch (_) {}
+}
+
+function touchIdentityClaim(id, now = Date.now()) {
+    if (!id) return;
+    const claims = pruneIdentityClaims(readIdentityClaims(), now);
+    claims[id] = now;
+    writeIdentityClaims(claims);
+}
+
+function releaseIdentityClaim(id, now = Date.now()) {
+    if (!id) return;
+    const claims = pruneIdentityClaims(readIdentityClaims(), now);
+    delete claims[id];
+    writeIdentityClaims(claims);
+}
+
+// Resolves this tab's (playerId, resumeToken) pair. Reuses the sessionStorage-persisted
+// pair unless it's currently claimed live by another open tab (a duplicate-tab clone of
+// this one), in which case both are regenerated together so the new tab never collides
+// with the tab it was copied from. releaseIdentityClaim() (armed below, browser-only)
+// frees a tab's own claim on unload so a plain same-tab reload keeps resuming normally.
+function resolveTabIdentity(now = Date.now()) {
+    let playerId = null, resumeToken = null;
+    try {
+        playerId = globalThis.sessionStorage?.getItem(PLAYER_ID_KEY) || null;
+        resumeToken = globalThis.sessionStorage?.getItem(RESUME_TOKEN_KEY) || null;
     } catch (_) {}
-    const id = globalThis.crypto?.randomUUID?.()
-        || `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-    try { globalThis.sessionStorage?.setItem(key, id); } catch (_) {}
-    return id;
+    const claims = pruneIdentityClaims(readIdentityClaims(), now);
+    const collision = !!playerId && Object.hasOwn(claims, playerId);
+    if (!playerId || !resumeToken || collision) {
+        const gen = seed => globalThis.crypto?.randomUUID?.()
+            || `${seed}-${now.toString(36)}-${Math.random().toString(36).slice(2)}`;
+        playerId = gen('player');
+        resumeToken = gen('resume');
+        try {
+            globalThis.sessionStorage?.setItem(PLAYER_ID_KEY, playerId);
+            globalThis.sessionStorage?.setItem(RESUME_TOKEN_KEY, resumeToken);
+        } catch (_) {}
+    }
+    claims[playerId] = now;
+    writeIdentityClaims(claims);
+    return { playerId, resumeToken };
 }
 
 function constantTimeSessionValueEqual(left, right) {
@@ -406,8 +470,20 @@ export class Network {
         this.hostConn = null;      // direct reference to host connection (mesh routing)
         this.isHost = false;
         this.roomCode = '';
-        this.playerId = createSessionValue(PLAYER_ID_KEY, 'player');
-        this.resumeToken = createSessionValue(RESUME_TOKEN_KEY, 'resume');
+        const identity = resolveTabIdentity();
+        this.playerId = identity.playerId;
+        this.resumeToken = identity.resumeToken;
+        // Browser only — absent globals no-op, same convention as other optional-
+        // chaining hooks. Keeps this tab's claim alive and releases it on unload so a
+        // plain same-tab reload doesn't get mistaken for a duplicate tab.
+        if (globalThis.window?.addEventListener) {
+            const heartbeat = globalThis.setInterval(
+                () => touchIdentityClaim(this.playerId),
+                IDENTITY_CLAIM_HEARTBEAT_MS
+            );
+            heartbeat.unref?.();
+            globalThis.window.addEventListener('pagehide', () => releaseIdentityClaim(this.playerId));
+        }
         this.playerName = 'Player';
         this.onPlayerJoin = null;
         this.onPlayerLeave = null;

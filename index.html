@@ -6,6 +6,9 @@
     <title>Warrball - Competitive Ball Combat</title>
     <meta name="description" content="Warrball is a fast, competitive first-person ball combat game. Master movement, classes, and the arena.">
     <link rel="icon" type="image/png" href="assets/generated/warrball-logo-transparent-v1.png">
+    <link rel="manifest" href="manifest.webmanifest">
+    <meta name="theme-color" content="#06151b">
+    <link rel="apple-touch-icon" href="assets/generated/volle-logo-512.png">
     <link rel="stylesheet" href="css/style.css?v=1.74">
     <link rel="stylesheet" href="css/ui-tokens.css?v=1">
     <link rel="stylesheet" href="css/ui-shell.css?v=1">
@@ -201,12 +204,12 @@
                     </button>
                 </div>
                 <div class="ow-secondary ow-secondary-right">
-                    <button id="btn-host-game" class="ow-sbtn"><svg class="ui-icon" aria-hidden="true"><use href="#i-globe"></use></svg><span>Host Game</span></button>
-                    <button id="btn-join-game" class="ow-sbtn"><svg class="ui-icon" aria-hidden="true"><use href="#i-link"></use></svg><span>Join Game</span></button>
+                    <button id="btn-play-online" class="ow-sbtn"><svg class="ui-icon" aria-hidden="true"><use href="#i-globe"></use></svg><span>Play Online</span></button>
                     <button id="btn-practice" class="ow-sbtn"><svg class="ui-icon" aria-hidden="true"><use href="#i-target"></use></svg><span>Practice</span></button>
                     <button id="btn-tournament" class="ow-sbtn"><svg class="ui-icon" aria-hidden="true"><use href="#i-trophy"></use></svg><span>Tournament</span></button>
                     <button id="btn-avatar" class="ow-sbtn"><svg class="ui-icon" aria-hidden="true"><use href="#i-user"></use></svg><span>Avatar</span></button>
                 </div>
+                <button type="button" id="menu-streak-badge" class="ow-streak-badge" aria-label="Daily login streak" hidden></button>
                 <div class="ow-featured" id="menu-featured" aria-label="Featured in the shop today" hidden></div>
                 <div class="ow-extralinks">
                     <button id="btn-replays" class="ow-link"><svg class="ui-icon" aria-hidden="true"><use href="#i-replay"></use></svg>Replays</button>
@@ -928,6 +931,8 @@
                 </div>
                 <button id="btn-avatar-back" class="btn btn-secondary avatar-studio-back"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back</button>
             </header>
+            <div class="avatar-preset-heading"><span class="shell-kicker">QUICK START</span><h3>Preset Gallery</h3><p>Pick a look, then fine-tune it with the paint tools below.</p></div>
+            <div id="avatar-preset-strip" class="avatar-preset-strip" role="list" aria-label="Skin presets"></div>
             <div class="avatar-layout">
                 <section class="avatar-editor-stage" aria-label="Full character paint surface">
                     <div class="avatar-stage-label"><span>EDIT SURFACE</span><b>Front body</b></div>
@@ -944,9 +949,16 @@
                     </div>
                     <button id="btn-avatar-clear" class="btn btn-secondary btn-small">Reset paint</button>
                 </aside>
-                <section class="avatar-preview-wrap" aria-label="Live character preview">
+                <section class="avatar-preview-wrap" aria-label="Live character preview" data-mode="2d">
                     <div class="avatar-stage-label"><span>LIVE PREVIEW</span><b id="avatar-selected-skin">Selected skin</b></div>
+                    <div class="avatar-mode-toggle" role="group" aria-label="Preview mode">
+                        <button type="button" id="btn-avatar-mode-2d" class="avatar-mode-btn selected" data-mode="2d" aria-pressed="true">2D</button>
+                        <button type="button" id="btn-avatar-mode-3d" class="avatar-mode-btn" data-mode="3d" aria-pressed="false">3D</button>
+                    </div>
                     <canvas id="avatar-preview"></canvas>
+                    <div id="avatar-3d-stage" class="avatar-3d-stage" hidden>
+                        <canvas id="avatar-3d-canvas"></canvas>
+                    </div>
                     <small>Saved automatically when you finish a stroke.</small>
                 </section>
             </div>
@@ -1726,5 +1738,6 @@
         window.shaderFinishers = shaderFinishers;
     </script>
 <script type="module" src="js/main.js?v=1.74"></script>
+<script>try { navigator.serviceWorker?.register('sw.js'); } catch { /* PWA unsupported: silent no-op */ }</script>
 </body>
 </html>

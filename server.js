@@ -42,6 +42,7 @@ const RATE_LIMITS = {
     purchase: [20, 60000],
     reward: [30, 60000],
     adReward: [10, 60000],
+    streak: [10, 60000],
     mapRead: [90, 60000],
     mapWrite: [10, 60000],
     mapVote: [30, 60000],
@@ -65,6 +66,7 @@ const MIME = {
     '.js': 'text/javascript; charset=utf-8',
     '.css': 'text/css; charset=utf-8',
     '.json': 'application/json',
+    '.webmanifest': 'application/manifest+json',
     '.png': 'image/png',
     '.webp': 'image/webp',
     '.glb': 'model/gltf-binary',
@@ -285,6 +287,7 @@ const server = http.createServer(async (req, res) => {
             coins: result.coins,
             base: result.base,
             bonus: result.bonus,
+            firstOfDay: result.firstOfDay,
             profile: result.profile
         }, result.status);
         return;
@@ -299,6 +302,19 @@ const server = http.createServer(async (req, res) => {
             coins: result.coins,
             remaining: result.remaining,
             cap: result.cap,
+            profile: result.profile
+        }, result.status);
+        return;
+    }
+    if (urlPath === '/api/profile/streak-claim' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'streak')) return;
+        const profile = profiles.authenticate(bearer(req));
+        if (!profile) { sendJson(res, { error: 'unauthorized' }, 401); return; }
+        const b = await readBody(req);
+        const result = profiles.streakClaim(profile, b.requestId || req.headers['idempotency-key'] || '');
+        sendJson(res, result.error ? { error: result.error } : {
+            day: result.day,
+            reward: result.reward,
             profile: result.profile
         }, result.status);
         return;

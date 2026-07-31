@@ -4,7 +4,7 @@ import { CHARACTERS } from './characters.js';
 import { SKILLS, RUNES } from './skills.js';
 import { BALL_SKINS } from './ball.js';
 import { AVATAR_SKINS } from './avatar.js';
-import { CASES, KNIVES, getCaseDropRates, revealPresentationForRarity, formatDuplicateConversion } from './cosmetics.js';
+import { CASES, KNIVES, getCaseDropRates, revealPresentationForRarity, formatDuplicateConversion, computeCaseReelTickSchedule, arrangeNearMissFillers } from './cosmetics.js';
 import { ACHIEVEMENTS } from './achievements.js';
 import { MatchHistory } from './matchhistory.js';
 import { getRank, getRankProgress } from './ranked.js';
@@ -14,6 +14,7 @@ import { COSMETICS, COSMETIC_TYPES, cosmeticsByType } from './cosmetic-catalog.j
 import { accountRankLabel, accountRankShort, levelProgress, prestigeTitle } from './prestige.js';
 import { Store } from './store.js';
 import { matchesShopFilter, deriveShopCardState } from './shop-clarity.js';
+import { characterPortraitPath, shopNameFitTier, groupInventoryEntries, knifeTeamRestriction, isKnifeEquippedAny } from './shop-ux2.js';
 import { classifyDamageTier, nextPoolCursor, damageJitterFor, comboTier } from './combat-fx.js';
 import { rewardRowState, tierCardState } from './battlepass.js';
 
@@ -1686,7 +1687,7 @@ export class UI {
                 const visual = offer.kind === 'cosmetic'
                     ? `<div class="cosmetic-preview cosmetic-preview-${item.type}" style="--cosmetic-primary:${item.colors[0]};--cosmetic-secondary:${item.colors[1]}"></div>`
                     : '<div class="ball-inspect-stage"><div class="ball-preview"></div><span class="ball-inspect-trail" aria-hidden="true"></span></div>';
-                card.innerHTML = `<div class="live-deal-badge">-${offer.discount}% TODAY</div>${visual}<div class="char-name">${item.name}</div><div class="char-desc">Rotates at ${until || 'midnight'}.</div>${owned ? '<div class="shop-owned">Owned</div>' : `<button class="btn btn-primary btn-small live-offer-buy" data-offer-id="${offer.id}"><s>${offer.basePrice}</s> Buy — ${offer.price}</button>`}`;
+                card.innerHTML = `<div class="live-deal-badge">-${offer.discount}% TODAY</div>${visual}<div class="char-name">${item.name}</div><div class="char-desc">Rotates at ${until || 'midnight'}.</div>${owned ? '' : `<button class="btn btn-primary btn-small live-offer-buy" data-offer-id="${offer.id}"><s>${offer.basePrice}</s> Buy — ${offer.price}</button>`}`;
                 const preview = card.querySelector('.ball-preview');
                 if (preview) preview.dataset.effect = item.effect || 'core';
                 this._decorateShopCard(card, { category: offer.kind === 'cosmetic' ? 'cosmetic' : 'ball', price: offer.price, owned, currency: coinBalance });
@@ -1698,7 +1699,13 @@ export class UI {
                 const owned = store.ownsCharacter(c.id);
                 const card = document.createElement('div');
                 card.className = `shop-card char-${c.id} ${owned ? 'owned' : ''}`;
-                card.innerHTML = `<div class="char-emoji">${c.emoji}</div><div class="char-name">${c.name}</div><div class="char-desc">${c.desc}</div>${owned ? '<div class="shop-owned">Owned</div>' : `<button class="btn btn-primary btn-small shop-buy" data-type="char" data-id="${c.id}">Buy — ${c.price}</button>`}`;
+                card.style.setProperty('--char-color', `#${c.color.toString(16).padStart(6, '0')}`);
+                card.dataset.nameFit = shopNameFitTier(c.name);
+                const portraitPath = characterPortraitPath(c.id);
+                const portraitMarkup = portraitPath
+                    ? `<img src="${portraitPath}" alt="" loading="lazy" decoding="async" onerror="this.style.display='none';this.nextElementSibling.style.display=''"><div class="shop-portrait-fallback" style="display:none" aria-hidden="true">${c.emoji}</div>`
+                    : `<div class="shop-portrait-fallback" aria-hidden="true">${c.emoji}</div>`;
+                card.innerHTML = `<div class="shop-portrait">${portraitMarkup}</div><div class="char-name">${c.name}</div><div class="char-desc">${c.desc}</div>${owned ? '' : `<button class="btn btn-primary btn-small shop-buy" data-type="char" data-id="${c.id}">Buy — ${c.price}</button>`}`;
                 this._decorateShopCard(card, { category: 'character', price: c.price, owned, currency: coinBalance });
                 grid.appendChild(card);
             });
@@ -1873,18 +1880,45 @@ export class UI {
                 grid.appendChild(card);
             });
         } else if (tab === 'inventory') {
-            const owned = new Set(store.get('ownedKnives') || []);
-            const equipped = store.get('equippedKnives') || {};
-            const inventory = Object.values(KNIVES).filter(knife => owned.has(knife.id));
-            inventory.forEach(knife => {
-                const card = document.createElement('article');
-                card.className = `shop-card inventory-card rarity-${knife.rarity}`;
-                const kills = Number(store.get('knifeStats')?.[knife.id]) || 0;
-                card.innerHTML = `<div class="knife-preview knife-preview-3d model-${knife.model}" style="--knife-color:${knife.color};--knife-accent:${knife.accent}" aria-hidden="true"></div><div class="inventory-card-copy"><span class="skin-rarity rarity-${knife.rarity}">${knife.rarity}</span><div class="char-name">${knife.name}</div><div class="char-desc">${knife.model.toUpperCase()} / ${(knife.finish || 'satin').toUpperCase()}</div></div><div class="stat-track"><span>STATTRACK</span><b>${String(kills).padStart(6, '0')}</b></div><button class="btn btn-small knife-inspect" data-id="${knife.id}">3D Inspect</button><div class="inventory-actions">${knife.teams.map(team => equipped[team] === knife.id ? `<span class="shop-owned">${team.toUpperCase()} equipped</span>` : `<button class="btn btn-small knife-equip" data-id="${knife.id}" data-team="${team}">Equip ${team}</button>`).join('')}</div>`;
-                this._decorateShopCard(card, { category: 'knife', price: 0, owned: true, currency: coinBalance });
-                grid.appendChild(card);
+            const ownedKnifeIds = new Set(store.get('ownedKnives') || []);
+            const equippedKnives = store.get('equippedKnives') || {};
+            const ownedCosmeticIds = new Set(store.get('ownedCosmetics') || []);
+            const equippedWearables = store.get('equippedWearables') || {};
+            const knifeStats = store.get('knifeStats') || {};
+            const entries = [
+                ...Object.values(KNIVES).filter(k => ownedKnifeIds.has(k.id)).map(item => ({ type: 'knife', item })),
+                ...Object.values(COSMETICS).filter(c => ownedCosmeticIds.has(c.id)).map(item => ({ type: 'cosmetic', item }))
+            ];
+            const groups = groupInventoryEntries(entries);
+            groups.forEach(group => {
+                const heading = document.createElement('h3');
+                heading.className = 'cosmetic-category-title';
+                heading.textContent = group.label;
+                grid.appendChild(heading);
+                group.items.forEach(({ type, item }) => {
+                    const card = document.createElement('article');
+                    if (type === 'knife') {
+                        const knife = item;
+                        const equippedAny = isKnifeEquippedAny(knife.id, equippedKnives);
+                        const kills = Number(knifeStats[knife.id]) || 0;
+                        const restriction = knifeTeamRestriction(knife.teams);
+                        const restrictBadge = restriction ? `<span class="inventory-team-restrict team-${restriction}">${restriction.toUpperCase()} ONLY</span>` : '';
+                        card.className = `shop-card inventory-card rarity-${knife.rarity}`;
+                        card.innerHTML = `<div class="inventory-icon-area"><div class="knife-preview knife-preview-3d model-${knife.model}" style="--knife-color:${knife.color};--knife-accent:${knife.accent}" aria-hidden="true"></div></div><div class="inventory-card-copy"><span class="skin-rarity rarity-${knife.rarity}">${knife.rarity}</span>${restrictBadge}<div class="char-name">${knife.name}</div><div class="char-desc">${knife.model.toUpperCase()} / ${(knife.finish || 'satin').toUpperCase()}</div></div><div class="stat-track"><span>STATTRACK</span><b>${String(kills).padStart(6, '0')}</b></div><button class="btn btn-small knife-inspect" data-id="${knife.id}">3D Inspect</button><div class="inventory-actions">${knife.teams.map(team => equippedKnives[team] === knife.id ? `<span class="shop-owned">${team.toUpperCase()} equipped</span>` : `<button class="btn btn-small knife-equip" data-id="${knife.id}" data-team="${team}">Equip ${team}</button>`).join('')}</div>`;
+                        this._decorateShopCard(card, { category: 'knife', price: 0, owned: true, equipped: equippedAny, currency: coinBalance });
+                    } else {
+                        const cosmetic = item;
+                        const equippedC = equippedWearables[cosmetic.type] === cosmetic.id;
+                        card.className = `shop-card inventory-card cosmetic-card rarity-${cosmetic.rarity}`;
+                        card.style.setProperty('--cosmetic-primary', cosmetic.colors[0]);
+                        card.style.setProperty('--cosmetic-secondary', cosmetic.colors[1]);
+                        card.innerHTML = `<div class="inventory-icon-area"><div class="cosmetic-preview cosmetic-preview-${cosmetic.type}" data-style="${cosmetic.style}" aria-hidden="true"></div></div><div class="inventory-card-copy"><span class="skin-rarity rarity-${cosmetic.rarity}">${cosmetic.rarity}</span><div class="char-name">${cosmetic.name}</div><div class="char-desc">${COSMETIC_TYPES[cosmetic.type] || cosmetic.type}</div></div>${equippedC ? '<div class="shop-owned">Equipped</div>' : `<button class="btn btn-small shop-equip" data-type="cosmetic" data-id="${cosmetic.id}">Equip</button>`}`;
+                        this._decorateShopCard(card, { category: 'cosmetic', price: 0, owned: true, equipped: equippedC, currency: coinBalance });
+                    }
+                    grid.appendChild(card);
+                });
             });
-            if (!inventory.length) grid.innerHTML = '<p class="shop-empty">Your inventory is empty. Open a case to add your first item.</p>';
+            if (!entries.length) grid.innerHTML = '<p class="shop-empty">Your inventory is empty. Open a case to add your first item.</p>';
         }
         this._finalizeShopCatalog(grid);
         if (!this._shopFiltersBound) {
@@ -1947,8 +1981,12 @@ export class UI {
         const targetIndex = 24;
         const items = Array.from({ length: 31 }, (_, index) => drops[index % Math.max(1, drops.length)] || result.reward);
         items[targetIndex] = result.reward;
+        // CS:GO-style near-miss tension: reposition (never replace) filler tiles
+        // so a high-rarity item often sits right beside the winner. Pure shuffle —
+        // drop-rate odds are untouched, only where each already-rolled filler lands.
+        const arrangedItems = arrangeNearMissFillers(items, targetIndex, { windowSize: 2, minAdjacent: 1 });
         track.className = 'case-reel-track';
-        track.innerHTML = items.map(item => {
+        track.innerHTML = arrangedItems.map(item => {
             const type = item.type === 'avatar' ? 'CHARACTER SKIN'
                 : item.type === 'ball' ? 'BALL SKIN'
                 : item.type === 'cosmetic' ? String(item.preview?.type || 'COSMETIC').toUpperCase()
@@ -1960,7 +1998,7 @@ export class UI {
                 : item.type === 'ball' ? 'ball'
                 : item.type === 'cosmetic' ? 'cosmetic'
                 : 'knife';
-            return `<div class="case-reel-item rarity-${rarity}" data-rarity="${rarity}"><span class="case-reel-orb" data-type="${kind}" aria-hidden="true"></span><small>${type}</small><b>${item.name || item.id}</b></div>`;
+            return `<div class="case-reel-item rarity-${rarity}" data-rarity="${rarity}"><div class="case-reel-art" aria-hidden="true"><span class="case-reel-orb" data-type="${kind}"></span></div><small>${type}</small><b>${item.name || item.id}</b></div>`;
         }).join('');
         resultEl.textContent = '';
         resultEl.removeAttribute('data-rarity');
@@ -1982,11 +2020,14 @@ export class UI {
         overlay.dataset.revealRarity = presentation.rarity;
         let flashFadeTimer = null;
         let preStopTimer = null;
+        let tickTimers = [];
+        let timer = null;
         const finish = () => {
             if (settled) return;
             settled = true;
             clearTimeout(flashFadeTimer);
             clearTimeout(preStopTimer);
+            tickTimers.forEach(clearTimeout);
             track.classList.add('settled');
             track.children[targetIndex]?.classList.add('is-winner');
             const rewardPreview = document.getElementById('case-reward-preview');
@@ -2024,27 +2065,60 @@ export class UI {
         };
         requestAnimationFrame(() => {
             const selected = track.children[targetIndex];
-            const stop = overlay.querySelector('.case-reel-window').clientWidth / 2
-                - (selected.offsetLeft + selected.offsetWidth / 2);
-            track.style.setProperty('--case-reel-stop', `${Math.round(stop)}px`);
-            track.style.transitionDuration = presentation.spinMs + 'ms';
-            track.getBoundingClientRect();
-            requestAnimationFrame(() => track.classList.add('spin'));
+            const stop = Math.round(
+                overlay.querySelector('.case-reel-window').clientWidth / 2
+                - (selected.offsetLeft + selected.offsetWidth / 2)
+            );
+            track.style.setProperty('--case-reel-stop', `${stop}px`);
+            if (presentation.reducedMotion) {
+                // Reduced motion: skip the 6-7s CS:GO crawl outright — jump
+                // straight to the settled position with a short opacity fade
+                // instead of the spin; ticks never fire (nothing is crossing).
+                track.style.transform = `translate3d(${stop}px, 0, 0)`;
+                track.classList.add('case-reel-reduced');
+                requestAnimationFrame(() => track.classList.add('case-reel-reduced-in'));
+                finish();
+                return;
+            }
+            // CS:GO pacing: fast launch -> long decelerate -> crawl -> a tiny
+            // overshoot/back-correction, all driven by @keyframes case-reel-spin
+            // (css/polish.css) — a single `transform`-only CSS animation, so
+            // adding the class is enough; no transition reflow-forcing needed.
+            track.style.animationDuration = presentation.spinMs + 'ms';
+            track.classList.add('spin');
+            tickTimers = this._scheduleReelTicks(presentation.spinMs, targetIndex);
         });
         // Legendary-only: a brief hitch just before the reel settles. This is
         // a CSS filter pulse on the window frame, not a Juice.slowMo() call —
         // the case reel is a shop/menu overlay with no live Juice instance in
         // scope (Juice only exists per in-match Game), and cosmetics.js's own
-        // slowMo contract already drives spinMs via CSS transition-duration.
+        // slowMo contract already drives spinMs via CSS animation-duration.
         // A real timeScale call would either no-op here or bleed into an
         // unrelated match loop, so the "slowdown" stays in the same CSS-driven
         // lane as the rest of the reel's pacing.
-        if (presentation.preStop) {
-            const hitchLead = Math.min(260, Math.max(0, presentation.spinMs - 200));
-            preStopTimer = setTimeout(() => overlay.classList.add('case-reveal-prestop'), Math.max(0, presentation.spinMs + 100 - hitchLead));
+        if (!presentation.reducedMotion) {
+            if (presentation.preStop) {
+                const hitchLead = Math.min(260, Math.max(0, presentation.spinMs - 200));
+                preStopTimer = setTimeout(() => overlay.classList.add('case-reveal-prestop'), Math.max(0, presentation.spinMs + 100 - hitchLead));
+            }
+            timer = setTimeout(finish, presentation.spinMs + 100);
         }
-        const timer = setTimeout(finish, presentation.spinMs + 100);
-        document.getElementById('case-reel-skip')?.addEventListener('click', () => { clearTimeout(timer); clearTimeout(flashFadeTimer); clearTimeout(preStopTimer); finish(); }, { once: true });
+        document.getElementById('case-reel-skip')?.addEventListener('click', () => { clearTimeout(timer); clearTimeout(flashFadeTimer); clearTimeout(preStopTimer); tickTimers.forEach(clearTimeout); finish(); }, { once: true });
+    }
+
+    // Schedules WebAudio tick cues for the case-reel spin — one per tile
+    // crossing, computed analytically from computeCaseReelTickSchedule
+    // (cosmetics.js) rather than polled every frame. Chosen over a rAF
+    // watcher reading the live transform: the crossing times are fully known
+    // up front from the same bezier driving the CSS animation, so this is
+    // ~20-30 one-shot setTimeout calls (cheap, self-cleaning on skip) instead
+    // of a persistent per-frame poller running for the whole 6-7s spin.
+    _scheduleReelTicks(spinMs, targetIndex) {
+        const schedule = computeCaseReelTickSchedule(spinMs, targetIndex);
+        return schedule.map(({ index, timeMs }) => setTimeout(() => {
+            const pitch = 0.85 + (index / Math.max(1, targetIndex)) * 0.55;
+            this.audio?.playCaseTick?.(pitch);
+        }, timeMs));
     }
 
     // Persistent full-screen rarity-tinted glow for case reveals (mirrors the

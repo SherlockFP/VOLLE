@@ -618,4 +618,27 @@ export class Audio {
             osc.stop(start + 0.18);
         });
     }
+
+    // Case-reel tick — a very short (~4ms) click as a tile crosses the center
+    // marker while the case reel spins. Deliberately far shorter than every
+    // other cue here (playDing/playClick are 20-300ms): 20-30 of these fire
+    // across one 6-7s spin, so anything longer would blur into a buzz instead
+    // of a mechanical tick-tick-tick. `pitchMul` rises slightly as the reel
+    // approaches its target tile (see js/ui.js _scheduleReelTicks), so the
+    // last few ticks read as "spinning down" rather than a flat metronome.
+    playCaseTick(pitchMul = 1) {
+        if (!this.ctx || !this.masterGain || this.soundVolume <= 0) return;
+        const t = this.ctx.currentTime;
+        const freq = 1300 * Math.max(0.7, Math.min(2, Number(pitchMul) || 1));
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'square';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.05, t);
+        gain.gain.exponentialRampToValueAtTime(0.0004, t + 0.004);
+        osc.connect(gain);
+        gain.connect(this.masterGain);
+        osc.start(t);
+        osc.stop(t + 0.006);
+    }
 }
