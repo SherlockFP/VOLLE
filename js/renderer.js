@@ -15,6 +15,15 @@ export class Renderer {
         this.renderer.shadowMap.enabled = true;
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         this.renderer.setClearColor(0x6fdfd9);
+
+        // Filmic tone mapping — ACES rolls blown highlights (ball glow, bloom,
+        // bright equirect skyboxes) into a soft shoulder instead of hard-clipping
+        // to white, while keeping the toon shader's flat color bands readable.
+        // js/shaders/toon.* is a raw ShaderMaterial with no tonemapping chunk, so
+        // it renders untouched here and is graded exactly once by the composer's
+        // OutputPass (see _initComposer) — matches js/shop-showcase.js's choice.
+        this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        this.renderer.toneMappingExposure = 1.1;
         container.appendChild(this.renderer.domElement);
 
         this.scene = new THREE.Scene();
@@ -42,6 +51,9 @@ export class Renderer {
         this._composer = null;
         this._camera = null;
         this._bloom = null;
+        // Per-map bloom override (setBloomProfile) — null strength means "follow
+        // the active quality preset's bloom value" (Renderer.QUALITY_PRESETS).
+        this._bloomProfile = { ...Renderer.DEFAULT_BLOOM_PROFILE };
         this._quality = 'medium';
         this._hubPerformanceMode = false;
         this._qualityPixelRatioCap = 1.5;
@@ -55,12 +67,14 @@ export class Renderer {
         this._camera = camera;
         this._composer = new EffectComposer(this.renderer);
         this._composer.addPass(new RenderPass(this.scene, camera));
-        // ponytail: reduced bloom so center-screen glow doesn't trail the mouse
+        // ponytail: reduced bloom so center-screen glow doesn't trail the mouse.
+        // radius/threshold come from the bloom profile (setBloomProfile); strength
+        // starts at 0 and is set by _applyBloomStrength() via setQuality() below.
         const bloom = new UnrealBloomPass(
             new THREE.Vector2(window.innerWidth, window.innerHeight),
-            0.08,  // strength (was 0.15)
-            0.3,  // radius
-            0.3   // threshold (was 0.1 — only bright things bloom)
+            0,
+            this._bloomProfile.radius,
+            this._bloomProfile.threshold
         );
         this._bloom = bloom;
         this._composer.addPass(bloom);
@@ -110,6 +124,41 @@ export class Renderer {
         }
     }
 
+    // Per-map bloom look override. Optional-chained from map/arena code
+    // (renderer.setBloomProfile?.({...})) — never required, so maps that don't
+    // call it keep this default profile. Omitted fields keep their current
+    // value; strength: null resets to the active quality preset's bloom amount.
+    static DEFAULT_BLOOM_PROFILE = { strength: null, radius: 0.22, threshold: 0.78 };
+
+    setBloomProfile({ strength, radius, threshold } = {}) {
+        if (strength !== undefined) {
+            this._bloomProfile.strength = strength === null
+                ? null
+                : Math.min(2, Math.max(0, Number(strength) || 0));
+        }
+        if (radius !== undefined) this._bloomProfile.radius = Math.min(1, Math.max(0, Number(radius) || 0));
+        if (threshold !== undefined) this._bloomProfile.threshold = Math.min(1, Math.max(0, Number(threshold) || 0));
+        if (this._bloom) {
+            this._bloom.radius = this._bloomProfile.radius;
+            this._bloom.threshold = this._bloomProfile.threshold;
+        }
+        this._applyBloomStrength();
+    }
+
+    // Single point that decides live UnrealBloomPass.strength — reused by
+    // setQuality/setHubPerformance/setBloomProfile so they can never disagree.
+    // Also flips .enabled off at strength 0: UnrealBloomPass always runs its full
+    // 5-mip blur cascade (11 extra draws) even at strength 0, so 'low' quality and
+    // hub-performance mode skip the pass outright instead of paying for an
+    // invisible effect.
+    _applyBloomStrength() {
+        if (!this._bloom) return;
+        const quality = Renderer.QUALITY_PRESETS[this._quality]?.bloom ?? 0;
+        const strength = this._hubPerformanceMode ? 0 : (this._bloomProfile.strength ?? quality);
+        this._bloom.strength = strength;
+        this._bloom.enabled = strength > 0;
+    }
+
     // Exported so settings tooling (js/settings-controller.js) can assert
     // "quality preset -> expected renderer values" without duplicating this
     // table — this object is the only place preset numbers are defined.
@@ -125,7 +174,7 @@ export class Renderer {
         this._qualityPixelRatioCap = config.pixelRatio;
         this._applyPixelRatio();
         this.renderer.shadowMap.enabled = config.shadows && !this._hubPerformanceMode;
-        if (this._bloom) this._bloom.strength = this._hubPerformanceMode ? 0 : config.bloom;
+        this._applyBloomStrength();
     }
 
     setHubPerformance(active = false) {

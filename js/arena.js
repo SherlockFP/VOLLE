@@ -5,6 +5,7 @@ import { WeatherSystem } from './weather.js';
 import { computeGoalZones } from './goal-mode.js';
 import { getTexture, clearTextureCache } from './procedural-textures.js';
 import { loadArenaDecor, disposeArenaDecor, preloadTrophyTemplate } from './arena-decor.js';
+import { loadSkyboxTexture, resolveFogColor } from './skybox-loader.js';
 
 // Daha büyük court'lar + aydınlık temalar. dark space/neon → aydınlık palet.
 export const MAPS = {
@@ -13,7 +14,8 @@ export const MAPS = {
         courtWidth: 106, courtLength: 120, wallHeight: 22, ceilingHeight: 31,
         floorRed: 0xe8a050, floorBlue: 0x7fd0e8, wallColor: 0xeaf2ff,
         skyTop: 0x3aa5ff, skyBottom: 0xcfeeff, fogColor: 0xcfeeff,
-        hasOcean: true, hasGlass: true, size: 'medium', weather: 'clear', openSides: true
+        hasOcean: true, hasGlass: true, size: 'medium', weather: 'clear', openSides: true,
+        skybox: 'assets/generated/skybox/beach.jpg'
     },
     beach_open: {
         name: 'Beach Volleyball',
@@ -36,7 +38,8 @@ export const MAPS = {
             playerSpawnZ: 20,
             fallDeathY: -8
         },
-        sky: { horizonColor: 0xffe1a8, sun: true, sunColor: 0xfff1b0, cloudAmount: 0.55 }
+        sky: { horizonColor: 0xffe1a8, sun: true, sunColor: 0xfff1b0, cloudAmount: 0.55 },
+        skybox: 'assets/generated/skybox/beach.jpg'
     },
     industrial: {
         name: '🏭 Factory',
@@ -51,7 +54,8 @@ export const MAPS = {
         floorRed: 0xd04080, floorBlue: 0x4080d0, wallColor: 0x8090b0,
         skyTop: 0x1a2050, skyBottom: 0x3a4080, fogColor: 0x2a3060,
         hasOcean: false, hasGlass: true, isSpace: true, size: 'large',
-        lowGravity: true, hasPortals: true, weather: 'clear', openSides: true
+        lowGravity: true, hasPortals: true, weather: 'clear', openSides: true,
+        skybox: 'assets/generated/skybox/space.jpg'
     },
     neon: {
         name: '🌆 Neon City',
@@ -60,7 +64,8 @@ export const MAPS = {
         skyTop: 0x4a2a8a, skyBottom: 0x8a5acc, fogColor: 0x5a3a9a,
         hasOcean: false, hasGlass: true, isNeon: true, size: 'medium',
         hasPortals: true, weather: 'rain', openSides: true,
-        decor: ['scoreboard', 'lights']
+        decor: ['scoreboard', 'lights'],
+        skybox: 'assets/generated/skybox/neon.jpg'
     },
     circuit_dome: {
         name: 'Circuit Dome',
@@ -88,7 +93,8 @@ export const MAPS = {
             { type: 'cylinder', pos: [20, 3, -15], size: [0.3, 6], color: 0xff4400 }
         ],
         weather: 'none',
-        decor: ['gym']
+        decor: ['gym'],
+        skybox: 'assets/generated/skybox/dojo.jpg'
     },
     colosseum: {
         courtWidth: 100, courtLength: 70, wallHeight: 19, ceilingHeight: 27,
@@ -106,7 +112,8 @@ export const MAPS = {
             { type: 'cylinder', pos: [0, 5, -25], size: [2, 10], color: 0xC4A882 }
         ],
         weather: 'none',
-        decor: ['bleachers', 'lights']
+        decor: ['bleachers', 'lights'],
+        skybox: 'assets/generated/skybox/colosseum.jpg'
     },
     volcano: {
         courtWidth: 88, courtLength: 60, wallHeight: 20, ceilingHeight: 28,
@@ -123,7 +130,8 @@ export const MAPS = {
             { type: 'sphere', pos: [-25, 2, 20], size: [2], color: 0xff4400 },
             { type: 'sphere', pos: [25, 2, -20], size: [2], color: 0xff4400 }
         ],
-        weather: 'storm'
+        weather: 'storm',
+        skybox: 'assets/generated/skybox/volcano.jpg'
     },
     ice: {
         name: '❄️ Ice Palace',
@@ -131,7 +139,8 @@ export const MAPS = {
         floorRed: 0xa8d8f0, floorBlue: 0xd8f0ff, wallColor: 0xc8e8ff,
         skyTop: 0x88c8ff, skyBottom: 0xe0f4ff, fogColor: 0xe0f4ff,
         hasOcean: false, hasGlass: true, isIce: true, size: 'medium',
-        slippery: true, weather: 'snow', openSides: true
+        slippery: true, weather: 'snow', openSides: true,
+        skybox: 'assets/generated/skybox/ice.jpg'
     },
     cloud: {
         name: '☁️ Cloud Realm',
@@ -139,7 +148,8 @@ export const MAPS = {
         floorRed: 0xffd8e8, floorBlue: 0xd8e8ff, wallColor: 0xffffff,
         skyTop: 0xaaddff, skyBottom: 0xffeef8, fogColor: 0xffeef8,
         hasOcean: false, hasGlass: true, isCloud: true, size: 'large',
-        lowGravity: true, weather: 'clear', openSides: true
+        lowGravity: true, weather: 'clear', openSides: true,
+        skybox: 'assets/generated/skybox/cloud.jpg'
     },
     jungle: {
         name: '🌴 Jungle',
@@ -147,7 +157,8 @@ export const MAPS = {
         floorRed: 0x6a8a3a, floorBlue: 0x3a6a5a, wallColor: 0x8a7a5a,
         skyTop: 0x88cc66, skyBottom: 0xeef8c8, fogColor: 0xddeec0,
         hasOcean: false, hasGlass: false, isJungle: true, size: 'medium', weather: 'rain',
-        waterZones: true
+        waterZones: true,
+        skybox: 'assets/generated/skybox/jungle.jpg'
     },
     cyber: {
         name: '🤖 Cyber Grid',
@@ -162,7 +173,8 @@ export const MAPS = {
         courtWidth: 163, courtLength: 77, wallHeight: 31, ceilingHeight: 39,
         floorRed: 0xd4a06a, floorBlue: 0xb8885a, wallColor: 0xc89868,
         skyTop: 0x3a88cc, skyBottom: 0xeec888, fogColor: 0xeec888,
-        hasOcean: false, hasGlass: false, isCanyon: true, size: 'xl', weather: 'clear'
+        hasOcean: false, hasGlass: false, isCanyon: true, size: 'xl', weather: 'clear',
+        skybox: 'assets/generated/skybox/canyon.jpg'
     },
     pillar: {
         name: '🏛️ Pillar Hall',
@@ -201,7 +213,8 @@ export const MAPS = {
         floorRed: 0x14758f, floorBlue: 0x125f91, wallColor: 0x59c7d4,
         skyTop: 0x003c5a, skyBottom: 0x1490a8, fogColor: 0x0b6680,
         hasOcean: false, hasGlass: true, isAtlantis: true, size: 'large',
-        weather: 'clear', openSides: true
+        weather: 'clear', openSides: true,
+        skybox: 'assets/generated/skybox/atlantis.jpg'
     },
     minecraft: {
         name: '⛏️ Minecraft',
@@ -266,7 +279,8 @@ export const MAPS = {
             symmetric: true
         },
         sky: { horizonColor: 0xf0d8b8, sun: true, sunColor: 0xfff0c0, cloudAmount: 0.35 },
-        decor: ['seats', 'scoreboard', 'lights']
+        decor: ['seats', 'scoreboard', 'lights'],
+        skybox: 'assets/generated/skybox/grand_stadium.jpg'
     },
     mega_pinball: {
         name: 'Mega Pinball Complex',
@@ -2509,6 +2523,38 @@ export class Arena {
         sky.renderOrder = -1000;
         sky.frustumCulled = false;
         this.skybox = sky;
+
+        // Optional 360° equirect panorama (js/skybox-loader.js) — async load, layered on
+        // top of the procedural dome above so there is never a blank/black frame while it
+        // decodes. Same quality gate as js/arena-decor.js's stadium light: skipped outright
+        // on low quality / hub-performance mode, so the (much cheaper) dome is what
+        // low-end devices always see.
+        this._skyboxTexture = null;
+        const allowSkybox = this.renderer.shouldLightDecor ? this.renderer.shouldLightDecor() : true;
+        if (c.skybox && allowSkybox) this._loadSkybox(c.skybox);
+    }
+
+    // Swaps the procedural dome for the decoded panorama once it resolves (a 404/decode
+    // failure is a silent no-op — loadSkyboxTexture never rejects). Mirrors
+    // _loadArenaDecor's token guard: a load that resolves after clearMap()/rebuild() moved
+    // on to a different map is disposed immediately instead of landing on the wrong scene.
+    // scene.background alone is enough to render the panorama (equirect mapping renders
+    // natively, frustum-free); scene.environment is deliberately left untouched — several
+    // team-colored materials in this file (floor rMat/bMat, wall rail/posts) are
+    // MeshStandardMaterial and would pick up automatic env-map reflections from it,
+    // risking the "team red/blue stays theme-independent" rule this project enforces.
+    _loadSkybox(url) {
+        const token = this._skyboxToken = (this._skyboxToken || 0) + 1;
+        loadSkyboxTexture(url).then(texture => {
+            if (!texture) return;
+            if (token !== this._skyboxToken) { texture.dispose(); return; }
+            this._skyboxTexture = texture;
+            this.scene.background = texture;
+            if (this.skybox) this.skybox.visible = false;
+            if (this.scene.fog) {
+                this.scene.fog.color.set(resolveFogColor(this.config.fogColor, texture.userData.horizonColor));
+            }
+        });
     }
 
     buildAtlantisProps() {
@@ -2944,6 +2990,18 @@ export class Arena {
         disposeArenaDecor(this.decorGroup);
         this.decorGroup = null;
         this._decorToken = (this._decorToken || 0) + 1;
+        // Equirect skybox panorama (js/skybox-loader.js) lives on scene.background, not a
+        // mesh, so it isn't covered by the this.objects sweep above — dispose + detach it
+        // explicitly so map switches never leak a GPU texture, and bump the token so an
+        // in-flight load that resolves after this clearMap() is discarded instead of
+        // landing on the next map's scene.
+        this._skyboxToken = (this._skyboxToken || 0) + 1;
+        if (this._skyboxTexture) {
+            this._skyboxTexture.dispose();
+            this._skyboxTexture = null;
+        }
+        this.scene.background = null;
+        this.scene.environment = null;
     }
 
     // Tear down and rebuild as a different map.

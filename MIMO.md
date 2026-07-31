@@ -506,3 +506,27 @@ in browser before commit.
 ### Session assets/tools note
 - Pollinations.ai (keyless) is the working free image-gen route; used for the 15 portraits.
 - `last30days` skill v3.18.4 installed at `C:/Users/Sher/.claude/skills/last30days` (user request).
+
+---
+
+## V4 Wave 6 — Skybox Panoramas + ACES Grading (2026-07-30)
+
+1215/1215 tests (was 1186), 94 files clean.
+
+- **12 AI-generated 360° equirect panoramas** (`assets/generated/skybox/*.jpg`, Pollinations,
+  2048x1024) wired to 13 map ids (beach + beach_open share beach.jpg) via new `js/skybox-loader.js`
+  + `MAPS.skybox` field. `scene.background` (dome hidden once loaded, no double-draw), gradient
+  dome remains as loading state, fallback, and low-quality path. Load-time seam crossfade (last 4%
+  over first 4%). Fog auto-tints toward the panorama's sampled horizon color ONLY when it clashes
+  (volcano/beach tinted; space/neon no-op — threshold works both ways).
+- **`scene.environment` deliberately OFF**: floors are team-colored MeshStandardMaterial —
+  an env map could shift perceived team colors (AGENTS rule). Toon materials wouldn't care, the
+  floor would. Revisit only with a proven-safe setup.
+- **Texture lifecycle proven**: `renderer.info.memory.textures` stable at 22 across
+  beach_open→space→neon→volcano switches in one session; `_skyboxToken` cancels stale async loads.
+- **Renderer** (`js/renderer.js`): ACESFilmicToneMapping, exposure 1.1 (matches shop-showcase
+  precedent). Team red/blue separation proven against the actual vendored ACES curve across all 4
+  toon bands. Bloom: threshold 0.3→0.78, radius 0.3→0.22 (only true emissives bloom; bright skies
+  no longer bleach); `setBloomProfile({strength,radius,threshold})` exposed for future per-map
+  tuning; UnrealBloomPass fully disabled at strength 0 (perf win in low-quality/hub mode).
+  FPS unchanged (beach 300.2→299.8, neon 299.8→299.6 @1600x900).
