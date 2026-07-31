@@ -22,43 +22,41 @@ async function multiplayerMenuBlock() {
     return html.slice(start, end);
 }
 
-test('#main-menu exposes a single Play Online button, not separate Host/Join buttons', async () => {
+test('#main-menu has no separate Host/Join/Play Online buttons — Quick Play is the single online entry', async () => {
     const block = await mainMenuBlock();
-    assert.match(block, /id="btn-play-online"/);
+    assert.match(block, /id="btn-play-solo"/);
+    assert.doesNotMatch(block, /id="btn-play-online"/);
     assert.doesNotMatch(block, /id="btn-host-game"/);
     assert.doesNotMatch(block, /id="btn-join-game"/);
 });
 
-test('#main-menu keeps Quick Play as the primary CTA and Practice/Tournament/Avatar around Play Online', async () => {
+test('#main-menu keeps Quick Play as the primary CTA above Practice/Tournament/Avatar', async () => {
     const block = await mainMenuBlock();
-    // Quick Play (ow-play) must still exist and precede the secondary group in markup order.
     const quickPlayIdx = block.indexOf('id="btn-play-solo"');
     const secondaryGroupIdx = block.indexOf('ow-secondary ow-secondary-right');
-    const playOnlineIdx = block.indexOf('id="btn-play-online"');
     const practiceIdx = block.indexOf('id="btn-practice"');
     const tournamentIdx = block.indexOf('id="btn-tournament"');
     const avatarIdx = block.indexOf('id="btn-avatar"');
     assert.ok(quickPlayIdx >= 0 && secondaryGroupIdx > quickPlayIdx, 'Quick Play must stay the primary CTA above the secondary button group');
-    // Play Online is the first (most prominent) secondary action, ahead of Practice/Tournament/Avatar.
-    assert.ok(playOnlineIdx > secondaryGroupIdx, 'Play Online must live inside the secondary button group');
-    assert.ok(playOnlineIdx < practiceIdx && practiceIdx < tournamentIdx && tournamentIdx < avatarIdx,
-        'expected order: Play Online, Practice, Tournament, Avatar');
+    assert.ok(secondaryGroupIdx < practiceIdx && practiceIdx < tournamentIdx && tournamentIdx < avatarIdx,
+        'expected order: Practice, Tournament, Avatar');
 });
 
-test('multiplayer screen still exposes a reachable host action (btn-mp-create) for Play Online to route into', async () => {
+test('multiplayer screen still exposes a reachable host action (btn-mp-create) for Quick Play to route into', async () => {
     const block = await multiplayerMenuBlock();
     assert.match(block, /id="btn-mp-create"/);
     assert.match(block, /id="btn-mp-join"/);
     assert.match(block, /id="btn-mp-solo"/);
 });
 
-test('btn-play-online binds exactly the old btn-join-game routing (multiplayer screen + lobby refresh)', async () => {
+test('btn-play-solo (QUICK PLAY) routes into the multiplayer screen with lobby refresh', async () => {
     const source = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
     assert.doesNotMatch(source, /bind\('btn-host-game'/);
     assert.doesNotMatch(source, /bind\('btn-join-game'/);
+    assert.doesNotMatch(source, /bind\('btn-play-online'/);
 
-    const bindIdx = source.indexOf("bind('btn-play-online'");
-    assert.ok(bindIdx >= 0, 'expected a bind(\'btn-play-online\', ...) handler in main.js');
+    const bindIdx = source.indexOf("bind('btn-play-solo'");
+    assert.ok(bindIdx >= 0, 'expected a bind(\'btn-play-solo\', ...) handler in main.js');
     const handlerSlice = source.slice(bindIdx, bindIdx + 900);
     assert.match(handlerSlice, /this\.ui\.showScreen\('multiplayerMenu'\)/);
     assert.match(handlerSlice, /this\._refreshLobbyList\(\)/);

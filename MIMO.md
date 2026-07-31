@@ -1,6 +1,6 @@
 # MIMO.md — 2BALL Project Current State
 
-> **Last updated:** 2026-07-30
+> **Last updated:** 2026-07-31
 > **Status:** Active development. Account system complete; Phase 1-3 done; V4 immersive/economy/combat pass complete (see below); Phase 4 backlog pending.
 > **Tech Stack:** Three.js + PeerJS + vanilla JS (ES modules), browser-based 3D dodgeball.
 
@@ -530,3 +530,37 @@ in browser before commit.
   no longer bleach); `setBloomProfile({strength,radius,threshold})` exposed for future per-map
   tuning; UnrealBloomPass fully disabled at strength 0 (perf win in low-quality/hub mode).
   FPS unchanged (beach 300.2→299.8, neon 299.8→299.6 @1600x900).
+---
+
+## V4 Wave 7 — Skybox Revert, Quick Play Hub, Ball Stall Fix, Lobby Lifecycle (2026-07-31)
+
+**User verdict after playtest:** AI panorama skyboxes looked worse in-game than the procedural
+gradient dome — reverted (all 13 `skybox:` fields removed from `MAPS` in `js/arena.js`; loader
+kept, `tests/skybox-loader.test.mjs` now pins "no map declares skybox"). QUICK PLAY is the single
+online entry point: routes to the multiplayer hub (`showScreen('multiplayerMenu')` + lobby list
+refresh), `btn-play-online` removed (`tests/menu-flow.test.mjs` updated).
+
+**Ball stall root cause (critical):** solo/bot match had zero simulation drivers when
+`network.isHost && !network.connected` — RAF loop skips hosts (`js/main.js` ~5896), bg loop skips
+disconnected. One failed Create Lobby poisoned `isHost=true` forever; every later Solo vs Bots
+match started frozen (ball hovering, no target). Fixes: RAF guard now
+`!isHost || !connected` (exactly one loop runs per state), and `hostGame()` resets
+`isHost=false` when `initPeer()` rejects. `tests/solo-sim-loop.test.mjs` (4 tests) pins both.
+Ball/bot logic itself was never broken — regression blamed to `5a29b05`, not the V4 commits.
+
+**Host/late-join — 4 real root causes (all outside the migration subsystem):**
+1. `btn-start-game` unregistered the lobby the moment the match began → late join unreachable
+   from UI (the whole `welcome`/`handleLateJoin` path was fine). Now re-registers with live
+   player count, keep-alive stays armed.
+2. `LOBBY_TTL` 45s < Chrome's 60s hidden-tab timer clamp → lobby expired whenever host tabbed
+   away; cause of "two tabs can't see each other". Now 90s.
+3. `lobbyWrite` rate limit 30/min bucketed per IP — shared by every local tab, silently 429'd
+   registration. Now 120/min (verified live).
+4. `peer-unavailable` had zero listeners → dead/mistyped room code hung Join forever. Now
+   rejects with a message; join code trimmed.
+`tests/lobby-lifecycle.test.mjs` 23/23 (+5, two assertions that pinned buggy behavior inverted).
+
+**Verification:** full suite `node --test` → **1222/1222 pass**. Live browser smoke: Quick Play
+opens hub; solo bot match cycles ROUND_END→PLAYING→ROUND_END with ball moving and hitting.
+Known cosmetic: during the 10s pre-game countdown the warmup ball floats untargeted and bots
+stand still — by design, predates V4, looks similar to the stall bug's first seconds.

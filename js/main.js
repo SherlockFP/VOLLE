@@ -1033,11 +1033,12 @@ class App {
         bind('menu-streak-badge', () => this._claimRetentionStreak());
 
         bind('btn-play-solo', () => {
-            // Button copy promises "Jump into a bot match", so start one instead of
-            // detouring to the lobby browser. Same path as btn-mp-solo.
-            clearInterval(this._mpRefreshTimer);
-            this.game.startSolo();
-            this.ui.showScreen('lobby');
+            // QUICK PLAY opens the multiplayer hub (user decision 2026-07-30): lobby
+            // browser + create/host + join-by-code + Solo vs Bots all live there.
+            // Bot matches are one click further via btn-mp-solo.
+            this.ui.showScreen('multiplayerMenu');
+            this._refreshLobbyList();
+            this._mpRefreshTimer = setInterval(() => this._refreshLobbyList(), 5000);
         });
 
         // Multiplayer menü butonları
@@ -1086,17 +1087,6 @@ class App {
             Spectator.setCameraMode(event.target.value);
         });
 
-        bind('btn-play-online', () => {
-            // Single main-menu entry point into the multiplayer screen (lobby browser +
-            // create/host + join-by-code). Host used to be its own main-menu button
-            // (btn-host-game -> _doHostGame directly); now hosting is reached one click
-            // further in via btn-mp-create inside this screen, same as btn-join-game
-            // used to route here. Identical routing to the old btn-join-game handler.
-            this.ui.showScreen('multiplayerMenu');
-            this._refreshLobbyList();
-            this._mpRefreshTimer = setInterval(() => this._refreshLobbyList(), 5000);
-        });
-
         bind('btn-join-connect', async () => {
             try {
                 const code = document.getElementById('join-code-input')?.value;
@@ -1106,6 +1096,10 @@ class App {
                 this._setupClientNetHandlers();
                 await this.network.joinGame(code, name, password);
                 this.game.playerName = name;
+                // Same client bootstrap _quickJoin does — without the bg loop this join
+                // path stops interpolating and stops sending positions whenever the tab
+                // is hidden, so the joiner freezes for everyone else.
+                this._startBgLoop();
                 this.ui.showScreen('lobby');
             } catch (e) {
                 alert('Failed to join: ' + e.message);
@@ -1691,9 +1685,22 @@ class App {
                 if (startButton) startButton.disabled = false;
                 return;
             }
-            clearInterval(this._lobbyKeepAlive);
-            if (this._lobbyCode) this._unregisterLobby(this._lobbyCode);
-            this._lobbyCode = null;
+            // Late join is a supported feature (shouldQueueLateJoin / handleLateJoin /
+            // _enterLateJoinSpectator), so an in-progress lobby MUST stay in the registry.
+            // This used to unregister it and kill the keep-alive here, which deleted every
+            // started match from the lobby browser — the real reason "join later" never
+            // worked, and why a host that quits mid-match left a stale record behind
+            // (_lobbyCode was nulled, so beforeunload/leaveLobby had nothing to delete).
+            // Keep-alive keeps running; just refresh the record with the live player count.
+            if (this._lobbyCode && this.network?.isHost) {
+                this._registerLobby(
+                    this._lobbyCode,
+                    this._lobbyName || 'Lobby',
+                    this.network.connections.size + 1,
+                    this.arena?.config?.name || 'Unknown',
+                    this.game.mode?.name || 'Classic'
+                );
+            }
             this.player.lock();
             this.ui.updateContractTracker(Daily, this.store);
             if (this.network.connected && this.network.isHost) {
@@ -5903,7 +5910,12 @@ updateCarousel() {
             if (!Spectator.active && !teamPopup) this._updateMovementPolish(false);
             if (!Spectator.active && !teamPopup) this._updateMovementTrial(dt);
             // Host simulation runs in the 60Hz background loop; clients update here.
-            if (!this.network?.isHost) this.game.update(dt);
+            // That loop only simulates while network.connected (see _startBgLoop), so an
+            // isHost session with no live peer — hostGame() sets isHost before awaiting
+            // initPeer, and a failed host keeps the flag — fell through BOTH loops and
+            // nothing ever ticked: ball frozen mid-air, bots idle, timer stuck. Mirror the
+            // bg loop's own condition here so exactly one of the two always runs.
+            if (!this.network?.isHost || !this.network?.connected) this.game.update(dt);
             // Dash trail
             if (this.player._justDashed) {
                 this.player._justDashed = false;

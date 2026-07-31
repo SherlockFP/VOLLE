@@ -83,6 +83,8 @@ test('rally duel lobby control is accessible and host-authoritative', async () =
     assert.match(game, /startGame\(skipPreGame = false, matchId = null\) \{\s*if \(this\._rallyDuel && !this\._prepareRallyDuel\(\)\) return false;/);
     assert.match(main, /const started = this\.game\.startGame\(\);[\s\S]*?if \(started === false\)/);
     assert.match(main, /const started = this\.game\.startGame\(false, matchId\);[\s\S]*?if \(started === false\)/);
-    assert.match(main, /const started = this\.game\.startGame\(\);[\s\S]*?if \(started === false\)[\s\S]*?clearInterval\(this\._lobbyKeepAlive\)/);
+    // Starting the match must NOT tear the lobby out of the registry — late joiners
+    // find in-progress lobbies through the browser. Host re-registers instead.
+    assert.match(main, /const started = this\.game\.startGame\(\);[\s\S]*?if \(started === false\)[\s\S]*?if \(this\._lobbyCode && this\.network\?\.isHost\) \{\s*this\._registerLobby\(/);
     assert.match(main, /const rollback = this\.rematchVote\.snapshot\(\);[\s\S]*?this\.rematchVote\.begin\(sourceMatchId, rollback\.requiredPlayerIds\)/);
 });

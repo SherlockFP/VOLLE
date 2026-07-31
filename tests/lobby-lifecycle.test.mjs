@@ -47,9 +47,11 @@ test('pruneLobbies falls back to updatedAt when lastSeen is absent (legacy recor
     }
 });
 
-test('lobby TTL keeps a reasonable margin above the 12s host keep-alive cadence', () => {
-    assert.ok(LOBBY_TTL >= 30000 && LOBBY_TTL <= 45000, `expected 30-45s TTL, got ${LOBBY_TTL}`);
-    assert.ok(LOBBY_TTL > 12000 * 2, 'TTL should survive at least two missed keep-alive ticks');
+test('lobby TTL outlives a background tab throttled to one keep-alive tick per minute', () => {
+    // Chrome intensive throttling clamps hidden-tab setInterval to 1/min, so the 12s
+    // keep-alive cadence degrades to ~60s. A TTL at or below that prunes a live host.
+    assert.ok(LOBBY_TTL > 60000, `TTL must exceed the 60s throttled tick floor, got ${LOBBY_TTL}`);
+    assert.ok(LOBBY_TTL <= 120000, `TTL should not keep dead lobbies listed for minutes, got ${LOBBY_TTL}`);
 });
 
 // --- 2) Host migration: 1v1 closes, 2v2+ migrates (P2P_HOST_FIXES #1 / #2) ---
@@ -461,4 +463,94 @@ test('lobbyCapacity bounds players/maxPlayers the same way the open-slots filter
     assert.deepEqual(lobbyCapacity({ players: 3, maxPlayers: 8 }), { players: 3, maxPlayers: 8 });
     assert.deepEqual(lobbyCapacity({}), { players: 1, maxPlayers: 8 });
     assert.deepEqual(lobbyCapacity({ players: 5, maxPlayers: 1 }), { players: 5, maxPlayers: 2 });
+});
+
+// --- 8) In-progress lobbies stay discoverable (late join, 2026-07-31) ---
+// Starting the match used to run `clearInterval(this._lobbyKeepAlive);
+// this._unregisterLobby(this._lobbyCode); this._lobbyCode = null;`, which deleted the
+// lobby from the browser the instant it became joinable-as-a-late-joiner, and left the
+// host with no code to clean up on exit. Both regressions are covered here.
+
+test('starting a match re-registers the lobby instead of unregistering it', () => {
+    const startHandler = mainSource.slice(
+        mainSource.indexOf("bind('btn-start-game'"),
+        mainSource.indexOf("bind('btn-party-ready'")
+    );
+    assert.ok(startHandler.length > 0, 'btn-start-game handler not found in js/main.js');
+    assert.doesNotMatch(startHandler, /_unregisterLobby/,
+        'match start must not delete the lobby — late joiners find it through the browser');
+    assert.doesNotMatch(startHandler, /this\._lobbyCode = null/,
+        'match start must keep _lobbyCode so beforeunload/leaveLobby can still clean up');
+    assert.doesNotMatch(startHandler, /clearInterval\(this\._lobbyKeepAlive\)/,
+        'the 12s keep-alive must survive match start or the lobby expires at LOBBY_TTL');
+    assert.match(startHandler, /this\._registerLobby\(\s*this\._lobbyCode/,
+        'match start should refresh the lobby record with the live player count');
+});
+
+test('a host tab throttled to one keep-alive per minute is not pruned', () => {
+    const now = Date.now();
+    // Hidden-tab intensive throttling: the 12s interval last fired 60s ago.
+    lobbies.set('lifecycle-throttled', normalizeLobbyRecord({ code: 'lifecycle-throttled', players: 2 }, now - 60000));
+    try {
+        pruneLobbies();
+        assert.equal(lobbies.has('lifecycle-throttled'), true,
+            'a live host whose timer was throttled to 1/min must stay listed');
+    } finally {
+        lobbies.delete('lifecycle-throttled');
+    }
+});
+
+// --- 9) joinGame surfaces an unreachable room code instead of hanging ---
+
+function fakeEmitter() {
+    const handlers = new Map();
+    return {
+        handlers,
+        on(type, fn) { (handlers.get(type) || handlers.set(type, []).get(type)).push(fn); return this; },
+        off(type, fn) {
+            const list = handlers.get(type) || [];
+            const index = list.indexOf(fn);
+            if (index >= 0) list.splice(index, 1);
+            return this;
+        },
+        emit(type, payload) { [...(handlers.get(type) || [])].forEach(fn => fn(payload)); }
+    };
+}
+
+function joinableNetwork() {
+    const network = new Network({});
+    const conn = Object.assign(fakeEmitter(), { peer: 'host-peer', send() {}, close() {} });
+    const peer = Object.assign(fakeEmitter(), { id: 'me', connect: () => conn });
+    network.initPeer = async () => { network.peer = peer; network.connected = true; return peer.id; };
+    return { network, peer, conn };
+}
+
+test('joinGame rejects when PeerJS reports the room code is unavailable', async () => {
+    const { network, peer } = joinableNetwork();
+    const pending = network.joinGame('host-peer', 'Joiner');
+    await Promise.resolve();
+    peer.emit('error', { type: 'peer-unavailable', message: 'Could not connect to peer host-peer' });
+    await assert.rejects(pending, /Lobby not found/);
+});
+
+test('joinGame ignores unrelated peer errors and still resolves on open', async () => {
+    const { network, peer, conn } = joinableNetwork();
+    const pending = network.joinGame('host-peer', 'Joiner');
+    await Promise.resolve();
+    peer.emit('error', { type: 'network', message: 'transient' });
+    conn.emit('open');
+    await pending;
+    assert.equal(network.hostConn, conn);
+    // The one-shot peer-unavailable listener must be detached once the join succeeds.
+    assert.equal((peer.handlers.get('error') || []).length, 0);
+});
+
+test('joinGame trims a pasted room code before dialling the peer', async () => {
+    const { network, conn } = joinableNetwork();
+    const pending = network.joinGame('  host-peer\n', 'Joiner');
+    await Promise.resolve();
+    conn.emit('open');
+    await pending;
+    assert.equal(network.hostRoomCode, 'host-peer');
+    assert.equal(network.connections.get('host-peer'), conn);
 });

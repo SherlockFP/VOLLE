@@ -237,37 +237,12 @@ const arenaModuleSource = arenaSource
 
 const { MAPS } = await import(`data:text/javascript;base64,${Buffer.from(arenaModuleSource).toString('base64')}`);
 
-// The 12 pre-generated panoramas, keyed by their intended MAPS id — beach_open
-// shares beach.jpg with beach rather than getting its own file.
-const EXPECTED_SKYBOX_MAPS = {
-    beach: 'beach', beach_open: 'beach', space: 'space', neon: 'neon',
-    volcano: 'volcano', ice: 'ice', jungle: 'jungle', canyon: 'canyon',
-    atlantis: 'atlantis', dojo: 'dojo', colosseum: 'colosseum', cloud: 'cloud',
-    grand_stadium: 'grand_stadium'
-};
-
-test('exactly the 12 intended panoramas (+ beach_open sharing beach.jpg) declare MAPS[id].skybox', () => {
-    for (const [id, file] of Object.entries(EXPECTED_SKYBOX_MAPS)) {
-        assert.ok(MAPS[id], `${id} exists in MAPS`);
-        assert.equal(MAPS[id].skybox, `assets/generated/skybox/${file}.jpg`, `${id}.skybox`);
-    }
-    const actualSkyboxIds = Object.entries(MAPS)
-        .filter(([, config]) => typeof config.skybox === 'string')
-        .map(([id]) => id)
-        .sort();
-    assert.deepEqual(actualSkyboxIds, Object.keys(EXPECTED_SKYBOX_MAPS).sort());
-});
-
-test('every declared skybox path points at an existing generated JPEG under assets/generated/skybox/', () => {
-    for (const config of Object.values(MAPS)) {
-        if (config.skybox === undefined) continue;
-        assert.match(config.skybox, /^assets\/generated\/skybox\/[a-z_]+\.jpg$/);
-    }
-});
-
-test('maps without a pre-generated panorama keep the procedural gradient dome (no skybox field)', () => {
-    for (const id of ['industrial', 'circuit_dome', 'cyber', 'pillar', 'lava', 'crystal', 'mecha', 'minecraft', 'esport_arena', 'dropworks', 'mega_pinball']) {
-        assert.ok(MAPS[id], `${id} exists in MAPS`);
-        assert.equal(MAPS[id].skybox, undefined, `${id} should have no skybox field`);
+// PRODUCT DECISION (2026-07-30): the AI panorama skyboxes were reverted after
+// playtesting — the user judged the procedural gradient dome better in-game.
+// The loader stays in the tree (pure math + fallback contract above remain
+// covered) but NO map may opt in until a future decision reverses this.
+test('no MAPS entry declares a skybox field (panorama revert is locked in)', () => {
+    for (const [id, config] of Object.entries(MAPS)) {
+        assert.equal(config.skybox, undefined, `${id} must not declare skybox`);
     }
 });

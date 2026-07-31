@@ -562,7 +562,16 @@ export class Network {
     async hostGame(playerName) {
         this.playerName = playerName;
         this.isHost = true;
-        await this.initPeer();
+        try {
+            await this.initPeer();
+        } catch (error) {
+            // Peer never opened. Drop the host claim instead of leaving the session as
+            // "host with no connection" — main.js's two simulation loops split on exactly
+            // that pair (RAF skips hosts, bg loop skips disconnected), so a stuck flag
+            // freezes every later solo/bot match in this tab.
+            this.isHost = false;
+            throw error;
+        }
         this.hostRoomCode = this.roomCode;
         await this._reservePlayerIdentity(this.playerId, this.resumeToken);
         this._updateMigrationRoster([{
@@ -577,7 +586,10 @@ export class Network {
 
     joinGame(roomCode, playerName, password = '') {
         if (this._joinPromise) return this._joinPromise;
-        const promise = this._joinGame(roomCode, playerName, password);
+        // Normalize here, not at the call sites: a pasted room code routinely carries
+        // surrounding whitespace/newlines, and peer.connect() on a padded id silently
+        // targets a peer that does not exist.
+        const promise = this._joinGame(String(roomCode ?? '').trim(), playerName, password);
         this._joinPromise = promise;
         promise.finally(() => {
             if (this._joinPromise === promise) this._joinPromise = null;
@@ -606,7 +618,18 @@ export class Network {
         });
 
         return new Promise((resolve, reject) => {
+            // PeerJS reports an unreachable room code (host gone, lobby expired, typo) as a
+            // `peer-unavailable` error on the Peer — never on the connection, whose 'open'
+            // and 'error' both stay silent. Without this the join promise never settles and
+            // the Join button hangs forever with no message, which reads as "can't join".
+            const onPeerError = err => {
+                if (err?.type !== 'peer-unavailable') return;
+                removeConnectionListener(this.peer, 'error', onPeerError);
+                reject(new Error('Lobby not found — it may have closed already.'));
+            };
+            this.peer.on('error', onPeerError);
             conn.on('open', () => {
+                removeConnectionListener(this.peer, 'error', onPeerError);
                 this._reconnectAttempts = 0;
                 this.hostConn = conn;
                 this.connections.set(roomCode, conn);
@@ -619,7 +642,10 @@ export class Network {
                 if (this.hostConn === conn) this.hostConn = null;
                 this._scheduleReconnect();
             });
-            conn.on('error', reject);
+            conn.on('error', err => {
+                removeConnectionListener(this.peer, 'error', onPeerError);
+                reject(err);
+            });
         });
     }
 

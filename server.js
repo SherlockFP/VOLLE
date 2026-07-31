@@ -46,7 +46,12 @@ const RATE_LIMITS = {
     mapRead: [90, 60000],
     mapWrite: [10, 60000],
     mapVote: [30, 60000],
-    lobbyWrite: [30, 60000],
+    // Bucketed per source IP, so every tab/browser on one machine (localhost dev) and
+    // everyone behind one NAT shares it. One host alone spends ~5/min on keep-alive plus
+    // a write per join/leave/name-edit; at 30 two or three local clients exhausted the
+    // bucket, and _lobbyApi swallows the 429 — lobbies then vanished and could not be
+    // re-created until the window rolled over.
+    lobbyWrite: [120, 60000],
     account: [10, 60000],
     social: [60, 60000],
     paymentWebhook: [40, 60000],
@@ -86,8 +91,12 @@ const SOCIAL_HUB_MAP_NAMES = Object.freeze({
     skyline: 'Skyline Deck',
     harbor: 'Harbor Commons'
 });
-const LOBBY_TTL = 45000; // 45s stale prune — margin above the 12s host keep-alive
-// (background-tab setInterval throttling can stretch that cadence well past 12s)
+// 90s stale prune. The host keep-alive is a 12s setInterval, but Chrome's intensive
+// throttling clamps timers in a hidden tab to ONE tick per minute — the previous 45s
+// TTL sat below that floor, so a host's lobby silently expired off the browser the
+// moment they tabbed away to a second tab/browser to look for it. 90s survives a full
+// throttled minute plus margin.
+const LOBBY_TTL = 90000;
 
 function pruneLobbies() {
     const now = Date.now();
