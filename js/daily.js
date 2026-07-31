@@ -87,10 +87,16 @@ class DailyClass {
     getChallenges() { this._load(); return this.data.challenges; }
 
     // Maç sonunda ilerleme güncelle. ctx: {won, deflects, bestRally, spikes, damage, winStreak, cleanWin}
+    // Side note for the post-match reward screen: this records which challenges
+    // actually moved this match into `_lastMatch` (before/after per challenge).
+    // js/ui.js consumes it through takeLastMatchProgress(), which clears it — so a
+    // practice match (which never calls progress()) can't replay a stale delta.
     progress(ctx) {
         this._load();
+        const deltas = [];
         this.data.challenges.forEach(c => {
             if (c.claimed) return;
+            const before = c.progress;
             switch (c.type) {
                 case 'wins': if (ctx.won) c.progress++; break;
                 case 'deflects': c.progress += ctx.deflects || 0; break;
@@ -102,8 +108,21 @@ class DailyClass {
                 case 'cleanWins': if (ctx.cleanWin) c.progress++; break;
             }
             c.progress = Math.min(c.progress, c.target);
+            if (c.progress > before) {
+                deltas.push({ id: c.id, name: c.name, emoji: c.emoji, target: c.target, from: before, to: c.progress });
+            }
         });
+        this._lastMatch = deltas;
         this._save();
+    }
+
+    // Returns (and clears) the challenges that advanced in the last completed
+    // match. Clearing on read keeps the post-match screen honest: it can only
+    // ever show progress from the match it is reporting on.
+    takeLastMatchProgress() {
+        const deltas = this._lastMatch || [];
+        this._lastMatch = [];
+        return deltas;
     }
 
     claim(challengeId) {

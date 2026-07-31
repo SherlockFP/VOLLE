@@ -184,8 +184,20 @@ const DEFAULTS = {
     stats: { gamesPlayed: 0, totalWins: 0, totalDeflects: 0, totalHits: 0, bestRally: 0, totalSpent: 0, winStreak: 0, rankedElo: 1000, rankedGames: 0 },
     unlockedAchievements: [],
     playerName: 'Player',
-    onboardingSeen: false
+    onboardingSeen: false,
+    ftueSeen: false,
+    ftueMatchHintsSeen: false
 };
+
+// Pure: whether the first-run welcome overlay should show, given the persisted flag.
+export function shouldShowFtueWelcome(ftueSeen) {
+    return ftueSeen !== true;
+}
+
+// Pure: whether the first-solo-match HUD hints should arm, given the persisted flag.
+export function shouldArmFirstMatchHints(ftueMatchHintsSeen) {
+    return ftueMatchHintsSeen !== true;
+}
 
 class StoreClass {
     constructor() {

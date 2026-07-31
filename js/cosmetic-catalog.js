@@ -98,7 +98,15 @@ export const COSMETICS = Object.freeze({
     finisher_shatter: item('finisher_shatter', 'finisher', 'Shatter Point', 300, 'rare', ['#e8ffff', '#48a9ff'], 'shatter', 'Opponents crack apart like frozen glass.'),
     finisher_lightning: item('finisher_lightning', 'finisher', 'Thunderstrike', 400, 'epic', ['#fff257', '#3570ff'], 'lightning', 'A bolt seals the elimination in light.'),
     finisher_vortex: item('finisher_vortex', 'finisher', 'Void Collapse', 440, 'epic', ['#c074ff', '#210842'], 'vortex', 'A dark vortex swallows the final hit.'),
-    finisher_explosion: item('finisher_explosion', 'finisher', 'Grand Finale', 620, 'legendary', ['#ffcf3d', '#ff4d1a'], 'explosion', 'A fireworks-grade blast ends the round.')
+    finisher_explosion: item('finisher_explosion', 'finisher', 'Grand Finale', 620, 'legendary', ['#ffcf3d', '#ff4d1a'], 'explosion', 'A fireworks-grade blast ends the round.'),
+
+    // ponytail: "Dark Eater" set — one palette (#c48cff void-purple on #0b0416) across a ball
+    // skin (js/ball.js dark_eater), a knife (js/cosmetics.js KNIVES.dark_eater) and these three
+    // wearables. Every entry reuses the existing 'void' style, so cosmetic-models.js needs no
+    // new builder; the accent sits above the 0.78 bloom threshold so the trim actually glows.
+    cape_dark_eater: item('cape_dark_eater', 'cape', 'Dark Eater Shroud', 560, 'legendary', ['#c48cff', '#0b0416'], 'void', 'Torn voidcloth that drinks the arena light.'),
+    aura_dark_eater: item('aura_dark_eater', 'aura', 'Dark Eater Halo', 540, 'legendary', ['#e6ccff', '#1a0b2e'], 'void', 'A starved ring of dark energy circles you.'),
+    trail_dark_eater: item('trail_dark_eater', 'trail', 'Dark Eater Trail', 500, 'legendary', ['#c48cff', '#2a0f4d'], 'void', 'Each step leaves a bite taken out of the light.')
 });
 
 // ponytail: loadout shape is derived from COSMETIC_TYPES so new types never need a second hardcoded list.

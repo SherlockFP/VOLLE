@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { applyCharacter } from './characters.js';
 import { applyRunes, tickSkillCooldowns, useSkill, DEFAULT_LOADOUT, ULTIMATES } from './skills.js';
 import { createKnifeModel, createRocketLauncherModel, disposeObject3D } from './weapon-models.js';
-import { createKnifeAnimationState, resolveKnifePose, startKnifeAnimation, stepKnifeAnimation } from './knife-animation.js';
+import { createKnifeAnimationState, resolveKnifePose, startKnifeAnimation, stepKnifeAnimation, viewmodelFrame } from './knife-animation.js';
 
 const STAMINA_PER_DEFLECT = 7;
 const RAPID_DEFLECT_COST_STEP = 2;
@@ -458,43 +458,44 @@ export class Player {
         this.armGroup = new THREE.Group();
         this.armGroup.position.set(0.25, -0.2, -0.1);
 
-        const armGeo = new THREE.BoxGeometry(0.1, 0.1, 0.3);
+        // Roblox-style blocky mitt: sleeve -> team cuff -> one solid fist block + a thumb.
+        // The four capsule "fingers" and the capsule glove that used to sit at z -0.36/-0.40
+        // are gone: they straddled the exact span the knife handle occupies, so every held
+        // item speared straight through them. The fist is now one closed box and the item's
+        // GRIP (not its pommel) is what lands inside it — see knife-animation.js
+        // VIEWMODEL_BASE_POSITION and the per-model z offsets that keep that true.
+        const armGeo = new THREE.BoxGeometry(0.115, 0.105, 0.38);
         this.armMat = this.renderer.createToonMaterial(
             this.team === 'red' ? 0xee5555 : 0x5577dd,
         );
         this.armMesh = new THREE.Mesh(armGeo, this.armMat);
-        this.armMesh.position.set(0, 0, -0.1);
+        this.armMesh.position.set(0, 0.015, -0.11);
         this.armGroup.add(this.armMesh);
 
-        const handGeo = new THREE.BoxGeometry(0.12, 0.11, 0.12);
-        const handMat = this.renderer.createToonMaterial(0xf5c6a0);
-        this.handMesh = new THREE.Mesh(handGeo, handMat);
-        this.handMesh.position.set(0, 0, -0.28);
-        this.armGroup.add(this.handMesh);
-
-        const gloveGeo = new THREE.CapsuleGeometry(0.07, 0.09, 4, 8);
         this.gloveMat = this.renderer.createToonMaterial(
             this.team === 'red' ? 0xee5555 : 0x5577dd,
         );
-        this.gloveMesh = new THREE.Mesh(gloveGeo, this.gloveMat);
-        this.gloveMesh.rotation.x = Math.PI / 2;
-        this.gloveMesh.position.set(0, 0, -0.36);
+        this.gloveMesh = new THREE.Mesh(new THREE.BoxGeometry(0.135, 0.125, 0.06), this.gloveMat);
+        this.gloveMesh.position.set(0, -0.01, -0.285);
         this.armGroup.add(this.gloveMesh);
 
+        const handGeo = new THREE.BoxGeometry(0.155, 0.15, 0.2);
+        const handMat = this.renderer.createToonMaterial(0xf5c6a0);
+        this.handMesh = new THREE.Mesh(handGeo, handMat);
+        this.handMesh.position.set(0.005, -0.07, -0.385);
+        this.armGroup.add(this.handMesh);
+
+        // Single thumb block, parented to the fist so hiding the hand hides it too.
+        // Still a group: _updateKnifeViewmodel() curls its children on slash/stab.
         this.fingerGroup = new THREE.Group();
-        for (let index = 0; index < 4; index++) {
-            const finger = new THREE.Mesh(new THREE.CapsuleGeometry(0.014, 0.055, 2, 5), this.gloveMat);
-            finger.rotation.x = Math.PI / 2;
-            finger.rotation.z = -0.22;
-            finger.position.set((index - 1.5) * 0.031, -0.045, -0.4);
-            this.fingerGroup.add(finger);
-        }
-        this.armGroup.add(this.fingerGroup);
+        const thumb = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.055, 0.095), this.gloveMat);
+        thumb.position.set(-0.067, 0.058, -0.03);
+        this.fingerGroup.add(thumb);
+        this.handMesh.add(this.fingerGroup);
 
         this.knifeStyle = { id: 'training', model: 'classic', finish: 'satin', color: '#d7f3ff', accent: '#4e7d99' };
         this.knifeGroup = createKnifeModel(this.knifeStyle);
-        this.knifeGroup.position.set(0.08, -0.08, -0.5);
-        this.knifeGroup.rotation.set(-0.08, 0.18, -0.34);
+        this._applyViewmodelFrame(this.knifeGroup, 'classic');
         this.armGroup.add(this.knifeGroup);
 
         this.camera.add(this.armGroup);
@@ -516,19 +517,24 @@ export class Player {
         this._syncViewmodelWeapon();
     }
 
+    // One place decides where a held item sits in the fist, for knives and the launcher alike.
+    _applyViewmodelFrame(group, model) {
+        const frame = viewmodelFrame(model);
+        group.position.set(...frame.position);
+        group.rotation.set(...frame.rotation);
+        group.scale.setScalar(frame.scale);
+    }
+
     _syncViewmodelWeapon() {
         if (!this.armGroup) return;
         const visible = this.knifeGroup?.visible !== false;
         disposeObject3D(this.knifeGroup);
         if (this.charId === 'soldier') {
             this.knifeGroup = createRocketLauncherModel(this.team);
-            this.knifeGroup.position.set(0.11, -0.1, -0.52);
-            this.knifeGroup.rotation.set(-0.12, -0.16, 0.04);
-            this.knifeGroup.scale.setScalar(0.62);
+            this._applyViewmodelFrame(this.knifeGroup, 'rocket');
         } else {
             this.knifeGroup = createKnifeModel(this.knifeStyle);
-            this.knifeGroup.position.set(0.08, -0.08, -0.5);
-            this.knifeGroup.rotation.set(-0.08, 0.18, -0.34);
+            this._applyViewmodelFrame(this.knifeGroup, this.knifeGroup.userData.model);
             this.knifeAnimation = createKnifeAnimationState(this.knifeGroup.userData.model);
         }
         this.knifeGroup.visible = visible;

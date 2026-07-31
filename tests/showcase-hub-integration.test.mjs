@@ -50,9 +50,10 @@ test('social runtimes use local allowlisted maps and obsolete assets stay remove
     const paths = ['js/main.js', 'js/social-lobby.js', 'server.js', 'index.html', 'css/polish.css'];
     const runtime = paths.map(read).join('\n');
     assert.doesNotMatch(runtime, /\bisland\b/i);
-    assert.match(read('server.js'), /estate: 'Grand Estate'/);
-    assert.match(read('server.js'), /skyline: 'Skyline Deck'/);
-    assert.match(read('server.js'), /harbor: 'Harbor Commons'/);
+    assert.match(read('server.js'), /plaza: 'Aurora Grand Plaza'/);
+    for (const retired of ['estate', 'skyline', 'harbor']) {
+        assert.doesNotMatch(read('server.js'), new RegExp(`\\b${retired}\\b`), `retired hub map "${retired}" still allowlisted`);
+    }
     assert.doesNotMatch(read('js/main.js'), /queueMicrotask\(\(\) => this\._enterSocialLobby\(/);
     assert.equal(existsSync(new URL('../assets/user-content/olann-island/olann-island.glb', import.meta.url)), false);
 });
@@ -81,19 +82,18 @@ test('social hub API accepts each current map and rejects the retired map id', a
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code, mapId, hostName: 'QA', players: 1 })
     });
-    for (const [index, mapId] of ['estate', 'skyline', 'harbor'].entries()) {
+    for (const [index, mapId] of ['plaza'].entries()) {
         const response = await post(mapId, `QA${process.pid}${index}`);
         assert.equal(response.status, 200);
         assert.equal((await response.json()).ok, true);
     }
     const rooms = await (await fetch(endpoint)).json();
     assert.deepEqual(rooms.filter(room => room.code.startsWith(`QA${process.pid}`)).map(room => [room.mapId, room.mapName]), [
-        ['estate', 'Grand Estate'],
-        ['skyline', 'Skyline Deck'],
-        ['harbor', 'Harbor Commons']
+        ['plaza', 'Aurora Grand Plaza']
     ]);
-    const retired = await post('island');
-    assert.equal(retired.status, 400);
+    for (const retired of ['island', 'estate', 'skyline', 'harbor']) {
+        assert.equal((await post(retired)).status, 400, `retired map id "${retired}" must be rejected`);
+    }
     const prototypeKey = await post('__proto__');
     assert.equal(prototypeKey.status, 400);
 });

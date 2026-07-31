@@ -1,6 +1,6 @@
 const CASES = Object.freeze({
     kickoff: { price: 120, drops: [
-        ['knife', 'tide', 'rare', 28], ['knife', 'flare', 'rare', 28], ['knife', 'prism', 'epic', 16], ['knife', 'sherlock', 'legendary', 3],
+        ['knife', 'tide', 'rare', 28], ['knife', 'flare', 'rare', 28], ['knife', 'prism', 'epic', 16], ['knife', 'stiletto', 'rare', 10], ['knife', 'sherlock', 'legendary', 3],
         ['avatar', 'neon', 'rare', 12], ['avatar', 'frost', 'rare', 7], ['avatar', 'astro', 'epic', 4], ['avatar', 'arcade', 'legendary', 2]
     ] },
     chroma: { price: 180, drops: [
@@ -8,7 +8,7 @@ const CASES = Object.freeze({
         ['avatar', 'samurai', 'rare', 10], ['avatar', 'moss', 'rare', 8], ['avatar', 'striker', 'epic', 4], ['avatar', 'void', 'epic', 2], ['avatar', 'circuit', 'rare', 7]
     ] },
     arsenal: { price: 240, drops: [
-        ['knife', 'prism', 'epic', 32], ['knife', 'crimson_web', 'epic', 25], ['knife', 'fade', 'legendary', 10], ['knife', 'doppler', 'legendary', 5], ['knife', 'sherlock', 'legendary', 3],
+        ['knife', 'prism', 'epic', 32], ['knife', 'crimson_web', 'epic', 25], ['knife', 'cleaver', 'epic', 14], ['knife', 'fade', 'legendary', 10], ['knife', 'doppler', 'legendary', 5], ['knife', 'sherlock', 'legendary', 3],
         ['avatar', 'astro', 'rare', 10], ['avatar', 'void', 'epic', 9], ['avatar', 'royal', 'legendary', 6]
     ] },
     elemental: { price: 190, drops: [
@@ -20,7 +20,7 @@ const CASES = Object.freeze({
         ['avatar', 'bee_runner', 'epic', 8], ['avatar', 'axolotl_scout', 'legendary', 4], ['knife', 'pixel_edge', 'rare', 2]
     ] },
     mythic: { price: 280, drops: [
-        ['knife', 'aurora', 'legendary', 8], ['knife', 'reactor', 'legendary', 8], ['ball', 'portal', 'legendary', 10], ['ball', 'blackhole', 'legendary', 6],
+        ['knife', 'aurora', 'legendary', 8], ['knife', 'reactor', 'legendary', 8], ['knife', 'dark_eater', 'legendary', 5], ['ball', 'portal', 'legendary', 10], ['ball', 'blackhole', 'legendary', 6],
         ['avatar', 'galaxy_idol', 'legendary', 10], ['avatar', 'infernal_smile', 'legendary', 10], ['cosmetic', 'cape_royal', 'legendary', 12], ['cosmetic', 'cape_glitch', 'legendary', 10], ['cosmetic', 'shoes_magma', 'legendary', 12], ['cosmetic', 'impact_glitch', 'legendary', 14]
     ] }
 });

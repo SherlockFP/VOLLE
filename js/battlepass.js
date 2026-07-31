@@ -29,7 +29,10 @@ export const BALL_PRICES = Object.freeze({
     phoenix: 430, cosmic_serpent: 450, prism_king: 480,
     // ponytail: NewSkins pass — 6 more skins (js/ball.js BALL_SKINS).
     emberfall: 210, glacies: 230, binary_ghost: 310, event_null: 320,
-    wildfire_phantom: 440, oblivion_shard: 470
+    wildfire_phantom: 440, oblivion_shard: 470,
+    // ponytail: model skins (js/ball.js `shape` field) — same shop plumbing, the
+    // projectile just renders a different mesh.
+    shuriken: 280, baseball: 240, blockball: 260, dark_eater: 500
 });
 
 const BALL_IDS = Object.keys(BALL_PRICES);

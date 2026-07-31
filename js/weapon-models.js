@@ -1,5 +1,9 @@
 import * as THREE from 'three';
 
+// Every knife silhouette this module can build. js/knife-animation.js keeps one
+// viewmodel frame entry per id — tests/viewmodel-cosmetics.test.mjs pins them in sync.
+export const KNIFE_MODELS = Object.freeze(['classic', 'bayonet', 'karambit', 'butterfly', 'tanto', 'cleaver', 'dagger']);
+
 function mat(color, metalness = 0.2, roughness = 0.55, emissive = 0x000000) {
     return new THREE.MeshStandardMaterial({ color, metalness, roughness, emissive });
 }
@@ -42,6 +46,27 @@ function finishMaterials(style) {
 
 function bladeGeometry(length, width, profile = 'drop') {
     const shape = new THREE.Shape();
+    if (profile === 'tanto') {
+        // Chisel tip: straight spine, flat angled point — reads as a hard silhouette
+        // next to the drop-point/bayonet curves.
+        shape.moveTo(-width * 0.5, 0);
+        shape.lineTo(-width * 0.5, length * 0.84);
+        shape.lineTo(-width * 0.06, length);
+        shape.lineTo(width * 0.5, length * 0.66);
+        shape.lineTo(width * 0.5, 0);
+        shape.closePath();
+        return extrudeBlade(shape);
+    }
+    if (profile === 'dagger') {
+        // Symmetric double-edged stiletto — no belly, mirrored taper to a needle point.
+        shape.moveTo(-width * 0.5, 0);
+        shape.lineTo(-width * 0.42, length * 0.66);
+        shape.lineTo(0, length);
+        shape.lineTo(width * 0.42, length * 0.66);
+        shape.lineTo(width * 0.5, 0);
+        shape.closePath();
+        return extrudeBlade(shape);
+    }
     const shoulder = profile === 'bayonet' ? 0.42 : 0.22;
     const tipBack = profile === 'bayonet' ? 0.9 : 0.76;
     shape.moveTo(-width * 0.5, 0);
@@ -51,6 +76,10 @@ function bladeGeometry(length, width, profile = 'drop') {
     shape.lineTo(width * 0.48, length * (profile === 'bayonet' ? 0.78 : 0.66));
     shape.lineTo(width * 0.52, 0);
     shape.closePath();
+    return extrudeBlade(shape);
+}
+
+function extrudeBlade(shape) {
     const geometry = new THREE.ExtrudeGeometry(shape, { depth: 0.028, bevelEnabled: true, bevelSize: 0.008, bevelThickness: 0.006, bevelSegments: 2 });
     geometry.translate(0, 0, -0.014);
     geometry.rotateX(-Math.PI / 2);
@@ -164,12 +193,76 @@ function addButterfly(group, materials) {
     group.userData.inspectParts = [left, right, bladeRoot];
 }
 
+// Straight chisel-tip blade, square guard, long wrapped grip. Silhouette reads as one
+// hard rectangle + angled point, the opposite of the karambit's curve.
+function addTanto(group, materials) {
+    addBlade(group, materials, { length: 0.5, width: 0.15, profile: 'tanto', z: 0.02 });
+    const collar = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.07, 0.055), materials.edge);
+    collar.position.z = 0.045;
+    const handle = new THREE.Mesh(new THREE.BoxGeometry(0.095, 0.075, 0.3), materials.grip);
+    handle.position.z = 0.2;
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.105, 0.085, 0.045), materials.dark);
+    cap.position.z = 0.37;
+    group.add(collar, handle, cap);
+    for (let index = 0; index < 4; index++) {
+        const wrap = new THREE.Mesh(new THREE.BoxGeometry(0.105, 0.085, 0.03), materials.edge);
+        wrap.position.z = 0.09 + index * 0.072;
+        wrap.rotation.z = index % 2 ? 0.2 : -0.2;
+        group.add(wrap);
+    }
+}
+
+// Broad rectangular blade with a bolt hole near the spine and a stubby handle —
+// the heaviest, widest silhouette in the set.
+function addCleaver(group, materials) {
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.034, 0.42), materials.blade);
+    blade.position.set(0, 0.03, -0.24);
+    const edge = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.014, 0.4), materials.edge);
+    edge.position.set(0, -0.028, -0.24);
+    const spine = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.026, 0.42), materials.dark);
+    spine.position.set(0.125, 0.05, -0.24);
+    const hole = new THREE.Mesh(new THREE.TorusGeometry(0.038, 0.012, 6, 14), materials.edge);
+    hole.rotation.x = Math.PI / 2;
+    hole.position.set(0.08, 0.03, -0.36);
+    const bolster = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.11, 0.07), materials.edge);
+    bolster.position.set(0, 0.02, 0.02);
+    const handle = new THREE.Mesh(new THREE.CapsuleGeometry(0.062, 0.2, 4, 10), materials.grip);
+    handle.rotation.x = Math.PI / 2;
+    handle.position.set(0, 0.01, 0.17);
+    const butt = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.05), materials.dark);
+    butt.position.set(0, 0.01, 0.3);
+    group.add(blade, edge, spine, hole, bolster, handle, butt);
+}
+
+// Symmetric double-edged dagger: wide crossguard, tapered grip, round pommel.
+function addDagger(group, materials) {
+    addBlade(group, materials, { length: 0.58, width: 0.13, profile: 'dagger', z: 0.02 });
+    const guard = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.042, 0.055), materials.edge);
+    guard.position.z = 0.045;
+    const guardTipL = new THREE.Mesh(new THREE.ConeGeometry(0.028, 0.07, 6), materials.edge);
+    guardTipL.rotation.z = Math.PI / 2;
+    guardTipL.position.set(-0.2, 0, 0.045);
+    const guardTipR = guardTipL.clone();
+    guardTipR.rotation.z = -Math.PI / 2;
+    guardTipR.position.x = 0.2;
+    const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.062, 0.28, 8), materials.grip);
+    handle.rotation.x = Math.PI / 2;
+    handle.position.z = 0.21;
+    const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.062, 10, 8), materials.dark);
+    pommel.position.z = 0.37;
+    group.add(guard, guardTipL, guardTipR, handle, pommel);
+    addGripRibs(group, materials.dark, 0.21, 4, 0.2);
+}
+
 export function createKnifeModel(style = {}) {
     const group = new THREE.Group();
     const materials = finishMaterials(style);
-    const model = ['classic', 'bayonet', 'karambit', 'butterfly'].includes(style.model) ? style.model : 'classic';
+    const model = KNIFE_MODELS.includes(style.model) ? style.model : 'classic';
     if (model === 'karambit') addKarambit(group, materials);
     else if (model === 'butterfly') addButterfly(group, materials);
+    else if (model === 'tanto') addTanto(group, materials);
+    else if (model === 'cleaver') addCleaver(group, materials);
+    else if (model === 'dagger') addDagger(group, materials);
     else addCombatKnife(group, materials, model === 'bayonet');
 
     const seed = Math.abs(Math.trunc(Number(style.patternSeed) || 0));

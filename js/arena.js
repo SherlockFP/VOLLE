@@ -311,6 +311,86 @@ export const MAPS = {
         floorRed: 0xc9a878, floorBlue: 0xa89060, wallColor: 0xe8d8b0,
         skyTop: 0x6aa5ff, skyBottom: 0xffe8c8, fogColor: 0xffd8a8,
         hasOcean: false, hasGlass: false, isTemple: true, size: 'medium', weather: 'clear'
+    },
+    aquarium: {
+        name: '🐠 Aquarium',
+        courtWidth: 118, courtLength: 132, wallHeight: 24, ceilingHeight: 34,
+        floorRed: 0xd06a5c, floorBlue: 0x3f8fbf, wallColor: 0x8fe6ef,
+        skyTop: 0x02324a, skyBottom: 0x0a6f8c, fogColor: 0x0d5f7a,
+        hasOcean: false, hasGlass: true, isAquarium: true, size: 'large',
+        weather: 'indoor', openSides: false,
+        spectator: {
+            bounds: { minX: -74, maxX: 74, minY: 0, maxY: 44, minZ: -82, maxZ: 82 },
+            stands: [
+                { side: 'north', tiers: 3, length: 62, depth: 2.2, rise: 0.8, setback: 6 },
+                { side: 'south', tiers: 3, length: 62, depth: 2.2, rise: 0.8, setback: 6 }
+            ]
+        },
+        gameplay: {
+            mechanics: ['glass-tunnel', 'reef-cover', 'symmetric-lanes'],
+            fallDeathY: -12, playerSpawnZ: 42, symmetric: true
+        },
+        sky: { horizonColor: 0x0a6f8c, sun: false, sunColor: 0x8fe6ef, cloudAmount: 0 }
+    },
+    museum: {
+        name: '🗿 Grand Museum',
+        courtWidth: 132, courtLength: 142, wallHeight: 26, ceilingHeight: 36,
+        floorRed: 0xb9564e, floorBlue: 0x4a63b4, wallColor: 0xf0e6d2,
+        skyTop: 0x101a33, skyBottom: 0x2a3a5e, fogColor: 0x1d2942,
+        hasOcean: false, hasGlass: false, isMuseum: true, size: 'xxl',
+        weather: 'indoor', openSides: false,
+        spectator: {
+            bounds: { minX: -82, maxX: 82, minY: 0, maxY: 46, minZ: -88, maxZ: 88 },
+            stands: [
+                { side: 'west', tiers: 3, length: 68, depth: 2.4, rise: 0.85, setback: 8 },
+                { side: 'east', tiers: 3, length: 68, depth: 2.4, rise: 0.85, setback: 8 }
+            ]
+        },
+        gameplay: {
+            mechanics: ['colonnade-cover', 'exhibit-sightlines', 'symmetric-spawns'],
+            fallDeathY: -12, playerSpawnZ: 46, symmetric: true
+        },
+        sky: { horizonColor: 0x2a3a5e, sun: false, sunColor: 0xbcd6ff, cloudAmount: 0.05 }
+    },
+    casino: {
+        name: '🎰 Neon Casino',
+        courtWidth: 116, courtLength: 128, wallHeight: 22, ceilingHeight: 30,
+        floorRed: 0xb52b45, floorBlue: 0x3350c8, wallColor: 0x2a1140,
+        skyTop: 0x160726, skyBottom: 0x3a0f4d, fogColor: 0x240a35,
+        hasOcean: false, hasGlass: false, isCasino: true, size: 'large',
+        weather: 'indoor', openSides: false,
+        spectator: {
+            bounds: { minX: -72, maxX: 72, minY: 0, maxY: 40, minZ: -78, maxZ: 78 },
+            stands: [
+                { side: 'north', tiers: 3, length: 58, depth: 2.2, rise: 0.8, setback: 6 },
+                { side: 'south', tiers: 3, length: 58, depth: 2.2, rise: 0.8, setback: 6 }
+            ]
+        },
+        gameplay: {
+            mechanics: ['slot-bank-cover', 'roulette-lanes', 'symmetric-spawns'],
+            fallDeathY: -12, playerSpawnZ: 40, symmetric: true
+        },
+        sky: { horizonColor: 0x3a0f4d, sun: false, sunColor: 0xffd36a, cloudAmount: 0 }
+    },
+    subway: {
+        name: '🚇 Metro Interchange',
+        courtWidth: 136, courtLength: 150, wallHeight: 20, ceilingHeight: 28,
+        floorRed: 0xb04a3c, floorBlue: 0x3d6f91, wallColor: 0x2d3a42,
+        skyTop: 0x0b1116, skyBottom: 0x1e2a31, fogColor: 0x162026,
+        hasOcean: false, hasGlass: false, isSubway: true, size: 'xxl',
+        weather: 'indoor', openSides: false,
+        spectator: {
+            bounds: { minX: -86, maxX: 86, minY: 0, maxY: 38, minZ: -92, maxZ: 92 },
+            stands: [
+                { side: 'north', tiers: 3, length: 64, depth: 2.2, rise: 0.8, setback: 7 },
+                { side: 'south', tiers: 3, length: 64, depth: 2.2, rise: 0.8, setback: 7 }
+            ]
+        },
+        gameplay: {
+            mechanics: ['pillar-cover', 'mezzanine-platforms', 'symmetric-spawns'],
+            fallDeathY: -14, playerSpawnZ: 48, symmetric: true
+        },
+        sky: { horizonColor: 0x1e2a31, sun: false, sunColor: 0xffb347, cloudAmount: 0 }
     }
 };
 
@@ -428,6 +508,10 @@ export const MAP_THEMES = {
     tournament:   { '--ui-primary': '#ffcc44', '--ui-secondary': '#ff8844', '--ui-bg': '#1a1a0a', '--ui-accent': '#ffaa44' },
     rooftop:      { '--ui-primary': '#5577aa', '--ui-secondary': '#8899bb', '--ui-bg': '#101418', '--ui-accent': '#aabbdd' },
     temple:       { '--ui-primary': '#c9a878', '--ui-secondary': '#a89060', '--ui-bg': '#1e1a14', '--ui-accent': '#ffd8a8' },
+    aquarium:     { '--ui-primary': '#4fd6e8', '--ui-secondary': '#7de3b0', '--ui-bg': '#04283a', '--ui-accent': '#ffd27a' },
+    museum:       { '--ui-primary': '#e5d5ac', '--ui-secondary': '#8fa8e0', '--ui-bg': '#131c33', '--ui-accent': '#ffd489' },
+    casino:       { '--ui-primary': '#ffd36a', '--ui-secondary': '#ff4d7d', '--ui-bg': '#1a0a28', '--ui-accent': '#ff6adf' },
+    subway:       { '--ui-primary': '#ffb347', '--ui-secondary': '#6fc3d8', '--ui-bg': '#101a20', '--ui-accent': '#ffd88a' },
     classic:      { '--ui-primary': '#457bca', '--ui-secondary': '#6fa8dc', '--ui-bg': '#0f0f23', '--ui-accent': '#ff8800' }
 };
 
@@ -565,6 +649,10 @@ export class Arena {
         if (this.config.isMecha) this.buildMechaProps();
         if (this.config.isAtlantis) this.buildAtlantisProps();
         if (this.config.isTemple) this.buildTempleProps();
+        if (this.config.isAquarium) this.buildAquariumProps();
+        if (this.config.isMuseum) this.buildMuseumProps();
+        if (this.config.isCasino) this.buildCasinoProps();
+        if (this.config.isSubway) this.buildSubwayProps();
         if (this.config.isVerticalDrop) this.buildVerticalDropProps();
         if (this.config.isStadium) this.buildStadiumProps();
         if (this.config.isPinball) this.buildPinballComplex();
@@ -590,11 +678,11 @@ export class Arena {
         if (!this.bounds.maxY) this.bounds.maxY = this.ceilingHeight || 30;
         // Ambient particles based on map theme
         const particleType = (this.config.isVolcano || this.config.isLava) ? 'ember'
-            : (this.config.isIce || this.config.isCrystal) ? 'crystal'
+            : (this.config.isIce || this.config.isCrystal || this.config.isAquarium) ? 'crystal'
             : (this.config.isJungle || this.config.isBeachOpen) ? 'leaf'
             : (this.config.weather === 'snow') ? 'snow'
             : (this.config.weather === 'rain') ? 'rain'
-            : (this.config.isSpace || this.config.isNeon || this.config.isCosmeticStudio) ? 'spark'
+            : (this.config.isSpace || this.config.isNeon || this.config.isCosmeticStudio || this.config.isCasino) ? 'spark'
             : 'dust';
         this.addAmbientParticles(particleType);
         this._loadArenaDecor();
@@ -2397,6 +2485,21 @@ export class Arena {
                 foli.castShadow = true;
                 this.add(foli);
             });
+        } else if (['aquarium', 'museum', 'casino', 'subway'].includes(id)) {
+            // Themed corner plinth — matches the interior-hall maps' own architecture.
+            const g = new THREE.BoxGeometry(1.8, 1.1, 1.8);
+            const m = this.renderer.createToonMaterial(c.wallColor);
+            const capGeo = new THREE.BoxGeometry(2.1, 0.22, 2.1);
+            corners.forEach(([x, z]) => {
+                const plinth = new THREE.Mesh(g, m);
+                plinth.position.set(x, 0.55, z);
+                plinth.castShadow = true;
+                this.add(plinth);
+                this.addCollidable(plinth, new THREE.Vector3(x, 0, z), 1.2);
+                const cap = new THREE.Mesh(capGeo, m);
+                cap.position.set(x, 1.2, z);
+                this.add(cap);
+            });
         } else {
             // Default: barrel (original behavior) for colosseum/cloud/neon/canyon
             const barrelGeo = new THREE.CylinderGeometry(0.5, 0.55, 1.2, 8);
@@ -2637,6 +2740,758 @@ export class Arena {
         this.add(this._atlantisBubbles);
     }
 
+
+    // -----------------------------------------------------------------------
+    // Aquarium / Grand Museum / Neon Casino / Metro Interchange.
+    // buildWalls() and buildCeiling() are no-ops in this file, so each builder
+    // below owns the whole enclosure for its map — that shell is what gives these
+    // arenas their silhouette. Geometry + materials are created once at map load
+    // and shared across every repeat instance (same pattern as
+    // buildColosseumProps); nothing here allocates per frame. Animated props
+    // register into this._mapAnimators and are mutated in place by update().
+    // Cover sits on mirrored coordinate pairs so both halves play identically.
+    // -----------------------------------------------------------------------
+
+    _placeMesh(geometry, material, x, y, z, rotationY = 0) {
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.position.set(x, y, z);
+        if (rotationY) mesh.rotation.y = rotationY;
+        this.add(mesh);
+        return mesh;
+    }
+
+    _animateProp(object, kind, params) {
+        this._mapAnimators ||= [];
+        this._mapAnimators.push({ object, kind, ...params });
+    }
+
+    // Court inside a glass barrel-vault tunnel; everything past the glass is open
+    // ocean — seabed, kelp forest, coral banks, fish schools, mantas, jellyfish.
+    buildAquariumProps() {
+        const halfW = this.courtWidth / 2;
+        const halfL = this.courtLength / 2;
+        const tunnelR = halfW + 8;
+        const squash = (this.ceilingHeight + 3) / tunnelR;
+        const seabedY = -8;
+
+        // --- open water + seabed, read through the glass ---
+        const water = this._placeMesh(
+            new THREE.SphereGeometry(300, 24, 16),
+            new THREE.MeshBasicMaterial({ color: 0x0a5c7c, side: THREE.BackSide }),
+            0, 20, 0
+        );
+        water.scale.y = 0.8;
+        const seabed = this._placeMesh(
+            new THREE.CircleGeometry(285, 40),
+            new THREE.MeshBasicMaterial({ color: 0x5d8e93 }),
+            0, seabedY, 0
+        );
+        seabed.rotation.x = -Math.PI / 2;
+
+        // --- the tunnel: glass tube + steel ribs + capped mouths ---
+        const glassMat = new THREE.MeshPhysicalMaterial({
+            color: 0xbfefff, transparent: true, opacity: 0.13,
+            roughness: 0.05, metalness: 0, side: THREE.DoubleSide
+        });
+        const vault = this._placeMesh(
+            new THREE.CylinderGeometry(tunnelR, tunnelR, this.courtLength + 36, 44, 1, true),
+            glassMat, 0, 0, 0
+        );
+        vault.rotation.x = Math.PI / 2;
+        vault.scale.z = squash;
+
+        const ribMat = this.renderer.createToonMaterial(0x2b7a8c);
+        const ribGeo = new THREE.TorusGeometry(tunnelR, 0.5, 6, 40);
+        for (let i = -5; i <= 5; i++) {
+            this._placeMesh(ribGeo, ribMat, 0, 0, i * 15).scale.y = squash;
+        }
+        const mouthMat = this.renderer.createToonMaterial(0x0b4a63);
+        const mouthGeo = new THREE.CircleGeometry(tunnelR, 40);
+        const archGeo = new THREE.TorusGeometry(tunnelR + 1.2, 1.4, 8, 40);
+        for (const side of [-1, 1]) {
+            const z = side * (halfL + 17);
+            const cap = this._placeMesh(mouthGeo, mouthMat, 0, 0, z, side > 0 ? Math.PI : 0);
+            cap.scale.y = squash;
+            this._placeMesh(archGeo, ribMat, 0, 0, z).scale.y = squash;
+        }
+
+        // --- sun shafts punching down through the water ---
+        const shaftMat = new THREE.MeshBasicMaterial({
+            color: 0x9fe8ff, transparent: true, opacity: 0.07, side: THREE.DoubleSide
+        });
+        const shaftGeo = new THREE.ConeGeometry(8, 60, 10, 1, true);
+        for (const [x, z] of [[-46, -50], [46, -50], [-46, 50], [46, 50], [0, 0], [-84, 0], [84, 0]]) {
+            this._placeMesh(shaftGeo, shaftMat, x, 34, z);
+        }
+
+        // --- kelp forest on the seabed (sways) ---
+        const kelpMat = new THREE.MeshBasicMaterial({
+            color: 0x2bd68f, transparent: true, opacity: 0.7, side: THREE.DoubleSide
+        });
+        const bladeGeo = new THREE.PlaneGeometry(1.2, 17);
+        for (let i = 0; i < 26; i++) {
+            const angle = (i / 26) * Math.PI * 2;
+            const dist = tunnelR + 18 + (i % 4) * 11;
+            const kelp = new THREE.Group();
+            kelp.position.set(Math.cos(angle) * dist, seabedY, Math.sin(angle) * dist);
+            for (let j = 0; j < 3; j++) {
+                const blade = new THREE.Mesh(bladeGeo, kelpMat);
+                blade.position.set((j - 1) * 0.6, 8.5 + j * 1.4, 0);
+                blade.rotation.y = j * 1.1;
+                kelp.add(blade);
+            }
+            this.add(kelp);
+            this._animateProp(kelp, 'sway', { speed: 1.1 + (i % 3) * 0.2, amp: 0.15, phase: i * 0.7 });
+        }
+
+        // --- outer reef rocks ---
+        const outerRockMat = this.renderer.createToonMaterial(0x3c6f74);
+        const outerRockGeo = new THREE.DodecahedronGeometry(6, 0);
+        for (let i = 0; i < 14; i++) {
+            const angle = (i / 14) * Math.PI * 2 + 0.22;
+            const dist = tunnelR + 26 + (i % 3) * 14;
+            const rock = this._placeMesh(
+                outerRockGeo, outerRockMat,
+                Math.cos(angle) * dist, seabedY + 2, Math.sin(angle) * dist
+            );
+            rock.rotation.set(i * 0.4, i * 0.9, i * 0.3);
+            rock.scale.setScalar(0.7 + (i % 4) * 0.35);
+        }
+
+        // --- fish schools: one Points cloud each, orbited by spinning the object ---
+        const schoolMats = [
+            new THREE.PointsMaterial({ color: 0xffd27a, size: 1.1, transparent: true, opacity: 0.9 }),
+            new THREE.PointsMaterial({ color: 0x9ff5ff, size: 0.9, transparent: true, opacity: 0.85 })
+        ];
+        for (let s = 0; s < 4; s++) {
+            const count = 90;
+            const positions = new Float32Array(count * 3);
+            const radius = tunnelR + 30 + s * 26;
+            for (let i = 0; i < count; i++) {
+                positions[i * 3] = radius + (Math.random() - 0.5) * 24;
+                positions[i * 3 + 1] = 6 + s * 10 + (Math.random() - 0.5) * 12;
+                positions[i * 3 + 2] = (Math.random() - 0.5) * 34;
+            }
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            const school = new THREE.Points(geo, schoolMats[s % 2]);
+            this.add(school);
+            this._animateProp(school, 'spin', { speed: 0.05 + s * 0.02, phase: s * 1.6 });
+        }
+
+        // --- big silhouettes: mantas + one whale shark gliding past the glass ---
+        const mantaMat = new THREE.MeshBasicMaterial({ color: 0x123f52 });
+        const mantaWingGeo = new THREE.ConeGeometry(5.5, 12, 4);
+        const mantaBodyGeo = new THREE.SphereGeometry(2.2, 10, 8);
+        const mantaTailGeo = new THREE.CylinderGeometry(0.25, 0.05, 9, 5);
+        for (let i = 0; i < 3; i++) {
+            const manta = new THREE.Group();
+            const body = new THREE.Mesh(mantaBodyGeo, mantaMat);
+            body.scale.set(1.6, 0.35, 2.2);
+            manta.add(body);
+            for (const side of [-1, 1]) {
+                const wing = new THREE.Mesh(mantaWingGeo, mantaMat);
+                wing.scale.set(1, 0.16, 1);
+                wing.rotation.z = side * Math.PI / 2;
+                wing.position.x = side * 5;
+                manta.add(wing);
+            }
+            const tail = new THREE.Mesh(mantaTailGeo, mantaMat);
+            tail.rotation.x = Math.PI / 2;
+            tail.position.z = -6;
+            manta.add(tail);
+            this.add(manta);
+            this._animateProp(manta, 'orbit', {
+                radius: tunnelR + 34 + i * 20, squash: 0.85, speed: 0.11 + i * 0.03,
+                phase: i * 2.1, baseY: 16 + i * 9, amp: 2.4
+            });
+        }
+
+        const whaleMat = new THREE.MeshBasicMaterial({ color: 0x0d3145 });
+        const whale = new THREE.Group();
+        const whaleBody = new THREE.Mesh(new THREE.SphereGeometry(9, 14, 10), whaleMat);
+        whaleBody.scale.set(3.2, 0.85, 1);
+        whale.add(whaleBody);
+        const whaleTail = new THREE.Mesh(new THREE.ConeGeometry(6, 12, 4), whaleMat);
+        whaleTail.scale.set(1, 0.2, 1);
+        whaleTail.rotation.z = Math.PI / 2;
+        whaleTail.position.x = -32;
+        whale.add(whaleTail);
+        this.add(whale);
+        this._animateProp(whale, 'orbit', {
+            radius: tunnelR + 96, squash: 0.9, speed: 0.045, phase: 1.2, baseY: 40, amp: 3.5
+        });
+
+        // --- jellyfish drifting outside the glass ---
+        const jellyBellMat = new THREE.MeshBasicMaterial({
+            color: 0xff9fd6, transparent: true, opacity: 0.55
+        });
+        const jellyTentacleMat = new THREE.MeshBasicMaterial({
+            color: 0xffd8f0, transparent: true, opacity: 0.4
+        });
+        const bellGeo = new THREE.SphereGeometry(1.6, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+        const tentacleGeo = new THREE.CylinderGeometry(0.06, 0.02, 4.2, 4);
+        for (let i = 0; i < 14; i++) {
+            const angle = (i / 14) * Math.PI * 2 + 0.4;
+            const dist = tunnelR + 14 + (i % 5) * 9;
+            const jelly = new THREE.Group();
+            const bell = new THREE.Mesh(bellGeo, jellyBellMat);
+            bell.scale.y = 1.3;
+            jelly.add(bell);
+            for (let t = 0; t < 5; t++) {
+                const tentacle = new THREE.Mesh(tentacleGeo, jellyTentacleMat);
+                const ta = (t / 5) * Math.PI * 2;
+                tentacle.position.set(Math.cos(ta) * 0.9, -2.1, Math.sin(ta) * 0.9);
+                jelly.add(tentacle);
+            }
+            const baseY = 10 + (i % 4) * 7;
+            jelly.position.set(Math.cos(angle) * dist, baseY, Math.sin(angle) * dist);
+            this.add(jelly);
+            this._animateProp(jelly, 'bob', { baseY, amp: 2.2, speed: 0.6 + (i % 3) * 0.15, phase: i * 0.9 });
+        }
+
+        // --- in-court cover: mirrored reef banks (collidable) with coral crowns ---
+        const reefRockMat = this.renderer.createToonMaterial(0x2f7f86);
+        const reefRockGeo = new THREE.DodecahedronGeometry(2.8, 0);
+        const coralMats = [0xff6f9f, 0xffc857, 0x8cffc1, 0xa887ff]
+            .map(color => this.renderer.createToonMaterial(color));
+        const coralGeo = new THREE.ConeGeometry(0.55, 3, 6);
+        const reefSpots = [[-20, -30], [20, -30], [-20, 30], [20, 30], [-40, 0], [40, 0]];
+        reefSpots.forEach(([x, z], i) => {
+            const rock = this._placeMesh(reefRockGeo, reefRockMat, x, 1.5, z);
+            rock.rotation.set(0.3, i * 1.1, 0.2);
+            rock.castShadow = true;
+            this.addCollidable(rock, new THREE.Vector3(x, 0, z), 2.9);
+            for (let j = 0; j < 5; j++) {
+                const ca = (j / 5) * Math.PI * 2 + i;
+                const coral = this._placeMesh(
+                    coralGeo, coralMats[(i + j) % coralMats.length],
+                    x + Math.cos(ca) * 2.2, 1.6, z + Math.sin(ca) * 2.2
+                );
+                coral.rotation.z = Math.cos(ca) * 0.35;
+                coral.rotation.x = -Math.sin(ca) * 0.35;
+            }
+        });
+
+        // --- exhibit plaques along the walkway (mirrored, purely visual) ---
+        const plaqueMat = new THREE.MeshBasicMaterial({ color: 0x7df5ff, transparent: true, opacity: 0.75 });
+        const plaqueGeo = new THREE.BoxGeometry(3.4, 1.6, 0.2);
+        for (const side of [-1, 1]) {
+            for (const z of [-46, -16, 16, 46]) {
+                this._placeMesh(plaqueGeo, plaqueMat, side * (halfW - 1.5), 2.4, z, side * -Math.PI / 2);
+            }
+        }
+    }
+
+    // Night gallery: marble colonnades, coffered ceiling with a moonlit oculus,
+    // mirrored dinosaur halls at both ends, statues and lit cases as cover.
+    buildMuseumProps() {
+        const halfW = this.courtWidth / 2;
+        const halfL = this.courtLength / 2;
+        const marble = this.renderer.createToonMaterial(0xf0e6d2);
+        const stone = this.renderer.createToonMaterial(0xd9cbb0);
+        const bone = this.renderer.createToonMaterial(0xe8dfc6);
+        const gold = new THREE.MeshBasicMaterial({ color: 0xffd489 });
+        const moonGlass = new THREE.MeshBasicMaterial({
+            color: 0xbcd6ff, transparent: true, opacity: 0.6, side: THREE.DoubleSide
+        });
+
+        // --- hall shell ---
+        const sideWallGeo = new THREE.BoxGeometry(1.8, 34, this.courtLength + 28);
+        const endWallGeo = new THREE.BoxGeometry(this.courtWidth + 28, 34, 1.8);
+        for (const side of [-1, 1]) {
+            this._placeMesh(sideWallGeo, marble, side * (halfW + 13), 17, 0);
+            this._placeMesh(endWallGeo, marble, 0, 17, side * (halfL + 13));
+        }
+
+        // Arched moonlit windows down both long walls.
+        const windowGeo = new THREE.BoxGeometry(0.5, 13, 6);
+        const windowArchGeo = new THREE.TorusGeometry(3, 0.55, 6, 14, Math.PI);
+        const mullionGeo = new THREE.BoxGeometry(0.6, 13, 0.4);
+        for (const side of [-1, 1]) {
+            for (const z of [-54, -27, 0, 27, 54]) {
+                this._placeMesh(windowGeo, moonGlass, side * (halfW + 12), 13, z);
+                this._placeMesh(windowArchGeo, stone, side * (halfW + 12), 19.5, z, Math.PI / 2);
+                this._placeMesh(mullionGeo, stone, side * (halfW + 11.8), 13, z);
+            }
+        }
+
+        // --- colonnades: the map's main cover lanes ---
+        const shaftGeo = new THREE.CylinderGeometry(1.5, 1.7, 21, 12);
+        const baseGeo = new THREE.BoxGeometry(4.2, 1.2, 4.2);
+        const capGeo = new THREE.BoxGeometry(4.6, 1.4, 4.6);
+        const architraveGeo = new THREE.BoxGeometry(6, 2.4, this.courtLength + 6);
+        for (const side of [-1, 1]) {
+            const x = side * (halfW - 9);
+            for (let i = 0; i < 8; i++) {
+                const z = -56 + i * 16;
+                const shaft = this._placeMesh(shaftGeo, marble, x, 11.7, z);
+                shaft.castShadow = true;
+                this._placeMesh(baseGeo, stone, x, 0.6, z);
+                this._placeMesh(capGeo, stone, x, 22.9, z);
+                this.addCollidable(shaft, new THREE.Vector3(x, 0, z), 1.9);
+            }
+            this._placeMesh(architraveGeo, stone, x, 24.8, 0);
+        }
+
+        // --- coffered ceiling + moonlit oculus ---
+        const latBeamGeo = new THREE.BoxGeometry(this.courtWidth + 22, 1.1, 1.5);
+        const longBeamGeo = new THREE.BoxGeometry(1.5, 1.1, this.courtLength + 22);
+        for (let i = -4; i <= 4; i++) this._placeMesh(latBeamGeo, stone, 0, this.ceilingHeight - 0.8, i * 16);
+        for (let i = -2; i <= 2; i++) this._placeMesh(longBeamGeo, stone, i * 26, this.ceilingHeight - 0.8, 0);
+
+        const oculus = this._placeMesh(
+            new THREE.TorusGeometry(15, 1.1, 8, 40), gold, 0, this.ceilingHeight - 0.2, 0
+        );
+        oculus.rotation.x = Math.PI / 2;
+        const moon = this._placeMesh(new THREE.CircleGeometry(14, 32), moonGlass, 0, this.ceilingHeight + 0.4, 0);
+        moon.rotation.x = Math.PI / 2;
+        this._placeMesh(
+            new THREE.ConeGeometry(15, 34, 16, 1, true),
+            new THREE.MeshBasicMaterial({ color: 0xdbe8ff, transparent: true, opacity: 0.07, side: THREE.DoubleSide }),
+            0, this.ceilingHeight - 17, 0
+        );
+
+        // --- chandeliers ---
+        const chainGeo = new THREE.CylinderGeometry(0.1, 0.1, 6, 5);
+        const chandelierGeo = new THREE.TorusGeometry(2.8, 0.22, 6, 20);
+        const bulbGeo = new THREE.SphereGeometry(0.42, 8, 8);
+        for (const [x, z] of [[-24, -36], [24, -36], [-24, 36], [24, 36]]) {
+            const y = this.ceilingHeight - 8;
+            this._placeMesh(chainGeo, stone, x, y + 4.5, z);
+            const ring = this._placeMesh(chandelierGeo, gold, x, y, z);
+            ring.rotation.x = Math.PI / 2;
+            for (let i = 0; i < 8; i++) {
+                const a = (i / 8) * Math.PI * 2;
+                this._placeMesh(bulbGeo, gold, x + Math.cos(a) * 2.8, y + 0.5, z + Math.sin(a) * 2.8);
+            }
+        }
+
+        // --- statues on plinths (mirrored cover along the colonnade) ---
+        const plinthGeo = new THREE.BoxGeometry(3.4, 3, 3.4);
+        const bodyGeo = new THREE.CylinderGeometry(0.85, 1.15, 3.4, 10);
+        const headGeo = new THREE.SphereGeometry(0.62, 10, 8);
+        const armGeo = new THREE.BoxGeometry(0.42, 2.4, 0.42);
+        for (const [x, z] of [[-44, -40], [44, -40], [-44, 0], [44, 0], [-44, 40], [44, 40]]) {
+            this._placeMesh(plinthGeo, stone, x, 1.5, z);
+            const body = this._placeMesh(bodyGeo, marble, x, 4.7, z);
+            body.castShadow = true;
+            this._placeMesh(headGeo, marble, x, 6.8, z);
+            for (const side of [-1, 1]) {
+                const arm = this._placeMesh(armGeo, marble, x + side * 1.1, 4.9, z);
+                arm.rotation.z = side * 0.35;
+            }
+            this.addCollidable(body, new THREE.Vector3(x, 0, z), 2);
+        }
+
+        // --- lit display cases: mid-court cover with a slowly spinning relic ---
+        const caseGlass = new THREE.MeshPhysicalMaterial({
+            color: 0xd8f0ff, transparent: true, opacity: 0.18,
+            roughness: 0.06, metalness: 0, side: THREE.DoubleSide
+        });
+        const caseGeo = new THREE.BoxGeometry(4.4, 5, 4.4);
+        const casePlinthGeo = new THREE.BoxGeometry(5, 1.6, 5);
+        const relicGeo = new THREE.OctahedronGeometry(1.1, 0);
+        for (const [x, z] of [[-16, -24], [16, -24], [-16, 24], [16, 24]]) {
+            const casePlinth = this._placeMesh(casePlinthGeo, stone, x, 0.8, z);
+            this._placeMesh(caseGeo, caseGlass, x, 4.1, z);
+            const relic = this._placeMesh(relicGeo, gold, x, 4.1, z);
+            this._animateProp(relic, 'spin', { speed: 0.7, phase: x * 0.1 + z * 0.05 });
+            this.addCollidable(casePlinth, new THREE.Vector3(x, 0, z), 2.6);
+        }
+
+        // --- mirrored dinosaur halls at both ends ---
+        for (const side of [-1, 1]) this._buildMuseumSkeleton(side * (halfL - 15), side, bone, stone, gold);
+
+        // --- team banners on the long walls ---
+        const bannerGeo = new THREE.PlaneGeometry(7, 15);
+        for (const wallSide of [-1, 1]) {
+            for (const [z, color] of [[-34, this.config.floorRed], [34, this.config.floorBlue]]) {
+                this._placeMesh(
+                    bannerGeo,
+                    new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, transparent: true, opacity: 0.9 }),
+                    wallSide * (halfW + 11.5), 15, z, wallSide * -Math.PI / 2
+                );
+            }
+        }
+    }
+
+    // One mounted skeleton exhibit: the spine runs along X so it reads broadside
+    // from the court. `dir` mirrors the pose for the opposite end of the hall.
+    _buildMuseumSkeleton(z, dir, bone, stone, gold) {
+        this._placeMesh(new THREE.BoxGeometry(34, 1.2, 12), stone, 0, 0.6, z);
+        const ropePostGeo = new THREE.CylinderGeometry(0.16, 0.2, 1.3, 6);
+        const ropeGeo = new THREE.CylinderGeometry(0.07, 0.07, 8, 5);
+        for (const px of [-16, -8, 0, 8, 16]) {
+            this._placeMesh(ropePostGeo, gold, px, 1.85, z - dir * 7.5);
+            if (px < 16) {
+                const rope = this._placeMesh(ropeGeo, gold, px + 4, 2.2, z - dir * 7.5);
+                rope.rotation.z = Math.PI / 2;
+            }
+        }
+
+        const vertebraGeo = new THREE.BoxGeometry(1.5, 1.1, 1.1);
+        const ribGeo = new THREE.TorusGeometry(3.4, 0.24, 6, 16, Math.PI);
+        const legGeo = new THREE.CylinderGeometry(0.45, 0.35, 9, 8);
+        const footGeo = new THREE.BoxGeometry(2.2, 0.6, 3);
+        const skullGeo = new THREE.BoxGeometry(4.4, 2.2, 2.2);
+        const jawGeo = new THREE.BoxGeometry(3.6, 0.8, 1.8);
+        const eyeGeo = new THREE.SphereGeometry(0.32, 8, 6);
+        for (let i = -9; i <= 9; i++) {
+            const x = i * 1.7 * dir;
+            const arch = 12.5 - Math.abs(i) * 0.16;
+            this._placeMesh(vertebraGeo, bone, x, arch, z);
+            if (i >= -4 && i <= 4) {
+                const rib = this._placeMesh(ribGeo, bone, x, arch - 0.4, z, Math.PI / 2);
+                rib.rotation.z = Math.PI;
+                rib.scale.y = 1.25;
+            }
+        }
+        // Tail, tapering away from the skull.
+        for (let i = 1; i <= 7; i++) {
+            const tail = this._placeMesh(vertebraGeo, bone, -dir * (15.3 + i * 1.6), 11 - i * 0.75, z);
+            tail.scale.setScalar(1 - i * 0.09);
+        }
+        // Neck + skull, turned toward the court.
+        for (let i = 1; i <= 6; i++) {
+            this._placeMesh(vertebraGeo, bone, dir * (15.3 + i * 1.5), 12.6 + i * 0.7, z - dir * i * 0.5);
+        }
+        const skull = this._placeMesh(skullGeo, bone, dir * 26, 17.4, z - dir * 3.4);
+        skull.rotation.z = dir * 0.2;
+        this._placeMesh(jawGeo, bone, dir * 25.6, 16.2, z - dir * 3.4);
+        for (const eyeSide of [-1, 1]) {
+            this._placeMesh(eyeGeo, gold, dir * 26.6, 17.9, z - dir * 3.4 + eyeSide * 0.9);
+        }
+        for (const legX of [-8, 8]) {
+            for (const legZ of [-3.2, 3.2]) {
+                const leg = this._placeMesh(legGeo, bone, legX * dir, 5.9, z + legZ);
+                leg.rotation.z = legX > 0 ? 0.1 : -0.1;
+                this._placeMesh(footGeo, bone, legX * dir, 1.5, z + legZ);
+                this.addCollidable(leg, new THREE.Vector3(legX * dir, 0, z + legZ), 1.4);
+            }
+        }
+    }
+
+    // Casino floor: marquee arches, slot-machine banks lining both flanks, spinning
+    // roulette tables mid-court, chip stacks as cover, mirrored ceiling neon.
+    buildCasinoProps() {
+        const halfW = this.courtWidth / 2;
+        const halfL = this.courtLength / 2;
+        const panel = this.renderer.createToonMaterial(0x2a1140);
+        const cabinet = this.renderer.createToonMaterial(0x3a1a52);
+        const felt = this.renderer.createToonMaterial(0x1f7a4d);
+        const ivory = this.renderer.createToonMaterial(0xf3ecdf);
+        const goldMat = new THREE.MeshBasicMaterial({ color: 0xffd36a });
+        const pinkMat = new THREE.MeshBasicMaterial({ color: 0xff4d7d });
+        const cyanMat = new THREE.MeshBasicMaterial({ color: 0x38e8ff });
+
+        // --- room shell with gold trim ---
+        const sideWallGeo = new THREE.BoxGeometry(1.6, 30, this.courtLength + 24);
+        const endWallGeo = new THREE.BoxGeometry(this.courtWidth + 24, 30, 1.6);
+        const sideTrimGeo = new THREE.BoxGeometry(0.5, 0.35, this.courtLength + 24);
+        const endTrimGeo = new THREE.BoxGeometry(this.courtWidth + 24, 0.35, 0.5);
+        for (const side of [-1, 1]) {
+            this._placeMesh(sideWallGeo, panel, side * (halfW + 11), 15, 0);
+            this._placeMesh(endWallGeo, panel, 0, 15, side * (halfL + 11));
+            for (const y of [6, 13, 20]) {
+                this._placeMesh(sideTrimGeo, goldMat, side * (halfW + 10.2), y, 0);
+                this._placeMesh(endTrimGeo, goldMat, 0, y, side * (halfL + 10.2));
+            }
+        }
+
+        // --- marquee arches over both approach lanes ---
+        const arcGeo = new THREE.TorusGeometry(30, 1.2, 8, 28, Math.PI);
+        const bulbGeo = new THREE.SphereGeometry(0.55, 8, 8);
+        const marqueeGeo = new THREE.BoxGeometry(22, 4, 0.6);
+        const marqueeFaceGeo = new THREE.PlaneGeometry(20, 2.8);
+        for (const side of [-1, 1]) {
+            const z = side * (halfL - 6);
+            this._placeMesh(arcGeo, goldMat, 0, 0, z);
+            for (let i = 0; i <= 14; i++) {
+                const a = (i / 14) * Math.PI;
+                this._placeMesh(bulbGeo, i % 2 ? pinkMat : goldMat, Math.cos(a) * 30, Math.sin(a) * 30, z);
+            }
+            this._placeMesh(marqueeGeo, cabinet, 0, 24, z);
+            this._placeMesh(marqueeFaceGeo, side < 0 ? pinkMat : cyanMat, 0, 24, z - side * 0.4, side > 0 ? Math.PI : 0);
+        }
+
+        // --- slot-machine banks: the flank cover ---
+        const cabGeo = new THREE.BoxGeometry(3, 3.6, 2.2);
+        const screenGeo = new THREE.PlaneGeometry(2.2, 1.7);
+        const topperGeo = new THREE.BoxGeometry(3, 0.7, 2.2);
+        for (const side of [-1, 1]) {
+            const x = side * (halfW - 9);
+            for (let i = 0; i < 9; i++) {
+                const z = -48 + i * 12;
+                const cab = this._placeMesh(cabGeo, cabinet, x, 1.8, z);
+                cab.castShadow = true;
+                this._placeMesh(screenGeo, i % 2 ? pinkMat : cyanMat, x - side * 1.15, 2.4, z, side * -Math.PI / 2);
+                this._placeMesh(topperGeo, goldMat, x, 3.9, z);
+                this.addCollidable(cab, new THREE.Vector3(x, 0, z), 1.8);
+            }
+        }
+
+        // --- roulette tables (the wheel spins) ---
+        const tableGeo = new THREE.CylinderGeometry(4.2, 4.6, 1.6, 24);
+        const rimGeo = new THREE.TorusGeometry(4.2, 0.28, 8, 28);
+        const wheelGeo = new THREE.CylinderGeometry(2.4, 2.4, 0.5, 20);
+        const spokeGeo = new THREE.BoxGeometry(4.6, 0.14, 0.24);
+        for (const x of [-26, 26]) {
+            const table = this._placeMesh(tableGeo, felt, x, 0.8, 0);
+            const rim = this._placeMesh(rimGeo, goldMat, x, 1.6, 0);
+            rim.rotation.x = Math.PI / 2;
+            const wheel = this._placeMesh(wheelGeo, cabinet, x, 1.9, 0);
+            for (let i = 0; i < 6; i++) {
+                const spoke = new THREE.Mesh(spokeGeo, goldMat);
+                spoke.rotation.y = (i / 6) * Math.PI;
+                spoke.position.y = 0.3;
+                wheel.add(spoke);
+            }
+            this._animateProp(wheel, 'spin', { speed: 0.9, phase: x * 0.05 });
+            this.addCollidable(table, new THREE.Vector3(x, 0, 0), 4.4);
+        }
+
+        // --- card tables + chip stacks: mid-court cover, mirrored ---
+        const cardTableGeo = new THREE.CylinderGeometry(3.4, 3.6, 1.4, 20);
+        const cardRimGeo = new THREE.TorusGeometry(3.4, 0.22, 8, 22);
+        const chipGeo = new THREE.CylinderGeometry(1.5, 1.5, 0.55, 18);
+        const chipMats = [pinkMat, cyanMat, goldMat];
+        for (const [x, z] of [[-34, -30], [34, -30], [-34, 30], [34, 30]]) {
+            const table = this._placeMesh(cardTableGeo, felt, x, 0.7, z);
+            this._placeMesh(cardRimGeo, goldMat, x, 1.4, z).rotation.x = Math.PI / 2;
+            this.addCollidable(table, new THREE.Vector3(x, 0, z), 3.6);
+        }
+        for (const [x, z] of [[-14, -22], [14, -22], [-14, 22], [14, 22]]) {
+            let base = null;
+            for (let i = 0; i < 3; i++) {
+                const chip = this._placeMesh(chipGeo, chipMats[i], x, 0.3 + i * 0.6, z);
+                base ||= chip;
+            }
+            this.addCollidable(base, new THREE.Vector3(x, 0, z), 1.7);
+        }
+
+        // --- giant dice in the outfield corners ---
+        const diceGeo = new THREE.BoxGeometry(3.6, 3.6, 3.6);
+        const pipGeo = new THREE.SphereGeometry(0.3, 8, 8);
+        for (const [x, z] of [[-42, -46], [42, -46], [-42, 46], [42, 46]]) {
+            const die = this._placeMesh(diceGeo, ivory, x, 1.8, z, 0.35);
+            for (const [px, pz] of [[-1, -1], [1, -1], [0, 0], [-1, 1], [1, 1]]) {
+                this._placeMesh(pipGeo, cabinet, x + px * 1.05, 3.65, z + pz * 1.05);
+            }
+            this.addCollidable(die, new THREE.Vector3(x, 0, z), 2.4);
+        }
+
+        // --- ceiling: neon strip grid, spinning sign rings, crystal chandeliers ---
+        const stripGeo = new THREE.CylinderGeometry(0.16, 0.16, this.courtWidth, 6);
+        for (let i = -3; i <= 3; i++) {
+            const strip = this._placeMesh(stripGeo, i % 2 ? pinkMat : cyanMat, 0, this.ceilingHeight - 1, i * 17);
+            strip.rotation.z = Math.PI / 2;
+        }
+        const signGeo = new THREE.TorusGeometry(3.2, 0.22, 8, 24);
+        for (const [x, z, mat] of [
+            [-30, -14, cyanMat], [30, -14, pinkMat], [-30, 14, pinkMat],
+            [30, 14, cyanMat], [0, -40, goldMat], [0, 40, goldMat]
+        ]) {
+            const sign = this._placeMesh(signGeo, mat, x, this.ceilingHeight - 5, z);
+            this._animateProp(sign, 'spin', { speed: 0.5, phase: x * 0.1 });
+        }
+        const crystalGeo = new THREE.OctahedronGeometry(0.55, 0);
+        const chandelierChainGeo = new THREE.CylinderGeometry(0.12, 0.12, 5, 5);
+        const chandelierConeGeo = new THREE.ConeGeometry(3.2, 3, 12);
+        for (const z of [-30, 0, 30]) {
+            const y = this.ceilingHeight - 6;
+            this._placeMesh(chandelierChainGeo, goldMat, 0, y + 3.5, z);
+            this._placeMesh(chandelierConeGeo, goldMat, 0, y + 0.8, z);
+            for (let i = 0; i < 10; i++) {
+                const a = (i / 10) * Math.PI * 2;
+                this._placeMesh(crystalGeo, cyanMat, Math.cos(a) * 3, y - 1, z + Math.sin(a) * 3);
+            }
+        }
+
+        // --- roulette-wheel floor inlay at centre court ---
+        const inlay = this._placeMesh(new THREE.RingGeometry(11.4, 12.4, 40), goldMat, 0, 0.02, 0);
+        inlay.rotation.x = -Math.PI / 2;
+        const spokeInlayGeo = new THREE.PlaneGeometry(0.35, 11);
+        for (let i = 0; i < 12; i++) {
+            const a = (i / 12) * Math.PI * 2;
+            const spoke = this._placeMesh(spokeInlayGeo, i % 2 ? pinkMat : cyanMat, Math.cos(a) * 6, 0.02, Math.sin(a) * 6);
+            spoke.rotation.x = -Math.PI / 2;
+            spoke.rotation.z = -a;
+        }
+    }
+
+    // Metro interchange: vaulted concourse, tiled pillar rows for cover, mezzanine
+    // slabs for verticality, two trains parked beyond the platform edges.
+    buildSubwayProps() {
+        const halfW = this.courtWidth / 2;
+        const halfL = this.courtLength / 2;
+        const vaultR = halfW + 6;
+        const squash = (this.ceilingHeight + 2) / vaultR;
+        const concrete = this.renderer.createToonMaterial(0x39474f);
+        const vaultMat = this.renderer.createToonMaterial(0x2f3c44);
+        vaultMat.side = THREE.DoubleSide;
+        const steel = this.renderer.createToonMaterial(0x59666f);
+        const tile = this.renderer.createToonMaterial(0xdfe4e2);
+        const dark = this.renderer.createToonMaterial(0x1b2429);
+        const amber = new THREE.MeshBasicMaterial({ color: 0xffb347 });
+        const warmGlass = new THREE.MeshBasicMaterial({ color: 0xffe9c0 });
+
+        // --- vaulted concourse + girders ---
+        const vault = this._placeMesh(
+            new THREE.CylinderGeometry(vaultR, vaultR, this.courtLength + 30, 36, 1, true),
+            vaultMat, 0, 0, 0
+        );
+        vault.rotation.x = Math.PI / 2;
+        vault.scale.z = squash;
+        const girderGeo = new THREE.TorusGeometry(vaultR - 0.4, 0.55, 6, 32);
+        for (let i = -5; i <= 5; i++) {
+            this._placeMesh(girderGeo, steel, 0, 0, i * 15).scale.y = squash;
+        }
+
+        // --- tiled side walls + end walls with station signage ---
+        const tileWallGeo = new THREE.BoxGeometry(1, 8, this.courtLength + 20);
+        const tileBandGeo = new THREE.BoxGeometry(1.1, 0.5, this.courtLength + 20);
+        const endWallGeo = new THREE.BoxGeometry(this.courtWidth + 20, 22, 1.2);
+        const signGeo = new THREE.BoxGeometry(18, 3.2, 0.4);
+        const signFaceGeo = new THREE.PlaneGeometry(16.5, 2.2);
+        for (const side of [-1, 1]) {
+            this._placeMesh(tileWallGeo, tile, side * (halfW + 2), 4, 0);
+            this._placeMesh(tileBandGeo, amber, side * (halfW + 1.9), 8.4, 0);
+            this._placeMesh(endWallGeo, tile, 0, 11, side * (halfL + 9));
+            this._placeMesh(signGeo, dark, 0, 14, side * (halfL + 8.2));
+            this._placeMesh(signFaceGeo, amber, 0, 14, side * (halfL + 8.2) - side * 0.3, side > 0 ? Math.PI : 0);
+        }
+
+        // --- platform edge warning strips ---
+        const edgeGeo = new THREE.BoxGeometry(1.4, 0.14, this.courtLength);
+        for (const side of [-1, 1]) {
+            this._placeMesh(edgeGeo, amber, side * (halfW - 1.2), 0.08, 0);
+        }
+
+        // --- track trenches + parked trains ---
+        const trenchGeo = new THREE.BoxGeometry(15, 1, this.courtLength + 40);
+        const railGeo = new THREE.BoxGeometry(0.4, 0.5, this.courtLength + 40);
+        const sleeperGeo = new THREE.BoxGeometry(11, 0.35, 1.4);
+        const carGeo = new THREE.BoxGeometry(7.6, 6.2, 62);
+        const windowGeo = new THREE.PlaneGeometry(52, 1.9);
+        const doorGeo = new THREE.PlaneGeometry(3.4, 4.4);
+        const roofRibGeo = new THREE.BoxGeometry(7.2, 0.35, 1.2);
+        const headlightGeo = new THREE.SphereGeometry(0.55, 8, 8);
+        const carMats = [
+            this.renderer.createToonMaterial(this.config.floorRed),
+            this.renderer.createToonMaterial(this.config.floorBlue)
+        ];
+        [-1, 1].forEach((side, index) => {
+            const x = side * (halfW + 15);
+            const carZ = index === 0 ? -8 : 8;
+            const inner = -side;
+            this._placeMesh(trenchGeo, dark, x, -3.6, 0);
+            for (const railOffset of [-2.6, 2.6]) {
+                this._placeMesh(railGeo, steel, x + railOffset, -2.9, 0);
+            }
+            for (let i = -9; i <= 9; i++) {
+                this._placeMesh(sleeperGeo, dark, x, -3.1, i * 9);
+            }
+            const car = this._placeMesh(carGeo, carMats[index], x, 0.4, carZ);
+            car.castShadow = true;
+            this._placeMesh(windowGeo, warmGlass, x + inner * 3.85, 2.2, carZ, inner * Math.PI / 2);
+            for (let d = -2; d <= 2; d++) {
+                this._placeMesh(doorGeo, dark, x + inner * 3.86, -0.5, carZ + d * 12, inner * Math.PI / 2);
+            }
+            for (let r = -4; r <= 4; r++) {
+                this._placeMesh(roofRibGeo, steel, x, 3.6, carZ + r * 6.5);
+            }
+            for (const lampZ of [-31.5, 31.5]) {
+                this._placeMesh(headlightGeo, warmGlass, x + inner * 2.2, 1.6, carZ + lampZ);
+            }
+        });
+
+        // --- tiled pillar rows: the concourse cover ---
+        const pillarGeo = new THREE.BoxGeometry(1.8, this.ceilingHeight, 1.8);
+        const claddingGeo = new THREE.BoxGeometry(2.6, 6.5, 2.6);
+        const bandGeo = new THREE.BoxGeometry(2.75, 0.5, 2.75);
+        for (const x of [-26, 26]) {
+            for (let i = 0; i < 7; i++) {
+                const z = -54 + i * 18;
+                const pillar = this._placeMesh(pillarGeo, steel, x, this.ceilingHeight / 2, z);
+                pillar.castShadow = true;
+                this._placeMesh(claddingGeo, tile, x, 3.25, z);
+                this._placeMesh(bandGeo, amber, x, 6.7, z);
+                this.addCollidable(pillar, new THREE.Vector3(x, 0, z), 1.5);
+            }
+        }
+
+        // --- mezzanine slabs (standable) + stairs up ---
+        const slabGeo = new THREE.BoxGeometry(17, 0.7, 13);
+        const slabLegGeo = new THREE.BoxGeometry(1, 3.2, 1);
+        const stepGeo = new THREE.BoxGeometry(6, 0.55, 2.4);
+        const railingGeo = new THREE.BoxGeometry(17, 0.25, 0.25);
+        for (const sx of [-1, 1]) {
+            for (const sz of [-1, 1]) {
+                const x = sx * (halfW - 14);
+                const z = sz * 38;
+                const slab = this._placeMesh(slabGeo, concrete, x, 3.2, z);
+                slab.receiveShadow = true;
+                this.platforms.push({ x, z, y: 3.55, halfWidth: 8.5, halfDepth: 6.5 });
+                for (const lx of [-7, 7]) {
+                    for (const lz of [-5, 5]) this._placeMesh(slabLegGeo, steel, x + lx, 1.6, z + lz);
+                }
+                this._placeMesh(railingGeo, amber, x, 4.6, z + sz * 6.4);
+                for (let s = 0; s < 5; s++) {
+                    this._placeMesh(stepGeo, concrete, x - sx * 9.5, 0.6 + s * 0.62, z - sz * (5 + s * 2.4));
+                }
+            }
+        }
+
+        // --- hanging destination boards + concourse lamps ---
+        const boardGeo = new THREE.BoxGeometry(11, 2.6, 0.35);
+        const boardFaceGeo = new THREE.PlaneGeometry(10, 1.9);
+        const boardStemGeo = new THREE.CylinderGeometry(0.09, 0.09, 3, 5);
+        const lampGeo = new THREE.BoxGeometry(3.4, 0.4, 1);
+        for (const z of [-52, -20, 20, 52]) {
+            this._placeMesh(boardGeo, dark, 0, this.ceilingHeight - 6, z);
+            this._placeMesh(boardFaceGeo, amber, 0, this.ceilingHeight - 6, z + 0.2);
+            this._placeMesh(boardStemGeo, steel, 0, this.ceilingHeight - 3.8, z);
+        }
+        for (let i = -4; i <= 4; i++) {
+            for (const x of [-42, 0, 42]) {
+                this._placeMesh(lampGeo, warmGlass, x, this.ceilingHeight - 3.5, i * 16);
+            }
+        }
+
+        // --- benches, bins, vending machines, turnstiles ---
+        const benchSeatGeo = new THREE.BoxGeometry(5.5, 0.35, 1.6);
+        const benchLegGeo = new THREE.BoxGeometry(0.4, 0.9, 1.4);
+        const binGeo = new THREE.CylinderGeometry(0.7, 0.6, 1.5, 10);
+        const machineGeo = new THREE.BoxGeometry(2.6, 4, 1.4);
+        const machineFaceGeo = new THREE.PlaneGeometry(2, 2.6);
+        const turnstileGeo = new THREE.BoxGeometry(1.4, 1.2, 2.6);
+        const turnstileArmGeo = new THREE.BoxGeometry(0.16, 0.16, 2.2);
+        for (const sx of [-1, 1]) {
+            for (const z of [-14, 14]) {
+                const x = sx * (halfW - 6);
+                this._placeMesh(benchSeatGeo, steel, x, 1.1, z);
+                for (const lz of [-2.2, 2.2]) this._placeMesh(benchLegGeo, dark, x, 0.45, z + lz);
+                this._placeMesh(binGeo, dark, x, 0.75, z + 4.5);
+            }
+            for (const sz of [-1, 1]) {
+                const x = sx * 46;
+                const z = sz * (halfL - 8);
+                const machine = this._placeMesh(machineGeo, dark, x, 2, z);
+                this._placeMesh(machineFaceGeo, warmGlass, x, 2.2, z - sz * 0.75);
+                this.addCollidable(machine, new THREE.Vector3(x, 0, z), 1.6);
+            }
+        }
+        for (const sz of [-1, 1]) {
+            for (const x of [-18, -6, 6, 18]) {
+                const z = sz * (halfL - 3);
+                const turnstile = this._placeMesh(turnstileGeo, steel, x, 0.6, z);
+                this._placeMesh(turnstileArmGeo, amber, x + 0.9, 1, z);
+                this.addCollidable(turnstile, new THREE.Vector3(x, 0, z), 1.1);
+            }
+        }
+    }
+
     buildLights() {
         const spot = new THREE.SpotLight(0xffffff, 0.5, 60, Math.PI / 4);
         const lightY = this.ceilingHeight > 0 ? this.ceilingHeight - 1 : Math.max(18, this.wallHeight + 8);
@@ -2763,6 +3618,28 @@ export class Arena {
                 if (pos[i] > this.ceilingHeight) pos[i] = 0.2;
             }
             this._atlantisBubbles.geometry.attributes.position.needsUpdate = true;
+        }
+
+        // V5 map props (aquarium/museum/casino/subway) — one flat list, mutated in
+        // place, zero allocation per frame. Registered by _animateProp() at build time.
+        if (this._mapAnimators) {
+            for (const a of this._mapAnimators) {
+                if (a.kind === 'orbit') {
+                    const angle = time * a.speed + a.phase;
+                    a.object.position.set(
+                        Math.cos(angle) * a.radius,
+                        a.baseY + Math.sin(time * 0.55 + a.phase) * a.amp,
+                        Math.sin(angle) * a.radius * a.squash
+                    );
+                    a.object.rotation.y = -angle + Math.PI / 2;
+                } else if (a.kind === 'bob') {
+                    a.object.position.y = a.baseY + Math.sin(time * a.speed + a.phase) * a.amp;
+                } else if (a.kind === 'spin') {
+                    a.object.rotation.y = time * a.speed + a.phase;
+                } else if (a.kind === 'sway') {
+                    a.object.rotation.z = Math.sin(time * a.speed + a.phase) * a.amp;
+                }
+            }
         }
 
         // Weather update
@@ -2971,6 +3848,7 @@ export class Arena {
         this._lavaGlow = null;
         this._embers = null;
         this._sceneParticles = null;
+        this._mapAnimators = null;
         this.jumpPads = null;
         this.cosmeticStudio = null;
         if (this.weather) { this.weather.clear(); this.weather = null; }

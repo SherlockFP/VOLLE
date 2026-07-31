@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { CHARACTERS } from '../js/characters.js';
+import { MODEL_FRAME_OFFSET, viewmodelFrame } from '../js/knife-animation.js';
 
 test('Soldier exposes a bounded rocket-jump loadout', () => {
     const soldier = CHARACTERS.soldier;
@@ -32,7 +33,11 @@ test('Soldier uses the launcher viewmodel instead of a knife point', async () =>
     const source = await readFile(new URL('../js/player.js', import.meta.url), 'utf8');
     assert.ok(source.includes("createRocketLauncherModel(this.team)"));
     assert.ok(source.includes("if (this.charId === 'soldier')"));
-    assert.match(source, /knifeGroup\.scale\.setScalar\(0\.62\)/);
+    // The 0.62 launcher scale moved out of this branch into the shared per-item viewmodel
+    // frame table (js/knife-animation.js), which player.js applies on equip.
+    assert.ok(source.includes("this._applyViewmodelFrame(this.knifeGroup, 'rocket')"));
+    assert.equal(MODEL_FRAME_OFFSET.rocket.scale, 0.62);
+    assert.equal(viewmodelFrame('rocket').scale, 0.62);
 });
 
 test('endgame winners use rockets only', async () => {

@@ -275,6 +275,24 @@ export const SKIN_PRESETS = Object.freeze({
             '........'
         ], { g: '#d9b34a', d: '#26314a' },
         [[3, 2, '#d9b34a'], [3, 3, '#d9b34a'], [2, 3, '#d9b34a'], [4, 3, '#d9b34a'], [3, 4, '#d9b34a'], [1, 0, '#d9b34a'], [6, 0, '#d9b34a']]
+    ),
+
+    // Character accent for the "Dark Eater" set (ball skin + knife + cape/aura/trail share
+    // this palette). Void-purple glow on a blacked-out face.
+    dark_eater: preset(
+        'dark_eater', 'Dark Eater', 'themed',
+        'A void-devourer archetype -- blacked-out face with burning purple glare -- original palette and silhouette, not a licensed character.',
+        [
+            'vvvvvvvv',
+            'vvvvvvvv',
+            'vvvvvvvv',
+            'vpvvvvpv',
+            'vvvvvvvv',
+            'vv.pp.vv',
+            'vvvvvvvv',
+            '........'
+        ], { v: '#0b0416', p: '#c48cff' },
+        [[0, 0, '#c48cff'], [7, 0, '#c48cff'], [3, 1, '#0b0416'], [4, 1, '#0b0416'], [3, 2, '#c48cff'], [4, 2, '#c48cff']]
     )
 });
 

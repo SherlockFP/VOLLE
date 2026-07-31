@@ -163,6 +163,7 @@
                 <div class="ow-currency">
                     <span class="ow-coin"><svg class="ui-icon" aria-hidden="true"><use href="#i-coins"></use></svg><span id="meta-coins">0</span></span>
                     <span class="ow-coin ow-pass"><svg class="ui-icon" aria-hidden="true"><use href="#i-ticket"></use></svg><span id="meta-bp-tier">0</span></span>
+                    <button id="btn-how-to-play" class="ow-gear" title="How to play" aria-label="How to play"><svg class="ui-icon" aria-hidden="true"><use href="#i-target"></use></svg></button>
                     <button id="btn-settings" class="ow-gear" title="Settings" aria-label="Open settings"><svg class="ui-icon" aria-hidden="true"><use href="#i-settings"></use></svg></button>
                 </div>
             </header>
@@ -194,7 +195,7 @@
                 <div class="ow-world-grid">
                     <button id="btn-social-lobby" class="ow-social-lobby">
                         <svg class="ui-icon" aria-hidden="true"><use href="#i-globe"></use></svg>
-                        <span><em>LIVE 3D</em><b>ENTER SOCIAL HUB</b><small>Enter the Grand Estate, explore, swim, and chat together</small></span>
+                        <span><em>LIVE 3D</em><b>ENTER SOCIAL HUB</b><small>Enter Aurora Grand Plaza, climb the terraces, swim, and chat together</small></span>
                         <svg class="ui-icon ow-social-lobby-arrow" aria-hidden="true"><use href="#i-play"></use></svg>
                     </button>
                     <button id="btn-map-editor" class="ow-social-lobby ow-create-map">
@@ -208,7 +209,25 @@
                     <button id="btn-tournament" class="ow-sbtn"><svg class="ui-icon" aria-hidden="true"><use href="#i-trophy"></use></svg><span>Tournament</span></button>
                     <button id="btn-avatar" class="ow-sbtn"><svg class="ui-icon" aria-hidden="true"><use href="#i-user"></use></svg><span>Avatar</span></button>
                 </div>
-                <button type="button" id="menu-streak-badge" class="ow-streak-badge" aria-label="Daily login streak" hidden></button>
+                <div class="ow-retention-strip" id="menu-retention-strip">
+                    <button type="button" id="menu-daily-card" class="ow-retention-card ow-retention-daily" aria-label="Daily challenges progress" hidden>
+                        <span class="ow-retention-icon" aria-hidden="true">🎯</span>
+                        <span class="ow-retention-body">
+                            <span class="ow-retention-title">Daily Challenges</span>
+                            <span class="ow-retention-sub" id="menu-daily-sub">0/3 done</span>
+                            <span class="ow-retention-bar"><span class="ow-retention-bar-fill" id="menu-daily-fill"></span></span>
+                        </span>
+                    </button>
+                    <button type="button" id="menu-bp-card" class="ow-retention-card ow-retention-bp" aria-label="Battle pass progress" hidden>
+                        <span class="ow-retention-icon" aria-hidden="true">🎫</span>
+                        <span class="ow-retention-body">
+                            <span class="ow-retention-title" id="menu-bp-title">Battle Pass</span>
+                            <span class="ow-retention-sub" id="menu-bp-sub">Next: —</span>
+                            <span class="ow-retention-bar"><span class="ow-retention-bar-fill" id="menu-bp-fill"></span></span>
+                        </span>
+                    </button>
+                    <button type="button" id="menu-streak-badge" class="ow-retention-card ow-streak-badge" aria-label="Daily login streak" hidden></button>
+                </div>
                 <div class="ow-featured" id="menu-featured" aria-label="Featured in the shop today" hidden></div>
                 <div class="ow-extralinks">
                     <button id="btn-replays" class="ow-link"><svg class="ui-icon" aria-hidden="true"><use href="#i-replay"></use></svg>Replays</button>
@@ -254,6 +273,36 @@
         </div>
     </div>
 
+    <!-- ===== FTUE WELCOME OVERLAY ===== -->
+    <div id="ftue-welcome" class="command-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="ftue-welcome-title">
+        <div class="command-card ftue-card">
+            <header class="ftue-header">
+                <span class="ftue-kicker">WELCOME TO</span>
+                <h2 id="ftue-welcome-title">WARRBALL</h2>
+                <p class="ftue-pitch">First-person dodgeball — deflect the ball, outplay the enemy team, win the round.</p>
+            </header>
+            <div class="ftue-tips">
+                <div class="ftue-tip">
+                    <span class="ftue-tip-icon" aria-hidden="true">🏃</span>
+                    <b>Move</b>
+                    <small>WASD to move, Space to jump, Ctrl to dash</small>
+                </div>
+                <div class="ftue-tip">
+                    <span class="ftue-tip-icon" aria-hidden="true">🏐</span>
+                    <b>Deflect &amp; Throw</b>
+                    <small>Hold Left-Click near the ball to deflect it — flick up to lob, down to spike</small>
+                </div>
+                <div class="ftue-tip">
+                    <span class="ftue-tip-icon" aria-hidden="true">🔪</span>
+                    <b>Melee</b>
+                    <small>Right-Click to stab up close</small>
+                </div>
+            </div>
+            <button id="ftue-welcome-start" type="button" class="btn btn-primary ftue-start">Let's go</button>
+            <button id="ftue-welcome-practice" type="button" class="ftue-practice-link">Try the practice drill first</button>
+        </div>
+    </div>
+
     <section id="social-hub-browser" class="social-hub-browser hidden" role="dialog" aria-modal="true" aria-labelledby="social-hub-browser-title">
         <div class="social-hub-browser-card">
             <header class="social-hub-browser-header">
@@ -283,7 +332,7 @@
             <div class="social-lobby-heading">
                 <span class="social-lobby-kicker">WARRBALL WORLD</span>
                 <strong>SOCIAL HUB</strong>
-                <span id="social-lobby-status">Exploring Grand Estate</span>
+                <span id="social-lobby-status">Exploring Aurora Grand Plaza</span>
             </div>
             <div class="social-lobby-online-pill" title="Players in this lobby">
                 <span class="social-lobby-online-dot" aria-hidden="true"></span>
@@ -293,8 +342,8 @@
 
         <section class="social-lobby-map-card" aria-label="Social Hub map">
             <div class="social-lobby-map-heading">
-                <span id="social-lobby-map-title"><svg class="ui-icon" aria-hidden="true"><use href="#i-map"></use></svg> GRAND ESTATE MAP</span>
-                <small id="social-lobby-map-credit">Warrball Grand Estate - original procedural environment</small>
+                <span id="social-lobby-map-title"><svg class="ui-icon" aria-hidden="true"><use href="#i-map"></use></svg> AURORA GRAND PLAZA MAP</span>
+                <small id="social-lobby-map-credit">Warrball Aurora Grand Plaza - original procedural environment</small>
             </div>
             <canvas id="social-lobby-map" width="260" height="180"></canvas>
             <div class="social-lobby-map-legend">

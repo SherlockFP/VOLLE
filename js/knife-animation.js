@@ -27,14 +27,40 @@ const snapEnvelope = (progress, riseEnd, fallStart) => {
     return 1;
 };
 
-// Per-model correction so each knife's own local pivot/silhouette frames consistently in the
-// cramped first-person frustum. classic/bayonet keep the original untouched transform.
-const MODEL_FRAME_OFFSET = Object.freeze({
-    classic: { position: [0, 0, 0], rotation: [0, 0, 0] },
-    bayonet: { position: [0, 0, 0], rotation: [0, 0, 0] },
-    karambit: { position: [-0.03, 0.02, 0.09], rotation: [0.08, -0.05, 0] },
-    butterfly: { position: [0.015, -0.01, 0.05], rotation: [0, 0.03, 0] }
+// The one grip pose every held item is framed against: the point in armGroup space where the
+// Roblox-style fist (js/player.js buildHandMesh) closes. An item's own grip must land here, so
+// each model's frame offset below is the delta that pulls ITS handle centre onto this point.
+export const VIEWMODEL_BASE_POSITION = Object.freeze([0.08, -0.12, -0.58]);
+export const VIEWMODEL_BASE_ROTATION = Object.freeze([-0.08, 0.18, -0.34]);
+
+// Per-item correction so each silhouette frames consistently in the cramped first-person
+// frustum AND so its handle sits inside the fist instead of intersecting it. `z` is the
+// dominant term: it is (0.36 - handleCentreLocalZ) for each model, i.e. how far the item must
+// be pushed forward for its grip — not its pommel — to be the part the hand closes around.
+// `scale` is applied once on equip (js/player.js _syncViewmodelWeapon), never per frame.
+export const MODEL_FRAME_OFFSET = Object.freeze({
+    classic: { position: [0, 0, 0], rotation: [0, 0, 0], scale: 1 },
+    bayonet: { position: [0, 0, 0], rotation: [0, 0, 0], scale: 1 },
+    karambit: { position: [-0.03, 0.02, 0.06], rotation: [0.08, -0.05, 0], scale: 1 },
+    butterfly: { position: [0.015, -0.01, 0.02], rotation: [0, 0.03, 0], scale: 1 },
+    tanto: { position: [0, 0.005, 0.02], rotation: [0, 0, 0], scale: 1 },
+    cleaver: { position: [0, 0.01, 0.06], rotation: [0, 0, -0.06], scale: 0.95 },
+    dagger: { position: [0, 0, 0], rotation: [0, 0.02, 0], scale: 1 },
+    // Not a knife and never animated by resolveKnifePose, but it is a held item and shares the
+    // same fist, so it lives in the same table (js/player.js reads it via viewmodelFrame).
+    rocket: { position: [-0.06, 0.16, 0.19], rotation: [-0.04, -0.34, 0.38], scale: 0.62 }
 });
+
+// Absolute rest transform for a held item id. Single source of truth for "where does this thing
+// sit in the hand" — used by resolveKnifePose for knives and directly by player.js on equip.
+export function viewmodelFrame(model) {
+    const frame = MODEL_FRAME_OFFSET[model] || MODEL_FRAME_OFFSET.classic;
+    return {
+        position: VIEWMODEL_BASE_POSITION.map((value, index) => value + frame.position[index]),
+        rotation: VIEWMODEL_BASE_ROTATION.map((value, index) => value + frame.rotation[index]),
+        scale: frame.scale
+    };
+}
 
 // Rest/idle delta applied to the claw (group.userData.inspectParts[0]) — tucks the ring/point
 // back along the fist. Delta (0,0,0) is the authored "combat-ready" look (point-down, ring
@@ -101,12 +127,12 @@ export function resolveKnifePose(state, context = {}) {
     const bobRaw = Math.sin(time * (7 + speed * 5)) * (0.006 + speed * 0.016);
     const bob = Number.isFinite(bobRaw) ? bobRaw : 0; // hostile-input guard: extreme time can overflow the product to Infinity/NaN
     const model = state?.model;
-    const frame = MODEL_FRAME_OFFSET[model] || MODEL_FRAME_OFFSET.classic;
+    const frame = viewmodelFrame(model);
     const pose = {
         armPosition: [0.25 + swayX * 0.025, -0.3 + bob - swayY * 0.018, -0.3],
         armRotation: [-swayY * 0.035, -swayX * 0.05, swayX * 0.025],
-        knifePosition: [0.08 + frame.position[0], -0.08 + frame.position[1], -0.5 + frame.position[2]],
-        knifeRotation: [-0.08 + frame.rotation[0], 0.18 + frame.rotation[1], -0.34 + frame.rotation[2]],
+        knifePosition: frame.position,
+        knifeRotation: frame.rotation,
         parts: [0, 0, 0],
         action,
         progress,

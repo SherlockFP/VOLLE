@@ -248,8 +248,99 @@ export const BALL_SKINS = {
     binary_ghost:   { name: 'Binary Ghost',     price: 310, rarity: 'epic',      effect: 'glitch', color: 0x0c1220, glow: 0x7dfcff, trail: 0x35e0ff, starColor: 0xffffff, burstTrail: true, trailStyle: 'plasma' },
     event_null:     { name: 'Event Null',       price: 320, rarity: 'epic',      effect: 'void',   color: 0x1b0930, glow: 0xb46bff, trail: 0x7a3fd6, starColor: 0xe8cbff, burstTrail: true, trailStyle: 'void' },
     wildfire_phantom: { name: 'Wildfire Phantom', price: 440, rarity: 'legendary', effect: 'flame', color: 0x2a0502, glow: 0xffae3d, trail: 0xff5a1a, starColor: 0xfff0c2, burstTrail: true, trailStyle: 'ember' },
-    oblivion_shard: { name: 'Oblivion Shard',   price: 470, rarity: 'legendary', effect: 'void',   color: 0x05010a, glow: 0xa15cff, trail: 0x4d1f99, starColor: 0xd9baff, burstTrail: true, trailStyle: 'void' }
+    oblivion_shard: { name: 'Oblivion Shard',   price: 470, rarity: 'legendary', effect: 'void',   color: 0x05010a, glow: 0xa15cff, trail: 0x4d1f99, starColor: 0xd9baff, burstTrail: true, trailStyle: 'void' },
+
+    // ponytail: model skins — the only skins that carry a `shape`. Everything else
+    // (radius, collisions, homing, steering) is identical to a sphere skin; `shape`
+    // is read exactly once, by Ball._applyShape(), and never by the physics step.
+    shuriken:       { name: 'Iron Shuriken',    price: 280, rarity: 'epic',      effect: 'spark',  color: 0x9aa7b4, glow: 0xdfe9f5, trail: 0xbcd0e2, starColor: 0xffffff, shape: 'shuriken', trailStyle: 'spark' },
+    baseball:       { name: 'Sandlot Slugger',  price: 240, rarity: 'rare',      effect: 'spark',  color: 0xf3ece0, glow: 0xfff6e6, trail: 0xffd9cc, starColor: 0xd23a3a, shape: 'baseball', trailStyle: 'comet' },
+    blockball:      { name: 'Blockball',        price: 260, rarity: 'epic',      effect: 'glitch', color: 0x3f8f4d, glow: 0x9dff6b, trail: 0x63d15c, starColor: 0xf2ffe0, shape: 'cube', trailStyle: 'comet' },
+    dark_eater:     { name: 'Dark Eater',       price: 500, rarity: 'legendary', effect: 'void',   color: 0x0b0416, glow: 0x9a3dff, trail: 0x5a17b8, starColor: 0xe6ccff, shape: 'orb', burstTrail: true, trailStyle: 'void' }
 };
+
+// ---------------------------------------------------------------------------
+// Model skins — VISUAL ONLY.
+// Physics reads this.radius / this.position and never touches the mesh, so every
+// shape below collides, homes and steers exactly like the default sphere. The
+// geometry for a shape is built once per (shape, radius) and shared by every ball
+// that equips it; nothing here allocates per frame.
+// ---------------------------------------------------------------------------
+
+export const BALL_SHAPES = Object.freeze(['sphere', 'shuriken', 'baseball', 'cube', 'orb']);
+
+// Visual-only spin (radians/second) applied to the shape group. 0 / missing = static.
+export const SHAPE_SPIN = Object.freeze({ shuriken: 9, orb: 1.1 });
+
+const shapeGeoCache = new Map();
+
+function buildShapeParts(shape, r, THREE) {
+    if (shape === 'shuriken') {
+        const star = new THREE.Shape();
+        for (let i = 0; i < 8; i++) {
+            const angle = (i / 8) * Math.PI * 2;
+            // Outer point stays inside the 0.47 collision radius (visualRadius is 0.43), so the
+            // star never looks bigger than the sphere it actually hits with.
+            const radius = i % 2 ? r * 0.44 : r * 1.02;
+            const x = Math.cos(angle) * radius;
+            const y = Math.sin(angle) * radius;
+            if (i === 0) star.moveTo(x, y); else star.lineTo(x, y);
+        }
+        star.closePath();
+        const hole = new THREE.Path();
+        hole.absarc(0, 0, r * 0.2, 0, Math.PI * 2, true);
+        star.holes.push(hole);
+        const blade = new THREE.ExtrudeGeometry(star, {
+            depth: r * 0.16, bevelEnabled: true, bevelSize: r * 0.05, bevelThickness: r * 0.04, bevelSegments: 1
+        });
+        blade.translate(0, 0, -r * 0.08);
+        blade.rotateX(-Math.PI / 2);   // lie flat so SHAPE_SPIN's Y spin reads as a thrown star
+        const hub = new THREE.TorusGeometry(r * 0.28, r * 0.065, 6, 14);
+        hub.rotateX(Math.PI / 2);
+        return [{ geo: blade, tint: 'body', outline: 1.05 }, { geo: hub, tint: 'accent' }];
+    }
+    if (shape === 'baseball') {
+        const parts = [{ geo: new THREE.SphereGeometry(r, 20, 20), tint: 'body', outline: 1.1 }];
+        for (const side of [-1, 1]) {
+            // sqrt(0.6^2 + 0.8^2) === 1, so each arc rides exactly on the ball surface.
+            const seam = new THREE.TorusGeometry(r * 0.8, r * 0.042, 5, 20, Math.PI * 1.25);
+            seam.rotateZ(-Math.PI * 0.62);
+            seam.rotateY(Math.PI / 2);
+            seam.translate(side * r * 0.6, 0, 0);
+            parts.push({ geo: seam, tint: 'accent' });
+        }
+        return parts;
+    }
+    if (shape === 'cube') {
+        const body = new THREE.BoxGeometry(r * 1.86, r * 1.86, r * 1.86);
+        const band = new THREE.BoxGeometry(r * 1.9, r * 0.54, r * 0.54);
+        return [{ geo: body, tint: 'body', outline: 1.08 }, { geo: band, tint: 'accent' }];
+    }
+    if (shape === 'orb') {
+        const core = new THREE.IcosahedronGeometry(r * 0.96, 1);
+        const parts = [{ geo: core, tint: 'body', outline: 1.12 }];
+        for (const tilt of [0, 0.95]) {
+            const ring = new THREE.TorusGeometry(r * 1.03, r * 0.045, 6, 24);
+            ring.rotateX(Math.PI / 2);
+            ring.rotateZ(tilt);
+            parts.push({ geo: ring, tint: 'accent' });
+        }
+        return parts;
+    }
+    return [];
+}
+
+// Shared, lazily built geometry for one shape. Never disposed — a handful of small
+// buffers reused by every ball for the whole session.
+export function ballShapeParts(shape, radius, THREE) {
+    const key = `${shape}:${radius}`;
+    let parts = shapeGeoCache.get(key);
+    if (!parts) {
+        parts = buildShapeParts(shape, radius, THREE);
+        shapeGeoCache.set(key, parts);
+    }
+    return parts;
+}
 
 // ---------------------------------------------------------------------------
 // Expressive-depth layer: charged throw, strafe curve, rally heat.
@@ -450,6 +541,18 @@ export class Ball {
         const outline = this.renderer.createOutlineMesh(geo, 1.1);
         this.mesh.add(outline);
 
+        // Model-skin container. Empty for sphere skins; _applyShape() fills and
+        // toggles it, and hides the sphere visuals (material + outline + stars) below.
+        this.shapeGroup = new THREE.Group();
+        this.mesh.add(this.shapeGroup);
+        this._shapeGroups = new Map();
+        this._shape = 'sphere';
+        this._shapeSpin = 0;
+        // Shares this.mat's uColor uniform object, so updateColor()/rainbow keep
+        // driving the model skins with zero extra code.
+        this._shapeMat = this.renderer.createToonMaterial(0xff8844);
+        this._shapeMat.uniforms.uColor = this.mat.uniforms.uColor;
+
         // Star pattern (skin'den renk alır)
         this.starGeo = new THREE.CircleGeometry(0.12, 5);
         this.starMat = new THREE.MeshBasicMaterial({ color: 0xffee44, side: THREE.DoubleSide });
@@ -460,6 +563,7 @@ export class Ball {
         this.star2.position.z = -(this.visualRadius + 0.01);
         this.star2.rotation.y = Math.PI;
         this.mesh.add(this.star2);
+        this._sphereParts = [outline, this.star, this.star2];
 
         // Glow — small, doesn't bleed through walls
         const glowGeo = new THREE.SphereGeometry(this.visualRadius * 1.15, 16, 16);
@@ -493,6 +597,35 @@ export class Ball {
         this.glowMat.color.setHex(skin.glow);
         this.starMat.color.setHex(skin.starColor);
         this.skinConfig = skin;
+        this._applyShape(skin.shape || 'sphere');
+    }
+
+    // Swap the VISUAL mesh only. this.radius / this.visualRadius / every physics field
+    // is untouched, so a shuriken collides and homes exactly like the classic sphere.
+    _applyShape(shape) {
+        const next = BALL_SHAPES.includes(shape) ? shape : 'sphere';
+        if (next === this._shape) return;
+        this._shape = next;
+        this._shapeSpin = SHAPE_SPIN[next] || 0;
+        const custom = next !== 'sphere';
+        this.mat.visible = !custom;
+        for (const part of this._sphereParts) part.visible = !custom;
+        for (const [id, group] of this._shapeGroups) group.visible = custom && id === next;
+        if (!custom) return;
+        let group = this._shapeGroups.get(next);
+        if (!group) {
+            group = new THREE.Group();
+            for (const part of ballShapeParts(next, this.visualRadius, THREE)) {
+                const material = part.tint === 'accent' ? this.starMat : this._shapeMat;
+                const mesh = new THREE.Mesh(part.geo, material);
+                if (part.outline) mesh.add(this.renderer.createOutlineMesh(part.geo, part.outline));
+                group.add(mesh);
+            }
+            this._shapeGroups.set(next, group);
+            this.shapeGroup.add(group);
+        }
+        group.visible = true;
+        this.shapeGroup.rotation.set(0, 0, 0);
     }
 
     spawn() {
@@ -579,6 +712,9 @@ export class Ball {
     }
 
     update(dt) {
+        // Model-skin spin: visual only, runs on host and client alike. Physics never
+        // reads mesh rotation, so this cannot influence steering/collision.
+        if (this._shapeSpin && dt > 0) this.shapeGroup.rotation.y += this._shapeSpin * dt;
         // ponytail: client just plays visuals — host runs authoritative physics.
         if (this._clientOnly) {
             this.mesh.position.copy(this.position);

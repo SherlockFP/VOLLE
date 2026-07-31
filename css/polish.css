@@ -1803,6 +1803,132 @@ body.high-contrast :is(button, input, select, textarea):focus-visible {
     }
 }
 
+/* Retention strip: daily-challenge + battlepass progress cards, sharing the
+   row with the login-streak badge above — one glanceable "why come back
+   today" cluster (js/main.js#_renderRetentionStrip). Cards reuse the streak
+   badge's panel language (panel-soft bg, menu-line border) so the row reads
+   as one family instead of three unrelated widgets. */
+#main-menu .ow-retention-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    width: 100%;
+}
+
+#main-menu .ow-retention-card {
+    flex: 1 1 150px;
+    min-width: 0;
+}
+
+#main-menu .ow-retention-card[hidden] {
+    display: none;
+}
+
+#main-menu .ow-retention-strip .ow-streak-badge {
+    width: auto;
+}
+
+#main-menu .ow-retention-daily,
+#main-menu .ow-retention-bp {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 7px 10px;
+    border: 1px solid var(--menu-line);
+    border-radius: 10px;
+    background: var(--menu-panel-soft);
+    color: var(--menu-ink);
+    font-family: var(--font);
+    text-align: left;
+    cursor: pointer;
+    transition: transform var(--ui-motion-fast) var(--ui-ease), border-color var(--ui-motion-fast) var(--ui-ease);
+}
+
+#main-menu .ow-retention-icon {
+    flex: 0 0 auto;
+    font-size: 1.05rem;
+}
+
+#main-menu .ow-retention-body {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+#main-menu .ow-retention-title {
+    font-size: 0.68rem;
+    font-weight: 800;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+#main-menu .ow-retention-sub {
+    font-size: 0.62rem;
+    font-weight: 600;
+    color: var(--menu-muted);
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+#main-menu .ow-retention-bar {
+    height: 4px;
+    border-radius: var(--ui-radius-pill, 999px);
+    background: rgba(255, 255, 255, 0.12);
+    overflow: hidden;
+}
+
+#main-menu .ow-retention-bar-fill {
+    display: block;
+    height: 100%;
+    width: 0%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--menu-cyan), var(--menu-gold));
+    transition: width var(--ui-motion-base) var(--ui-ease);
+}
+
+#main-menu .ow-retention-daily:hover,
+#main-menu .ow-retention-daily:focus-visible,
+#main-menu .ow-retention-bp:hover,
+#main-menu .ow-retention-bp:focus-visible {
+    border-color: var(--menu-cyan);
+    transform: translateY(-1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #main-menu .ow-retention-daily,
+    #main-menu .ow-retention-bp {
+        transition: none;
+    }
+
+    #main-menu .ow-retention-daily:hover,
+    #main-menu .ow-retention-daily:focus-visible,
+    #main-menu .ow-retention-bp:hover,
+    #main-menu .ow-retention-bp:focus-visible {
+        transform: none;
+    }
+}
+
+/* Consistent press-down feedback for every #main-menu surface that already
+   lifts on hover (Quick Play, Social Hub entry, Featured items, the streak
+   badge, and the two new retention cards above) — same timing tokens as the
+   hover-lift they pair with, so hover and press read as one interaction
+   language instead of ad hoc per-button transforms. Buttons that were
+   deliberately kept flat on hover (.ow-sbtn, .ow-tab, .ow-link — Menu
+   Identity Pass) are left untouched on purpose. */
+#main-menu :is(.ow-play, .ow-social-lobby, .ow-featured-item, .ow-streak-badge, .ow-retention-daily, .ow-retention-bp):active {
+    transform: translateY(0) scale(0.97);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #main-menu :is(.ow-play, .ow-social-lobby, .ow-featured-item, .ow-streak-badge, .ow-retention-daily, .ow-retention-bp):active {
+        transform: none;
+    }
+}
+
 #main-menu .friends-sidebar {
     color: #dce7f5;
     border-color: var(--menu-line);
@@ -2545,9 +2671,9 @@ body.high-contrast #main-menu :is(.ow-topbar, .ow-showcase, .ow-action-panel, .f
 .social-hub-browser-header p { margin: 0; color: rgba(220, 247, 255, .72); }
 .social-hub-browser-close { display: grid; width: 44px; height: 44px; place-items: center; flex: 0 0 auto; border: 1px solid rgba(160, 234, 255, .3); border-radius: 14px; color: #eafcff; background: rgba(255,255,255,.08); cursor: pointer; transition: background var(--ui-motion-base) var(--ui-ease), transform var(--ui-motion-base) var(--ui-ease); }
 .social-hub-browser-close:hover, .social-hub-room-enter:hover { background: rgba(89, 227, 223, .2); transform: translateY(-2px); }
-.social-hub-room-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 30px 0 18px; }
+.social-hub-room-list { display: grid; gap: 14px; margin: 30px 0 18px; }
 .social-hub-room { position: relative; min-height: 190px; overflow: hidden; padding: 22px; border: 1px solid rgba(140, 227, 255, .24); border-radius: 20px; background: linear-gradient(145deg, rgba(105, 232, 255, .15), rgba(19, 86, 119, .18)); }
-.social-hub-room.estate { background: linear-gradient(145deg, rgba(72, 217, 193, .2), rgba(20, 83, 143, .2)); }
+.social-hub-room.plaza { background: linear-gradient(145deg, rgba(72, 217, 193, .2), rgba(20, 83, 143, .2)); }
 .social-hub-room::after { content: ''; position: absolute; width: 160px; height: 160px; right: -55px; bottom: -78px; border: 1px solid rgba(192, 250, 255, .18); border-radius: 50%; }
 .social-hub-room-meta, .social-hub-room h3, .social-hub-room p, .social-hub-room-enter { position: relative; z-index: 1; }
 .social-hub-room-meta { display: flex; justify-content: space-between; gap: 10px; color: #7cf5e5; font-size: .72rem; font-weight: 900; letter-spacing: .12em; }
@@ -4672,3 +4798,229 @@ body.hit-flash {
 #menu-character-showcase[data-live="on"] .ow-character {
     display: none;
 }
+
+/* ===== POST-MATCH REWARD FLOW =====
+   Animated XP-source + daily-challenge breakdown built by js/ui.js
+   (_renderRewardFlow) inside the existing .pg-panel. Ink, accents and motion all
+   come from tokens so it follows every theme in css/ui-tokens.css; the one
+   literal is the card fill, copied from its siblings .pg-bp-progress /
+   .pg-xp-bar-wrap in css/style.css (the light .pg-panel surface has no token of
+   its own — inventing one here would only desync it from those two). Every
+   animation is a transition or a keyframe, so the global reduced-motion rules
+   already collapse it, and the explicit overrides at the bottom kill the
+   stagger too. */
+.pg-reward-flow {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ui-space-3);
+    margin: var(--ui-space-3) 0;
+    text-align: left;
+}
+
+.pg-flow-group {
+    padding: var(--ui-space-3) var(--ui-space-4);
+    border: 1px solid var(--shell-line);
+    border-radius: var(--ui-radius-md);
+    background: #e8f6fc;
+}
+
+.pg-flow-head {
+    font-size: 0.72em;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--shell-muted);
+    margin-bottom: var(--ui-space-2);
+}
+
+.pg-flow-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: var(--ui-space-2);
+    padding: 3px 0;
+    font-size: 0.86em;
+    color: var(--shell-ink);
+    animation: pg-flow-in var(--ui-motion-slow) var(--ui-ease) both;
+}
+
+.pg-flow-row b {
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    color: var(--ui-primary-strong);
+}
+
+/* Daily rows carry a third grid line: the progress bar that ticks from the
+   pre-match value to the post-match one. */
+.pg-flow-daily i {
+    grid-column: 1 / -1;
+    display: block;
+    height: 5px;
+    margin-top: 4px;
+    border-radius: var(--ui-radius-pill);
+    background: rgba(20, 103, 157, 0.16);
+    overflow: hidden;
+}
+
+.pg-flow-daily i em {
+    display: block;
+    height: 100%;
+    border-radius: var(--ui-radius-pill);
+    background: linear-gradient(90deg, var(--ui-primary), var(--ui-primary-hover));
+    transition: width var(--ui-motion-slow) var(--ui-ease);
+}
+
+.pg-flow-daily.complete b { color: var(--ui-primary-strong); }
+.pg-flow-daily.complete i em { background: linear-gradient(90deg, var(--ui-success), var(--ui-warning)); }
+
+@keyframes pg-flow-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: none; }
+}
+
+/* First-match-of-day row, appended by _renderMatchRewardBreakdown() — matches
+   the inline layout of the sibling rows already in index.html. */
+.pgcb-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.85em;
+    opacity: 0.85;
+}
+
+/* Next-reward teaser icon (kind -> sprite id, js/ui.js _paintRewardKindIcon). */
+.pg-reward-icon {
+    display: block;
+    width: 26px;
+    height: 26px;
+    margin: 0 auto 4px;
+    color: var(--ui-primary-strong);
+}
+
+/* The result banner should not be the same gold on a loss as on a win. */
+#pg-result.pg-result-win { color: var(--ui-success); text-shadow: 0 0 26px rgba(94, 229, 181, 0.35); }
+#pg-result.pg-result-loss { color: var(--ui-danger); text-shadow: 0 0 26px rgba(255, 93, 114, 0.3); }
+
+/* PLAY AGAIN is the retention action: full width and loud, the two exits below
+   it are deliberately quieter. */
+.pg-buttons #pg-play-again {
+    flex: 1 1 100%;
+    justify-content: center;
+    padding: 14px 20px;
+    font-size: 1.06em;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+}
+
+.pg-buttons #pg-lobby,
+.pg-buttons #pg-main-menu {
+    flex: 1 1 auto;
+    padding: 8px 14px;
+    font-size: 0.86em;
+    opacity: 0.86;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pg-flow-row { animation: none; }
+    .pg-flow-daily i em { transition: none; }
+}
+
+body.reduced-motion .pg-flow-row,
+.reduce-motion .pg-flow-row { animation: none; }
+
+/* ===== FTUE (first-time user experience) - welcome overlay + first-match
+   HUD hints. js/main.js#showFtueWelcome / #_runFirstMatchHints. Reuses the
+   .command-overlay/.command-card shell (auth-modal, queue overlays) and
+   .btn-primary, so it inherits their sizing, focus ring, and reduced-motion
+   handling. Every color below is a --ui-* token (color-mix for tints), no
+   literals, so it follows every registered theme automatically. */
+.ftue-card {
+    width: min(560px, 92vw);
+    text-align: center;
+}
+
+.ftue-header { margin-bottom: var(--ui-space-4); }
+
+.ftue-kicker {
+    display: block;
+    margin-bottom: var(--ui-space-1);
+    color: var(--ui-primary);
+    font-size: 0.7rem;
+    font-weight: 800;
+    letter-spacing: 0.18em;
+}
+
+.ftue-header h2 {
+    margin: 0 0 var(--ui-space-2);
+    font-size: 1.7rem;
+    letter-spacing: 0.06em;
+}
+
+.ftue-pitch {
+    margin: 0;
+    color: color-mix(in srgb, var(--ui-primary-hover) 70%, white);
+    font-size: 0.92rem;
+}
+
+.ftue-tips {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--ui-space-3);
+    margin: var(--ui-space-4) 0;
+}
+
+.ftue-tip {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: var(--ui-space-3) var(--ui-space-2);
+    border: 1px solid color-mix(in srgb, var(--ui-primary) 30%, transparent);
+    border-radius: var(--ui-radius-md);
+    background: color-mix(in srgb, var(--ui-primary) 8%, transparent);
+}
+
+.ftue-tip-icon { font-size: 1.5rem; }
+
+.ftue-tip b {
+    color: inherit;
+    font-size: 0.82rem;
+    letter-spacing: 0.02em;
+}
+
+.ftue-tip small {
+    color: color-mix(in srgb, var(--ui-primary-hover) 70%, white);
+    font-size: 0.74rem;
+    line-height: 1.35;
+}
+
+.ftue-start {
+    width: 100%;
+    justify-content: center;
+    font-size: 1rem;
+}
+
+.ftue-practice-link {
+    display: block;
+    margin: var(--ui-space-3) auto 0;
+    padding: 4px;
+    border: none;
+    background: none;
+    color: color-mix(in srgb, var(--ui-primary-hover) 70%, white);
+    font-size: 0.8rem;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.ftue-practice-link:hover,
+.ftue-practice-link:focus-visible { color: var(--ui-primary); }
+
+@media (max-width: 640px) {
+    .ftue-tips { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ftue-card { animation: none !important; }
+}
+
+body.reduced-motion .ftue-card,
+.reduce-motion .ftue-card { animation: none !important; }

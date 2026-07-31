@@ -419,3 +419,53 @@ export class MatchAnalytics {
 }
 
 export const createMatchAnalytics = options => new MatchAnalytics(options);
+
+// ===== Post-match reward flow (pure) =====
+// The reward screen only *replays* what the economy already granted before it
+// rendered: coins from js/store.js#matchRewardBreakdown (js/main.js parks the
+// real breakdown on ui._lastMatchReward), the xp split js/game.js emits at
+// match end, and Daily's per-match progress deltas. Nothing is invented and
+// nothing is rounded up — a row whose value is 0 is dropped rather than shown
+// as "+0" filler, and a daily that did not move this match never appears.
+export function buildRewardSummary({ xp = 0, xpSources = [], coins = null, dailies = [] } = {}) {
+    const toRows = list => (Array.isArray(list) ? list : [])
+        .map(entry => ({ label: cleanText(entry?.label, '', DEFAULT_NAME_LENGTH), value: count(entry?.value) }))
+        .filter(row => row.label && row.value > 0);
+    const xpRows = toRows(xpSources);
+    const coinRows = coins && typeof coins === 'object' ? toRows([
+        { label: 'Match reward', value: coins.base },
+        { label: 'Performance bonus', value: coins.bonus },
+        { label: 'First match of day', value: coins.firstOfDay }
+    ]) : [];
+    const dailyRows = (Array.isArray(dailies) ? dailies : [])
+        .map(entry => {
+            const target = Math.max(1, count(entry?.target) || 1);
+            const from = Math.min(target, count(entry?.from));
+            return {
+                name: sanitizeName(entry?.name, 'Daily challenge'),
+                from,
+                to: Math.min(target, Math.max(from, count(entry?.to))),
+                target
+            };
+        })
+        .filter(row => row.to > row.from)
+        .map(row => ({ ...row, completed: row.to >= row.target }));
+    return {
+        xpTotal: count(xp),
+        xpRows,
+        coinTotal: coins && typeof coins === 'object' ? count(coins.total) : 0,
+        coinRows,
+        dailyRows,
+        rowCount: xpRows.length + coinRows.length + dailyRows.length
+    };
+}
+
+// Reveal stagger for the rows above: one delay per row, capped so a long list
+// never turns the screen into a wait. Reduced motion collapses every delay to
+// 0 so the whole breakdown is simply present instead of animating in.
+export function rewardStepDelays(rowCount, { reducedMotion = false, stepMs = 90, maxMs = 900 } = {}) {
+    const total = count(rowCount);
+    const delays = new Array(total);
+    for (let i = 0; i < total; i++) delays[i] = reducedMotion ? 0 : Math.min(i * stepMs, maxMs);
+    return delays;
+}

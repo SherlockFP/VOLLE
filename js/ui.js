@@ -17,6 +17,8 @@ import { matchesShopFilter, deriveShopCardState } from './shop-clarity.js';
 import { characterPortraitPath, shopNameFitTier, groupInventoryEntries, knifeTeamRestriction, isKnifeEquippedAny } from './shop-ux2.js';
 import { classifyDamageTier, nextPoolCursor, damageJitterFor, comboTier } from './combat-fx.js';
 import { rewardRowState, tierCardState } from './battlepass.js';
+import { buildRewardSummary, rewardStepDelays } from './match-analytics.js';
+import { Daily } from './daily.js';
 
 const CHARACTER_ATLAS = 'assets/generated/characters/character-atlas.png';
 const BALL_BASE_SPEED = 17;
@@ -577,7 +579,12 @@ export class UI {
         if (!el) return;
         el.classList.remove('hidden');
         audio?.playCue?.('score');
-        document.getElementById('pg-result').textContent = won ? '🏆 VICTORY!' : '💀 DEFEAT';
+        const resultEl = document.getElementById('pg-result');
+        resultEl.textContent = won ? '🏆 VICTORY!' : '💀 DEFEAT';
+        // Win/loss is carried on the banner itself so the result reads at a glance
+        // instead of every match ending in the same gold title.
+        resultEl.classList.toggle('pg-result-win', !!won);
+        resultEl.classList.toggle('pg-result-loss', !won);
         const winnerEl = document.getElementById('pg-winner');
         if (winnerEl) winnerEl.textContent = result.winnerText || '';
         // Prestige-aware rank so the progression a player is chasing is the thing
@@ -604,13 +611,15 @@ export class UI {
         const xpText = document.getElementById('pg-xp-text');
         if (xpFill) { xpFill.style.width = '0%'; requestAnimationFrame(() => { xpFill.style.width = perc + '%'; }); }
         if (xpText) {
-            xpText.textContent = progress.need > 0
-                ? `+${xpGained} XP · ${progress.xp}/${progress.need} to Lv ${progress.level + 1}`
-                : `+${xpGained} XP · MAX RANK`;
+            const tail = progress.need > 0
+                ? ` · ${progress.xp}/${progress.need} to Lv ${progress.level + 1}`
+                : ' · MAX RANK';
+            this._animateCount(xpText, xpGained, value => `+${value} XP${tail}`);
         }
         this._renderPostGameBattlepass(store);
         this._renderPostGameRewardCard(store);
         this._renderMatchRewardBreakdown();
+        this._renderRewardFlow(xpGained, result.xpSources);
         this.renderMatchAnalysis(result.analytics);
         this._renderRoundStrip(result.roundHistory);
         // Ding count stays tied to the XP earned, so a big match still sounds big.
@@ -691,6 +700,7 @@ export class UI {
         const tierEl = document.getElementById('pg-reward-tier');
         const nameEl = document.getElementById('pg-reward-name');
         const etaEl = document.getElementById('pg-reward-eta');
+        this._paintRewardKindIcon(wrap, nextReward.kind);
         if (tierEl) tierEl.textContent = `TIER ${nextReward.tier}`;
         if (nameEl) nameEl.textContent = nextReward.name || 'Mystery Reward';
         // Calculate matches to unlock: estimate 150 XP per match
@@ -700,6 +710,24 @@ export class UI {
         // Apply rarity styling if available
         const rarity = nextReward.rarity || 'common';
         wrap.className = `pg-reward-card rarity-${rarity}`;
+    }
+
+    // Icon for the "next battlepass reward" teaser, keyed off the reward's own
+    // kind (js/battlepass.js FREE_TRACK). Reuses ids from the sprite already in
+    // index.html — no new asset, no emoji stand-in.
+    _paintRewardKindIcon(wrap, kind) {
+        if (!wrap || typeof document.createElementNS !== 'function') return;
+        const ICONS = { currency: '#i-coins', ball: '#i-ball', xpboost: '#i-trophy', cosmetic: '#i-ticket' };
+        const href = ICONS[kind] || '#i-trophy';
+        let icon = wrap.querySelector('.pg-reward-icon');
+        if (!icon) {
+            icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            icon.setAttribute('class', 'ui-icon pg-reward-icon');
+            icon.setAttribute('aria-hidden', 'true');
+            icon.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'use'));
+            wrap.insertBefore(icon, wrap.firstChild);
+        }
+        icon.firstChild?.setAttribute('href', href);
     }
 
     // Coin breakdown for the match just played — base result payout + capped
@@ -713,6 +741,11 @@ export class UI {
         const reward = this._lastMatchReward;
         if (!reward) { wrap.style.display = 'none'; return; }
         wrap.style.display = '';
+        // buildRewardSummary() drops zero rows, so "First match of day" — a real
+        // field of matchRewardBreakdown() that index.html never had a row for —
+        // shows up exactly on the days it was actually paid.
+        const { coinRows, coinTotal } = buildRewardSummary({ coins: reward });
+        const rowValue = label => coinRows.find(row => row.label === label)?.value || 0;
         const baseEl = document.getElementById('pgcb-base');
         const bonusRow = document.getElementById('pgcb-bonus-row');
         const bonusEl = document.getElementById('pgcb-bonus');
@@ -720,8 +753,127 @@ export class UI {
         if (baseEl) baseEl.textContent = `+${reward.base}`;
         if (bonusRow) bonusRow.style.display = reward.bonus > 0 ? '' : 'none';
         if (bonusEl) bonusEl.textContent = `+${reward.bonus}`;
-        if (totalEl) totalEl.textContent = `+${reward.total}`;
+        const firstOfDay = rowValue('First match of day');
+        let firstRow = document.getElementById('pgcb-firstday-row');
+        if (!firstRow && firstOfDay > 0 && bonusRow?.parentNode) {
+            firstRow = document.createElement('div');
+            firstRow.id = 'pgcb-firstday-row';
+            firstRow.className = 'pgcb-row';
+            const label = document.createElement('span');
+            label.textContent = 'First match of day';
+            const value = document.createElement('span');
+            value.id = 'pgcb-firstday';
+            firstRow.append(label, value);
+            bonusRow.parentNode.insertBefore(firstRow, bonusRow.nextSibling);
+        }
+        if (firstRow) {
+            firstRow.style.display = firstOfDay > 0 ? '' : 'none';
+            const valueEl = document.getElementById('pgcb-firstday');
+            if (valueEl) valueEl.textContent = `+${firstOfDay}`;
+        }
+        this._animateCount(totalEl, coinTotal, value => `+${value}`);
         this._lastMatchReward = null;
+    }
+
+    // Count-up used by every earned-number on the post-match screen. Plain rAF,
+    // no library, one handle per element so a re-render cancels its predecessor
+    // instead of leaving two loops fighting over the same node. Reduced motion
+    // (and any non-positive delta) sets the final value immediately.
+    _animateCount(el, to, format = value => String(value), from = 0) {
+        if (!el) return;
+        const target = Math.max(0, Math.round(Number(to) || 0));
+        if (el._countRaf) { cancelAnimationFrame(el._countRaf); el._countRaf = 0; }
+        if (target <= from || this._isReducedMotion()) { el.textContent = format(target); return; }
+        const duration = Math.min(900, 260 + target * 1.2);
+        const startedAt = performance.now();
+        const step = now => {
+            const t = Math.min(1, (now - startedAt) / duration);
+            const eased = 1 - Math.pow(1 - t, 3);
+            el.textContent = format(from + Math.round((target - from) * eased));
+            el._countRaf = t < 1 ? requestAnimationFrame(step) : 0;
+        };
+        el.textContent = format(from);
+        el._countRaf = requestAnimationFrame(step);
+    }
+
+    // Animated XP-source + daily-challenge breakdown. index.html is owned
+    // elsewhere, so the container is built here on first use and reused after
+    // that. Text goes in through textContent only (challenge names and source
+    // labels are data, never markup).
+    _renderRewardFlow(xpGained = 0, xpSources = []) {
+        const panel = document.querySelector('#post-game-screen .pg-panel');
+        if (!panel) return;
+        let host = document.getElementById('pg-reward-flow');
+        if (!host) {
+            host = document.createElement('div');
+            host.id = 'pg-reward-flow';
+            host.className = 'pg-reward-flow';
+            panel.insertBefore(host, document.getElementById('postgame-stats'));
+        }
+        const summary = buildRewardSummary({
+            xp: xpGained,
+            xpSources,
+            dailies: Daily?.takeLastMatchProgress?.() || []
+        });
+        host.replaceChildren();
+        if (!summary.xpRows.length && !summary.dailyRows.length) {
+            host.style.display = 'none';
+            return;
+        }
+        host.style.display = '';
+        const reducedMotion = this._isReducedMotion();
+        const delays = rewardStepDelays(summary.rowCount, { reducedMotion });
+        let index = 0;
+        const addRow = (parent, className) => {
+            const row = document.createElement('div');
+            row.className = className;
+            row.style.animationDelay = `${delays[index++] || 0}ms`;
+            parent.appendChild(row);
+            return row;
+        };
+        const addGroup = title => {
+            const group = document.createElement('div');
+            group.className = 'pg-flow-group';
+            const head = document.createElement('div');
+            head.className = 'pg-flow-head';
+            head.textContent = title;
+            group.appendChild(head);
+            host.appendChild(group);
+            return group;
+        };
+
+        if (summary.xpRows.length) {
+            const group = addGroup(`XP earned · +${summary.xpTotal}`);
+            summary.xpRows.forEach(source => {
+                const row = addRow(group, 'pg-flow-row');
+                const label = document.createElement('span');
+                label.textContent = source.label;
+                const value = document.createElement('b');
+                row.append(label, value);
+                this._animateCount(value, source.value, amount => `+${amount} XP`);
+            });
+        }
+
+        if (summary.dailyRows.length) {
+            const group = addGroup('Daily challenges');
+            summary.dailyRows.forEach(daily => {
+                const row = addRow(group, `pg-flow-row pg-flow-daily${daily.completed ? ' complete' : ''}`);
+                const label = document.createElement('span');
+                label.textContent = daily.completed ? `${daily.name} — COMPLETE` : daily.name;
+                const value = document.createElement('b');
+                const bar = document.createElement('i');
+                const fill = document.createElement('em');
+                // Start at the pre-match value and let the CSS width transition
+                // carry it to the new one — the "tick" is the whole point.
+                fill.style.width = `${Math.round(daily.from / daily.target * 100)}%`;
+                bar.appendChild(fill);
+                row.append(label, value, bar);
+                const paint = () => { fill.style.width = `${Math.round(daily.to / daily.target * 100)}%`; };
+                if (reducedMotion) paint();
+                else requestAnimationFrame(() => requestAnimationFrame(paint));
+                this._animateCount(value, daily.to, amount => `${amount}/${daily.target}`, daily.from);
+            });
+        }
     }
 
     // ===== Watch & Earn (house-promo ad-reward, no real ad SDK/dependency) =====

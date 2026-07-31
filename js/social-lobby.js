@@ -2,113 +2,120 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 
-const ESTATE_BOUNDS = Object.freeze({ minX: -180, maxX: 180, minY: -8, maxY: 80, minZ: -160, maxZ: 160 });
-const ESTATE_GROUND_Y = 0;
-const POSE_AREA = Object.freeze({ x: 0, z: 34, radius: 9 });
-const ESTATE_POOLS = Object.freeze([
-    Object.freeze({ minX: -105, maxX: -59, minZ: 72, maxZ: 98, surfaceY: 1.65, floorY: -3.2 }),
-    Object.freeze({ minX: 59, maxX: 105, minZ: 72, maxZ: 98, surfaceY: 1.65, floorY: -3.2 })
+// Aurora Grand Plaza — the single Warrball social hub. One flagship city:
+// an arrival concourse in the south, a canal-flanked causeway, the Aurora Spire
+// over a swimmable fountain court, an amphitheatre, the Skyward Terraces parkour
+// tower in the west, the Lantern Bazaar in the east, and the Observatory Rise
+// closing the north axis.
+export const SOCIAL_HUB_MAP_ID = 'plaza';
+
+const PLAZA_BOUNDS = Object.freeze({ minX: -250, maxX: 250, minY: -14, maxY: 110, minZ: -230, maxZ: 230 });
+const PLAZA_GROUND_Y = 0;
+const POSE_AREA = Object.freeze({ x: 0, z: 56, radius: 11 });
+
+// Swim volumes. surfaceY sits above the 1.7 eye height so Player.getWaterAt
+// actually flips into swim mode (surfaceY + .25 >= standing eye height).
+const PLAZA_POOLS = Object.freeze([
+    Object.freeze({ minX: -29, maxX: 29, minZ: -21, maxZ: 37, surfaceY: 1.75, floorY: -3.4, kind: 'fountain' }),
+    Object.freeze({ minX: -96, maxX: -70, minZ: 62, maxZ: 146, surfaceY: 1.6, floorY: -3.8, kind: 'canal' }),
+    Object.freeze({ minX: 70, maxX: 96, minZ: 62, maxZ: 146, surfaceY: 1.6, floorY: -3.8, kind: 'canal' }),
+    Object.freeze({ minX: -90, maxX: -30, minZ: -140, maxZ: -104, surfaceY: 1.55, floorY: -2.6, kind: 'pool' }),
+    Object.freeze({ minX: 30, maxX: 90, minZ: -140, maxZ: -104, surfaceY: 1.55, floorY: -2.6, kind: 'pool' })
 ]);
 
 export const SOCIAL_HUB_MAPS = Object.freeze({
-    estate: Object.freeze({
-        id: 'estate',
-        name: 'Grand Estate',
-        bounds: ESTATE_BOUNDS,
-        spawn: Object.freeze({ x: 0, y: 2, z: 126 }),
+    plaza: Object.freeze({
+        id: SOCIAL_HUB_MAP_ID,
+        name: 'Aurora Grand Plaza',
+        bounds: PLAZA_BOUNDS,
+        spawn: Object.freeze({ x: 0, y: 2, z: 196 }),
         poseArea: POSE_AREA,
         zones: Object.freeze([
-            Object.freeze({ id: 'lobby', name: 'Arrival Court', x: 0, z: 118 }),
-            Object.freeze({ id: 'social', name: 'Fountain Plaza', x: 0, z: 34 }),
-            Object.freeze({ id: 'activity', name: 'Pool Gardens', x: -82, z: 85 }),
-            Object.freeze({ id: 'shop', name: 'East Gallery', x: 108, z: 0 })
+            Object.freeze({ id: 'lobby', name: 'Arrival Concourse', x: 0, z: 190 }),
+            Object.freeze({ id: 'social', name: 'Aurora Court', x: 0, z: 50 }),
+            Object.freeze({ id: 'activity', name: 'Skyward Terraces', x: -170, z: -10 }),
+            Object.freeze({ id: 'shop', name: 'Lantern Bazaar', x: 160, z: -10 })
         ]),
-        credit: 'Original Warrball procedural environment'
-    }),
-    skyline: Object.freeze({
-        id: 'skyline',
-        name: 'Skyline Deck',
-        bounds: Object.freeze({ minX: -140, maxX: 140, minY: -18, maxY: 92, minZ: -120, maxZ: 120 }),
-        spawn: Object.freeze({ x: 0, y: 3, z: 98 }),
-        poseArea: Object.freeze({ x: 0, z: 12, radius: 10 }),
-        zones: Object.freeze([
-            Object.freeze({ id: 'lobby', name: 'Transit Gate', x: 0, z: 96 }),
-            Object.freeze({ id: 'social', name: 'Neon Lounge', x: -72, z: 18 }),
-            Object.freeze({ id: 'activity', name: 'Air Court', x: 0, z: -62 }),
-            Object.freeze({ id: 'shop', name: 'Market Pods', x: 76, z: 20 })
-        ]),
-        credit: 'Original Warrball rooftop environment'
-    }),
-    harbor: Object.freeze({
-        id: 'harbor',
-        name: 'Harbor Commons',
-        bounds: Object.freeze({ minX: -170, maxX: 170, minY: -10, maxY: 72, minZ: -135, maxZ: 150 }),
-        spawn: Object.freeze({ x: 0, y: 2, z: 126 }),
-        poseArea: Object.freeze({ x: 0, z: 30, radius: 11 }),
-        zones: Object.freeze([
-            Object.freeze({ id: 'lobby', name: 'Ferry Landing', x: 0, z: 126 }),
-            Object.freeze({ id: 'social', name: 'Boardwalk Stage', x: 0, z: 30 }),
-            Object.freeze({ id: 'activity', name: 'Dock Run', x: -88, z: -30 }),
-            Object.freeze({ id: 'shop', name: 'Container Market', x: 88, z: -18 })
-        ]),
-        credit: 'Original Warrball waterfront environment'
+        credit: 'Original Warrball procedural megahub'
     })
 });
 
-// [centerX, centerZ, halfWidth, halfDepth, maxY, zone]
-const SOCIAL_MAP_BLOCKS = Object.freeze([
-    [0, -128, 61, 1.25, 18, 'main-manor'],
-    [-60, -96, 1.25, 33, 18, 'main-manor'], [60, -96, 1.25, 33, 18, 'main-manor'],
-    [-43, -63, 18, 1.25, 18, 'main-manor'], [43, -63, 18, 1.25, 18, 'main-manor'],
-    [-42, -96, 16, .8, 8, 'main-interior'], [42, -96, 16, .8, 8, 'main-interior'],
-    [-28, -113, .8, 14, 8, 'main-interior'], [28, -113, .8, 14, 8, 'main-interior'],
-    [-108, -30, 26, 1, 9, 'west-house'], [-134, 0, 1, 31, 9, 'west-house'], [-82, 0, 1, 31, 9, 'west-house'],
-    [-125, 30, 8, 1, 9, 'west-house'], [-91, 30, 8, 1, 9, 'west-house'],
-    [108, -30, 26, 1, 9, 'east-house'], [134, 0, 1, 31, 9, 'east-house'], [82, 0, 1, 31, 9, 'east-house'],
-    [91, 30, 8, 1, 9, 'east-house'], [125, 30, 8, 1, 9, 'east-house']
-]);
+// [centerX, centerZ, halfWidth, halfDepth, topY, zone]
+// Every block is solid from y = -2 up to topY and standable on its top face, so
+// the same table drives collision, the walkable rooftops, and the mesh pass.
+function buildPlazaBlocks() {
+    const blocks = [
+        // --- Arrival Concourse (lobby) -----------------------------------
+        [0, 224, 104, 3, 20, 'lobby'],
+        [-104, 194, 3, 33, 20, 'lobby'], [104, 194, 3, 33, 20, 'lobby'],
+        [-46, 160, 12, 7, 30, 'lobby'], [46, 160, 12, 7, 30, 'lobby'],
+        [-88, 160, 12, 4, 16, 'lobby'], [88, 160, 12, 4, 16, 'lobby'],
+        // --- Aurora Court (social) ---------------------------------------
+        [0, 8, 11, 11, 62, 'social'],                                   // Aurora Spire core
+        [-32, 8, 3, 32, 1.2, 'social'], [32, 8, 3, 32, 1.2, 'social'],  // fountain rim
+        [0, -24, 35, 3, 1.2, 'social'], [0, 40, 35, 3, 1.2, 'social'],
+        [-96, 20, 16, 40, 1.4, 'social'], [96, 20, 16, 40, 1.4, 'social'],
+        [-124, 20, 12, 34, 2.8, 'social'], [124, 20, 12, 34, 2.8, 'social'],
+        // --- Aurora Stage + amphitheatre (social) ------------------------
+        [0, -52, 34, 6, 1.5, 'social'],
+        [0, -42, 30, 2, 14, 'social'],
+        [0, -108, 62, 4, 25.6, 'social'],
+        [-62, -84, 4, 28, 25.6, 'social'], [62, -84, 4, 28, 25.6, 'social'],
+        // --- Skyward Terraces (activity) ---------------------------------
+        [-172, -40, 11, 11, 13.6, 'activity'],
+        [-196, -52, 11, 11, 16, 'activity'],
+        [-196, -76, 11, 11, 18.4, 'activity'],
+        [-176, -106, 11, 11, 20.8, 'activity'],
+        [-148, -108, 11, 11, 23.2, 'activity'],
+        [-160, -74, 20, 18, 25.6, 'activity'],                          // sky deck
+        [-103, -74, 37, 4, 25.6, 'activity'],                           // sky bridge to the rim
+        // --- Lantern Bazaar (shop) ---------------------------------------
+        [160, -84, 34, 4, 18, 'shop'],
+        [126, -56, 4, 32, 18, 'shop'], [194, -56, 4, 32, 18, 'shop'],
+        [160, -58, 28, 20, 4.2, 'shop'],                                // bazaar deck
+        [136, -58, 5, 5, 11, 'shop'], [184, -58, 5, 5, 11, 'shop'],     // stall canopies
+        [160, 6, 24, 4, 12, 'shop'],
+        // --- Observatory Rise (north landmark) ---------------------------
+        [0, -188, 66, 30, 6, 'observatory'],                            // podium
+        [0, -216, 66, 4, 34, 'observatory'],
+        [-66, -188, 4, 30, 34, 'observatory'], [66, -188, 4, 30, 34, 'observatory']
+    ];
+    // Amphitheatre seating: four contiguous 1.5-rise tiers (single-jump reach).
+    for (let i = 0; i < 4; i++) blocks.push([0, -66 - i * 10, 58 - i * 4, 5, 1.5 * (i + 1), 'social']);
+    // Terrace stair run: eight 1.4-rise steps feeding the parkour ledges.
+    for (let i = 0; i < 8; i++) blocks.push([-118 - i * 5, -30, 2.5, 11, 1.4 * (i + 1), 'activity']);
+    // Bazaar stair: three 1.4-rise steps up to the market deck.
+    for (let i = 0; i < 3; i++) blocks.push([160, -24 - i * 5, 10, 2.5, 1.4 * (i + 1), 'shop']);
+    // Observatory stair: four 1.5-rise steps up to the podium.
+    for (let i = 0; i < 4; i++) blocks.push([0, -140 - i * 5, 20, 2.5, 1.5 * (i + 1), 'observatory']);
+    for (const side of [-1, 1]) {
+        for (const z of [82, 118, 154]) blocks.push([side * 116, z, 14, 3, 5, 'garden']);
+        blocks.push([side * 232, 40, 4, 90, 12, 'perimeter']);
+        blocks.push([side * 232, -120, 4, 70, 12, 'perimeter']);
+    }
+    return Object.freeze(blocks.map(entry => Object.freeze(entry)));
+}
 
-const SKYLINE_BLOCKS = Object.freeze([
-    [0, 112, 54, 2, 10, 'lobby'], [-58, 88, 2, 26, 12, 'lobby'], [58, 88, 2, 26, 12, 'lobby'],
-    [-72, 18, 28, 2, 9, 'social'], [-98, 18, 2, 30, 9, 'social'], [-46, 18, 2, 30, 9, 'social'],
-    [0, -92, 50, 2, 8, 'activity'], [-52, -62, 2, 32, 8, 'activity'], [52, -62, 2, 32, 8, 'activity'],
-    [76, 20, 25, 2, 8, 'shop'], [51, 20, 2, 24, 8, 'shop'], [101, 20, 2, 24, 8, 'shop'],
-    [-20, -8, 12, 3, 4, 'activity'], [20, -8, 12, 3, 4, 'activity']
-]);
+const PLAZA_BLOCKS = buildPlazaBlocks();
 
-const HARBOR_BLOCKS = Object.freeze([
-    [0, 142, 58, 2, 9, 'lobby'], [-60, 122, 2, 22, 9, 'lobby'], [60, 122, 2, 22, 9, 'lobby'],
-    [0, 30, 40, 2, 8, 'social'], [-42, 30, 2, 28, 8, 'social'], [42, 30, 2, 28, 8, 'social'],
-    [-88, -30, 34, 2, 7, 'activity'], [-122, -30, 2, 38, 7, 'activity'], [-54, -30, 2, 38, 7, 'activity'],
-    [88, -18, 32, 2, 12, 'shop'], [56, -18, 2, 32, 12, 'shop'], [120, -18, 2, 32, 12, 'shop'],
-    [-18, -92, 2, 34, 5, 'dock'], [18, -92, 2, 34, 5, 'dock']
-]);
-
-const MAP_LAYOUTS = Object.freeze({
-    estate: Object.freeze({ blocks: SOCIAL_MAP_BLOCKS, pools: ESTATE_POOLS, groundY: ESTATE_GROUND_Y, platform: Object.freeze({ x: 0, z: 0, y: 0, halfWidth: 174, halfDepth: 154 }) }),
-    skyline: Object.freeze({ blocks: SKYLINE_BLOCKS, pools: Object.freeze([]), groundY: 0, platform: Object.freeze({ x: 0, z: 0, y: 0, halfWidth: 134, halfDepth: 114 }) }),
-    harbor: Object.freeze({
-        blocks: HARBOR_BLOCKS,
-        pools: Object.freeze([
-            Object.freeze({ minX: -48, maxX: 48, minZ: -126, maxZ: -60, surfaceY: .2, floorY: -4.5, kind: 'harbor' }),
-            Object.freeze({ minX: -158, maxX: -132, minZ: -108, maxZ: 72, surfaceY: .2, floorY: -4.5, kind: 'harbor' })
-        ]),
-        groundY: 0,
-        platform: Object.freeze({ x: 0, z: 8, y: 0, halfWidth: 164, halfDepth: 136 })
-    })
+const PLAZA_LAYOUT = Object.freeze({
+    blocks: PLAZA_BLOCKS,
+    pools: PLAZA_POOLS,
+    groundY: PLAZA_GROUND_Y,
+    platform: Object.freeze({ x: 0, z: 0, y: PLAZA_GROUND_Y, halfWidth: 244, halfDepth: 224 })
 });
 
 const CHARACTER_ASSETS = ['a', 'f', 'k', 'r'].map(
     id => `assets/cc0/kenney/blocky-characters/character-${id}.glb`
 );
 const PROP_ASSETS = Object.freeze([
-    ['assets/cc0/kenney/mini-arena/statue.glb', [-31, 1.4, 34], 1.45, .25, 2.1],
-    ['assets/cc0/kenney/mini-arena/statue.glb', [31, 1.4, 34], 1.45, -.25, 2.1],
-    ['assets/cc0/kenney/mini-arena/trophy.glb', [0, 2.25, 11], 1.35, 0, 1.7],
-    ['assets/cc0/kenney/mini-arena/banner.glb', [-19, 0, -61], 2.1, 0, 1.1],
-    ['assets/cc0/kenney/mini-arena/banner.glb', [19, 0, -61], 2.1, Math.PI, 1.1],
-    ['assets/cc0/kenney/mini-arena/tree.glb', [-145, 0, 78], 3, .4, 2.4],
-    ['assets/cc0/kenney/mini-arena/tree.glb', [145, 0, 78], 3, -.4, 2.4]
+    ['assets/cc0/kenney/mini-arena/statue.glb', [-48, 1.4, 62], 1.6, .3, 2.3],
+    ['assets/cc0/kenney/mini-arena/statue.glb', [48, 1.4, 62], 1.6, -.3, 2.3],
+    ['assets/cc0/kenney/mini-arena/trophy.glb', [0, 2.85, -52], 1.5, 0, 1.8],
+    ['assets/cc0/kenney/mini-arena/banner.glb', [-24, 0, 152], 2.3, 0, 1.2],
+    ['assets/cc0/kenney/mini-arena/banner.glb', [24, 0, 152], 2.3, Math.PI, 1.2],
+    ['assets/cc0/kenney/mini-arena/tree.glb', [-206, 0, 122], 3.2, .4, 2.6],
+    ['assets/cc0/kenney/mini-arena/tree.glb', [206, 0, 122], 3.2, -.4, 2.6]
 ]);
 
 export const SOCIAL_LOBBY_PROP_COLLIDERS = Object.freeze(PROP_ASSETS.map(([url, position, , , radius]) => Object.freeze({
@@ -162,8 +169,8 @@ export function createSocialBoundaryColliders(bounds, thickness = 1.5) {
     ];
 }
 
-function getSocialHubMap(mapId = 'estate') {
-    return SOCIAL_HUB_MAPS[String(mapId).toLowerCase()] || SOCIAL_HUB_MAPS.estate;
+function getSocialHubMap() {
+    return SOCIAL_HUB_MAPS[SOCIAL_HUB_MAP_ID];
 }
 
 function normalizeMapMarker(value, bounds) {
@@ -176,8 +183,8 @@ function normalizeMapMarker(value, bounds) {
     return x === null || z === null ? null : { x, z };
 }
 
-export function getSocialLobbyMapState(player, presence, mapId = 'estate') {
-    const map = getSocialHubMap(mapId);
+export function getSocialLobbyMapState(player, presence) {
+    const map = getSocialHubMap();
     return {
         bounds: map.bounds,
         player: normalizeMapMarker(player, map.bounds),
@@ -188,25 +195,29 @@ export function getSocialLobbyMapState(player, presence, mapId = 'estate') {
     };
 }
 
-export function createSocialLobbyArena(mapId = 'estate') {
-    const map = getSocialHubMap(mapId);
-    const layout = MAP_LAYOUTS[map.id];
+export function createSocialLobbyArena() {
+    const map = getSocialHubMap();
+    const layout = PLAZA_LAYOUT;
     const boundaries = createSocialBoundaryColliders(map.bounds);
-    const blocks = layout.blocks.map(([x, z, halfWidth, halfDepth, maxY, zone]) => ({
-        minX: x - halfWidth, maxX: x + halfWidth, minY: -2, maxY, minZ: z - halfDepth, maxZ: z + halfDepth, zone
+    const blocks = layout.blocks.map(([x, z, halfWidth, halfDepth, topY, zone]) => ({
+        minX: x - halfWidth, maxX: x + halfWidth, minY: -2, maxY: topY, minZ: z - halfDepth, maxZ: z + halfDepth, zone
     }));
-    const props = map.id === 'estate'
-        ? SOCIAL_LOBBY_PROP_COLLIDERS.map(({ position, radius }) => ({ pos: position, radius, zone: 'decor' }))
-        : [];
+    const props = SOCIAL_LOBBY_PROP_COLLIDERS.map(({ position, radius }) => ({ pos: position, radius, zone: 'decor' }));
     const collidables = [...boundaries, ...blocks, ...props];
     const grid = createSocialColliderGrid(collidables, 22);
+    // Highest-first so a fast fall through several decks lands on the top one;
+    // the ground shelf stays last as the fallback.
+    const platforms = layout.blocks
+        .map(([x, z, halfWidth, halfDepth, topY]) => ({ x, z, y: topY, halfWidth, halfDepth }))
+        .sort((a, b) => b.y - a.y);
+    platforms.push({ ...layout.platform });
     return {
         bounds: map.bounds,
         ceilingHeight: map.bounds.maxY,
         config: { name: `Warrball Social Hub - ${map.name}`, zones: map.zones, lowGravity: false, slippery: false, gameplay: { sandTraction: 1 } },
         collidables,
         getNearbyCollidables: position => grid.query(position),
-        platforms: [{ ...layout.platform }],
+        platforms,
         jumpPads: [],
         getWaterAt(position) {
             if (!Number.isFinite(position?.x) || !Number.isFinite(position?.z)) return null;
@@ -286,23 +297,35 @@ function createProceduralTexture(renderer, kind, colors, repeatX = 8, repeatY = 
     return texture;
 }
 
-function createEstateMaterials(renderer) {
+function createPlazaMaterials(renderer) {
     const textured = (color, map, roughness = .72, metalness = .03) => new THREE.MeshStandardMaterial({ color, map, roughness, metalness });
     return {
-        lawn: textured(0xb4c89c, createProceduralTexture(renderer, 'lawn', ['#789d68', '#9fbd83', '#5e865b'], 30, 30), .92),
-        marble: textured(0xf5eee2, createProceduralTexture(renderer, 'marble', ['#eee5d8', '#6f8795'], 6, 6), .43),
-        stone: textured(0x87939a, createProceduralTexture(renderer, 'stone', ['#69747a', '#8e999f', '#56636a'], 12, 12), .82),
-        wood: textured(0x7c4b32, createProceduralTexture(renderer, 'wood', ['#6d412b', '#85543a', '#4a291d'], 5, 5), .68),
-        stucco: textured(0xe7ddd0, createProceduralTexture(renderer, 'stone', ['#d9cec0', '#ede5da', '#c8bbab'], 10, 5), .85),
-        roof: textured(0x34434c, createProceduralTexture(renderer, 'stone', ['#27363e', '#43535b', '#1f2b31'], 15, 7), .7),
-        trim: new THREE.MeshStandardMaterial({ color: 0xf8f3e9, roughness: .52 }),
-        metal: new THREE.MeshStandardMaterial({ color: 0xa98348, roughness: .28, metalness: .82 }),
-        glass: new THREE.MeshPhysicalMaterial({ color: 0x9edcf1, roughness: .12, metalness: .08, transparent: true, opacity: .55, depthWrite: false }),
-        water: new THREE.MeshPhysicalMaterial({ color: 0x55cfe4, roughness: .16, metalness: .05, transparent: true, opacity: .78, depthWrite: false }),
-        hedge: new THREE.MeshStandardMaterial({ color: 0x315f43, roughness: .95 }),
-        accent: new THREE.MeshStandardMaterial({ color: 0x27c7bd, emissive: 0x0c5b57, emissiveIntensity: .42, roughness: .35 })
+        lawn: textured(0xa8c493, createProceduralTexture(renderer, 'lawn', ['#6f9a67', '#9dbd80', '#587f57'], 34, 34), .92),
+        marble: textured(0xf3ecdd, createProceduralTexture(renderer, 'marble', ['#efe6d6', '#6c8ba0'], 8, 8), .42),
+        stone: textured(0x8b98a2, createProceduralTexture(renderer, 'stone', ['#6a757c', '#8f9aa1', '#57646b'], 14, 14), .82),
+        wood: textured(0x8a5a34, createProceduralTexture(renderer, 'wood', ['#77482c', '#8e5c3c', '#4f2c1d'], 6, 6), .68),
+        stucco: textured(0xeadcc5, createProceduralTexture(renderer, 'stone', ['#ddd0b8', '#f0e6d6', '#c9b99e'], 12, 6), .85),
+        roof: textured(0x2f4254, createProceduralTexture(renderer, 'stone', ['#233542', '#3d5364', '#1b2833'], 16, 8), .7),
+        trim: new THREE.MeshStandardMaterial({ color: 0xfff5e6, roughness: .5 }),
+        metal: new THREE.MeshStandardMaterial({ color: 0xc79a4e, roughness: .26, metalness: .84 }),
+        glass: new THREE.MeshPhysicalMaterial({ color: 0x9fe2f4, roughness: .1, metalness: .08, transparent: true, opacity: .5, depthWrite: false }),
+        water: new THREE.MeshPhysicalMaterial({ color: 0x3fc9e8, roughness: .14, metalness: .05, transparent: true, opacity: .76, depthWrite: false }),
+        hedge: new THREE.MeshStandardMaterial({ color: 0x2c5c40, roughness: .95 }),
+        accent: new THREE.MeshStandardMaterial({ color: 0x0d2530, emissive: 0x35e8d6, emissiveIntensity: 1.6, roughness: .34 }),
+        lantern: new THREE.MeshStandardMaterial({ color: 0x2a1608, emissive: 0xffb347, emissiveIntensity: 2.2, roughness: .4 }),
+        aurora: new THREE.MeshStandardMaterial({ color: 0x180b2c, emissive: 0xb46bff, emissiveIntensity: 1.9, roughness: .35 })
     };
 }
+
+const ZONE_MATERIAL = Object.freeze({
+    lobby: 'stucco',
+    social: 'marble',
+    activity: 'stone',
+    shop: 'wood',
+    observatory: 'stucco',
+    garden: 'hedge',
+    perimeter: 'stone'
+});
 
 function addBox(group, size, position, material, options = {}) {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(...size), material);
@@ -323,45 +346,98 @@ function addCylinder(group, radius, height, position, material, segments = 20) {
     return mesh;
 }
 
-function addMansionShell(group, materials, centerX, centerZ, width, depth, height, main = false) {
-    const frontZ = centerZ + depth / 2;
-    const backZ = centerZ - depth / 2;
-    const doorHalf = main ? 24 : 9;
-    const sideWidth = (width / 2 - doorHalf) / 2;
-    addBox(group, [width, .35, depth], [centerX, .18, centerZ], materials.wood, { castShadow: false });
-    addBox(group, [width, height, 2], [centerX, height / 2, backZ], materials.stucco);
-    addBox(group, [2, height, depth], [centerX - width / 2, height / 2, centerZ], materials.stucco);
-    addBox(group, [2, height, depth], [centerX + width / 2, height / 2, centerZ], materials.stucco);
-    addBox(group, [sideWidth * 2, height, 2], [centerX - doorHalf - sideWidth, height / 2, frontZ], materials.stucco);
-    addBox(group, [sideWidth * 2, height, 2], [centerX + doorHalf + sideWidth, height / 2, frontZ], materials.stucco);
-    addBox(group, [width + 5, .65, depth + 5], [centerX, height + .3, centerZ], materials.roof);
-    for (const x of [centerX - width * .32, centerX, centerX + width * .32]) {
-        addBox(group, [8, 3.1, .18], [x, height * .6, backZ - 1.08], materials.glass, { castShadow: false });
+// One mesh per collision block keeps what players see identical to what they hit.
+function addBlockMeshes(group, materials) {
+    for (const [x, z, halfWidth, halfDepth, topY, zone] of PLAZA_BLOCKS) {
+        const material = materials[ZONE_MATERIAL[zone] || 'stone'];
+        addBox(group, [halfWidth * 2, topY + 2, halfDepth * 2], [x, (topY - 2) / 2, z], material, { castShadow: topY > 1.6 });
+        if (topY >= 4) addBox(group, [halfWidth * 2 + .6, .35, halfDepth * 2 + .6], [x, topY + .1, z], materials.trim, { castShadow: false });
     }
-    for (const x of [centerX - doorHalf, centerX + doorHalf]) addCylinder(group, .75, height + 1.2, [x, (height + 1.2) / 2, frontZ + 1.5], materials.marble, 24);
-    const table = addCylinder(group, main ? 4.5 : 3, 1.1, [centerX, .55, centerZ], materials.marble, 28);
-    table.castShadow = false;
-    for (const offset of [-1, 1]) addBox(group, [main ? 13 : 8, 1.25, 2.6], [centerX + offset * (main ? 14 : 9), .65, centerZ + 8], materials.accent, { rotationY: offset * .18 });
 }
 
-function addPool(group, materials, centerX, centerZ) {
-    addBox(group, [52, .35, 32], [centerX, .06, centerZ], materials.marble, { castShadow: false });
-    const water = new THREE.Mesh(new THREE.PlaneGeometry(46, 26), materials.water);
-    water.rotation.x = -Math.PI / 2;
-    water.position.set(centerX, .24, centerZ);
-    water.userData.estateWater = true;
-    group.add(water);
-    for (const x of [-19, -9, 1, 11, 21]) addBox(group, [1.4, .08, 25], [centerX + x, .29, centerZ], materials.glass, { castShadow: false });
+function addLamp(group, materials, x, z, height = 7, material = materials.lantern) {
+    addCylinder(group, .38, height, [x, height / 2, z], materials.metal, 12);
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(.9, 14, 10), material);
+    bulb.position.set(x, height + .5, z);
+    group.add(bulb);
+    return bulb;
 }
 
-function addStatue(group, materials, x, z, scale = 1) {
-    addBox(group, [6 * scale, 2 * scale, 6 * scale], [x, scale, z], materials.marble);
-    addCylinder(group, 1.25 * scale, 4 * scale, [x, 4 * scale, z], materials.stone, 24);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(1.5 * scale, 18, 14), materials.stone);
-    head.position.set(x, 7 * scale, z);
-    head.castShadow = true;
-    group.add(head);
-    for (const side of [-1, 1]) addBox(group, [3.6 * scale, .65 * scale, .8 * scale], [x + side * 2 * scale, 4.8 * scale, z], materials.metal, { rotationY: side * .32 });
+function addAuroraSpire(group, materials) {
+    addCylinder(group, 17, 2.4, [0, 1.2, 8], materials.marble, 40);
+    const tiers = [[11, 16, 10], [9, 14, 25], [7, 12, 38], [5, 10, 49]];
+    for (const [radius, height, baseY] of tiers) {
+        addCylinder(group, radius, height, [0, baseY + height / 2, 8], materials.marble, 28);
+        addCylinder(group, radius + 1, .8, [0, baseY + height, 8], materials.metal, 28);
+        for (let i = 0; i < 4; i++) {
+            const angle = i * Math.PI / 2 + .4;
+            addBox(group, [.7, height * .82, .7], [Math.cos(angle) * (radius + .3), baseY + height / 2, 8 + Math.sin(angle) * (radius + .3)], materials.accent, { castShadow: false });
+        }
+    }
+    const crown = new THREE.Mesh(new THREE.OctahedronGeometry(4.6, 0), materials.aurora);
+    crown.position.set(0, 66, 8);
+    group.add(crown);
+    const halo = new THREE.Mesh(new THREE.TorusGeometry(9, .55, 10, 40), materials.accent);
+    halo.rotation.x = Math.PI / 2;
+    halo.position.set(0, 60, 8);
+    group.add(halo);
+    const beacon = new THREE.PointLight(0x8ae7ff, 6, 150);
+    beacon.position.set(0, 66, 8);
+    group.add(beacon);
+    return { crown, halo };
+}
+
+function addWaterPlanes(group, materials, sink) {
+    for (const pool of PLAZA_POOLS) {
+        const water = new THREE.Mesh(new THREE.PlaneGeometry(pool.maxX - pool.minX, pool.maxZ - pool.minZ), materials.water);
+        water.rotation.x = -Math.PI / 2;
+        water.position.set((pool.minX + pool.maxX) / 2, pool.surfaceY, (pool.minZ + pool.maxZ) / 2);
+        water.userData.waterBaseY = water.position.y;
+        group.add(water);
+        sink.push(water);
+        addBox(group, [pool.maxX - pool.minX + 2, .6, pool.maxZ - pool.minZ + 2], [(pool.minX + pool.maxX) / 2, pool.floorY, (pool.minZ + pool.maxZ) / 2], materials.stone, { castShadow: false });
+    }
+}
+
+function addObservatoryDome(group, materials) {
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(34, 32, 18, 0, Math.PI * 2, 0, Math.PI / 2), materials.roof);
+    dome.position.set(0, 34, -188);
+    dome.castShadow = true;
+    group.add(dome);
+    const lens = new THREE.Mesh(new THREE.SphereGeometry(6.5, 18, 12), materials.aurora);
+    lens.position.set(0, 66, -188);
+    group.add(lens);
+    for (let i = 0; i < 10; i++) {
+        const angle = i * Math.PI / 5;
+        addCylinder(group, 2.2, 28, [Math.cos(angle) * 46, 20, -188 + Math.sin(angle) * 22], materials.marble, 16);
+    }
+}
+
+function addBazaarRoofs(group, materials) {
+    for (const [x, z, radius] of [[136, -58, 9], [184, -58, 9], [160, -84, 14]]) {
+        const roof = new THREE.Mesh(new THREE.ConeGeometry(radius, 8, 4), materials.roof);
+        roof.position.set(x, z === -84 ? 22 : 15, z);
+        roof.rotation.y = Math.PI / 4;
+        roof.castShadow = true;
+        group.add(roof);
+    }
+    for (const z of [-96, -76, -40, -20]) {
+        addLamp(group, materials, 118, z, 8);
+        addLamp(group, materials, 202, z, 8);
+    }
+    for (let i = 0; i < 6; i++) {
+        addBox(group, [7, .4, 7], [140 + (i % 3) * 20, 4.6, -70 + Math.floor(i / 3) * 22], materials.stucco, { castShadow: false });
+        addBox(group, [8, .35, 8], [140 + (i % 3) * 20, 8.4, -70 + Math.floor(i / 3) * 22], materials.aurora, { castShadow: false });
+    }
+}
+
+function addGateAndBanners(group, materials) {
+    addBox(group, [116, 4.5, 9], [0, 32, 160], materials.trim);
+    addBox(group, [104, 1.6, 6], [0, 27.5, 160], materials.accent, { castShadow: false });
+    for (const side of [-1, 1]) {
+        addBox(group, [7, 22, 1.2], [side * 30, 18, 154], materials.aurora, { castShadow: false });
+        for (const z of [186, 206]) addLamp(group, materials, side * 74, z, 9);
+    }
 }
 
 function createNameplate(name) {
@@ -419,9 +495,9 @@ export class SocialLobby {
         this.root.name = 'social-lobby';
         this.root.visible = false;
         this.active = false;
-        this.mapId = 'estate';
-        this.arenas = Object.fromEntries(Object.keys(SOCIAL_HUB_MAPS).map(id => [id, createSocialLobbyArena(id)]));
-        this.arena = this.arenas.estate;
+        this.mapId = SOCIAL_HUB_MAP_ID;
+        this.arena = createSocialLobbyArena();
+        this.arenas = { [SOCIAL_HUB_MAP_ID]: this.arena };
         this.mixers = [];
         this.visitors = new Map();
         this.characterTemplates = [];
@@ -430,219 +506,73 @@ export class SocialLobby {
         this._presenceDirty = true;
         this._insidePoseArea = false;
         this._disposed = false;
+        this._waterMeshes = [];
         this._boundaryColliders = this.arena.collidables.filter(collider => collider.invisibleBoundary);
         this._mapBlocks = Object.freeze(this.arena.collidables.filter(collider => Number.isFinite(collider.minX) && !collider.invisibleBoundary));
-        this._buildEstateWorld();
-        this._buildSkylineWorld();
-        this._buildHarborWorld();
+        this._buildPlazaWorld();
         this.scene?.add(this.root);
         this._assetLoadPromise = null;
         this.ready = Promise.resolve();
     }
 
-    _buildEstateWorld() {
-        this.estateWorld = new THREE.Group();
-        this.estateWorld.name = 'warrball-grand-estate';
-        this.estateWorld.visible = true;
-        const materials = createEstateMaterials(this.renderer?.renderer);
-        this._estateMaterials = materials;
-        addBox(this.estateWorld, [360, 2, 320], [0, -1, 0], materials.lawn, { castShadow: false });
-        addBox(this.estateWorld, [34, .22, 238], [0, .12, 22], materials.marble, { castShadow: false });
-        addBox(this.estateWorld, [210, .22, 24], [0, .13, 36], materials.marble, { castShadow: false });
-        const plaza = new THREE.Mesh(new THREE.CircleGeometry(42, 48), materials.marble);
-        plaza.rotation.x = -Math.PI / 2;
-        plaza.position.y = .18;
-        plaza.receiveShadow = true;
-        this.estateWorld.add(plaza);
+    _buildPlazaWorld() {
+        const world = new THREE.Group();
+        world.name = 'warrball-aurora-grand-plaza';
+        world.visible = true;
+        const materials = createPlazaMaterials(this.renderer?.renderer);
+        this._hubMaterials = materials;
 
-        addMansionShell(this.estateWorld, materials, 0, -95.5, 120, 65, 14, true);
-        addMansionShell(this.estateWorld, materials, -108, 0, 52, 60, 8, false);
-        addMansionShell(this.estateWorld, materials, 108, 0, 52, 60, 8, false);
-        addPool(this.estateWorld, materials, -82, 85);
-        addPool(this.estateWorld, materials, 82, 85);
+        addBox(world, [520, 2, 480], [0, -1, 0], materials.lawn, { castShadow: false });
+        addBox(world, [150, .3, 300], [0, .15, 60], materials.marble, { castShadow: false });   // causeway
+        addBox(world, [300, .3, 60], [0, .16, 30], materials.marble, { castShadow: false });    // court cross-axis
+        addBox(world, [90, .3, 190], [0, .17, -130], materials.marble, { castShadow: false });  // observatory approach
+        addBox(world, [130, .3, 150], [-160, .17, -70], materials.stone, { castShadow: false });
+        addBox(world, [130, .3, 150], [160, .17, -50], materials.stone, { castShadow: false });
+        const court = new THREE.Mesh(new THREE.CircleGeometry(74, 56), materials.marble);
+        court.rotation.x = -Math.PI / 2;
+        court.position.set(0, .2, 12);
+        court.receiveShadow = true;
+        world.add(court);
 
-        const fountain = new THREE.Group();
-        addCylinder(fountain, 10, 1.3, [0, .65, 11], materials.stone, 36);
-        addCylinder(fountain, 7.8, .24, [0, 1.32, 11], materials.water, 36);
-        addCylinder(fountain, 1.35, 6, [0, 4, 11], materials.marble, 24);
-        const crown = new THREE.Mesh(new THREE.SphereGeometry(1.8, 20, 14), materials.metal);
-        crown.position.set(0, 7.4, 11);
-        crown.castShadow = true;
-        fountain.add(crown);
-        this.estateWorld.add(fountain);
+        addBlockMeshes(world, materials);
+        addWaterPlanes(world, materials, this._waterMeshes);
+        this._spire = addAuroraSpire(world, materials);
+        addObservatoryDome(world, materials);
+        addBazaarRoofs(world, materials);
+        addGateAndBanners(world, materials);
 
-        addStatue(this.estateWorld, materials, -31, 34, 1.05);
-        addStatue(this.estateWorld, materials, 31, 34, 1.05);
-        const posePad = addCylinder(this.estateWorld, POSE_AREA.radius, .42, [POSE_AREA.x, .26, POSE_AREA.z], materials.accent, 36);
+        const posePad = addCylinder(world, POSE_AREA.radius, .42, [POSE_AREA.x, .3, POSE_AREA.z], materials.accent, 40);
         posePad.userData.poseArea = true;
 
-        for (const [x, z, w, d] of [[-151,-72,10,120],[151,-72,10,120],[-151,82,10,74],[151,82,10,74],[-52,137,70,8],[52,137,70,8]]) {
-            addBox(this.estateWorld, [w, 3.6, d], [x, 1.8, z], materials.hedge, { castShadow: false });
+        for (const side of [-1, 1]) {
+            for (const z of [70, 96, 122, 148]) addLamp(world, materials, side * 60, z, 9);
+            for (const z of [-20, 10, 40]) addLamp(world, materials, side * 108, z, 8, materials.accent);
+            for (let i = 0; i < 7; i++) addCylinder(world, 2.6, 14, [side * 232, 7, -180 + i * 60], materials.marble, 14);
+            for (const [x, z] of [[side * 200, 40], [side * 214, -20], [side * 190, 96], [side * 224, 150]]) {
+                addCylinder(world, 1.5, 9, [x, 4.5, z], materials.wood, 10);
+                const canopy = new THREE.Mesh(new THREE.SphereGeometry(7.5, 12, 9), materials.hedge);
+                canopy.position.set(x, 13, z);
+                canopy.castShadow = true;
+                world.add(canopy);
+            }
         }
-        for (const [x, z] of [[-46,56],[46,56],[-122,84],[122,84],[-37,122],[37,122],[-70,-49],[70,-49]]) {
-            addCylinder(this.estateWorld, .42, 5.5, [x, 2.75, z], materials.metal, 14);
-            const lamp = new THREE.Mesh(new THREE.SphereGeometry(.8, 14, 10), materials.accent);
-            lamp.position.set(x, 5.8, z);
-            this.estateWorld.add(lamp);
-        }
+        for (let i = 0; i < 5; i++) addLamp(world, materials, -160 + i * 80, -152, 10, materials.aurora);
 
-        const sky = new THREE.Mesh(new THREE.SphereGeometry(460, 32, 24), new THREE.ShaderMaterial({
+        const sky = new THREE.Mesh(new THREE.SphereGeometry(620, 32, 24), new THREE.ShaderMaterial({
             side: THREE.BackSide,
             depthWrite: false,
-            uniforms: { sunDirection: { value: new THREE.Vector3(-.48, .77, -.35).normalize() } },
+            uniforms: { sunDirection: { value: new THREE.Vector3(-.42, .68, -.6).normalize() } },
             vertexShader: 'varying vec3 vDir; void main(){vDir=normalize(position);gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
-            fragmentShader: 'varying vec3 vDir;uniform vec3 sunDirection;void main(){float h=clamp(vDir.y*.72+.38,0.,1.);vec3 c=mix(vec3(.58,.83,.92),vec3(.08,.25,.48),h);float s=pow(max(dot(vDir,sunDirection),0.),320.);c+=vec3(1.,.78,.42)*s;gl_FragColor=vec4(c,1.);}'
+            fragmentShader: 'varying vec3 vDir;uniform vec3 sunDirection;void main(){float h=clamp(vDir.y*.7+.34,0.,1.);vec3 c=mix(vec3(.98,.78,.62),vec3(.09,.24,.52),h);float band=pow(max(0.,sin(vDir.x*5.0+vDir.y*9.0)),6.0)*smoothstep(.12,.62,vDir.y);c+=vec3(.22,.68,.55)*band;float s=pow(max(dot(vDir,sunDirection),0.),300.);c+=vec3(1.,.82,.5)*s;gl_FragColor=vec4(c,1.);}'
         }));
-        this.estateWorld.add(sky);
-        const sun = new THREE.DirectionalLight(0xffefd0, 2.35);
-        sun.position.set(-90, 130, -70);
+        world.add(sky);
+        const sun = new THREE.DirectionalLight(0xffeccd, 2.4);
+        sun.position.set(-130, 190, -120);
         sun.castShadow = true;
-        this.estateWorld.add(sun, new THREE.HemisphereLight(0xc9f3ff, 0x3d563d, 1.25));
-        this.root.add(this.estateWorld);
-        this.mapWorlds = { estate: this.estateWorld };
-        this._waterMeshes = [];
-        this.estateWorld.traverse(child => {
-            if (!child.userData?.estateWater) return;
-            child.userData.waterBaseY = child.position.y;
-            this._waterMeshes.push(child);
-        });
-    }
-
-    _buildSkylineWorld() {
-        const world = new THREE.Group();
-        world.name = 'warrball-skyline-deck';
-        world.visible = false;
-        const materials = createEstateMaterials(this.renderer?.renderer);
-        materials.lawn.color.setHex(0x141c31);
-        materials.marble.color.setHex(0x24324a);
-        materials.stone.color.setHex(0x111827);
-        materials.wood.color.setHex(0x293a56);
-        materials.stucco.color.setHex(0x1d2940);
-        materials.roof.color.setHex(0x07111f);
-        materials.trim.color.setHex(0x9cecff);
-        materials.metal.color.setHex(0x7a8ca8);
-        materials.accent.color.setHex(0x36d8ca);
-        materials.accent.emissive.setHex(0x116c75);
-
-        addBox(world, [280, 3, 240], [0, -1.5, 0], materials.lawn, { castShadow: false });
-        addBox(world, [24, .24, 198], [0, .13, 2], materials.marble, { castShadow: false });
-        addBox(world, [226, .24, 18], [0, .14, 12], materials.marble, { castShadow: false });
-        addBox(world, [112, .28, 66], [0, .16, -62], materials.stone, { castShadow: false });
-        for (const x of [-53, 53]) addBox(world, [2, .55, 66], [x, .46, -62], materials.accent, { castShadow: false });
-        for (const z of [-93, -31]) addBox(world, [108, .55, 2], [0, .46, z], materials.accent, { castShadow: false });
-
-        for (const x of [-58, 58]) {
-            addBox(world, [5, 17, 5], [x, 8.5, 94], materials.metal);
-            addBox(world, [14, 2, 5], [x, 15.5, 94], materials.accent);
-        }
-        addBox(world, [122, 2.2, 5], [0, 17, 94], materials.trim);
-
-        addBox(world, [56, .4, 58], [-72, .22, 18], materials.wood, { castShadow: false });
-        addBox(world, [56, 1, 3], [-72, .55, -10], materials.accent);
-        for (const x of [-94, -78, -62, -50]) {
-            addCylinder(world, .6, 8, [x, 4, 18], materials.metal, 12);
-            addBox(world, [7, .8, 3], [x, .5, 18], materials.trim, { rotationY: .25 });
-        }
-        addBox(world, [58, .7, 60], [-72, 8, 18], materials.glass, { castShadow: false });
-
-        for (const [x, z, color] of [[64, 3, 0x36d8ca], [88, 3, 0xdfe104], [64, 37, 0xff5b7a], [88, 37, 0x7f7cff]]) {
-            const podMaterial = materials.stucco.clone();
-            podMaterial.color.setHex(color);
-            addBox(world, [20, 8, 22], [x, 4, z], podMaterial);
-            addBox(world, [13, 4.5, .35], [x, 3.5, z + 11.2], materials.glass, { castShadow: false });
-        }
-
-        for (const [x, z, height] of [[-126,-96,42],[-112,-42,28],[-124,72,50],[122,-82,34],[118,76,46],[-84,-111,25],[82,-109,32]]) {
-            addBox(world, [18, height, 18], [x, height / 2 - 2, z], materials.roof, { castShadow: false });
-            addBox(world, [12, .8, 12], [x, height - 1.5, z], materials.accent, { castShadow: false });
-        }
-
-        const pose = SOCIAL_HUB_MAPS.skyline.poseArea;
-        const posePad = addCylinder(world, pose.radius, .45, [pose.x, .28, pose.z], materials.accent, 40);
-        posePad.userData.poseArea = true;
-        const sky = new THREE.Mesh(new THREE.SphereGeometry(390, 28, 20), new THREE.MeshBasicMaterial({ color: 0x071226, side: THREE.BackSide }));
-        world.add(sky);
-        const key = new THREE.DirectionalLight(0x9defff, 2.1);
-        key.position.set(-70, 110, 45);
-        world.add(key, new THREE.HemisphereLight(0x5279b8, 0x07111f, 1.15));
+        world.add(sun, new THREE.HemisphereLight(0xbfeeff, 0x3f5a48, 1.3));
         this.root.add(world);
-        this.mapWorlds.skyline = world;
-    }
-
-    _buildHarborWorld() {
-        const world = new THREE.Group();
-        world.name = 'warrball-harbor-commons';
-        world.visible = false;
-        const materials = createEstateMaterials(this.renderer?.renderer);
-        materials.lawn.color.setHex(0x70806c);
-        materials.marble.color.setHex(0xb7b09d);
-        materials.stone.color.setHex(0x58636b);
-        materials.wood.color.setHex(0x754b2d);
-        materials.stucco.color.setHex(0xd8c6a4);
-        materials.roof.color.setHex(0x263743);
-        materials.trim.color.setHex(0xffe1a6);
-        materials.metal.color.setHex(0xc8793e);
-        materials.accent.color.setHex(0x23bdc6);
-        materials.accent.emissive.setHex(0x07535c);
-
-        addBox(world, [340, 2, 285], [0, -1, 7], materials.stone, { castShadow: false });
-        addBox(world, [108, .45, 236], [0, .22, 18], materials.wood, { castShadow: false });
-        addBox(world, [278, .45, 30], [0, .23, 30], materials.wood, { castShadow: false });
-        addBox(world, [122, .45, 38], [0, .24, 126], materials.marble, { castShadow: false });
-
-        for (const pool of MAP_LAYOUTS.harbor.pools) {
-            const water = new THREE.Mesh(new THREE.PlaneGeometry(pool.maxX - pool.minX, pool.maxZ - pool.minZ), materials.water);
-            water.rotation.x = -Math.PI / 2;
-            water.position.set((pool.minX + pool.maxX) / 2, pool.surfaceY + .02, (pool.minZ + pool.maxZ) / 2);
-            water.userData.waterBaseY = water.position.y;
-            world.add(water);
-            this._waterMeshes.push(water);
-        }
-
-        for (const x of [-60, 60]) {
-            addCylinder(world, 1, 12, [x, 6, 126], materials.metal, 16);
-            addBox(world, [14, 2, 4], [x, 11.5, 126], materials.accent);
-        }
-        addBox(world, [124, 2, 4], [0, 13, 126], materials.trim);
-
-        addBox(world, [82, .65, 58], [0, .36, 30], materials.marble, { castShadow: false });
-        addBox(world, [52, 1.8, 8], [0, .9, 3], materials.accent);
-        for (const x of [-32, -16, 16, 32]) addCylinder(world, .55, 7, [x, 3.5, 30], materials.metal, 12);
-
-        for (const [x, z, color, rotationY] of [[70,-42,0xc85942,0],[98,-42,0x2f7f9e,0],[84,-17,0xd5a837,Math.PI / 2],[103,8,0x4b8f66,0]]) {
-            const container = materials.stucco.clone();
-            container.color.setHex(color);
-            addBox(world, [25, 9, 14], [x, 4.5, z], container, { rotationY });
-            addBox(world, [13, 5, .3], [x, 3.8, z + 7.1], materials.glass, { castShadow: false, rotationY });
-        }
-
-        addBox(world, [70, .55, 80], [-88, .3, -30], materials.wood, { castShadow: false });
-        for (const [x, z, height] of [[-112,-58,5],[-88,-46,8],[-64,-28,6],[-105,-6,7],[-73,3,5]]) {
-            addBox(world, [8, height, 8], [x, height / 2, z], materials.marble);
-            addBox(world, [9, .45, 9], [x, height + .24, z], materials.accent);
-        }
-        for (const x of [-18, 18]) {
-            addBox(world, [10, .55, 66], [x, .34, -93], materials.wood, { castShadow: false });
-            for (const z of [-120, -98, -76, -62]) addCylinder(world, .5, 5, [x, 2.5, z], materials.metal, 10);
-        }
-
-        addCylinder(world, 7, 2.4, [-142, 1.2, 96], materials.marble, 24);
-        addCylinder(world, 4.2, 28, [-142, 15, 96], materials.stucco, 24);
-        addCylinder(world, 5.5, 2.5, [-142, 29, 96], materials.roof, 24);
-        const beacon = new THREE.PointLight(0xffd78a, 5, 80);
-        beacon.position.set(-142, 31, 96);
-        world.add(beacon);
-
-        const pose = SOCIAL_HUB_MAPS.harbor.poseArea;
-        const posePad = addCylinder(world, pose.radius, .45, [pose.x, .3, pose.z], materials.accent, 40);
-        posePad.userData.poseArea = true;
-        const sky = new THREE.Mesh(new THREE.SphereGeometry(430, 28, 20), new THREE.MeshBasicMaterial({ color: 0x6ba8bd, side: THREE.BackSide }));
-        world.add(sky);
-        const sun = new THREE.DirectionalLight(0xffddad, 2.2);
-        sun.position.set(100, 120, 70);
-        world.add(sun, new THREE.HemisphereLight(0xd7f4ff, 0x314b45, 1.2));
-        this.root.add(world);
-        this.mapWorlds.harbor = world;
+        this.mapWorlds = { [SOCIAL_HUB_MAP_ID]: world };
+        this.plazaWorld = world;
     }
 
     async _loadAssets() {
@@ -664,11 +594,9 @@ export class SocialLobby {
             model.scale.setScalar(scale);
             model.rotation.y = rotationY;
             tuneHubMaterials(model);
-            this.estateWorld.add(model);
+            this.plazaWorld.add(model);
         }).catch(() => null).then(complete));
-        const mapJobs = Object.values(SOCIAL_HUB_MAPS).filter(map => map.asset).map(map => loader.loadAsync(map.asset)
-            .then(gltf => this._installHubMap(map, gltf.scene)).catch(() => null));
-        await Promise.allSettled([...characterJobs, ...propJobs, ...mapJobs]);
+        await Promise.allSettled([...characterJobs, ...propJobs]);
         return this;
     }
 
@@ -678,32 +606,12 @@ export class SocialLobby {
         return this._assetLoadPromise;
     }
 
-    selectMap(mapId = 'estate') {
-        const map = getSocialHubMap(mapId);
+    selectMap() {
+        const map = getSocialHubMap();
         this.mapId = map.id;
-        this.arena = this.arenas[map.id];
-        this._boundaryColliders = this.arena.collidables.filter(collider => collider.invisibleBoundary);
-        this._mapBlocks = Object.freeze(this.arena.collidables.filter(collider => Number.isFinite(collider.minX) && !collider.invisibleBoundary));
         if (this.player && this.active) this.player.arena = this.arena;
-        Object.entries(this.mapWorlds || {}).forEach(([id, world]) => { world.visible = id === map.id; });
         this._presenceDirty = true;
         return map;
-    }
-
-    _installHubMap(map, model) {
-        if (this._disposed || !map?.asset || !model) return;
-        model.scale.setScalar(map.assetScale || 1);
-        model.updateMatrixWorld(true);
-        const bounds = new THREE.Box3().setFromObject(model);
-        const center = bounds.getCenter(new THREE.Vector3());
-        model.position.set(-center.x, -(Number.isFinite(map.assetGroundY) ? map.assetGroundY : bounds.min.y), -center.z);
-        tuneHubMaterials(model);
-        const world = new THREE.Group();
-        world.name = `social-map-${map.id}`;
-        world.visible = this.mapId === map.id;
-        world.add(model);
-        this.mapWorlds[map.id] = world;
-        this.root.add(world);
     }
 
     _installCharacter(gltf, index) {
@@ -715,9 +623,9 @@ export class SocialLobby {
         this.characterTemplates[index] = { scene: model, animations: gltf.animations || [] };
     }
 
-    enter(spawn, mapId = this.mapId) {
+    enter(spawn) {
         if (this._disposed || this.active) return false;
-        const map = this.selectMap(mapId);
+        const map = this.selectMap();
         this.active = true;
         this.root.visible = true;
         this._savedArena = this.player?.arena || null;
@@ -753,14 +661,18 @@ export class SocialLobby {
         for (const mixer of this.mixers) mixer.update(step);
         const position = this.player?.getPosition?.();
         if (position) {
-            const poseArea = SOCIAL_HUB_MAPS[this.mapId].poseArea;
-            const inside = Math.hypot(position.x - poseArea.x, position.z - poseArea.z) < poseArea.radius;
+            const inside = Math.hypot(position.x - POSE_AREA.x, position.z - POSE_AREA.z) < POSE_AREA.radius;
             if (inside !== this._insidePoseArea) this.onPoseArea?.(inside);
             this._insidePoseArea = inside;
         }
         for (let i = 0; i < this._waterMeshes.length; i++) {
             const water = this._waterMeshes[i];
             water.position.y = (water.userData.waterBaseY ?? .24) + Math.sin(this._elapsed * 1.4 + i) * .025;
+        }
+        if (this._spire) {
+            this._spire.halo.rotation.z = this._elapsed * .35;
+            this._spire.crown.rotation.y = this._elapsed * .5;
+            this._spire.crown.position.y = 66 + Math.sin(this._elapsed * .9) * .7;
         }
         if (this._presenceDirty) this._emitPresence();
     }
@@ -780,8 +692,8 @@ export class SocialLobby {
                 group.add(sharedModel);
                 visitor = { group, mixer: null, local: false, sharedModel };
             } else {
-                addBox(group, [1.2, 1.8, .8], [0, 1.4, 0], this._estateMaterials.accent.clone());
-                addBox(group, [1, 1, 1], [0, 2.75, 0], this._estateMaterials.marble.clone());
+                addBox(group, [1.2, 1.8, .8], [0, 1.4, 0], this._hubMaterials.accent.clone());
+                addBox(group, [1, 1, 1], [0, 2.75, 0], this._hubMaterials.marble.clone());
                 visitor = { group, mixer: null, local: false, sharedModel: null };
             }
             group.userData.displayName = String(state.name || id).slice(0, 24);
@@ -836,5 +748,6 @@ export class SocialLobby {
         this.mixers.length = 0;
         this.characterTemplates.length = 0;
         this._waterMeshes.length = 0;
+        this._spire = null;
     }
 }

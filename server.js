@@ -87,9 +87,7 @@ const MIME = {
 const lobbies = new Map(); // code -> { code, name, players, map, mode, hostName, updatedAt }
 const socialHubs = new Map(); // code -> { code, mapId, mapName, hostName, players, updatedAt }
 const SOCIAL_HUB_MAP_NAMES = Object.freeze({
-    estate: 'Grand Estate',
-    skyline: 'Skyline Deck',
-    harbor: 'Harbor Commons'
+    plaza: 'Aurora Grand Plaza'
 });
 // 90s stale prune. The host keep-alive is a 12s setInterval, but Chrome's intensive
 // throttling clamps timers in a hidden tab to ONE tick per minute — the previous 45s

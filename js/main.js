@@ -17,7 +17,7 @@ import { Audio } from './audio.js';
 import { UI } from './ui.js';
 import { Network } from './network.js';
 import { VoiceChat } from './voice.js';
-import { Store } from './store.js';
+import { Store, shouldArmFirstMatchHints, shouldShowFtueWelcome } from './store.js';
 import { DEFAULT_LOADOUT } from './skills.js';
 import { AvatarPainter, AVATAR_SKINS, cropAtlasFace, sampleAvatarPartColors } from './avatar.js';
 import { SKIN_PRESETS, SKIN_PRESET_IDS, renderSkinPreset } from './skin-presets.js';
@@ -31,6 +31,7 @@ import { MapEditorController } from './map-editor.js';
 import { normalizeMapConfig, validateMapConfig } from './map-config.js';
 import { checkAchievements } from './achievements.js';
 import { Daily } from './daily.js';
+import { getReward as getBattlepassRewardEntry } from './battlepass.js';
 import { Replay, extractReplayHighlight } from './replay.js';
 import { ReplayView } from './replay-view.js';
 import { Spectator } from './spectator.js';
@@ -43,7 +44,7 @@ import { MatchHistory } from './matchhistory.js';
 import { CHARACTERS } from './characters.js';
 import { appendClanMessage, createClan, listClans } from './social.js';
 import { account, PROFILE_TOKEN_KEY } from './account.js';
-import { SOCIAL_HUB_MAPS, SocialLobby, getSocialLobbyMapState } from './social-lobby.js';
+import { SOCIAL_HUB_MAPS, SOCIAL_HUB_MAP_ID, SocialLobby, getSocialLobbyMapState } from './social-lobby.js';
 import { applyUiPreferences, loadUiPreferences, normalizeTheme, normalizeUiScale } from './ui-theme.js';
 import { initSettingsTabs, initThemeSwatches, initSettingsExtras, shouldRenderFrame } from './settings-controller.js';
 import { formatMapSize } from './map-display.js';
@@ -424,6 +425,12 @@ class App {
             }
             if (e.code === 'Escape') {
                 if (this.gameConsole?.visible) return;
+                const ftueEl = document.getElementById('ftue-welcome');
+                if (ftueEl && !ftueEl.classList.contains('hidden')) {
+                    e.preventDefault();
+                    this.hideFtueWelcome();
+                    return;
+                }
                 if (this.game.state === STATES.SOCIAL_HUB) {
                     if (!document.getElementById('social-lobby-chat')?.classList.contains('hidden')) {
                         e.preventDefault();
@@ -518,6 +525,7 @@ class App {
         });
         this.store.set('onboardingSeen', true);
         this.ui.showScreen('mainMenu');
+        if (shouldShowFtueWelcome(this.store.get('ftueSeen'))) this.showFtueWelcome();
 
         // In-game console (~)
         this.gameConsole = new Console();
@@ -773,6 +781,41 @@ class App {
         }
         this._renderMenuFeatured();
         this._renderRetentionBadge();
+        this._renderRetentionStrip();
+    }
+
+    // Retention strip: daily-challenge + battlepass progress cards on the main
+    // menu, so "why come back today" is visible before any click (2026 retention
+    // pass). Pulls live state from js/daily.js (Daily singleton) and
+    // js/store.js#getBattlepassProgress — both already the single source of
+    // truth for their screens, this only mirrors them into a compact summary.
+    _renderRetentionStrip() {
+        const dailyCard = document.getElementById('menu-daily-card');
+        if (dailyCard) {
+            const challenges = Daily.getChallenges();
+            const total = challenges.length;
+            const done = challenges.filter(c => c.progress >= c.target).length;
+            dailyCard.hidden = total === 0;
+            const sub = document.getElementById('menu-daily-sub');
+            if (sub) sub.textContent = `${done}/${total} done`;
+            const fill = document.getElementById('menu-daily-fill');
+            if (fill) fill.style.width = `${total ? (done / total) * 100 : 0}%`;
+        }
+
+        const bpCard = document.getElementById('menu-bp-card');
+        if (bpCard) {
+            const bp = this.store.getBattlepassProgress();
+            bpCard.hidden = false;
+            const title = document.getElementById('menu-bp-title');
+            if (title) title.textContent = `Battle Pass — Tier ${bp.tier}`;
+            const maxed = bp.tier >= 50;
+            const next = maxed ? null : getBattlepassRewardEntry(Math.min(50, bp.tier + 1), 'free');
+            const sub = document.getElementById('menu-bp-sub');
+            if (sub) sub.textContent = maxed ? 'Max Tier' : `Next: ${next?.name || '—'}`;
+            const needXp = this.store.getBattlepassXpForNextTier();
+            const fill = document.getElementById('menu-bp-fill');
+            if (fill) fill.style.width = `${maxed || !needXp ? 100 : Math.min(100, (bp.xp / needXp) * 100)}%`;
+        }
     }
 
     // Kompakt "FEATURED" vitrin: günün kasası + 1-2 top skin, tıklayınca shop'a
@@ -1023,6 +1066,42 @@ class App {
         menu.addEventListener('mouseenter', () => { cursor.style.opacity = '1'; });
     }
 
+    // ===== FTUE (first-time user experience) =====
+    // Welcome overlay: shows once ever (Store 'ftueSeen' flag, same JSON-blob
+    // persistence as every other Store flag — see js/store.js DEFAULTS), plus
+    // on demand via the "?" button. Never shows mid-match (guarded on MENU state).
+    showFtueWelcome() {
+        if (this.game.state !== STATES.MENU) return;
+        document.getElementById('ftue-welcome')?.classList.remove('hidden');
+    }
+
+    hideFtueWelcome() {
+        document.getElementById('ftue-welcome')?.classList.add('hidden');
+        this.store.set('ftueSeen', true);
+    }
+
+    // First-match HUD hints: armed only from the solo/bot start paths below
+    // (never multiplayer), fire once the match actually reaches PLAYING, then
+    // the 'ftueMatchHintsSeen' flag guarantees this never runs again.
+    _armFirstMatchHints() {
+        if (!shouldArmFirstMatchHints(this.store.get('ftueMatchHintsSeen'))) return;
+        this._pendingFirstMatchHints = true;
+    }
+
+    _runFirstMatchHints() {
+        this.store.set('ftueMatchHintsSeen', true);
+        const hints = [
+            'Hold Left-Click near the ball to deflect it back',
+            'Flick your mouse up to lob, down to spike',
+            'Right-Click to stab up close'
+        ];
+        hints.forEach((text, i) => {
+            setTimeout(() => {
+                if (this.game.state === STATES.PLAYING) this.ui.showMessage?.(text, 5000);
+            }, 1500 + i * 6000);
+        });
+    }
+
     setupMenuHandlers() {
         // Main menu buttons
         const bind = (id, fn) => {
@@ -1031,6 +1110,13 @@ class App {
         };
 
         bind('menu-streak-badge', () => this._claimRetentionStreak());
+
+        bind('btn-how-to-play', () => this.showFtueWelcome());
+        bind('ftue-welcome-start', () => this.hideFtueWelcome());
+        bind('ftue-welcome-practice', () => {
+            this.hideFtueWelcome();
+            this.ui.showScreen('practiceMenu');
+        });
 
         bind('btn-play-solo', () => {
             // QUICK PLAY opens the multiplayer hub (user decision 2026-07-30): lobby
@@ -1053,6 +1139,7 @@ class App {
         bind('btn-mp-solo', () => {
             clearInterval(this._mpRefreshTimer);
             this.game.startSolo();
+            this._armFirstMatchHints();
             this.ui.showScreen('lobby');
         });
         bind('btn-mp-quick', () => this._startQuickPlay());
@@ -1130,6 +1217,10 @@ class App {
             this.ui.renderBattlepass(this.store);
             this.ui.showScreen('battlepass');
         });
+        bind('menu-bp-card', () => {
+            this.ui.renderBattlepass(this.store);
+            this.ui.showScreen('battlepass');
+        });
 
         bind('btn-avatar', () => {
             this.ui.showScreen('avatar');
@@ -1146,6 +1237,10 @@ class App {
         });
 
         bind('btn-daily', () => {
+            this.ui.renderDaily(Daily, this.store);
+            this.ui.showScreen('daily');
+        });
+        bind('menu-daily-card', () => {
             this.ui.renderDaily(Daily, this.store);
             this.ui.showScreen('daily');
         });
@@ -1826,6 +1921,7 @@ bind('btn-remove-bot', () => {
                 this.game.botCounter = 0;
                 this.ui.setPlayerTarget(false);
                 this.game.startSolo();
+                this._armFirstMatchHints();
                 this.ui.showScreen('lobby');
                 this.player.unlock();
                 this.refreshMetaStats();
@@ -2625,6 +2721,7 @@ updateCSLobbyInfo();
                 if (m.p1 === 'You' || m.p2 === 'You') {
                     this.ui.showMessage?.('Tournament match starting!', 2000);
                     this.game.startSolo();
+                    this._armFirstMatchHints();
                     this.ui.showScreen('lobby');
                     this._pendingTournamentMatch = matchId;
                 } else {
@@ -2951,7 +3048,7 @@ updateCSLobbyInfo();
         }
     }
 
-    _enterSocialLobby(mapId = this._socialHubMapId || 'estate', { autoLock = true } = {}) {
+    _enterSocialLobby(mapId = this._socialHubMapId || SOCIAL_HUB_MAP_ID, { autoLock = true } = {}) {
         if (this.socialLobby.active) return;
         this._longJumpTrack = null;
         const name = document.getElementById('player-name-input')?.value?.trim()
@@ -2970,9 +3067,9 @@ updateCSLobbyInfo();
         this.renderer.renderer.setClearColor(0x8ed8f3);
         this.renderer.setHubPerformance?.(true);
         if (this.renderer.scene.fog) {
-            this.renderer.scene.fog.color.set(0xa9e8f4);
-            this.renderer.scene.fog.near = 110;
-            this.renderer.scene.fog.far = 390;
+            this.renderer.scene.fog.color.set(0xc6ddef);
+            this.renderer.scene.fog.near = 170;
+            this.renderer.scene.fog.far = 720;
         }
         this.ui.hideAll();
         document.getElementById('social-lobby-hud')?.classList.remove('hidden');
@@ -3042,7 +3139,7 @@ updateCSLobbyInfo();
         const canvas = document.getElementById('social-lobby-map');
         const ctx = canvas?.getContext?.('2d');
         if (!canvas || !ctx) return;
-        const state = getSocialLobbyMapState(this.player, presence, this.socialLobby.mapId);
+        const state = getSocialLobbyMapState(this.player, presence);
         const width = canvas.width;
         const height = canvas.height;
         const point = marker => ({ x: marker.x * width, y: marker.z * height });
@@ -5820,6 +5917,14 @@ updateCarousel() {
         this._lastFrameTime = _now;
         requestAnimationFrame(() => this.loop());
         const dt = Math.min(this.clock.getDelta(), 0.05);
+
+        // First-match FTUE hints: fire once the armed solo/bot match reaches
+        // PLAYING. !network.connected excludes hosted/joined multiplayer, whose
+        // startSolo()-based lobby setup (see _doHostGame) never arms this flag.
+        if (this._pendingFirstMatchHints && this.game.state === STATES.PLAYING && !this.network?.connected) {
+            this._pendingFirstMatchHints = false;
+            this._runFirstMatchHints();
+        }
 
         this._voiceSyncTimer = (this._voiceSyncTimer || 0) - dt;
         if (this._voiceSyncTimer <= 0) {

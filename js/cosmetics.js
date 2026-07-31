@@ -23,7 +23,14 @@ export const KNIVES = Object.freeze({
     pixel_edge: Object.freeze({ id: 'pixel_edge', name: 'Pixel Edge', rarity: 'rare', model: 'bayonet', finish: 'pixel', color: '#59e5df', accent: '#166a78', teams: ['red', 'blue'] }),
     icefang: Object.freeze({ id: 'icefang', name: 'Frost Fang', rarity: 'epic', model: 'karambit', finish: 'frost', color: '#dffbff', accent: '#398bd1', teams: ['blue'] }),
     dragonclaw: Object.freeze({ id: 'dragonclaw', name: 'Dragon Claw', rarity: 'legendary', model: 'karambit', finish: 'ember', color: '#ff7d32', accent: '#5c0909', teams: ['red'] }),
-    reactor: Object.freeze({ id: 'reactor', name: 'Reactor Wings', rarity: 'legendary', model: 'butterfly', finish: 'reactor', color: '#b5ff42', accent: '#174d1d', teams: ['red', 'blue'] })
+    reactor: Object.freeze({ id: 'reactor', name: 'Reactor Wings', rarity: 'legendary', model: 'butterfly', finish: 'reactor', color: '#b5ff42', accent: '#174d1d', teams: ['red', 'blue'] }),
+
+    // ponytail: three new silhouettes (tanto / cleaver / dagger — js/weapon-models.js
+    // KNIFE_MODELS). dark_eater is the knife of the Dark Eater set: same void palette as
+    // the dark_eater ball skin and the dark_eater_* wearables in cosmetic-catalog.js.
+    dark_eater: Object.freeze({ id: 'dark_eater', name: 'Dark Eater', rarity: 'legendary', model: 'tanto', finish: 'void', color: '#1a0b2e', accent: '#c48cff', teams: ['red', 'blue'] }),
+    cleaver: Object.freeze({ id: 'cleaver', name: 'Scrap Cleaver', rarity: 'epic', model: 'cleaver', finish: 'ember', color: '#e2762f', accent: '#4a2109', teams: ['red', 'blue'] }),
+    stiletto: Object.freeze({ id: 'stiletto', name: 'Silver Stiletto', rarity: 'rare', model: 'dagger', finish: 'frost', color: '#dff4ff', accent: '#6fa4c6', teams: ['red', 'blue'] })
 });
 
 export const CASES = Object.freeze({
@@ -32,7 +39,7 @@ export const CASES = Object.freeze({
         art: 'assets/generated/cases/kickoff-case.webp',
         drops: Object.freeze([
             { id: 'tide', weight: 28 }, { id: 'flare', weight: 28 },
-            { id: 'prism', weight: 16 }, { id: 'sherlock', weight: 3 },
+            { id: 'prism', weight: 16 }, { id: 'stiletto', weight: 10 }, { id: 'sherlock', weight: 3 },
             { id: 'neon', type: 'avatar', rarity: 'rare', weight: 12 },
             { id: 'frost', type: 'avatar', rarity: 'rare', weight: 7 },
             { id: 'astro', type: 'avatar', rarity: 'epic', weight: 4 },
@@ -56,7 +63,7 @@ export const CASES = Object.freeze({
         id: 'arsenal', name: 'Arsenal Case', price: 240,
         art: 'assets/generated/cases/arsenal-case.webp',
         drops: Object.freeze([
-            { id: 'prism', weight: 32 }, { id: 'crimson_web', weight: 25 }, { id: 'fade', weight: 10 },
+            { id: 'prism', weight: 32 }, { id: 'crimson_web', weight: 25 }, { id: 'cleaver', weight: 14 }, { id: 'fade', weight: 10 },
             { id: 'doppler', weight: 5 }, { id: 'sherlock', weight: 3 },
             { id: 'astro', type: 'avatar', rarity: 'rare', weight: 10 },
             { id: 'void', type: 'avatar', rarity: 'epic', weight: 9 },
@@ -96,7 +103,7 @@ export const CASES = Object.freeze({
         id: 'mythic', name: 'Mythic Arena Case', price: 280,
         art: 'assets/generated/cases/mythic-case.webp',
         drops: Object.freeze([
-            { id: 'aurora', weight: 8 }, { id: 'reactor', weight: 8 },
+            { id: 'aurora', weight: 8 }, { id: 'reactor', weight: 8 }, { id: 'dark_eater', weight: 5 },
             { id: 'portal', type: 'ball', rarity: 'legendary', weight: 10 },
             { id: 'blackhole', type: 'ball', rarity: 'legendary', weight: 6 },
             { id: 'galaxy_idol', type: 'avatar', rarity: 'legendary', weight: 10 },

@@ -25,7 +25,8 @@ test('case drop rates are normalized and expose every drop', () => {
     const rates = getCaseDropRates('kickoff');
     assert.equal(rates.length, CASES.kickoff.drops.length);
     assert.ok(Math.abs(rates.reduce((sum, drop) => sum + drop.chance, 0) - 1) < 1e-12);
-    assert.deepEqual(rates.map(drop => Math.round(drop.chance * 100)), [28, 28, 16, 3, 12, 7, 4, 2]);
+    // 4th entry is the stiletto (weight 10) added with the new knife models.
+    assert.deepEqual(rates.map(drop => Math.round(drop.chance * 100)), [25, 25, 15, 9, 3, 11, 6, 4, 2]);
 });
 
 test('minimum rarity rolls only within the eligible case pool', () => {

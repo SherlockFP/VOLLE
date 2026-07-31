@@ -9,9 +9,10 @@ import {
     normalizeWearableLoadout
 } from '../js/cosmetic-catalog.js';
 
+// cape/aura/trail are 7 (not 6): the Dark Eater set adds one wearable to each.
 const EXPECTED_COUNTS = {
-    cape: 6, pet: 6, shoes: 6, aura: 6, impact: 6,
-    hat: 8, mask: 6, wings: 6, backpack: 5, banner: 4, trail: 6, finisher: 5
+    cape: 7, pet: 6, shoes: 6, aura: 7, impact: 6,
+    hat: 8, mask: 6, wings: 6, backpack: 5, banner: 4, trail: 7, finisher: 5
 };
 
 test('wearable catalog has priced effect skins in every slot', () => {

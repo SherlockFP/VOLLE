@@ -3925,8 +3925,16 @@ spawnPowerUp() {
         }
         this._celebWpnMeshes = {};
         const kills = this.player.totalDamageDealt > 0 ? Math.floor(this.player.totalDamageDealt / 25) : 0;
-        // Win pays ~5x a loss; losers still earn a small consolation.
-        const xp = this._won ? 400 + kills * 30 : 80 + kills * 8;
+        // Win pays ~5x a loss; losers still earn a small consolation. The split is
+        // kept as named parts so the post-match breakdown can show *why* the number
+        // is what it is without re-deriving (and drifting from) the same formula.
+        const xpBase = this._won ? 400 : 80;
+        const xpPerKill = this._won ? 30 : 8;
+        const xp = xpBase + kills * xpPerKill;
+        const xpSources = [
+            { label: this._won ? 'Victory bonus' : 'Match played', value: xpBase },
+            { label: `Eliminations x${kills}`, value: kills * xpPerKill }
+        ];
         const winnerText = this._finalWinner === 'DRAW'
             ? this._ffa ? 'DRAW: FFA tie' : `DRAW: Red ${this.scoreboard.redScore} - ${this.scoreboard.blueScore} Blue`
             : this._ffa ? `${this._finalWinner} WINS FFA` : `${this._finalWinner} TEAM WINS: Red ${this.scoreboard.redScore} - ${this.scoreboard.blueScore} Blue`;
@@ -3943,6 +3951,7 @@ spawnPowerUp() {
             winnerText,
             playerStats,
             analytics,
+            xpSources,
             roundHistory: this.scoreboard.roundHistory
         });
         // P2P: gameOver state'ini client'lara yayınla

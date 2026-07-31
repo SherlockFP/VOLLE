@@ -1,7 +1,8 @@
 # Warrball Project
 
 ## IMPORTANT: Read This First
-Before working on this project, ALWAYS read `MIMO.md` — it contains the current state, completed features, pending features, and file structure. For older dev history, see `docs/wiki/2BALL_Development_Log.md`.
+1. Read `vault/STATUS.md` FIRST — session memory: what is done, what is in progress, what is pending. Obsidian vault; session logs live in `vault/sessions/`. Update STATUS + add a session log before ending any session.
+2. Then read `MIMO.md` — architecture state, completed features, file structure. For older dev history, see `docs/wiki/2BALL_Development_Log.md`.
 
 ## Quick Reference
 - **Game**: 2BALL — 3D First-Person Dodgeball (Three.js, vanilla JS)
