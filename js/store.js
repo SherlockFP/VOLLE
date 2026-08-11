@@ -37,9 +37,20 @@ import {
 } from './battlepass.js';
 import { Daily, DAILY_CHALLENGE_XP, DAILY_ALL_COMPLETE_BONUS_XP, dailyXpAward } from './daily.js';
 import { applyAccountXp, xpForLevel } from './prestige.js';
+import { account } from './account.js';
+import {
+    DEFAULT_CARD_COLLECTION,
+    DEFAULT_CARD_LOADOUT,
+    cardForEffect,
+    grantArenaCache,
+    normalizeCardCollection,
+    normalizeCardLoadout,
+    resolveCardEffects,
+    shouldAwardArenaCache,
+    tradeUpCards
+} from './cards.js';
 
 const KEY = 'dodgball_save_v2';
-const PROFILE_TOKEN_KEY = 'dodgball_profile_token';
 
 function buildCharacterProgress() {
     return Object.fromEntries(Object.keys(CHARACTERS).map(id => [id, { level: 1, xp: 0 }]));
@@ -156,6 +167,11 @@ const DEFAULTS = {
     lastFirstMatchDay: '',
     dailyStreak: { count: 0, lastClaimDay: '' },
     casePity: {},
+    earnedCases: {},
+    caseDropDrought: 0,
+    cardCollection: { ...DEFAULT_CARD_COLLECTION },
+    equippedCards: { ...DEFAULT_CARD_LOADOUT },
+    arenaCache: { earned: 0, opened: 0, lastMatchId: '' },
     seasonContracts: createSeasonContractState(),
     movementTrials: { best: {}, rewarded: [] },
     customMaps: [],
@@ -203,7 +219,7 @@ class StoreClass {
     constructor() {
         this.data = this._read();
         this.remoteReady = false;
-        this.profileToken = '';
+        this.sessionToken = '';
         this.liveMarket = { offers: [], expiresAt: 0 };
     }
 
@@ -252,6 +268,14 @@ class StoreClass {
                 dailyRewards: { ...DEFAULTS.dailyRewards, ...(parsed.dailyRewards || {}) },
                 dailyStreak: { ...DEFAULTS.dailyStreak, ...(parsed.dailyStreak || {}) },
                 casePity: parsed.casePity && typeof parsed.casePity === 'object' ? parsed.casePity : {},
+                earnedCases: parsed.earnedCases && typeof parsed.earnedCases === 'object' ? parsed.earnedCases : {},
+                caseDropDrought: Math.min(4, Math.max(0, Math.floor(Number(parsed.caseDropDrought) || 0))),
+                cardCollection: normalizeCardCollection(parsed.cardCollection),
+                equippedCards: normalizeCardLoadout(parsed.equippedCards, parsed.cardCollection),
+                arenaCache: {
+                    ...DEFAULTS.arenaCache,
+                    ...(parsed.arenaCache && typeof parsed.arenaCache === 'object' ? parsed.arenaCache : {})
+                },
                 seasonContracts: createSeasonContractState(parsed.seasonContracts),
                 movementTrials: {
                     best: parsed.movementTrials?.best && typeof parsed.movementTrials.best === 'object'
@@ -292,31 +316,18 @@ class StoreClass {
 
     async connectRemote(playerName = this.data.playerName) {
         if (typeof fetch !== 'function') return false;
+        const sessionToken = account.getToken();
+        if (!sessionToken) return false;
         try {
-            const token = localStorage.getItem(PROFILE_TOKEN_KEY) || '';
-            const legacy = token ? undefined : {
-                currency: this.data.currency,
-                gems: this.data.gems,
-                unlockedChars: this.data.unlockedChars,
-                ownedBalls: this.data.ownedBalls,
-                ownedSkills: this.data.ownedSkills,
-                ownedItems: this.data.ownedItems,
-                ownedAvatarSkins: this.data.ownedAvatarSkins,
-                ownedKnives: this.data.ownedKnives,
-                ownedCosmetics: this.data.ownedCosmetics,
-                equippedWearables: this.data.equippedWearables,
-                casePity: this.data.casePity
-            };
             const response = await fetch('/api/profile/session', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ token, playerName, legacy })
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionToken}` },
+                body: JSON.stringify({ sessionToken, playerName })
             });
             if (!response.ok) return false;
             const result = await response.json();
-            if (!result.token || !result.profile) return false;
-            this.profileToken = result.token;
-            localStorage.setItem(PROFILE_TOKEN_KEY, result.token);
+            if (!result.sessionToken || !result.profile || !result.account) return false;
+            this.sessionToken = result.sessionToken;
             this._applyRemoteProfile(result.profile);
             this.remoteReady = true;
             return true;
@@ -329,7 +340,8 @@ class StoreClass {
         const fields = [
             'currency', 'gems', 'ownedBalls',
             'ownedSkills', 'ownedItems', 'ownedAvatarSkins', 'ownedKnives',
-            'ownedCosmetics', 'casePity', 'equippedWearables', 'economyRevision', 'adRewards', 'dailyStreak'
+            'ownedCosmetics', 'casePity', 'earnedCases', 'caseDropDrought', 'equippedWearables', 'economyRevision', 'adRewards', 'dailyStreak',
+            'cardCollection', 'equippedCards', 'arenaCache'
         ];
         fields.forEach(field => {
             if (profile[field] !== undefined) this.data[field] = profile[field];
@@ -338,6 +350,13 @@ class StoreClass {
             this.data.equippedWearables,
             this.data.ownedCosmetics
         );
+        this.data.cardCollection = normalizeCardCollection(this.data.cardCollection);
+        this.data.equippedCards = normalizeCardLoadout(this.data.equippedCards, this.data.cardCollection);
+        this.data.arenaCache = {
+            ...DEFAULTS.arenaCache,
+            ...(this.data.arenaCache && typeof this.data.arenaCache === 'object' ? this.data.arenaCache : {})
+        };
+        this.data.earnedCases = this.data.earnedCases && typeof this.data.earnedCases === 'object' ? this.data.earnedCases : {};
         this.save();
     }
 
@@ -347,7 +366,7 @@ class StoreClass {
             const response = await fetch('/api/profile/cosmetics/equip', {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${this.profileToken}`,
+                    'Authorization': `Bearer ${this.sessionToken}`,
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({ playerId, loadout: this.data.equippedWearables })
@@ -362,11 +381,12 @@ class StoreClass {
     }
 
     async purchase(kind, id) {
+        // Ability power is now card-collection-only. Keep old ownership arrays
+        // readable for migration, but never add to them through currency.
+        if (kind === 'skill' || kind === 'rune') return false;
         if (!this.remoteReady) {
             if (kind === 'character') return this.buyCharacter(id);
             if (kind === 'ball') return this.buyBall(id);
-            if (kind === 'skill') return this.buySkill(id);
-            if (kind === 'rune') return this.buyRune(id);
             if (kind === 'avatar') return this.buyAvatarSkin(id);
             if (kind === 'cosmetic') return this.buyCosmetic(id);
             return false;
@@ -376,7 +396,7 @@ class StoreClass {
             const response = await fetch('/api/profile/purchase', {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${this.profileToken}`,
+                    'Authorization': `Bearer ${this.sessionToken}`,
                     'Idempotency-Key': requestId,
                     'Content-Type': 'application/json'
                 },
@@ -427,7 +447,7 @@ class StoreClass {
             const response = await fetch('/api/profile/reward', {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${this.profileToken}`,
+                    'Authorization': `Bearer ${this.sessionToken}`,
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
@@ -441,7 +461,7 @@ class StoreClass {
             if (!response.ok) return false;
             const result = await response.json();
             this._applyRemoteProfile(result.profile);
-            return true;
+            return { ok: true, cardReward: result.cardReward || null, earnedCase: result.earnedCase || null, earnedCaseSource: result.earnedCaseSource || null, replayed: result.replayed === true };
         } catch {
             return false;
         }
@@ -459,7 +479,7 @@ class StoreClass {
             const response = await fetch('/api/profile/ad-reward', {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${this.profileToken}`,
+                    'Authorization': `Bearer ${this.sessionToken}`,
                     'Idempotency-Key': requestId,
                     'Content-Type': 'application/json'
                 },
@@ -501,7 +521,7 @@ class StoreClass {
             const response = await fetch('/api/profile/streak-claim', {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${this.profileToken}`,
+                    'Authorization': `Bearer ${this.sessionToken}`,
                     'Idempotency-Key': requestId,
                     'Content-Type': 'application/json'
                 },
@@ -542,7 +562,7 @@ class StoreClass {
             const response = await fetch('/api/profile/live-market/purchase', {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${this.profileToken}`,
+                    'Authorization': `Bearer ${this.sessionToken}`,
                     'Idempotency-Key': requestId,
                     'Content-Type': 'application/json'
                 },
@@ -563,7 +583,7 @@ class StoreClass {
             const response = await fetch('/api/maps', {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${this.profileToken}`,
+                    'Authorization': `Bearer ${this.sessionToken}`,
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({ config, mapId, description })
@@ -586,8 +606,8 @@ class StoreClass {
                 q: String(query || '').slice(0, 48),
                 sort: ['newest', 'oldest', 'name'].includes(sort) ? sort : 'newest'
             });
-            const headers = this.profileToken
-                ? { 'Authorization': `Bearer ${this.profileToken}` }
+            const headers = this.sessionToken
+                ? { 'Authorization': `Bearer ${this.sessionToken}` }
                 : {};
             const response = await fetch(`/api/maps?${params}`, { headers });
             if (!response.ok) {
@@ -603,8 +623,8 @@ class StoreClass {
     async getPublishedMap(mapId) {
         if (typeof mapId !== 'string' || !mapId) return null;
         try {
-            const headers = this.profileToken
-                ? { 'Authorization': `Bearer ${this.profileToken}` }
+            const headers = this.sessionToken
+                ? { 'Authorization': `Bearer ${this.sessionToken}` }
                 : {};
             const response = await fetch(`/api/maps/${encodeURIComponent(mapId)}`, { headers });
             if (!response.ok) return null;
@@ -623,7 +643,7 @@ class StoreClass {
             const response = await fetch(`/api/maps/${encodeURIComponent(mapId)}/vote`, {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${this.profileToken}`,
+                    'Authorization': `Bearer ${this.sessionToken}`,
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({ value })
@@ -661,6 +681,99 @@ class StoreClass {
             prestige: account.prestige,
             prestiged: account.prestiged
         };
+    }
+
+    // Arena Caches are an earn-only collection route. The match id makes the
+    // post-match chance reproducible and prevents a duplicate callback from
+    // minting a second cache locally.
+    awardArenaCache({ matchId, won = false, leveledUp = false } = {}) {
+        const safeMatchId = String(matchId || '').slice(0, 128);
+        if (!safeMatchId || this.data.arenaCache?.lastMatchId === safeMatchId) return null;
+        this.data.arenaCache = { ...DEFAULTS.arenaCache, ...(this.data.arenaCache || {}), lastMatchId: safeMatchId };
+        if (!shouldAwardArenaCache({ matchId: safeMatchId, won, leveledUp })) {
+            this.save();
+            return null;
+        }
+        const granted = grantArenaCache(this.data.cardCollection, safeMatchId);
+        this.data.cardCollection = granted.collection;
+        this.data.equippedCards = normalizeCardLoadout(this.data.equippedCards, granted.collection);
+        this.data.arenaCache.earned = Math.max(0, Number(this.data.arenaCache.earned) || 0) + 1;
+        this.data.arenaCache.opened = Math.max(0, Number(this.data.arenaCache.opened) || 0) + 1;
+        this.save();
+        return granted.reward;
+    }
+
+    getCardCollection() {
+        return normalizeCardCollection(this.data.cardCollection);
+    }
+
+    getEquippedCards() {
+        return normalizeCardLoadout(this.data.equippedCards, this.data.cardCollection);
+    }
+
+    equipCard(cardId, slot) {
+        const current = this.getEquippedCards();
+        const next = normalizeCardLoadout({ ...current, [slot]: cardId }, this.data.cardCollection);
+        if (next[slot] !== cardId) return false;
+        this.data.equippedCards = next;
+        this.save();
+        return true;
+    }
+
+    async equipCardRemote(cardId, slot) {
+        if (!this.remoteReady && !await this.connectRemote(this.get('playerName'))) return false;
+        try {
+            const response = await fetch('/api/profile/cards/equip', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${this.sessionToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ cardId, slot })
+            });
+            if (!response.ok) return false;
+            const result = await response.json();
+            this._applyRemoteProfile(result.profile);
+            return result.loadout || this.getEquippedCards();
+        } catch {
+            return false;
+        }
+    }
+
+    getCardEffects(modeId = '') {
+        return resolveCardEffects(this.data.equippedCards, this.data.cardCollection, modeId);
+    }
+
+    tradeUpCards(cardIds, seed = `trade-up:${Date.now()}`) {
+        const result = tradeUpCards(this.data.cardCollection, cardIds, seed);
+        if (!result) return null;
+        this.data.cardCollection = result.collection;
+        this.data.equippedCards = normalizeCardLoadout(this.data.equippedCards, result.collection);
+        this.save();
+        return result;
+    }
+
+    async tradeUpCardsRemote(cardIds) {
+        if (!this.remoteReady && !await this.connectRemote(this.get('playerName'))) return null;
+        const nonce = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const requestId = `card-trade:${nonce}`.slice(0, 96);
+        try {
+            const response = await fetch('/api/profile/cards/trade-up', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${this.sessionToken}`,
+                    'Idempotency-Key': requestId,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ cardIds, requestId })
+            });
+            if (!response.ok) return null;
+            const payload = await response.json();
+            this._applyRemoteProfile(payload.profile);
+            return payload.result || null;
+        } catch {
+            return null;
+        }
     }
 
     // Rolls the battlepass into a fresh season once the current one has expired.
@@ -831,12 +944,16 @@ class StoreClass {
 
     _openCase(caseId, random = Math.random, free = false) {
         const box = CASES[caseId];
-        if (!box || (!free && this.data.currency < box.price)) return null;
+        const earnedCount = Math.max(0, Math.floor(Number(this.data.earnedCases?.[caseId]) || 0));
+        const usesEarned = !free && earnedCount > 0;
+        if (!box || (!free && !usesEarned && this.data.currency < box.price)) return null;
         const pityBefore = Math.min(9, Math.max(0, Number(this.data.casePity?.[caseId]) || 0));
         const guaranteed = pityBefore >= 9;
         const reward = rollCase(caseId, random, guaranteed ? { minimumRarity: 'epic' } : {});
         if (!reward) return null;
-        if (!free) {
+        if (usesEarned) {
+            this.data.earnedCases = { ...(this.data.earnedCases || {}), [caseId]: earnedCount - 1 };
+        } else if (!free) {
             this.data.currency -= box.price;
             this.data.stats.totalSpent = (this.data.stats.totalSpent || 0) + box.price;
         }
@@ -849,7 +966,7 @@ class StoreClass {
         const owned = ownership[reward.type];
         if (!owned) return null;
         const duplicate = owned.includes(reward.id);
-        const refund = duplicate ? (free ? 35 : Math.floor(box.price * 0.35)) : 0;
+        const refund = duplicate ? ((free || usesEarned) ? 35 : Math.floor(box.price * 0.35)) : 0;
         if (refund) this.data.currency += refund;
         else if (owned.length < 64) owned.push(reward.id);
         const premium = reward.rarity === 'epic' || reward.rarity === 'legendary';
@@ -859,7 +976,7 @@ class StoreClass {
             reward,
             duplicate,
             refund,
-            free,
+            free: free || usesEarned,
             pity: { before: pityBefore, after: this.data.casePity[caseId], guaranteed }
         };
     }
@@ -876,7 +993,7 @@ class StoreClass {
             const response = await fetch('/api/profile/cases/open', {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${this.profileToken}`,
+                    'Authorization': `Bearer ${this.sessionToken}`,
                     'Idempotency-Key': requestId,
                     'Content-Type': 'application/json'
                 },
@@ -895,6 +1012,12 @@ class StoreClass {
     getCasePityState(caseId) {
         const count = Math.min(9, Math.max(0, Number(this.data.casePity?.[caseId]) || 0));
         return { count, threshold: 10, remaining: 10 - count, nextGuaranteed: count >= 9 };
+    }
+
+    getEarnedCaseState(caseId) {
+        return {
+            cases: Math.max(0, Math.floor(Number(this.data.earnedCases?.[caseId]) || 0))
+        };
     }
 
     getSeasonContracts() {
@@ -1050,24 +1173,14 @@ class StoreClass {
 
     // Skill satın al
     buySkill(skillId) {
-        if (this.ownsSkill(skillId)) return false;
-        if (this.data.currency < 100) return false;
-        this.data.currency -= 100;
-        this.data.stats.totalSpent = (this.data.stats.totalSpent || 0) + 100;
-        this.data.ownedSkills.push(skillId);
-        this.save();
-        return true;
+        void skillId;
+        return false;
     }
 
     // Rune satın al
     buyRune(runeId) {
-        if (this.owns(runeId)) return false;
-        if (this.data.currency < 80) return false;
-        this.data.currency -= 80;
-        this.data.stats.totalSpent = (this.data.stats.totalSpent || 0) + 80;
-        this.data.ownedItems.push(runeId);
-        this.save();
-        return true;
+        void runeId;
+        return false;
     }
 
     // Loadout ayarla
@@ -1078,6 +1191,15 @@ class StoreClass {
             ? loadout.runes.filter(id => RUNES[id] && this.owns(id)).slice(0, 1)
             : this.data.loadout.runes;
         this.data.loadout = { ...this.data.loadout, ...loadout, runes };
+        // Legacy Locker buttons still emit skill/rune ids. Mirror an owned
+        // collectible card so old saves and the new card collection stay in
+        // lockstep without tying either choice to a character.
+        const cards = this.getEquippedCards();
+        const skillCard = loadout.skill && cardForEffect(loadout.skill, 'active');
+        const runeCard = runes[0] && cardForEffect(runes[0], 'passive');
+        if (skillCard && this.getCardCollection()[skillCard.id] > 0) cards.active = skillCard.id;
+        if (runeCard && this.getCardCollection()[runeCard.id] > 0) cards.passive = runeCard.id;
+        this.data.equippedCards = normalizeCardLoadout(cards, this.data.cardCollection);
         if (loadout.char) this.data.selectedChar = loadout.char;
         if (loadout.ball) this.data.equippedBall = loadout.ball;
         this.save();

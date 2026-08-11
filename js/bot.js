@@ -75,6 +75,13 @@ function tendencyBoundedTime(param, difficulty, tendencyKey) {
     return Math.max(biased, tierFloor(param, difficulty));
 }
 
+// Once a bot has chosen a successful deflect, keep its feet planted through the
+// telegraph. It may still miss according to difficulty; this only prevents its own
+// dodge/strafe movement from stepping out of the already-earned deflect window.
+export function shouldHoldDeflectPosition(deflectDecided, willDeflect) {
+    return deflectDecided === true && willDeflect === true;
+}
+
 export class Bot {
     constructor(renderer, arena, name, team, difficulty = 'medium') {
         this.renderer = renderer;
@@ -393,6 +400,7 @@ export class Bot {
 
             const speed = ball.velocity.length();
             const isTargeted = ball.targetPlayer === this;
+            const holdingDeflectPosition = isTargeted && shouldHoldDeflectPosition(this._deflectDecided, this._willDeflect);
 
             // Predict ball position (where it's heading)
             const ballDir = ball.velocity.clone().normalize();
@@ -403,7 +411,7 @@ export class Bot {
             const interceptDist = toIntercept.length();
 
             // Dodge: sidestep perpendicular to ball when it's coming fast and close
-            if (isTargeted && speed > 8 && ballDist < 5 && Math.random() < 0.6) {
+            if (!holdingDeflectPosition && isTargeted && speed > 8 && ballDist < 5 && Math.random() < 0.6) {
                 const dodgeDir = new THREE.Vector3(-toBall.z, 0, toBall.x).normalize();
                 // Randomize dodge direction slightly
                 if (Math.random() > 0.5) dodgeDir.negate();
@@ -411,17 +419,17 @@ export class Bot {
             }
 
             // Move toward ball's predicted path to intercept
-            if (isTargeted && interceptDist > 2.5) {
+            if (!holdingDeflectPosition && isTargeted && interceptDist > 2.5) {
                 const moveDir = toIntercept.normalize().multiplyScalar(moveSpeed * 0.85 * this._tendencyApproachMul * dt);
                 this.position.add(moveDir);
-            } else if (!isTargeted && ballDist < 8 && Math.random() < 0.3) {
+            } else if (!holdingDeflectPosition && !isTargeted && ballDist < 8 && Math.random() < 0.3) {
                 // Even when not targeted, drift toward ball if close
                 const moveDir = toBall.clone().normalize().multiplyScalar(moveSpeed * 0.3 * dt);
                 this.position.add(moveDir);
             }
 
             // Perpendicular strafe relative to ball direction
-            if (ballDist > 1.5) {
+            if (!holdingDeflectPosition && ballDist > 1.5) {
                 const perpDir = new THREE.Vector3(-toBall.z, 0, toBall.x).normalize();
                 const strafeAmount = moveSpeed * 0.4 * dt * this.strafeDir * this._tendencyLateralMul;
                 this.position.add(perpDir.multiplyScalar(strafeAmount));
@@ -499,32 +507,35 @@ export class Bot {
         if (dist > alertRange) {
             this.reactionTimer = 0;
             this._deflectDecided = false;
+            this._willDeflect = false;
             this.windUpTimer = 0;
             this.windUpCommitted = false;
             return false;
         }
-        this.reactionTimer += dt;
-        if (this.reactionTimer < this.reactionTime) return false;
-        if (dist > ball.attackRange) return false;
 
-        // Wind-up telegraphing: bot shows intent before committing to deflect
-        if (!this.windUpCommitted && !this._deflectDecided) {
+        // Choose once at the beginning of the readable reaction window. A bot that
+        // will deflect can now hold its position through reaction + wind-up instead
+        // of repeatedly dodging itself out of range; failures retain their normal AI.
+        if (!this._deflectDecided) {
             this._deflectDecided = true;
             this._willDeflect = Math.random() < this.deflectChance;
         }
+        if (!this._willDeflect) return false;
 
-        if (!this._willDeflect) {
-            this.windUpTimer = 0;
-            this.windUpCommitted = false;
-            return false;
-        }
+        this.reactionTimer += dt;
+        if (this.reactionTimer < this.reactionTime) return false;
 
+        // Wind-up telegraphing: bot shows intent before committing to deflect
         // Start wind-up if not already committed
         if (!this.windUpCommitted) {
             this.windUpTimer += dt;
             if (this.windUpTimer < this.windUpTime) return false;  // still winding up
             this.windUpCommitted = true;  // committed - now check for mishit
         }
+
+        // The animation completes on approach, but the ball may only be redirected
+        // when it has actually reached deflect range.
+        if (dist > ball.attackRange) return false;
 
         // Commit to deflect, but check if bot will mishit (realistic skill variance)
         if (Math.random() < this.mishitRate) {

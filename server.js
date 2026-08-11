@@ -5,6 +5,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { CATALOG, ProfileStore } = require('./server/profile-store');
 const { AccountStore } = require('./server/account-store');
+const { SocialStore } = require('./server/social-store');
 const { PresenceStore } = require('./server/presence-store');
 const { verifyMatchReceipt, normalizeMatchReceipt } = require('./server/match-receipt');
 const { CreatorMapStore } = require('./server/creator-map-store');
@@ -12,6 +13,7 @@ const { RequestLimiter } = require('./server/request-limiter');
 const { buildRtcConfig } = require('./server/rtc-config');
 const { PaymentLedger, verifyPaymentEvent } = require('./server/payment-ledger');
 const { TelemetryStore } = require('./server/telemetry');
+const { ProductAnalyticsStore } = require('./server/product-analytics');
 const { createLiveMarket, findLiveOffer } = require('./server/live-market');
 const {
     normalizeEquippedCosmetics,
@@ -28,10 +30,18 @@ const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, 'data');
 fs.mkdirSync(DATA_DIR, { recursive: true });
 const profiles = new ProfileStore(path.join(DATA_DIR, 'profiles.json'));
 const accounts = new AccountStore(path.join(DATA_DIR, 'accounts.db'), profiles);
+const social = new SocialStore(path.join(DATA_DIR, 'accounts.db'));
 const presence = new PresenceStore();
 const creatorMaps = new CreatorMapStore(path.join(DATA_DIR, 'creator-maps.json'));
 const paymentLedger = new PaymentLedger(path.join(DATA_DIR, 'payment-ledger.json'));
 const telemetry = new TelemetryStore(path.join(DATA_DIR, 'telemetry.json'));
+// Production should set PRODUCT_ANALYTICS_SECRET. The deterministic local fallback
+// keeps pseudonymous keys stable for a development install without storing raw ids.
+const PRODUCT_ANALYTICS_SECRET = process.env.PRODUCT_ANALYTICS_SECRET
+    || (process.env.MATCH_REWARD_SECRET?.length >= 32 ? process.env.MATCH_REWARD_SECRET : crypto.createHash('sha256').update('warrball-local-product-analytics:' + path.resolve(DATA_DIR)).digest('hex'));
+const productAnalytics = new ProductAnalyticsStore(path.join(DATA_DIR, 'product-analytics.json'), {
+    secret: PRODUCT_ANALYTICS_SECRET
+});
 const MATCH_REWARD_SECRET = process.env.MATCH_REWARD_SECRET || '';
 const CREATOR_MODERATION_KEY = process.env.CREATOR_MODERATION_KEY || '';
 const PAYMENT_WEBHOOK_SECRET = process.env.PAYMENT_WEBHOOK_SECRET || '';
@@ -54,8 +64,11 @@ const RATE_LIMITS = {
     lobbyWrite: [120, 60000],
     account: [10, 60000],
     social: [60, 60000],
+    directMessage: [30, 60000],
+    lobbyInvite: [20, 60000],
     paymentWebhook: [40, 60000],
     telemetry: [120, 60000],
+    productAnalytics: [120, 60000],
     rtcConfig: [60, 60000]
 };
 
@@ -141,6 +154,25 @@ function bearer(req) {
     return value.startsWith('Bearer ') ? value.slice(7) : '';
 }
 
+// Session bearer is the only public profile credential. The legacy profile token
+// stays inside AccountStore/ProfileStore, never accepted as a production API key.
+function resolveAuth(req, body = null) {
+    const sessionToken = bearer(req) || String(body?.sessionToken || body?.token || '');
+    return accounts.resolveSession(sessionToken);
+}
+
+function requireAuth(req, res, body = null) {
+    const auth = resolveAuth(req, body);
+    if (!auth) sendJson(res, { error: 'unauthorized' }, 401);
+    return auth;
+}
+
+function publicLobby(record) {
+    if (!record) return null;
+    const { ownerAccountId, ...visible } = record;
+    return visible;
+}
+
 function requestIdentity(req) {
     return String(req.socket?.remoteAddress || 'unknown').slice(0, 80);
 }
@@ -164,7 +196,7 @@ const server = http.createServer(async (req, res) => {
     // Env-driven only; zero env vars set => STUN-only, identical to prior behavior.
     if (urlPath === '/api/rtc-config' && req.method === 'GET') {
         if (!allowRequest(req, res, 'rtcConfig')) return;
-        sendJson(res, buildRtcConfig(process.env, { userId: profiles.authenticate(bearer(req))?.id }));
+        sendJson(res, buildRtcConfig(process.env, { userId: resolveAuth(req)?.profile.id }));
         return;
     }
 
@@ -172,7 +204,10 @@ const server = http.createServer(async (req, res) => {
     if (urlPath === '/api/profile/session' && req.method === 'POST') {
         if (!allowRequest(req, res, 'session')) return;
         const b = await readBody(req);
-        sendJson(res, profiles.session(b.token, b.playerName, b.legacy));
+        const auth = resolveAuth(req, b);
+        if (auth) sendJson(res, { sessionToken: bearer(req) || b.sessionToken || b.token, profile: profiles._public(auth.profile), account: auth.account });
+        else if (process.env.ALLOW_GUEST_SESSIONS === '1') sendJson(res, profiles.session(b.legacyToken, b.playerName, b.legacy));
+        else sendJson(res, { error: 'unauthorized' }, 401);
         return;
     }
 
@@ -180,43 +215,148 @@ const server = http.createServer(async (req, res) => {
     if (urlPath === '/api/account/register' && req.method === 'POST') {
         if (!allowRequest(req, res, 'account')) return;
         const b = await readBody(req, 2048);
-        const result = accounts.register(b.username, b.password, b.avatar);
+        const result = await accounts.register(b.username, b.password, b.avatar);
         sendJson(res, result, result.status);
         return;
     }
     if (urlPath === '/api/account/login' && req.method === 'POST') {
         if (!allowRequest(req, res, 'account')) return;
         const b = await readBody(req, 2048);
-        const result = accounts.login(b.username, b.password);
+        const result = await accounts.login(b.username, b.password);
         sendJson(res, result, result.status);
+        return;
+    }
+
+    if (urlPath === '/api/account/me' && req.method === 'GET') {
+        if (!allowRequest(req, res, 'account')) return;
+        const auth = requireAuth(req, res);
+        if (auth) sendJson(res, { account: auth.account, profile: profiles._public(auth.profile), expiresAt: auth.expiresAt });
+        return;
+    }
+    if (urlPath === '/api/account/logout' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'account')) return;
+        const b = await readBody(req, 512);
+        const auth = requireAuth(req, res, b);
+        if (auth) sendJson(res, { ok: accounts.logout(bearer(req) || b.sessionToken || b.token, auth.account.id) });
         return;
     }
 
     // --- Social presence: heartbeat, friend status ---
     if (urlPath === '/api/social/heartbeat' && req.method === 'POST') {
         if (!allowRequest(req, res, 'social')) return;
-        const token = bearer(req);
-        const account = accounts.getByProfileToken(token);
-        if (!account) { sendJson(res, { error: 'unauthorized' }, 401); return; }
         const b = await readBody(req, 256);
-        presence.heartbeat(account.username, b.avatar || '');
-        sendJson(res, { ok: true });
+        const auth = requireAuth(req, res, b);
+        if (auth) { presence.heartbeat(auth.account.username, b.avatar || ''); sendJson(res, { ok: true }); }
         return;
     }
     if (urlPath === '/api/social/status' && req.method === 'POST') {
         if (!allowRequest(req, res, 'social')) return;
-        const token = bearer(req);
-        const account = accounts.getByProfileToken(token);
-        if (!account) { sendJson(res, { error: 'unauthorized' }, 401); return; }
         const b = await readBody(req, 2048);
-        const usernames = Array.isArray(b.usernames) ? b.usernames : [];
-        sendJson(res, { statuses: presence.status(usernames) });
+        if (requireAuth(req, res, b)) {
+            const usernames = Array.isArray(b.usernames) ? b.usernames : [];
+            sendJson(res, { statuses: presence.status(usernames) });
+        }
+        return;
+    }
+
+    // --- Persistent social graph. Identity always comes from the account session. ---
+    if (urlPath === '/api/social/me' && req.method === 'GET') {
+        if (!allowRequest(req, res, 'social')) return;
+        const auth = requireAuth(req, res);
+        if (auth) sendJson(res, social.getMe(auth.account.id));
+        return;
+    }
+    if (urlPath === '/api/social/friend-requests' && req.method === 'GET') {
+        if (!allowRequest(req, res, 'social')) return;
+        const auth = requireAuth(req, res);
+        if (auth) sendJson(res, { requests: social.listRequests(auth.account.id) });
+        return;
+    }
+    if (urlPath === '/api/social/friend-requests' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'social')) return;
+        const b = await readBody(req, 512);
+        const auth = requireAuth(req, res, b);
+        if (auth) { const result = social.createFriendRequest(auth.account.id, b.friendTag); sendJson(res, result, result.status); }
+        return;
+    }
+    if (urlPath.startsWith('/api/social/friend-requests/') && req.method === 'POST') {
+        if (!allowRequest(req, res, 'social')) return;
+        const b = await readBody(req, 512);
+        const auth = requireAuth(req, res, b);
+        if (auth) {
+            const requestId = decodeURIComponent(urlPath.slice('/api/social/friend-requests/'.length));
+            const result = social.actOnFriendRequest(auth.account.id, requestId, b.action);
+            sendJson(res, result, result.status);
+        }
+        return;
+    }
+    if (urlPath === '/api/social/friends' && req.method === 'GET') {
+        if (!allowRequest(req, res, 'social')) return;
+        const auth = requireAuth(req, res);
+        if (auth) sendJson(res, { friends: social.listFriends(auth.account.id) });
+        return;
+    }
+    if (urlPath.startsWith('/api/social/friends/') && req.method === 'DELETE') {
+        if (!allowRequest(req, res, 'social')) return;
+        const auth = requireAuth(req, res);
+        if (auth) {
+            const result = social.removeFriend(auth.account.id, decodeURIComponent(urlPath.slice('/api/social/friends/'.length)));
+            sendJson(res, result, result.status);
+        }
+        return;
+    }
+    if (urlPath.startsWith('/api/social/conversations/') && req.method === 'GET') {
+        if (!allowRequest(req, res, 'social')) return;
+        const auth = requireAuth(req, res);
+        if (auth) {
+            const params = new URLSearchParams(req.url.split('?')[1] || '');
+            const result = social.listMessages(auth.account.id, decodeURIComponent(urlPath.slice('/api/social/conversations/'.length)), { beforeId: params.get('beforeId'), limit: params.get('limit') });
+            sendJson(res, result, result.status);
+        }
+        return;
+    }
+    if (urlPath.startsWith('/api/social/conversations/') && req.method === 'POST') {
+        if (!allowRequest(req, res, 'directMessage')) return;
+        const b = await readBody(req, 1024);
+        const auth = requireAuth(req, res, b);
+        if (auth) {
+            const result = social.sendMessage(auth.account.id, decodeURIComponent(urlPath.slice('/api/social/conversations/'.length)), b.body);
+            sendJson(res, result, result.status);
+        }
+        return;
+    }
+    if (urlPath === '/api/social/lobby-invites' && req.method === 'GET') {
+        if (!allowRequest(req, res, 'social')) return;
+        const auth = requireAuth(req, res);
+        if (auth) sendJson(res, { invites: social.listInvites(auth.account.id) });
+        return;
+    }
+    if (urlPath === '/api/social/lobby-invites' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'lobbyInvite')) return;
+        const b = await readBody(req, 1024);
+        const auth = requireAuth(req, res, b);
+        if (auth) {
+            pruneLobbies();
+            const lobby = lobbies.get(String(b.lobbyCode || ''));
+            if (!lobby || lobby.ownerAccountId !== auth.account.id) { sendJson(res, { error: 'lobby unavailable' }, 404); return; }
+            const result = social.createLobbyInvite(auth.account.id, String(b.friendAccountId || ''), lobby.code);
+            sendJson(res, result, result.status);
+        }
+        return;
+    }
+    if (urlPath.startsWith('/api/social/lobby-invites/') && req.method === 'POST') {
+        if (!allowRequest(req, res, 'lobbyInvite')) return;
+        const b = await readBody(req, 512);
+        const auth = requireAuth(req, res, b);
+        if (auth) {
+            const result = social.actOnLobbyInvite(auth.account.id, decodeURIComponent(urlPath.slice('/api/social/lobby-invites/'.length)), b.action);
+            sendJson(res, result, result.status);
+        }
         return;
     }
     if (urlPath === '/api/profile' && req.method === 'GET') {
-        const profile = profiles.authenticate(bearer(req));
-        if (!profile) { sendJson(res, { error: 'unauthorized' }, 401); return; }
-        sendJson(res, { profile: profiles._public(profile) });
+        const auth = requireAuth(req, res);
+        if (auth) sendJson(res, { profile: profiles._public(auth.profile), account: auth.account });
         return;
     }
     if (urlPath === '/api/live-market' && req.method === 'GET') {
@@ -225,9 +365,9 @@ const server = http.createServer(async (req, res) => {
     }
     if (urlPath === '/api/profile/live-market/purchase' && req.method === 'POST') {
         if (!allowRequest(req, res, 'purchase')) return;
-        const profile = profiles.authenticate(bearer(req));
-        if (!profile) { sendJson(res, { error: 'unauthorized' }, 401); return; }
         const body = await readBody(req);
+        const profile = requireAuth(req, res, body)?.profile;
+        if (!profile) return;
         const offer = findLiveOffer(CATALOG, body.offerId);
         if (!offer) { sendJson(res, { error: 'offer unavailable' }, 404); return; }
         const requestId = req.headers['idempotency-key'] || body.requestId;
@@ -240,9 +380,9 @@ const server = http.createServer(async (req, res) => {
     }
     if (urlPath === '/api/profile/purchase' && req.method === 'POST') {
         if (!allowRequest(req, res, 'purchase')) return;
-        const profile = profiles.authenticate(bearer(req));
-        if (!profile) { sendJson(res, { error: 'unauthorized' }, 401); return; }
         const b = await readBody(req);
+        const profile = requireAuth(req, res, b)?.profile;
+        if (!profile) return;
         const requestId = req.headers['idempotency-key'] || b.requestId;
         const result = profiles.purchase(profile, b.kind, b.id, requestId);
         sendJson(res, result.error ? { error: result.error } : {
@@ -253,9 +393,9 @@ const server = http.createServer(async (req, res) => {
     }
     if (urlPath === '/api/profile/reward' && req.method === 'POST') {
         if (!allowRequest(req, res, 'reward')) return;
-        const profile = profiles.authenticate(bearer(req));
-        if (!profile) { sendJson(res, { error: 'unauthorized' }, 401); return; }
         const b = await readBody(req);
+        const profile = requireAuth(req, res, b)?.profile;
+        if (!profile) return;
         const signature = req.headers['x-match-signature'] || b.signature;
         // Two receipt sources: (a) a pre-signed receipt verified against
         // MATCH_REWARD_SECRET (host-authoritative flow, unchanged, still
@@ -295,15 +435,44 @@ const server = http.createServer(async (req, res) => {
             base: result.base,
             bonus: result.bonus,
             firstOfDay: result.firstOfDay,
+            cardReward: result.cardReward,
+            replayed: result.replayed === true,
+            profile: result.profile
+        }, result.status);
+        return;
+    }
+    if (urlPath === '/api/profile/cards/equip' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'purchase')) return;
+        const body = await readBody(req, 4096);
+        const profile = requireAuth(req, res, body)?.profile;
+        if (!profile) return;
+        const result = profiles.equipCard(profile, body.cardId, body.slot);
+        sendJson(res, result.error ? { error: result.error } : {
+            loadout: result.loadout,
+            replayed: result.replayed === true,
+            profile: result.profile
+        }, result.status);
+        return;
+    }
+    if (urlPath === '/api/profile/cards/trade-up' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'purchase')) return;
+        const body = await readBody(req, 4096);
+        const profile = requireAuth(req, res, body)?.profile;
+        if (!profile) return;
+        const requestId = req.headers['idempotency-key'] || body.requestId;
+        const result = profiles.tradeUpCards(profile, body.cardIds, requestId);
+        sendJson(res, result.error ? { error: result.error } : {
+            result: result.result,
+            replayed: result.replayed === true,
             profile: result.profile
         }, result.status);
         return;
     }
     if (urlPath === '/api/profile/ad-reward' && req.method === 'POST') {
         if (!allowRequest(req, res, 'adReward')) return;
-        const profile = profiles.authenticate(bearer(req));
-        if (!profile) { sendJson(res, { error: 'unauthorized' }, 401); return; }
         const b = await readBody(req);
+        const profile = requireAuth(req, res, b)?.profile;
+        if (!profile) return;
         const result = profiles.adReward(profile, b.requestId || req.headers['idempotency-key'] || '');
         sendJson(res, result.error ? { error: result.error, retryAfterMs: result.retryAfterMs } : {
             coins: result.coins,
@@ -315,9 +484,9 @@ const server = http.createServer(async (req, res) => {
     }
     if (urlPath === '/api/profile/streak-claim' && req.method === 'POST') {
         if (!allowRequest(req, res, 'streak')) return;
-        const profile = profiles.authenticate(bearer(req));
-        if (!profile) { sendJson(res, { error: 'unauthorized' }, 401); return; }
         const b = await readBody(req);
+        const profile = requireAuth(req, res, b)?.profile;
+        if (!profile) return;
         const result = profiles.streakClaim(profile, b.requestId || req.headers['idempotency-key'] || '');
         sendJson(res, result.error ? { error: result.error } : {
             day: result.day,
@@ -328,9 +497,9 @@ const server = http.createServer(async (req, res) => {
     }
     if (urlPath === '/api/profile/cosmetics/equip' && req.method === 'POST') {
         if (!allowRequest(req, res, 'purchase')) return;
-        const profile = profiles.authenticate(bearer(req));
-        if (!profile) { sendJson(res, { error: 'unauthorized' }, 401); return; }
         const body = await readBody(req, 4096);
+        const profile = requireAuth(req, res, body)?.profile;
+        if (!profile) return;
         const loadout = normalizeEquippedCosmetics(body.loadout, profile.ownedCosmetics, CATALOG.cosmetic);
         const entitlement = signCosmeticEntitlement(
             COSMETIC_ENTITLEMENT_SECRET,
@@ -353,9 +522,9 @@ const server = http.createServer(async (req, res) => {
     }
     if (urlPath === '/api/profile/cases/open' && req.method === 'POST') {
         if (!allowRequest(req, res, 'purchase')) return;
-        const profile = profiles.authenticate(bearer(req));
-        if (!profile) { sendJson(res, { error: 'unauthorized' }, 401); return; }
         const body = await readBody(req, 4096);
+        const profile = requireAuth(req, res, body)?.profile;
+        if (!profile) return;
         const requestId = req.headers['idempotency-key'] || body.requestId;
         const result = profiles.openCase(profile, body.caseId, requestId);
         sendJson(res, result.error ? { error: result.error } : {
@@ -388,9 +557,9 @@ const server = http.createServer(async (req, res) => {
 
     if (urlPath === '/api/telemetry' && req.method === 'POST') {
         if (!allowRequest(req, res, 'telemetry')) return;
-        const profile = profiles.authenticate(bearer(req));
-        if (!profile) { sendJson(res, { error: 'unauthorized' }, 401); return; }
         const body = await readBody(req, 4096);
+        const profile = requireAuth(req, res, body)?.profile;
+        if (!profile) return;
         if (body.__bodyTooLarge) { sendJson(res, { error: 'payload too large' }, 413); return; }
         if (body.__invalidJson) { sendJson(res, { error: 'invalid json' }, 400); return; }
         const result = telemetry.ingest(profile.id, body);
@@ -402,12 +571,28 @@ const server = http.createServer(async (req, res) => {
         return;
     }
 
+    if (urlPath === '/api/product-events' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'productAnalytics')) return;
+        const body = await readBody(req, 20000);
+        const profile = requireAuth(req, res, body)?.profile;
+        if (!profile) return;
+        if (body.__bodyTooLarge) { sendJson(res, { error: 'payload too large' }, 413); return; }
+        if (body.__invalidJson) { sendJson(res, { error: 'invalid json' }, 400); return; }
+        const result = productAnalytics.ingest(profile.id, body);
+        sendJson(res, result.error ? { error: result.error } : {
+            accepted: result.accepted,
+            replayed: result.replayed,
+            rejected: result.rejected
+        }, result.status);
+        return;
+    }
+
     // --- Authenticated creator map publishing and public workshop reads. ---
     if (urlPath === '/api/maps' && req.method === 'POST') {
         if (!allowRequest(req, res, 'mapWrite')) return;
-        const profile = profiles.authenticate(bearer(req));
-        if (!profile) { sendJson(res, { error: 'unauthorized' }, 401); return; }
         const body = await readBody(req, 100000);
+        const profile = requireAuth(req, res, body)?.profile;
+        if (!profile) return;
         if (body.__bodyTooLarge) { sendJson(res, { error: 'payload too large' }, 413); return; }
         if (body.__invalidJson) { sendJson(res, { error: 'invalid json' }, 400); return; }
         const result = creatorMaps.publish(profile, body);
@@ -421,7 +606,7 @@ const server = http.createServer(async (req, res) => {
         if (!allowRequest(req, res, 'mapRead')) return;
         const params = new URLSearchParams(req.url.split('?')[1] || '');
         const mine = params.get('mine') === '1';
-        const profile = profiles.authenticate(bearer(req));
+        const profile = resolveAuth(req)?.profile;
         if (mine && !profile) { sendJson(res, { error: 'unauthorized' }, 401); return; }
         sendJson(res, creatorMaps.list({
             creatorId: profile?.id || '',
@@ -435,11 +620,11 @@ const server = http.createServer(async (req, res) => {
     }
     if (urlPath.startsWith('/api/maps/') && urlPath.endsWith('/vote') && req.method === 'POST') {
         if (!allowRequest(req, res, 'mapVote')) return;
-        const profile = profiles.authenticate(bearer(req));
-        if (!profile) { sendJson(res, { error: 'unauthorized' }, 401); return; }
         const encodedId = urlPath.slice('/api/maps/'.length, -'/vote'.length);
         if (!encodedId) { sendJson(res, { error: 'map not found' }, 404); return; }
         const body = await readBody(req, 1024);
+        const profile = requireAuth(req, res, body)?.profile;
+        if (!profile) return;
         if (body.__bodyTooLarge) { sendJson(res, { error: 'payload too large' }, 413); return; }
         if (body.__invalidJson) { sendJson(res, { error: 'invalid json' }, 400); return; }
         const result = creatorMaps.vote(profile, decodeURIComponent(encodedId), Number(body.value));
@@ -470,7 +655,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (urlPath.startsWith('/api/maps/') && req.method === 'GET') {
         const id = decodeURIComponent(urlPath.slice('/api/maps/'.length));
-        const profile = profiles.authenticate(bearer(req));
+        const profile = resolveAuth(req)?.profile;
         const result = creatorMaps.get(id, profile?.id || '');
         sendJson(res, result.error ? { error: result.error } : { map: result.map }, result.status);
         return;
@@ -479,17 +664,22 @@ const server = http.createServer(async (req, res) => {
     // --- Lobby API ---
     if (urlPath === '/api/lobbies' && req.method === 'GET') {
         pruneLobbies();
-        sendJson(res, [...lobbies.values()]);
+        sendJson(res, [...lobbies.values()].map(publicLobby));
         return;
     }
     if (urlPath === '/api/lobbies' && req.method === 'POST') {
         if (!allowRequest(req, res, 'lobbyWrite')) return;
         const b = await readBody(req);
+        const auth = requireAuth(req, res, b);
+        if (!auth) return;
         if (!b.code) { sendJson(res, { error: 'code required' }, 400); return; }
+        const prior = lobbies.get(b.code);
+        if (prior && prior.ownerAccountId !== auth.account.id) { sendJson(res, { error: 'lobby unavailable' }, 404); return; }
         lobbies.set(b.code, normalizeLobbyRecord({
             code: b.code,
             name: b.name || 'Lobby',
-            hostName: b.hostName || 'Host',
+            hostName: auth.account.username,
+            ownerAccountId: auth.account.id,
             players: b.players || 1,
             map: b.map || 'Unknown',
             mode: b.mode || 'Classic',
@@ -502,7 +692,12 @@ const server = http.createServer(async (req, res) => {
     }
     if (urlPath.startsWith('/api/lobbies/') && (req.method === 'DELETE' || req.method === 'POST')) {
         if (!allowRequest(req, res, 'lobbyWrite')) return;
-        const code = decodeURIComponent(urlPath.split('/').pop());
+        const b = req.method === 'POST' ? await readBody(req, 1024) : null;
+        const auth = requireAuth(req, res, b);
+        if (!auth) return;
+        const code = urlPath === '/api/lobbies/close' ? String(b?.code || '') : decodeURIComponent(urlPath.split('/').pop());
+        const lobby = lobbies.get(code);
+        if (!lobby || lobby.ownerAccountId !== auth.account.id) { sendJson(res, { error: 'lobby unavailable' }, 404); return; }
         lobbies.delete(code);
         sendJson(res, { ok: true });
         return;
@@ -516,12 +711,14 @@ const server = http.createServer(async (req, res) => {
     // --- Social Hub registry: separate from competitive lobbies. ---
     if (urlPath === '/api/social-hubs' && req.method === 'GET') {
         pruneLobbies();
-        sendJson(res, [...socialHubs.values()]);
+        sendJson(res, [...socialHubs.values()].map(publicLobby));
         return;
     }
     if (urlPath === '/api/social-hubs' && req.method === 'POST') {
         if (!allowRequest(req, res, 'lobbyWrite')) return;
         const b = await readBody(req);
+        const auth = requireAuth(req, res, b);
+        if (!auth) return;
         const mapId = String(b.mapId || '').toLowerCase();
         const mapName = Object.hasOwn(SOCIAL_HUB_MAP_NAMES, mapId) ? SOCIAL_HUB_MAP_NAMES[mapId] : '';
         if (!b.code || !mapName) {
@@ -532,7 +729,8 @@ const server = http.createServer(async (req, res) => {
             code: b.code,
             mapId,
             mapName,
-            hostName: String(b.hostName || 'Host').slice(0, 32),
+            hostName: auth.account.username,
+            ownerAccountId: auth.account.id,
             players: Math.max(1, Math.min(32, Number(b.players) || 1))
         }, Date.now()));
         sendJson(res, { ok: true });
@@ -540,20 +738,17 @@ const server = http.createServer(async (req, res) => {
     }
     if (urlPath.startsWith('/api/social-hubs/') && (req.method === 'DELETE' || req.method === 'POST')) {
         if (!allowRequest(req, res, 'lobbyWrite')) return;
+        const b = req.method === 'POST' ? await readBody(req, 1024) : null;
+        const auth = requireAuth(req, res, b);
+        if (!auth) return;
         const code = decodeURIComponent(urlPath.split('/').pop());
+        const hub = socialHubs.get(code);
+        if (!hub || hub.ownerAccountId !== auth.account.id) { sendJson(res, { error: 'hub unavailable' }, 404); return; }
         socialHubs.delete(code);
         sendJson(res, { ok: true });
         return;
     }
     // sendBeacon can only POST — used by the client's beforeunload to close a lobby.
-    if (urlPath === '/api/lobbies/close' && req.method === 'POST') {
-        if (!allowRequest(req, res, 'lobbyWrite')) return;
-        const b = await readBody(req);
-        if (b.code) lobbies.delete(b.code);
-        sendJson(res, { ok: true });
-        return;
-    }
-
     // --- Static files ---
     let filePath = urlPath === '/' ? '/index.html' : urlPath;
     const fullPath = path.join(ROOT, filePath);
@@ -578,7 +773,30 @@ const server = http.createServer(async (req, res) => {
     });
 });
 
+let storesClosed = false;
+server.on('close', () => {
+    if (storesClosed) return;
+    storesClosed = true;
+    try { social.close(); } catch {}
+    try { accounts.close(); } catch {}
+});
+
+let shuttingDown = false;
+function shutdown(signal) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[server] ${signal}: closing connections and embedded stores`);
+    const forceExit = setTimeout(() => process.exit(1), 5000);
+    forceExit.unref();
+    server.close(() => {
+        clearTimeout(forceExit);
+        process.exit(0);
+    });
+}
+
 if (require.main === module) {
+    process.once('SIGTERM', () => shutdown('SIGTERM'));
+    process.once('SIGINT', () => shutdown('SIGINT'));
     server.listen(PORT, () => {
         console.log(`\n  WARRBALL running on port ${PORT}\n  Local: http://localhost:${PORT}\n`);
     });

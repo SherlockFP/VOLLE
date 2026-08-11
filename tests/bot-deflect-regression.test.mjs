@@ -1,17 +1,16 @@
 // tests/bot-deflect-regression.test.mjs — Regression test for the CRITICAL "bots never
 // deflect" bug fixed in js/bot.js tryDeflect(). js/bot.js imports 'three' and can't run
 // under `node --test` directly (see tests/bot-tendency.test.mjs), so this file mirrors the
-// tryDeflect() alert-range/commit state machine verbatim as a pure shadow copy. Keep these
-// literals byte-identical to js/bot.js if either changes.
+// tryDeflect() alert-range/commit state machine as a pure shadow copy. Keep this behavior
+// aligned with js/bot.js if either changes.
 //
 // Root cause: commit ea037d5 added sequential wind-up telegraphing (windUpTimer/windUpTime)
 // AFTER the pre-existing reaction-timer gate, but never widened the alert range that gates
 // when the reaction timer starts filling — it stayed hardcoded at 8, sized only to cover
 // reaction time (see the comment it shipped with). A ball closing at typical speed then
 // crossed the bot's entire engagement window before the reaction+wind-up sequence could
-// ever finish, so tryDeflect() almost never returned true: in a clean isolated live-browser
-// test (straight-line ball, medium difficulty) it committed 0/40 times before this fix,
-// 32/40 after.
+// ever finish. A second issue kept wind-up behind an `attackRange` gate, forcing easy and
+// medium bots to fit the entire reaction plus wind-up inside the final two meters.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -44,28 +43,26 @@ function tryDeflect(state, dist, ballSpeed, attackRange, dt, rng) {
     if (dist > alertRange) {
         state.reactionTimer = 0;
         state._deflectDecided = false;
+        state._willDeflect = false;
         state.windUpTimer = 0;
         state.windUpCommitted = false;
         return false;
     }
-    state.reactionTimer += dt;
-    if (state.reactionTimer < state.reactionTime) return false;
-    if (dist > attackRange) return false;
-
-    if (!state.windUpCommitted && !state._deflectDecided) {
+    if (!state._deflectDecided) {
         state._deflectDecided = true;
         state._willDeflect = rng() < state.deflectChance;
     }
     if (!state._willDeflect) {
-        state.windUpTimer = 0;
-        state.windUpCommitted = false;
         return false;
     }
+    state.reactionTimer += dt;
+    if (state.reactionTimer < state.reactionTime) return false;
     if (!state.windUpCommitted) {
         state.windUpTimer += dt;
         if (state.windUpTimer < state.windUpTime) return false;
         state.windUpCommitted = true;
     }
+    if (dist > attackRange) return false;
     state._mishit = rng() < state.mishitRate;
     state._deflectDecided = false;
     state.windUpTimer = 0;
@@ -84,6 +81,7 @@ function simulateApproach(diff, { ballSpeed = 17, attackRange = 2, dt = 1 / 60, 
         if (tryDeflect(state, dist, ballSpeed, attackRange, dt, rng)) {
             return { committed: true, distAtCommit: dist, frame };
         }
+        if (dist <= attackRange) return { committed: false, distAtCommit: dist, frame };
         dist -= ballSpeed * dt;
     }
     return { committed: false, distAtCommit: dist, frame: maxSteps };
@@ -101,18 +99,18 @@ test('REGRESSION: alert range covers the FULL commit budget (reaction + wind-up)
     }
 });
 
-test('a bot within deflect range and reaction window produces a deflect decision (medium)', () => {
+test('a medium bot completes reaction + wind-up before collision range', () => {
     const result = simulateApproach(DIFFICULTY_SETTINGS.medium);
     assert.equal(result.committed, true, 'medium bot never committed to a deflect');
     assert.ok(result.frame < 200, `commit took unreasonably long (frame=${result.frame})`);
 });
 
-test('a bot within deflect range and reaction window produces a deflect decision (easy)', () => {
+test('an easy bot completes reaction + wind-up before collision range', () => {
     const result = simulateApproach(DIFFICULTY_SETTINGS.easy);
     assert.equal(result.committed, true, 'easy bot never committed to a deflect');
 });
 
-test('a bot within deflect range and reaction window produces a deflect decision (hard)', () => {
+test('a hard bot completes reaction + wind-up before collision range', () => {
     const result = simulateApproach(DIFFICULTY_SETTINGS.hard);
     assert.equal(result.committed, true, 'hard bot never committed to a deflect');
 });

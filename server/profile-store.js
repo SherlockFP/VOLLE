@@ -3,6 +3,16 @@ const fs = require('fs');
 const path = require('path');
 const { CASES } = require('./case-catalog');
 const { normalizeEquippedCosmetics } = require('./cosmetic-entitlement');
+const {
+    ARENA_CARDS,
+    DEFAULT_CARD_COLLECTION,
+    DEFAULT_CARD_LOADOUT,
+    grantArenaCache,
+    normalizeCardCollection,
+    normalizeCardLoadout,
+    shouldAwardArenaCache,
+    tradeUpCards
+} = require('./card-catalog');
 
 const CATALOG = {
     character: {
@@ -15,14 +25,6 @@ const CATALOG = {
         happy: 300, glitch: 340, void_eye: 340, candy: 260, solar: 360, toxic: 240, disco: 320,
         magma: 380, ocean: 300, honey: 280, dragon: 420, portal: 400,
         moon: 260, pumpkin: 300, matrix: 340, sakura: 320, blackhole: 460
-    },
-    skill: {
-        freeze: 100, burn: 100, shield: 100, smash: 100,
-        heal: 100, teleport: 100, blackhole: 100
-    },
-    rune: {
-        hp_bonus: 80, dmg_resist: 80, deflect_power: 80, speed_bonus: 80,
-        stam_regen: 80, cooldown_red: 80, lifesteal: 80, thorns: 80
     },
     avatar: {
         neon: 250, samurai: 350, frost: 300, astro: 420, arcade: 380, moss: 450,
@@ -46,12 +48,13 @@ const CATALOG = {
 const PROFILE_FIELDS = {
     character: 'unlockedChars',
     ball: 'ownedBalls',
-    skill: 'ownedSkills',
-    rune: 'ownedItems',
     avatar: 'ownedAvatarSkins',
     knife: 'ownedKnives',
     cosmetic: 'ownedCosmetics'
 };
+
+const LEGACY_SKILL_IDS = new Set(['slow', 'freeze', 'burn', 'shield', 'smash', 'heal', 'teleport', 'blackhole']);
+const LEGACY_RUNE_IDS = new Set(['hp_bonus', 'dmg_resist', 'deflect_power', 'speed_bonus', 'stam_regen', 'cooldown_red', 'lifesteal', 'thorns']);
 
 // Match reward: base pays for the result, bonus rewards performance but is
 // capped low so a stomp match can't out-earn several honest ones — coins stay
@@ -93,6 +96,8 @@ function defaults(id, name) {
         gems: 0,
         unlockedChars: ['rally'],
         ownedBalls: ['classic'],
+        // Legacy arrays are kept so old local profiles migrate safely. New
+        // skills/runes are Arena Cache cards only, never coin purchases.
         ownedSkills: ['slow'],
         ownedItems: [],
         ownedAvatarSkins: ['default'],
@@ -101,6 +106,15 @@ function defaults(id, name) {
         equippedWearables: { cape: 'none', pet: 'none', shoes: 'none', aura: 'none', impact: 'none' },
         casePity: {},
         caseReceipts: [],
+        // Earned cosmetic openings are server-owned. A completed match can
+        // mint one Case entitlement; it never buys power.
+        earnedCases: {},
+        caseDropDrought: 0,
+        cardCollection: { ...DEFAULT_CARD_COLLECTION },
+        equippedCards: { ...DEFAULT_CARD_LOADOUT },
+        arenaCache: { earned: 0, opened: 0, lastMatchId: '' },
+        cardRewardReceipts: [],
+        cardTradeReceipts: [],
         rewardedMatches: [],
         purchaseReceipts: [],
         premiumTransactions: [],
@@ -141,8 +155,35 @@ class ProfileStore {
                 ...(Array.isArray(record[field]) ? record[field].filter(id => allowed.has(id)) : [])
             ])];
         }
+        normalized.ownedSkills = [...new Set([
+            ...base.ownedSkills,
+            ...(Array.isArray(record.ownedSkills) ? record.ownedSkills.filter(id => LEGACY_SKILL_IDS.has(id)) : [])
+        ])];
+        normalized.ownedItems = [...new Set([
+            ...base.ownedItems,
+            ...(Array.isArray(record.ownedItems) ? record.ownedItems.filter(id => LEGACY_RUNE_IDS.has(id)) : [])
+        ])];
         normalized.casePity = normalized.casePity && typeof normalized.casePity === 'object' ? normalized.casePity : {};
         normalized.caseReceipts = Array.isArray(normalized.caseReceipts) ? normalized.caseReceipts.slice(-50) : [];
+        normalized.earnedCases = normalized.earnedCases && typeof normalized.earnedCases === 'object'
+            ? Object.fromEntries(Object.keys(CASES).map(caseId => [caseId, Math.max(0, Math.floor(Number(normalized.earnedCases[caseId]) || 0))]))
+            : {};
+        normalized.caseDropDrought = Math.min(4, Math.max(0, Math.floor(Number(normalized.caseDropDrought) || 0)));
+        normalized.cardCollection = normalizeCardCollection(record.cardCollection);
+        normalized.equippedCards = normalizeCardLoadout(record.equippedCards, normalized.cardCollection);
+        normalized.arenaCache = record.arenaCache && typeof record.arenaCache === 'object'
+            ? {
+                earned: Math.max(0, Math.floor(Number(record.arenaCache.earned) || 0)),
+                opened: Math.max(0, Math.floor(Number(record.arenaCache.opened) || 0)),
+                lastMatchId: typeof record.arenaCache.lastMatchId === 'string' ? record.arenaCache.lastMatchId.slice(0, 64) : ''
+            }
+            : { earned: 0, opened: 0, lastMatchId: '' };
+        normalized.cardRewardReceipts = Array.isArray(record.cardRewardReceipts)
+            ? record.cardRewardReceipts.filter(item => item && typeof item.matchId === 'string').slice(-50)
+            : [];
+        normalized.cardTradeReceipts = Array.isArray(record.cardTradeReceipts)
+            ? record.cardTradeReceipts.filter(item => item && typeof item.requestId === 'string').slice(-50)
+            : [];
         normalized.adRewards = normalized.adRewards && typeof normalized.adRewards === 'object'
             ? {
                 day: typeof normalized.adRewards.day === 'string' ? normalized.adRewards.day : '',
@@ -190,7 +231,7 @@ class ProfileStore {
         return { remaining: Math.max(0, AD_REWARD_DAILY_CAP - count), cap: AD_REWARD_DAILY_CAP, cooldownRemainingMs };
     }
     _public(record) {
-        const { tokenHash, rewardedMatches, purchaseReceipts, premiumTransactions, caseReceipts, adRewards, dailyStreak, ...profile } = record;
+        const { tokenHash, rewardedMatches, purchaseReceipts, premiumTransactions, caseReceipts, cardRewardReceipts, cardTradeReceipts, adRewards, dailyStreak, ...profile } = record;
         return { ...profile, adRewards: this._adRewardStatus(record), dailyStreak: this._dailyStreakStatus(record) };
     }
 
@@ -242,6 +283,7 @@ class ProfileStore {
     }
 
     purchase(record, kind, id, requestId = '', priceOverride = null) {
+        if (kind === 'skill' || kind === 'rune') return { status: 403, error: 'skills and runes are earned through Arena Cache cards' };
         if (kind === 'knife') return { status: 404, error: 'item not found' };
         const catalogPrice = CATALOG[kind]?.[id];
         const price = Number.isInteger(priceOverride) && priceOverride > 0 && priceOverride <= catalogPrice
@@ -295,7 +337,9 @@ class ProfileStore {
         const receiptId = /^[A-Za-z0-9._:-]{8,96}$/.test(String(requestId || '')) ? requestId : '';
         const prior = receiptId ? record.caseReceipts.find(item => item.requestId === receiptId) : null;
         if (prior) return { status: 200, profile: this._public(record), result: prior.result, replayed: true };
-        if (record.currency < box.price) return { status: 409, error: 'insufficient funds' };
+        const earnedCount = Math.max(0, Math.floor(Number(record.earnedCases?.[caseId]) || 0));
+        const usesEarned = earnedCount > 0;
+        if (!usesEarned && record.currency < box.price) return { status: 409, error: 'insufficient funds' };
         const pityBefore = Math.min(9, Math.max(0, Number(record.casePity?.[caseId]) || 0));
         const eligible = pityBefore >= 9
             ? box.drops.filter(([, , rarity]) => rarity === 'epic' || rarity === 'legendary')
@@ -312,8 +356,10 @@ class ProfileStore {
         const field = PROFILE_FIELDS[kind];
         if (!field || !CATALOG[kind]?.[id]) return { status: 500, error: 'invalid case catalog' };
         const duplicate = record[field].includes(id);
-        const refund = duplicate ? Math.floor(box.price * 0.35) : 0;
-        record.currency -= box.price;
+        const refund = duplicate ? (usesEarned ? 35 : Math.floor(box.price * 0.35)) : 0;
+        if (usesEarned) {
+            record.earnedCases = { ...(record.earnedCases || {}), [caseId]: earnedCount - 1 };
+        } else record.currency -= box.price;
         if (refund) record.currency += refund;
         else record[field].push(id);
         const premium = rarity === 'epic' || rarity === 'legendary';
@@ -322,6 +368,7 @@ class ProfileStore {
         record.updatedAt = Date.now();
         const result = {
             reward: { id, type: kind, rarity }, duplicate, refund,
+            free: usesEarned,
             pity: { before: pityBefore, after: record.casePity[caseId], guaranteed: pityBefore >= 9 }
         };
         if (receiptId) {
@@ -335,7 +382,22 @@ class ProfileStore {
     reward(record, match, now = Date.now()) {
         const matchId = typeof match?.matchId === 'string' ? match.matchId.slice(0, 64) : '';
         if (!matchId) return { status: 400, error: 'matchId required' };
-        if (record.rewardedMatches.includes(matchId)) return { status: 409, error: 'reward already claimed' };
+        record.cardRewardReceipts = Array.isArray(record.cardRewardReceipts) ? record.cardRewardReceipts : [];
+        const previousCardReward = record.cardRewardReceipts.find(item => item.matchId === matchId);
+        if (record.rewardedMatches.includes(matchId)) {
+            return {
+                status: 200,
+                replayed: true,
+                coins: 0,
+                base: 0,
+                bonus: 0,
+                firstOfDay: 0,
+                cardReward: previousCardReward?.reward || null,
+                earnedCase: previousCardReward?.earnedCase || null,
+                earnedCaseSource: previousCardReward?.earnedCaseSource || null,
+                profile: this._public(record)
+            };
+        }
         const kills = Math.max(0, Math.floor(Number(match.score) || 0));
         const deflects = Math.max(0, Math.floor(Number(match.deflections) || 0));
         const base = match.won === true ? MATCH_REWARD_WIN : MATCH_REWARD_LOSE;
@@ -351,9 +413,71 @@ class ProfileStore {
         record.economyRevision = Math.max(0, Number(record.economyRevision) || 0) + 1;
         record.rewardedMatches.push(matchId);
         record.rewardedMatches = record.rewardedMatches.slice(-50);
+        const leveledUp = match?.leveledUp === true;
+        let cardReward = null;
+        // Deterministic 1-in-3 cadence with a five-match drought guarantee.
+        // This is a reward for completing games, not a paid/competitive lever.
+        const caseDropDrought = Math.min(4, Math.max(0, Number(record.caseDropDrought) || 0));
+        const hash = crypto.createHash('sha256').update(matchId).digest()[0];
+        const earnedCase = caseDropDrought >= 4 || hash % 3 === 0 ? 'kickoff' : null;
+        const earnedCaseSource = earnedCase ? (caseDropDrought >= 4 ? 'drought_guarantee' : 'match_roll') : null;
+        if (earnedCase) {
+            record.earnedCases = { ...(record.earnedCases || {}), [earnedCase]: Math.max(0, Number(record.earnedCases?.[earnedCase]) || 0) + 1 };
+            record.caseDropDrought = 0;
+        } else record.caseDropDrought = caseDropDrought + 1;
+        record.arenaCache = record.arenaCache && typeof record.arenaCache === 'object'
+            ? record.arenaCache : { earned: 0, opened: 0, lastMatchId: '' };
+        record.arenaCache.lastMatchId = matchId;
+        if (shouldAwardArenaCache({ matchId, won: match.won === true, leveledUp })) {
+            const granted = grantArenaCache(record.cardCollection, matchId);
+            record.cardCollection = granted.collection;
+            record.equippedCards = normalizeCardLoadout(record.equippedCards, granted.collection);
+            record.arenaCache.earned = Math.max(0, Math.floor(Number(record.arenaCache.earned) || 0)) + 1;
+            record.arenaCache.opened = Math.max(0, Math.floor(Number(record.arenaCache.opened) || 0)) + 1;
+            cardReward = granted.reward;
+        }
+        record.cardRewardReceipts.push({ matchId, reward: cardReward, earnedCase, earnedCaseSource });
+        record.cardRewardReceipts = record.cardRewardReceipts.slice(-50);
         record.updatedAt = now;
         this._save();
-        return { status: 200, coins, base, bonus, firstOfDay: firstOfDayBonus, profile: this._public(record) };
+        return { status: 200, replayed: false, coins, base, bonus, firstOfDay: firstOfDayBonus, cardReward, earnedCase, earnedCaseSource, profile: this._public(record) };
+    }
+
+    equipCard(record, cardId, slot) {
+        const card = ARENA_CARDS[cardId];
+        if (!card || !['active', 'passive'].includes(slot) || card.slot !== slot) {
+            return { status: 400, error: 'invalid card loadout' };
+        }
+        record.cardCollection = normalizeCardCollection(record.cardCollection);
+        if ((record.cardCollection[cardId] || 0) < 1) return { status: 403, error: 'card not owned' };
+        const current = normalizeCardLoadout(record.equippedCards, record.cardCollection);
+        const next = normalizeCardLoadout({ ...current, [slot]: cardId }, record.cardCollection);
+        const replayed = current[slot] === next[slot];
+        record.equippedCards = next;
+        if (!replayed) {
+            record.updatedAt = Date.now();
+            this._save();
+        }
+        return { status: 200, replayed, loadout: next, profile: this._public(record) };
+    }
+
+    tradeUpCards(record, cardIds, requestId = '') {
+        const receiptId = /^[A-Za-z0-9._:-]{8,96}$/.test(String(requestId || '')) ? requestId : '';
+        if (!receiptId) return { status: 400, error: 'valid idempotency key required' };
+        record.cardTradeReceipts = Array.isArray(record.cardTradeReceipts) ? record.cardTradeReceipts : [];
+        const prior = receiptId ? record.cardTradeReceipts.find(item => item.requestId === receiptId) : null;
+        if (prior) return { status: 200, replayed: true, result: prior.result, profile: this._public(record) };
+        const result = tradeUpCards(record.cardCollection, cardIds, crypto.randomUUID());
+        if (!result) return { status: 409, error: 'five owned cards of one non-legendary rarity required' };
+        record.cardCollection = result.collection;
+        record.equippedCards = normalizeCardLoadout(record.equippedCards, result.collection);
+        if (receiptId) {
+            record.cardTradeReceipts.push({ requestId: receiptId, result: { consumed: result.consumed, reward: result.reward } });
+            record.cardTradeReceipts = record.cardTradeReceipts.slice(-50);
+        }
+        record.updatedAt = Date.now();
+        this._save();
+        return { status: 200, replayed: false, result: { consumed: result.consumed, reward: result.reward }, profile: this._public(record) };
     }
 
     // Login streak — main-menu badge (js/store.js#claimLoginStreak). UTC-day
@@ -464,6 +588,23 @@ class ProfileStore {
                 ? legacy[field].filter(id => allowed.has(id))
                 : [];
             record[field] = [...new Set([...defaultsForField, ...imported])];
+        }
+        record.ownedSkills = [...new Set([
+            ...record.ownedSkills,
+            ...(Array.isArray(legacy.ownedSkills) ? legacy.ownedSkills.filter(id => LEGACY_SKILL_IDS.has(id)) : [])
+        ])];
+        record.ownedItems = [...new Set([
+            ...record.ownedItems,
+            ...(Array.isArray(legacy.ownedItems) ? legacy.ownedItems.filter(id => LEGACY_RUNE_IDS.has(id)) : [])
+        ])];
+        record.cardCollection = normalizeCardCollection(legacy.cardCollection);
+        record.equippedCards = normalizeCardLoadout(legacy.equippedCards, record.cardCollection);
+        if (legacy.arenaCache && typeof legacy.arenaCache === 'object') {
+            record.arenaCache = {
+                earned: Math.max(0, Math.floor(Number(legacy.arenaCache.earned) || 0)),
+                opened: Math.max(0, Math.floor(Number(legacy.arenaCache.opened) || 0)),
+                lastMatchId: typeof legacy.arenaCache.lastMatchId === 'string' ? legacy.arenaCache.lastMatchId.slice(0, 64) : ''
+            };
         }
         record.equippedWearables = normalizeEquippedCosmetics(
             legacy.equippedWearables,

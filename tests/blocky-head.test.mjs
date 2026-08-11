@@ -7,11 +7,8 @@ import { registerThreeStub } from './helpers/three-loader.mjs';
 
 registerThreeStub();
 
-const { createCharacterRig } = await import('../js/character-rig.js');
+const { createCharacterRig, HEAD_SIZE, HEAD_HALF_DEPTH } = await import('../js/character-rig.js');
 const { Group } = await import('./helpers/three-stub.mjs');
-
-const HEAD_SIZE = 0.32;
-const HEAD_HALF_DEPTH = HEAD_SIZE / 2;
 
 function meshChild(pivot, name) {
     return pivot.children.find(child => child.name === name);
@@ -40,7 +37,7 @@ test('head-mesh is a BoxGeometry, not a SphereGeometry', () => {
     rig.dispose();
 });
 
-test('head cube dimensions are exactly .32 on all sides', () => {
+test('head cube dimensions match the larger Minecraft-like head constant', () => {
     const rig = createCharacterRig({});
     const headMesh = meshChild(rig.joints.head, 'head-mesh');
     const [width, height, depth] = headMesh.geometry.args;
@@ -75,6 +72,54 @@ test('face-mesh exists and is initially hidden (no texture)', () => {
     assert.ok(faceMesh, 'face-mesh should exist');
     assert.equal(faceMesh.visible, false, 'face-mesh should be hidden by default (no avatar texture)');
     assert.equal(faceMesh.geometry.constructor.name, 'BoxGeometry', 'face-mesh should be a box');
+    rig.dispose();
+});
+
+test('default rig carries a readable two-eye robot face directly on the head front plane', () => {
+    const rig = createCharacterRig({});
+    const visorMesh = meshChild(rig.joints.head, 'visor');
+    const plate = meshChild(rig.joints.head, 'face-plate');
+    const leftEye = meshChild(rig.joints.head, 'eye-L');
+    const rightEye = meshChild(rig.joints.head, 'eye-R');
+
+    assert.ok(plate && leftEye && rightEye, 'default face should include a plate and two eye blocks');
+    assert.equal(plate.parent, rig.joints.head, 'face plate must be a direct head child in the live render hierarchy');
+    assert.equal(leftEye.parent, rig.joints.head, 'left eye must be a direct head child in the live render hierarchy');
+    assert.equal(rightEye.parent, rig.joints.head, 'right eye must be a direct head child in the live render hierarchy');
+    assert.ok(leftEye.position.x < 0 && rightEye.position.x > 0, 'eyes must occupy distinct left/right positions');
+    assert.notEqual(leftEye.position.y, rightEye.position.y, 'eye offsets retain a subtle robot asymmetry');
+    assert.ok(
+        leftEye.position.z < -HEAD_HALF_DEPTH,
+        'eye blocks must sit in front of the head front plane'
+    );
+    assert.equal(leftEye.geometry.constructor.name, 'BoxGeometry');
+    assert.equal(rightEye.geometry.constructor.name, 'BoxGeometry');
+    rig.dispose();
+});
+
+test('custom face textures and atlases hide every procedural face mesh together', () => {
+    const rig = createCharacterRig({});
+    const visorMesh = meshChild(rig.joints.head, 'visor');
+    const plate = meshChild(rig.joints.head, 'face-plate');
+    const leftEye = meshChild(rig.joints.head, 'eye-L');
+    const rightEye = meshChild(rig.joints.head, 'eye-R');
+    const texture = { isTexture: true, dispose() {} };
+
+    rig.setHeadTexture(texture);
+    assert.equal(visorMesh.visible, false, 'custom face texture hides the visor parent');
+    assert.equal(plate.visible, false, 'custom face texture hides the face plate');
+    assert.equal(leftEye.visible, false, 'custom face texture hides the left eye');
+    assert.equal(rightEye.visible, false, 'custom face texture hides the right eye');
+
+    rig.setHeadTexture(null);
+    assert.equal(plate.visible, true, 'clearing custom texture restores the face plate');
+    assert.equal(leftEye.visible, true, 'clearing custom texture restores the left eye');
+    assert.equal(rightEye.visible, true, 'clearing custom texture restores the right eye');
+    rig.setAvatarAtlasTexture(texture, 'classic');
+    assert.equal(visorMesh.visible, false, 'full avatar atlas hides the same visor parent');
+    assert.equal(plate.visible, false, 'full avatar atlas hides the face plate');
+    assert.equal(leftEye.visible, false, 'full avatar atlas hides the left eye');
+    assert.equal(rightEye.visible, false, 'full avatar atlas hides the right eye');
     rig.dispose();
 });
 

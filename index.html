@@ -77,29 +77,28 @@
         </div>
     </div>
     <!-- Auth Modal: Register/Login -->
-    <div id="auth-modal" class="command-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title">
+    <div id="auth-modal" class="command-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title" aria-describedby="auth-status">
         <div class="command-card auth-card">
-            <header><h2 id="auth-modal-title">Create or Sign In</h2></header>
-            <div class="auth-tabs">
-                <button class="auth-tab-btn auth-tab-active" data-tab="login">Sign In</button>
-                <button class="auth-tab-btn" data-tab="register">Create Account</button>
+            <header><span class="shell-kicker">WARRBALL ACCOUNT</span><h2 id="auth-modal-title">Enter the arena</h2><p id="auth-status" class="auth-status" role="status">Checking your saved session…</p></header>
+            <div class="auth-tabs" role="tablist" aria-label="Account access">
+                <button class="auth-tab-btn auth-tab-active" data-tab="login" role="tab" aria-selected="true" aria-controls="auth-login-tab">Sign In</button>
+                <button class="auth-tab-btn" data-tab="register" role="tab" aria-selected="false" aria-controls="auth-register-tab">Create Account</button>
             </div>
-            <div id="auth-login-tab" class="auth-tab-content auth-tab-active">
-                <input type="text" id="auth-login-username" class="auth-input" placeholder="Username" autocomplete="username">
-                <input type="password" id="auth-login-password" class="auth-input" placeholder="Password" autocomplete="current-password">
+            <div id="auth-login-tab" class="auth-tab-content auth-tab-active" role="tabpanel">
+                <label class="auth-label" for="auth-login-username">Username</label><input type="text" id="auth-login-username" class="auth-input" placeholder="Username" autocomplete="username">
+                <label class="auth-label" for="auth-login-password">Password</label><input type="password" id="auth-login-password" class="auth-input" placeholder="Password" autocomplete="current-password">
                 <div id="auth-login-error" class="auth-error hidden"></div>
                 <button id="auth-login-submit" class="btn btn-primary">Sign In</button>
                 <p class="auth-note">No account? <a href="#" data-switch-tab="register">Create one</a></p>
             </div>
-            <div id="auth-register-tab" class="auth-tab-content hidden">
-                <input type="text" id="auth-register-username" class="auth-input" placeholder="Username (3-20 characters)" autocomplete="username">
-                <input type="password" id="auth-register-password" class="auth-input" placeholder="Password (8+ characters)" autocomplete="new-password">
-                <input type="text" id="auth-register-avatar" class="auth-input" placeholder="Avatar URL (optional)">
+            <div id="auth-register-tab" class="auth-tab-content hidden" role="tabpanel">
+                <label class="auth-label" for="auth-register-username">Username</label><input type="text" id="auth-register-username" class="auth-input" placeholder="3–20 letters, numbers, or underscores" autocomplete="username">
+                <label class="auth-label" for="auth-register-password">Password</label><input type="password" id="auth-register-password" class="auth-input" placeholder="At least 8 characters" autocomplete="new-password">
                 <div id="auth-register-error" class="auth-error hidden"></div>
                 <button id="auth-register-submit" class="btn btn-primary">Create Account</button>
                 <p class="auth-note">Already have an account? <a href="#" data-switch-tab="login">Sign in</a></p>
             </div>
-            <button id="auth-skip" class="btn btn-secondary auth-skip">Continue as Guest</button>
+            <button id="auth-retry" class="btn btn-secondary auth-retry hidden" type="button">Retry connection</button>
         </div>
     </div>
     <div id="ranked-queue-overlay" class="command-overlay hidden" role="dialog" aria-modal="true">
@@ -143,7 +142,7 @@
                     <div class="ow-avatar" id="ow-avatar"><svg class="ui-icon" aria-hidden="true"><use href="#i-ball"></use></svg></div>
                     <div class="ow-profile-info">
                         <span class="ow-eyebrow">PLAYER CARD</span>
-                        <input type="text" id="player-name-input" class="ow-name-input" value="Player" maxlength="16">
+                        <input type="text" id="player-name-input" class="ow-name-input" value="Player" maxlength="16" readonly aria-label="Account username">
                         <div class="ow-level">
                             <span id="meta-prestige" class="prestige-badge" hidden></span>
                             <span id="meta-level">Lv 1</span>
@@ -151,13 +150,15 @@
                     </div>
                 </div>
 
-                <nav class="ow-tabs">
-                    <button id="btn-character" class="ow-tab">Heroes</button>
-                    <button id="btn-shop" class="ow-tab">Shop</button>
-                    <button id="btn-social" class="ow-tab">Social Hub</button>
-                    <button id="btn-battlepass" class="ow-tab">Battle Pass</button>
-                    <button id="btn-daily" class="ow-tab">Challenges</button>
-                    <button id="btn-ranked" class="ow-tab">Career</button>
+                <nav class="ow-tabs" aria-label="Primary navigation">
+                    <button id="btn-play" class="ow-tab" data-menu-route="play">Play</button>
+                    <button id="btn-ranked" class="ow-tab" data-menu-route="ranked">Ranked</button>
+                    <button id="btn-practice" class="ow-tab" data-menu-route="arcade">Arcade</button>
+                    <button id="btn-map-editor" class="ow-tab" data-menu-route="custom">Custom</button>
+                    <button id="btn-character" class="ow-tab" data-menu-route="locker">Locker</button>
+                    <button id="btn-battlepass" class="ow-tab" data-menu-route="battlepass">Battle Pass</button>
+                    <button id="btn-shop" class="ow-tab" data-menu-route="shop">Shop</button>
+                    <button id="btn-profile" class="ow-tab" data-menu-route="profile">Profile</button>
                 </nav>
 
                 <div class="ow-currency">
@@ -169,6 +170,7 @@
             </header>
 
             <section class="ow-showcase" id="menu-character-showcase" aria-label="Featured original arena runner">
+                <div class="menu-arena-plate" aria-hidden="true"></div>
                 <div class="ow-sun-disc" aria-hidden="true"></div>
                 <div class="ow-hero-stage" id="menu-hero-stage"><canvas id="menu-hero-canvas"></canvas></div>
                 <div class="ow-character" aria-hidden="true">
@@ -184,6 +186,12 @@
                     <div class="ow-tagline">FIRST PERSON DODGEBALL</div>
                     <div class="ow-mode-chip" id="menu-mode-status"><span>QUICK PLAY</span><b>Create or join a lobby</b></div>
                 </div>
+                <article class="menu-player-card" aria-label="Current player profile">
+                    <svg id="menu-rank-badge" class="menu-rank-badge" viewBox="0 0 32 36" aria-hidden="true"><path d="M16 2 28 7v11c0 7-5.1 12.7-12 16C9.1 30.7 4 25 4 18V7l12-5Z"></path><path d="m16 9 2 4 4.4.6-3.2 3.1.8 4.4-4-2.1-4 2.1.8-4.4-3.2-3.1 4.4-.6 2-4Z"></path></svg>
+                    <div><span class="menu-player-label">PLAYER CARD</span><strong id="menu-player-name">Player</strong><span id="menu-player-rank">Bronze</span></div>
+                    <output id="menu-player-elo" class="menu-player-elo">1000 ELO</output>
+                    <span class="menu-party-mini"><small>PARTY</small><b id="menu-party-count">1 / 8</b><em>WAITING</em></span>
+                </article>
             </section>
 
             <aside class="ow-action-panel" aria-label="Play menu">
@@ -198,17 +206,16 @@
                         <span><em>LIVE 3D</em><b>ENTER SOCIAL HUB</b><small>Enter Aurora Grand Plaza, climb the terraces, swim, and chat together</small></span>
                         <svg class="ui-icon ow-social-lobby-arrow" aria-hidden="true"><use href="#i-play"></use></svg>
                     </button>
-                    <button id="btn-map-editor" class="ow-social-lobby ow-create-map">
-                        <svg class="ui-icon" aria-hidden="true"><use href="#i-map"></use></svg>
-                        <span><em>LOCAL CREATOR</em><b>CREATE A MAP</b><small>Build an arena and play it immediately</small></span>
-                        <svg class="ui-icon ow-social-lobby-arrow" aria-hidden="true"><use href="#i-play"></use></svg>
-                    </button>
                 </div>
                 <div class="ow-secondary ow-secondary-right">
-                    <button id="btn-practice" class="ow-sbtn"><svg class="ui-icon" aria-hidden="true"><use href="#i-target"></use></svg><span>Practice</span></button>
                     <button id="btn-tournament" class="ow-sbtn"><svg class="ui-icon" aria-hidden="true"><use href="#i-trophy"></use></svg><span>Tournament</span></button>
                     <button id="btn-avatar" class="ow-sbtn"><svg class="ui-icon" aria-hidden="true"><use href="#i-user"></use></svg><span>Avatar</span></button>
                 </div>
+                <section class="menu-party-rail" aria-labelledby="menu-party-title">
+                    <header><div><span class="menu-player-label">SQUAD</span><h2 id="menu-party-title">Party status</h2></div></header>
+                    <div id="menu-party-list" class="menu-party-list" aria-live="polite"></div>
+                    <div class="menu-party-actions"><button id="btn-menu-party-invite" class="ow-sbtn" type="button">Invite</button><button id="btn-menu-squad-center" class="ow-sbtn" type="button">Squad Center</button></div>
+                </section>
                 <div class="ow-retention-strip" id="menu-retention-strip">
                     <button type="button" id="menu-daily-card" class="ow-retention-card ow-retention-daily" aria-label="Daily challenges progress" hidden>
                         <span class="ow-retention-icon" aria-hidden="true">🎯</span>
@@ -247,6 +254,7 @@
                     <span class="friends-sidebar-count" id="fbar-count"></span>
                 </div>
                 <div class="friends-sidebar-body" id="fbar-body">
+                    <button id="fbar-own-tag" class="friends-own-tag" type="button" title="Copy your friend tag"></button>
                     <div class="friends-sidebar-online" id="fbar-online">
                         <div class="friends-sidebar-empty">No friends online</div>
                     </div>
@@ -881,12 +889,18 @@
                 </div>
             </header>
             <section class="loadout-section hero-roster"><header><span class="shell-kicker">ROSTER</span><h2>Choose Your Hero</h2><p>Compare health, speed, deflect power, and mastery at a glance.</p></header><div class="char-grid" id="char-grid"></div></section>
-            <section class="loadout-section"><header><span class="shell-kicker">Q ABILITY</span><h2>Active Skill</h2><p>One decisive move. Cooldowns are tuned for fair rallies.</p></header><div class="skill-grid" id="skill-grid"></div></section>
-            <section class="loadout-section"><header><span class="shell-kicker">ONE SLOT</span><h2>Rune</h2><p>Choose one passive perk for a clear playstyle.</p></header><div class="rune-grid" id="rune-grid"></div></section>
+            <section class="loadout-section"><header><span class="shell-kicker">ACTIVE CARD</span><h2>Ability Card</h2><p>Earn cards from Arena Cache drops. Cooldowns stay tuned for fair rallies.</p></header><div class="skill-grid" id="skill-grid"></div></section>
+            <section class="loadout-section"><header><span class="shell-kicker">PASSIVE CARD</span><h2>Passive Card</h2><p>Choose one collected passive card for a clear playstyle.</p></header><div class="rune-grid" id="rune-grid"></div></section>
             <div class="hero-actions">
                 <button id="btn-char-back" class="btn btn-secondary"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back</button>
+                <button id="btn-card-collection" class="btn btn-secondary" type="button">Card Collection</button>
                 <button id="btn-char-save" class="btn btn-primary">Save Loadout</button>
             </div>
+            <section id="card-collection-panel" class="card-collection-panel hidden" role="dialog" aria-modal="true" aria-labelledby="card-collection-title">
+                <header class="card-collection-header"><div><span class="shell-kicker">ARENA CACHE</span><h2 id="card-collection-title">Card Collection</h2><p id="card-collection-status" role="status" aria-live="polite"></p></div><button id="btn-card-collection-close" class="btn btn-secondary btn-small" type="button">Close</button></header>
+                <div id="card-collection-grid" class="card-collection-grid" aria-label="Collectible cards"></div>
+                <div class="card-tradeup"><div><span class="shell-kicker">TRADE-UP</span><h3>Trade 5 duplicate cards</h3><p>Roll one card from the next rarity. Legendary cards cannot be traded.</p></div><label for="card-tradeup-select">Duplicate stack</label><select id="card-tradeup-select"></select><button id="btn-card-tradeup" class="btn btn-primary btn-small" type="button">Trade Up</button></div>
+            </section>
         </div>
     </div>
 
@@ -907,23 +921,24 @@
                     <button id="shop-tab-wearables" class="shop-tab" role="tab" aria-selected="false" aria-controls="shop-grid" data-tab="wearables"><svg class="ui-icon" aria-hidden="true"><use href="#i-ticket"></use></svg><span>Wearables</span></button>
                     <button id="shop-tab-cases" class="shop-tab" role="tab" aria-selected="false" aria-controls="shop-grid" data-tab="cases"><svg class="ui-icon" aria-hidden="true"><use href="#i-shop"></use></svg><span>Cases</span></button>
                     <button id="shop-tab-inventory" class="shop-tab" role="tab" aria-selected="false" aria-controls="shop-grid" data-tab="inventory"><svg class="ui-icon" aria-hidden="true"><use href="#i-chart"></use></svg><span>Inventory</span></button>
-                    <button id="shop-tab-skills" class="shop-tab" role="tab" aria-selected="false" aria-controls="shop-grid" data-tab="skills"><svg class="ui-icon" aria-hidden="true"><use href="#i-target"></use></svg><span>Skills</span></button>
                     <button id="shop-tab-boosts" class="shop-tab" role="tab" aria-selected="false" aria-controls="shop-grid" data-tab="boosts"><svg class="ui-icon" aria-hidden="true"><use href="#i-play"></use></svg><span>Boosts</span></button>
                 </div>
             </div>
             <main class="shop-showcase-layout">
                 <section class="shop-showcase" aria-labelledby="shop-selected-name">
                     <div id="shop-showcase-stage" class="shop-showcase-stage" data-skin-id="default">
+                        <img class="shop-roster-art" src="assets/generated/volle-shop-roster.webp" alt="" aria-hidden="true" decoding="async">
                         <canvas id="shop-showcase-canvas" role="img" aria-label="Live 3D character skin preview"></canvas>
                         <div class="shop-showcase-fallback" aria-hidden="true"><i></i><b></b><span></span></div>
                         <span class="shop-live-badge"><i aria-hidden="true"></i>Live 3D</span>
                         <span class="shop-rotate-hint">Drag to rotate</span>
                     </div>
                     <div class="shop-selected-detail">
-                        <span class="shell-kicker">CURRENT LOOK</span>
+                        <span id="shop-selected-kicker" class="shell-kicker">CURRENT LOOK</span>
                         <h2 id="shop-selected-name">Custom Canvas</h2>
                         <p id="shop-selected-meta">Classic model · Equipped</p>
                         <p id="shop-showcase-status" class="shop-showcase-status" role="status" aria-live="polite">Your equipped skin is ready.</p>
+                        <button id="shop-selected-action" class="btn btn-primary shop-selected-action" type="button" disabled>Equipped</button>
                         <button id="btn-shop-practice" class="btn btn-primary shop-practice-cta" type="button" data-shop-practice="avatar" data-id="default"><svg class="ui-icon" aria-hidden="true"><use href="#i-target"></use></svg><span>Try in Practice Range</span></button>
                     </div>
                 </section>
@@ -1126,7 +1141,7 @@
             <header class="shell-header"><div class="shell-title"><span class="shell-icon"><svg class="ui-icon"><use href="#i-user"></use></svg></span><div><span class="shell-kicker">COMMUNITY</span><h1>Squad Center</h1><p>Party, ready check, friends, recent players and safety.</p></div></div></header>
             <div class="community-layout">
                 <section class="community-party"><header><h2>Party</h2><button id="party-ready-check" class="btn btn-primary btn-small">Ready check</button></header><div id="community-party-list"></div></section>
-                <section class="community-friends"><header><h2>Friends & invites</h2></header><div class="community-add"><input id="community-friend-name" maxlength="32" placeholder="Player name"><button id="community-friend-add" class="btn btn-secondary btn-small">Invite</button></div><div id="community-friend-list"></div></section>
+                <section class="community-friends"><header><h2>Friends & invites</h2></header><div class="community-tag"><span>Your friend tag</span><button id="community-friend-tag" type="button" title="Copy friend tag"></button></div><div class="community-add"><label class="sr-only" for="community-friend-name">Friend tag</label><input id="community-friend-name" maxlength="32" placeholder="Player#TAG"><button id="community-friend-add" class="btn btn-secondary btn-small">Add friend</button></div><div id="community-friend-requests"></div><div id="community-friend-invites"></div><div id="community-friend-list"></div></section>
                 <section class="community-recent"><header><h2>Recently played</h2></header><div id="community-recent-list"></div></section>
                 <section class="community-showcase"><header><h2>Profile showcase</h2></header><div id="community-showcase-preview" class="showcase-preview"><span>POSE</span><b id="showcase-pose-name">HERO</b></div><label>Skin<select id="showcase-skin"><option value="default">Default</option><option value="neon">Neon</option><option value="frost">Frost</option><option value="astro">Astro</option></select></label><label>Emote<select id="showcase-emote"><option value="wave">Wave</option><option value="cheer">Cheer</option><option value="dance">Dance</option></select></label><label>Pose<select id="showcase-pose"><option value="hero">Hero</option><option value="victory">Victory</option><option value="guard">Guard</option></select></label><button id="photo-mode-toggle" class="btn btn-secondary btn-small">Photo mode</button></section>
             </div>
@@ -1140,6 +1155,7 @@
             <h2>Player Profile</h2>
             <div class="profile-rank" id="profile-rank"></div>
             <div class="profile-stats" id="profile-stats"></div>
+            <button id="profile-logout" class="btn btn-secondary">Sign out</button>
             <button class="btn btn-back" onclick="ui.hideProfile()">Back</button>
         </div>
     </div>
@@ -1526,7 +1542,8 @@
                 <span class="shell-kicker">CASE SIMULATOR</span>
                 <h2 id="case-inspector-title">Kickoff Case</h2>
                 <p id="case-inspector-meta">Purchase starts only when you confirm.</p>
-                <div class="case-inspector-stats"><span><small>Balance</small><strong id="case-inspector-balance">0 credits</strong></span><span><small>Epic+ protection</small><strong id="case-inspector-pity">0/10</strong></span></div>
+                <div class="case-inspector-stats"><span><small>Balance</small><strong id="case-inspector-balance">0 credits</strong></span><span><small>Epic+ protection</small><strong id="case-inspector-pity">0/10</strong></span><span><small>Earned opens</small><strong id="case-inspector-earned">0</strong></span></div>
+                <div id="case-inspector-rates" class="case-inspector-rates" aria-label="Verified case drop rates"></div>
                 <button id="case-inspector-open" class="btn btn-primary" type="button" data-id="kickoff"><svg class="ui-icon" aria-hidden="true"><use href="#i-play"></use></svg>Open for 120 credits</button>
             </div>
         </div>
@@ -1720,10 +1737,15 @@
             <div class="pg-panel">
                 <header class="pg-header"><div><span class="shell-kicker">MATCH REPORT</span><h2 class="pg-title" id="pg-result"></h2></div><svg class="ui-icon pg-header-mark" aria-hidden="true"><use href="#i-trophy"></use></svg></header>
                 <div class="pg-winner" id="pg-winner"></div>
+                <section class="pg-rematch-hero" aria-label="Play again">
+                    <div id="pg-rematch-status" class="rematch-status" role="status" aria-live="polite">Instant solo rematch.</div>
+                    <button id="pg-play-again" class="btn btn-primary"><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg>Rematch</button>
+                </section>
                 <div class="pg-level">
                     <span id="pg-prestige" class="prestige-badge" hidden></span>
                     <span id="pg-level"></span>
                 </div>
+                <section class="pg-detail-report" aria-label="Detailed match report">
                 <div class="pg-xp-bar-wrap">
                     <div class="pg-xp-bar-fill" id="pg-xp-fill" style="width:0%"></div>
                     <span class="pg-xp-text" id="pg-xp-text"></span>
@@ -1772,9 +1794,8 @@
                         <button id="pg-chat-send" class="btn btn-secondary">Send</button>
                     </div>
                 </div>
-                <div class="pg-buttons">
-                    <div id="pg-rematch-status" class="rematch-status" role="status" aria-live="polite">Instant solo rematch.</div>
-                    <button id="pg-play-again" class="btn btn-primary"><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg>Rematch</button>
+                </section>
+                <div class="pg-secondary-actions">
                     <button id="pg-lobby" class="btn btn-secondary"><svg class="ui-icon" aria-hidden="true"><use href="#i-globe"></use></svg>Return to Lobby</button>
                     <button id="pg-main-menu" class="btn btn-secondary"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Main Menu</button>
                 </div>

@@ -7,12 +7,13 @@ import { fileURLToPath } from 'node:url';
 
 const read = path => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 
-test('shop preview connects the reusable renderer to cosmetic practice', () => {
+test('shop preview updates the reusable renderer; only the explicit CTA enters cosmetic practice', () => {
     const source = read('js/main.js');
     assert.match(source, /new ShopShowcaseRenderer\(canvas/);
     assert.match(source, /warrball:shop-preview/);
-    assert.match(source, /detail\.previewing && !this\.cosmeticPractice\.active/);
-    assert.match(source, /this\._startCosmeticPractice\(detail\.id\)/);
+    assert.match(source, /detail\?\.type === 'avatar' && AVATAR_SKINS\[detail\.id\]/);
+    assert.doesNotMatch(source, /queueMicrotask\(\(\) => this\._startCosmeticPractice\(detail\.id\)\)/);
+    assert.match(source, /bind\('btn-shop-practice'/);
     assert.match(source, /createShowcaseAvatar\(/);
     assert.match(source, /cosmeticStudio\?\.previewAnchor\?\.add/);
 });
@@ -58,6 +59,19 @@ test('social runtimes use local allowlisted maps and obsolete assets stay remove
     assert.equal(existsSync(new URL('../assets/user-content/olann-island/olann-island.glb', import.meta.url)), false);
 });
 
+test('leaving the social hub restores its renderer overrides before clearing hub state', () => {
+    const source = read('js/main.js');
+    const leave = source.slice(source.indexOf('    _leaveSocialLobby() {'), source.indexOf('    _exitSocialLobby() {'));
+    assert.match(leave, /this\.renderer\.sun\.intensity = this\._hubVisualState\.sunIntensity/);
+    assert.match(leave, /this\.renderer\.renderer\.toneMappingExposure = this\._hubVisualState\.exposure/);
+    assert.ok(
+        leave.indexOf('toneMappingExposure = this._hubVisualState.exposure') < leave.indexOf('this._hubVisualState = null'),
+        'hub renderer overrides must restore before the saved visual state is cleared'
+    );
+    const sidebar = source.slice(source.indexOf('    initFriendsSidebar() {'), source.indexOf('    refreshFriendsSidebar() {'));
+    assert.doesNotMatch(sidebar, /_hubVisualState\.sunIntensity|_hubVisualState\.exposure/);
+});
+
 test('social hub API accepts each current map and rejects the retired map id', async t => {
     const port = 24000 + (process.pid % 10000);
     const child = spawn(process.execPath, ['server.js'], {
@@ -77,9 +91,21 @@ test('social hub API accepts each current map and rejects the retired map id', a
     }
     assert.equal(ready, true, 'social hub server did not become ready');
 
-    const post = (mapId, code = `QA${process.pid}`) => fetch(endpoint, {
+    const registration = await fetch(`http://127.0.0.1:${port}/api/account/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: `Hub${process.pid}`, password: 'test-password-123' })
+    });
+    assert.equal(registration.status, 201);
+    const { sessionToken } = await registration.json();
+    assert.equal(typeof sessionToken, 'string');
+
+    const post = (mapId, code = `QA${process.pid}`) => fetch(endpoint, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${sessionToken}`
+        },
         body: JSON.stringify({ code, mapId, hostName: 'QA', players: 1 })
     });
     for (const [index, mapId] of ['plaza'].entries()) {

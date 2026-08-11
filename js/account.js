@@ -1,125 +1,99 @@
-// account.js — client-side account registration/login, persisted locally with
-// bearer token from server. Gameplay remains 100% P2P; account system is only for
-// durable login recovery and presence/friends display.
+// account.js — the browser retains only a revocable account session and public identity.
 export const ACCOUNT_KEY = 'dodgball_account';
-export const PROFILE_TOKEN_KEY = 'dodgball_profile_token';
+
+function publicAccount(value) {
+    if (!value || typeof value !== 'object' || !value.id || !value.username || !value.friendTag) return null;
+    return {
+        id: String(value.id),
+        username: String(value.username).slice(0, 20),
+        avatar: typeof value.avatar === 'string' ? value.avatar.slice(0, 64) : '',
+        friendTag: String(value.friendTag).slice(0, 32)
+    };
+}
 
 class Account {
     constructor() {
-        this.username = null;
-        this.avatar = '';
-        this.token = null;
+        this.sessionToken = '';
+        this.public = null;
         this._loadLocal();
     }
 
     _loadLocal() {
-        const stored = typeof localStorage !== 'undefined'
-            ? localStorage.getItem(ACCOUNT_KEY)
-            : null;
-        if (stored) {
-            try {
-                const data = JSON.parse(stored);
-                this.username = data.username || null;
-                this.avatar = data.avatar || '';
-                this.token = data.token || null;
-            } catch {
-                this.username = null;
-                this.avatar = '';
-                this.token = null;
-            }
-        }
+        try {
+            const saved = JSON.parse(localStorage.getItem(ACCOUNT_KEY) || 'null');
+            this.sessionToken = typeof saved?.sessionToken === 'string' ? saved.sessionToken : '';
+            this.public = publicAccount(saved?.account);
+            if (!this.sessionToken || !this.public) this.clear();
+        } catch { this.clear(); }
     }
 
     _saveLocal() {
-        if (typeof localStorage === 'undefined') return;
-        if (this.username && this.token) {
-            localStorage.setItem(ACCOUNT_KEY, JSON.stringify({
-                username: this.username,
-                avatar: this.avatar,
-                token: this.token
-            }));
-            localStorage.setItem(PROFILE_TOKEN_KEY, this.token);
-        } else {
-            localStorage.removeItem(ACCOUNT_KEY);
-        }
+        if (!this.sessionToken || !this.public) return this.clear();
+        localStorage.setItem(ACCOUNT_KEY, JSON.stringify({ sessionToken: this.sessionToken, account: this.public }));
     }
 
-    async register(username, password, avatar = '') {
-        if (!username || username.length < 3 || username.length > 20) {
-            return { error: 'username must be 3-20 characters' };
-        }
-        if (!password || password.length < 8) {
-            return { error: 'password must be at least 8 characters' };
-        }
-        try {
-            const response = await fetch('/api/account/register', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password, avatar })
-            });
-            const data = await response.json();
-            if (!response.ok) {
-                return { error: data.error || 'registration failed' };
-            }
-            this.username = data.username;
-            this.avatar = data.avatar;
-            this.token = data.profileToken;
-            this._saveLocal();
-            return { ok: true, username: this.username, token: this.token };
-        } catch (e) {
-            return { error: 'network error: ' + (e.message || 'unknown') };
-        }
+    _accept(data) {
+        const next = publicAccount(data?.account);
+        if (!next || typeof data?.sessionToken !== 'string' || !data.sessionToken) return { error: 'Invalid account response. Please try again.' };
+        this.sessionToken = data.sessionToken;
+        this.public = next;
+        this._saveLocal();
+        return { ok: true, account: next };
+    }
+
+    async register(username, password) {
+        return this._submit('/api/account/register', { username, password }, 'registration');
     }
 
     async login(username, password) {
-        if (!username || !password) {
-            return { error: 'username and password required' };
-        }
+        return this._submit('/api/account/login', { username, password }, 'sign in');
+    }
+
+    async _submit(path, body, label) {
+        if (!String(body.username || '').trim() || !String(body.password || '')) return { error: 'Username and password are required.' };
         try {
-            const response = await fetch('/api/account/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password })
-            });
-            const data = await response.json();
+            const response = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) return { error: data.error || `Unable to ${label}.` };
+            return this._accept(data);
+        } catch { return { error: 'Network unavailable. Check your connection and retry.' }; }
+    }
+
+    async restore() {
+        if (!this.sessionToken) return { error: 'No saved session.' };
+        try {
+            const response = await fetch('/api/account/me', { headers: { Authorization: `Bearer ${this.sessionToken}` } });
+            const data = await response.json().catch(() => ({}));
             if (!response.ok) {
-                return { error: data.error || 'login failed' };
+                if (response.status === 401) this.clear();
+                return { error: response.status === 401 ? 'Your session has expired. Sign in again.' : 'Unable to verify your session. Retry.' };
             }
-            this.username = data.username;
-            this.avatar = data.avatar;
-            this.token = data.profileToken;
+            this.public = publicAccount(data.account || data) || this.public;
+            if (!this.public) return { error: 'Invalid account response. Please try again.' };
             this._saveLocal();
-            return { ok: true, username: this.username, token: this.token };
-        } catch (e) {
-            return { error: 'network error: ' + (e.message || 'unknown') };
-        }
+            return { ok: true, account: this.public };
+        } catch { return { error: 'Network unavailable. Check your connection and retry.' }; }
     }
 
-    logout() {
-        this.username = null;
-        this.avatar = '';
-        this.token = null;
-        if (typeof localStorage !== 'undefined') {
-            localStorage.removeItem(ACCOUNT_KEY);
-            localStorage.removeItem(PROFILE_TOKEN_KEY);
-        }
+    async logout() {
+        const token = this.sessionToken;
+        this.clear();
+        if (!token) return;
+        try { await fetch('/api/account/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` } }); } catch {}
     }
 
-    isLoggedIn() {
-        return !!this.username && !!this.token;
+    clear() {
+        this.sessionToken = '';
+        this.public = null;
+        try { localStorage.removeItem(ACCOUNT_KEY); } catch {}
     }
 
-    getToken() {
-        return this.token;
-    }
-
-    getUsername() {
-        return this.username;
-    }
-
-    getAvatar() {
-        return this.avatar;
-    }
+    isLoggedIn() { return Boolean(this.sessionToken && this.public); }
+    getToken() { return this.sessionToken; }
+    getAccount() { return this.public ? { ...this.public } : null; }
+    getUsername() { return this.public?.username || ''; }
+    getAvatar() { return this.public?.avatar || ''; }
+    getFriendTag() { return this.public?.friendTag || ''; }
 }
 
 export const account = new Account();

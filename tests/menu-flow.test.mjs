@@ -31,16 +31,16 @@ test('#main-menu has no separate Host/Join/Play Online buttons — Quick Play is
     assert.doesNotMatch(block, /id="btn-join-game"/);
 });
 
-test('#main-menu keeps Quick Play as the primary CTA above Practice/Tournament/Avatar', async () => {
+test('#main-menu keeps Quick Play as the primary CTA above Social Hub/Tournament/Avatar', async () => {
     const block = await mainMenuBlock();
     const quickPlayIdx = block.indexOf('id="btn-play-solo"');
     const secondaryGroupIdx = block.indexOf('ow-secondary ow-secondary-right');
-    const practiceIdx = block.indexOf('id="btn-practice"');
+    const socialIdx = block.indexOf('id="btn-social-lobby"');
     const tournamentIdx = block.indexOf('id="btn-tournament"');
     const avatarIdx = block.indexOf('id="btn-avatar"');
     assert.ok(quickPlayIdx >= 0 && secondaryGroupIdx > quickPlayIdx, 'Quick Play must stay the primary CTA above the secondary button group');
-    assert.ok(secondaryGroupIdx < practiceIdx && practiceIdx < tournamentIdx && tournamentIdx < avatarIdx,
-        'expected order: Practice, Tournament, Avatar');
+    assert.ok(socialIdx > quickPlayIdx && secondaryGroupIdx > socialIdx && tournamentIdx < avatarIdx,
+        'Quick Play must lead, followed by Social Hub and the lower-priority utility actions');
 });
 
 test('multiplayer screen still exposes a reachable host action (btn-mp-create) for Quick Play to route into', async () => {
@@ -50,18 +50,20 @@ test('multiplayer screen still exposes a reachable host action (btn-mp-create) f
     assert.match(block, /id="btn-mp-solo"/);
 });
 
-test('btn-play-solo (QUICK PLAY) routes into the multiplayer screen with lobby refresh', async () => {
+test('Quick Play routes into the multiplayer screen with lobby refresh', async () => {
     const source = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
     assert.doesNotMatch(source, /bind\('btn-host-game'/);
     assert.doesNotMatch(source, /bind\('btn-join-game'/);
     assert.doesNotMatch(source, /bind\('btn-play-online'/);
 
-    const bindIdx = source.indexOf("bind('btn-play-solo'");
-    assert.ok(bindIdx >= 0, 'expected a bind(\'btn-play-solo\', ...) handler in main.js');
+    const bindIdx = source.indexOf('const openMultiplayer =');
+    assert.ok(bindIdx >= 0, 'expected the shared Quick Play route handler in main.js');
     const handlerSlice = source.slice(bindIdx, bindIdx + 900);
     assert.match(handlerSlice, /this\.ui\.showScreen\('multiplayerMenu'\)/);
     assert.match(handlerSlice, /this\._refreshLobbyList\(\)/);
     assert.match(handlerSlice, /this\._mpRefreshTimer = setInterval\(\(\) => this\._refreshLobbyList\(\), 5000\)/);
+    assert.match(source, /bind\('btn-play-solo', openMultiplayer\)/);
+    assert.match(source, /bind\('btn-play', openMultiplayer\)/);
 });
 
 test('hosting (_doHostGame) remains wired to the in-screen Create Lobby button, not removed', async () => {

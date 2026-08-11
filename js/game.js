@@ -45,7 +45,7 @@ import {
 import { shouldEndOvertime, shouldStartOvertime } from './competitive-service.js';
 import { normalizeNetcode, predictPosition, rewindSnapshot, sampleSnapshots } from './experimental-netcode.js';
 import { RuntimeLog } from './runtime-safety.js';
-import { PracticeLabMetrics, resolvePerfectDeflect } from './perfect-deflect.js';
+import { DEFLECT_TIMING_WINDOWS, PracticeLabMetrics, resolvePerfectDeflect } from './perfect-deflect.js';
 import { GuidedDeflectDrill } from './guided-deflect-drill.js';
 import { MatchAnalytics } from './match-analytics.js';
 import { applyCompetitiveRules } from './competitive-rules.js';
@@ -61,6 +61,14 @@ const BASE_HIT_DAMAGE = 25;
 // connecting hit gets a small damage bump for a few seconds after a kill.
 const KILL_CONFIRM_DURATION = 3.5;           // seconds
 const KILL_CONFIRM_DAMAGE_MULTIPLIER = 1.15; // +15% damage, single-shot
+const normalizeAvatarModel = value => value === 'slim' ? 'slim' : 'classic';
+
+// Ball uses positive Infinity to mean that no perfect-deflect timing window is
+// active. That is a valid ordinary deflect in gameplay, while NaN remains an
+// invalid value that the strict timing domain helpers must reject.
+function normalizeGameplayDeflectTimingError(timingErrorMs) {
+    return timingErrorMs === Infinity ? DEFLECT_TIMING_WINDOWS.normal : timingErrorMs;
+}
 
 const POWERUP_TYPES = [
     { id: 'shield', color: 0x44aaff, label: '+SHIELD', duration: 0, weight: 32 },
@@ -639,7 +647,8 @@ addBot(team, { name: preferredName = null } = {}) {
 
     updateLobbyUI() {
         if (this.competitiveRules) applyCompetitiveRules(this, this.competitiveRules);
-        const ownAvatar = window.__store?.get?.('customAvatar')?.dataURL || null;
+        const ownCustomAvatar = window.__store?.get?.('customAvatar');
+        const ownAvatar = ownCustomAvatar?.dataURL || null;
         const players = [{
             name: this.playerName,
             team: this.player.team,
@@ -649,7 +658,8 @@ addBot(team, { name: preferredName = null } = {}) {
             isHost: !this.network || !this.network.connected || this.network.isHost,
             peerId: this.network?.peer?.id,
             playerId: this.network?.playerId,
-            avatar: ownAvatar
+            avatar: ownAvatar,
+            avatarModel: normalizeAvatarModel(ownCustomAvatar?.model)
         }];
         this.bots.forEach(b => players.push({
             name: b.name,
@@ -667,7 +677,8 @@ addBot(team, { name: preferredName = null } = {}) {
             isYou: false,
             playerId,
             peerId: p.peerId || playerId,
-            avatar: p.avatar || null
+            avatar: p.avatar || null,
+            avatarModel: normalizeAvatarModel(p.avatarModel)
         }));
         // Lobby leader = host, or solo (not connected to anyone) → you lead.
         const isHost = !this.network || !this.network.connected || this.network.isHost;
@@ -1229,19 +1240,21 @@ getSelectableMaps() {
         if (this.network?.isHost) this.network.broadcast({ type: 'systemChat', text });
     }
 
-addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = playerId) {
+addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = playerId, avatarModel = 'classic') {
         if (!playerId || playerId === this.network?.playerId || peerId === this.network?.peer?.id) return null;
+        const safeAvatarModel = normalizeAvatarModel(avatarModel);
         let p = this.remotePlayers.get(playerId);
         if (p) {
             p.peerId = peerId;
-            // Re-update avatar only if it changed (first sync may have emoji fallback only).
-            if (avatarDataUrl && p.avatar !== avatarDataUrl) {
+            // Model metadata arrives through join/welcome/lobby roster state only,
+            // never the 30Hz position path.
+            if (avatarDataUrl && (p.avatar !== avatarDataUrl || p.avatarModel !== safeAvatarModel)) {
                 p.avatar = avatarDataUrl;
-                // Update Minecraft head texture
+                p.avatarModel = safeAvatarModel;
                 if (p.setAvatarTexture) p.setAvatarTexture(avatarDataUrl);
+            }
+            return p;
         }
-        return p;
-    }
     if (this._rallyDuel) {
         const activeHumans = [...this.remotePlayers.values()]
             .filter(player => !player.queuedForNextRound && !player.isBotEntity);
@@ -1250,7 +1263,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
     const counts = { red: 0, blue: 0 };
         this.getPlayerList().forEach(pl => { counts[pl.team] = (counts[pl.team] || 0) + 1; });
         team = team || (counts.red <= counts.blue ? 'red' : 'blue');
-        p = this._createRemotePlayer(playerId, name, team, avatarDataUrl);
+        p = this._createRemotePlayer(playerId, name, team, avatarDataUrl, safeAvatarModel);
         p.playerId = playerId;
         p.peerId = peerId;
         this.remotePlayers.set(playerId, p);
@@ -1289,7 +1302,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
     // ponytail: canonical procedural rig replaces the old hand-built box mesh
     // (WARBALL_IO_PLAN.md section 3.2). group stays the scene-attached container
     // so interpolation/rotation/visibility code elsewhere is untouched.
-    _createRemotePlayer(peerId, name, team, avatarDataUrl) {
+    _createRemotePlayer(peerId, name, team, avatarDataUrl, avatarModel = 'classic') {
         const group = new THREE.Group();
         const color = team === 'red' ? 0xcc3333 : 0x3355cc;
 
@@ -1302,22 +1315,6 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         group.add(rig.root);
 
         // Avatar texture for head (Minecraft-style) — rig.setHeadTexture owns the head mesh/material.
-        let headTexture = null;
-        if (avatarDataUrl) {
-            const img = new Image();
-            img.src = avatarDataUrl;
-            headTexture = new THREE.Texture(img);
-            headTexture.magFilter = THREE.NearestFilter;
-            headTexture.minFilter = THREE.NearestFilter;
-            rig.setHeadTexture(headTexture);
-            img.onload = () => {
-                headTexture.image = _avatarFace(img);
-                headTexture.needsUpdate = true;
-                // Async: after head load, apply avatar pixel colors to body/arms/legs
-                const p = this.remotePlayers.get(peerId);
-                if (p?.rig) _applyAvatarColors(img, p, color);
-            };
-        }
 
         // Knife — parented to the rig's hand socket instead of a standalone arm mesh.
         const knifeGroup = createKnifeModel(KNIVES.training);
@@ -1359,7 +1356,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             hp: 100, maxHp: 100, shield: 0, consecutiveMisses: 0,
             runeBonuses: {}, deflectPower: 1, passive: 'none', totalDamageDealt: 0,
             attacking: false, attackTimer: 0, aimDir: new THREE.Vector3(0, 0, -1),
-            labelSprite, avatar: avatarDataUrl || null,
+            labelSprite, avatar: avatarDataUrl || null, avatarModel: normalizeAvatarModel(avatarModel),
             // ponytail: locomotion facts derived from position deltas (invokeRemoteSnapshots),
             // never sent over the network. Reused object — 0 alloc/frame.
             _animFalling: false,
@@ -1397,24 +1394,33 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             setAvatarTexture(dataUrl) {
                 this.avatar = dataUrl || null;
                 if (!this.rig) return;
+                const token = (this._avatarTextureToken || 0) + 1;
+                this._avatarTextureToken = token;
                 if (dataUrl) {
                     const img = new Image();
-                    img.src = dataUrl;
-                    const tex = new THREE.Texture(img);
-                    tex.magFilter = THREE.NearestFilter;
-                    tex.minFilter = THREE.NearestFilter;
-                    this.rig.setHeadTexture(tex);
                     img.onload = () => {
-                        tex.image = _avatarFace(img);
+                        if (this._avatarTextureToken !== token || this.avatar !== dataUrl) return;
+                        const tex = new THREE.Texture(img);
+                        tex.magFilter = THREE.NearestFilter;
+                        tex.minFilter = THREE.NearestFilter;
                         tex.needsUpdate = true;
-                        _applyAvatarColors(img, this, this._teamColor);
+                        if (img.naturalWidth === 64 && img.naturalHeight === 64) {
+                            this.rig.setAvatarAtlasTexture(tex, this.avatarModel);
+                        } else {
+                            tex.image = _avatarFace(img);
+                            this.rig.setHeadTexture(tex);
+                            _applyAvatarColors(img, this, this._teamColor);
+                        }
                     };
+                    img.src = dataUrl;
                 } else {
+                    this.rig.setAvatarAtlasTexture(null);
                     this.rig.setHeadTexture(null);
                     this.rig.setPartColors(null);
                 }
             }
         };
+        if (avatarDataUrl) p.setAvatarTexture(avatarDataUrl);
         applyEntityCosmetics(p, null);
         group.position.copy(p.position).add(new THREE.Vector3(0, -1.2, 0));
         return p;
@@ -2545,7 +2551,8 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         this.juice.slashEffect(this.player.getPosition().clone().add(new THREE.Vector3(0, 1, 0)), slashDir, 0x00ffee);
 
         // PERFECT-CATCH: perfect window aktifse bonus (Knockout City tarzı)
-        const timingErrorMs = this.ball.getPerfectTimingErrorMs();
+        const rawTimingErrorMs = this.ball.getPerfectTimingErrorMs();
+        const timingErrorMs = normalizeGameplayDeflectTimingError(rawTimingErrorMs);
         const resolvedDeflect = resolvePerfectDeflect({
             timingErrorMs,
             at: performance.now(),
@@ -2568,7 +2575,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             this.practiceMetrics.recordAttempt({
                 hit: true,
                 tier: timingTier || 'normal',
-                reactionMs: Number.isFinite(timingErrorMs) ? timingErrorMs : null
+                reactionMs: Number.isFinite(rawTimingErrorMs) ? rawTimingErrorMs : null
             });
             this.onPracticeMetrics?.(this.practiceMetrics.summary());
         }
@@ -2596,7 +2603,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         this.onPerfectDeflect?.({
             tier: timingTier || 'normal',
             chain: this.perfectDeflectChain.count,
-            timingErrorMs: Number.isFinite(timingErrorMs) ? timingErrorMs : null,
+            timingErrorMs: Number.isFinite(rawTimingErrorMs) ? rawTimingErrorMs : null,
             reward: resolvedDeflect.reward
         });
         if (isPerfect) {
@@ -4218,7 +4225,8 @@ spawnPowerUp() {
 
     getPlayerList() {
         // Lokaldeki kendi avatarımızı da paylaşıyoruz ki diğer oyuncular sprite'ımızı görsün.
-        const ownAvatar = window.__store?.get?.('customAvatar')?.dataURL || null;
+        const ownCustomAvatar = window.__store?.get?.('customAvatar');
+        const ownAvatar = ownCustomAvatar?.dataURL || null;
         const list = [{
             name: this.playerName,
             team: this.player.team,
@@ -4227,6 +4235,7 @@ spawnPowerUp() {
             playerId: this.network?.playerId,
             charId: this.player.charId,
             avatar: ownAvatar,
+            avatarModel: normalizeAvatarModel(ownCustomAvatar?.model),
             cosmetics: normalizeWearableLoadout(window.__store?.get?.('equippedWearables')),
             queuedForNextRound: !!this.player.queuedForNextRound,
             pendingTeam: this.player.pendingTeam || null,
@@ -4241,6 +4250,7 @@ spawnPowerUp() {
             peerId: p.peerId || playerId,
             charId: p.charId || 'rally',
             avatar: p.avatar || null,
+            avatarModel: normalizeAvatarModel(p.avatarModel),
             cosmetics: normalizeWearableLoadout(p.wearableLoadout),
             queuedForNextRound: !!p.queuedForNextRound,
             pendingTeam: p.pendingTeam || null,
@@ -4282,7 +4292,10 @@ spawnPowerUp() {
         p.alive = data.alive !== false;
         p.group.visible = p.alive;
         p.hp = data.hp ?? p.hp;
-        if (data.charId) p.charId = data.charId;
+        if (data.charId && data.charId !== p.charId) {
+            p.charId = data.charId;
+            p.rig?.setCharacter(data.charId);
+        }
         if (data.knifeId && data.knifeId !== p.knifeId && KNIVES[data.knifeId]) {
             p.knifeId = data.knifeId;
             p.setKnifeStyle?.(KNIVES[data.knifeId]);
@@ -4479,7 +4492,7 @@ spawnPowerUp() {
             p.animator?.play('deflect');
             this.ball.position.copy(clientBallPos);
             const target = this.getAimedEnemy(attackPos, p.aimDir, p.team);
-            const remoteTimingMs = this.ball.getPerfectTimingErrorMs();
+            const remoteTimingMs = normalizeGameplayDeflectTimingError(this.ball.getPerfectTimingErrorMs());
             const remoteResolved = resolvePerfectDeflect({
                 timingErrorMs: remoteTimingMs,
                 at: now,
@@ -4618,12 +4631,18 @@ spawnPowerUp() {
                     const c = p.team === 'red' ? 0xcc3333 : 0x3355cc;
                     p.group.children.forEach(ch => { if (ch.isMesh && ch.geometry.type === 'CylinderGeometry') ch.material.color.setHex(c); });
                 }
+                if (pl.charId && pl.charId !== p.charId) {
+                    p.charId = pl.charId;
+                    p.rig?.setCharacter(pl.charId);
+                }
                 continue;
             }
             const playerId = pl.playerId || pl.peerId;
             if (playerId && playerId !== myId) {
                 seen.add(playerId);
-                const p = this.addRemotePlayer(playerId, pl.name, pl.team, pl.avatar || null, pl.peerId || playerId);
+                const p = this.addRemotePlayer(
+                    playerId, pl.name, pl.team, pl.avatar || null, pl.peerId || playerId, pl.avatarModel
+                );
                 if (p) {
                     p.team = pl.team || p.team;
                     p.queuedForNextRound = !!pl.queuedForNextRound;
@@ -4633,7 +4652,10 @@ spawnPowerUp() {
                         p.alive = false;
                         p.group.visible = false;
                     }
-                    if (pl.charId) p.charId = pl.charId;
+                    if (pl.charId && pl.charId !== p.charId) {
+                        p.charId = pl.charId;
+                        p.rig?.setCharacter(pl.charId);
+                    }
                     if (pl.avatar && p.avatar !== pl.avatar) {
                         p.avatar = pl.avatar;
                         if (p.setAvatarTexture) p.setAvatarTexture(pl.avatar);
@@ -5701,7 +5723,10 @@ spawnPowerUp() {
             p.alive = bd.alive !== false;
             p.group.visible = p.alive;
             p.hp = bd.hp ?? p.hp;
-            if (bd.charId) p.charId = bd.charId;
+            if (bd.charId && bd.charId !== p.charId) {
+                p.charId = bd.charId;
+                p.rig?.setCharacter(bd.charId);
+            }
         }
     }
 

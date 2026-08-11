@@ -31,11 +31,9 @@ test('retired class saves fall back to the compact roster', () => {
     assert.equal(Store.get('loadout').char, 'rally');
 });
 
-test('loadouts retain only one owned rune', () => {
+test('legacy loadouts retain only one owned passive while card collection is the earn route', () => {
     Store.reset();
-    Store.grant({ currency: 160 });
-    assert.equal(Store.buyRune('hp_bonus'), true);
-    assert.equal(Store.buyRune('speed_bonus'), true);
+    Store.data.ownedItems.push('hp_bonus', 'speed_bonus');
     assert.equal(Store.setLoadout({ runes: ['speed_bonus', 'hp_bonus'] }), true);
     assert.deepEqual(Store.get('loadout').runes, ['speed_bonus']);
 });

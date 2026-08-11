@@ -8,7 +8,7 @@ import { registerThreeStub } from './helpers/three-loader.mjs';
 registerThreeStub();
 
 const {
-    AVATAR_MODELS, AVATAR_SKINS, HEAD_FRONT,
+    AVATAR_ATLAS_BOXES, AVATAR_MODELS, AVATAR_SKINS, HEAD_FRONT,
     layoutAvatarPreview, getAvatarArmScale
 } = await import('../js/avatar.js');
 const { createCharacterRig } = await import('../js/character-rig.js');
@@ -95,4 +95,19 @@ test('slim arms are narrower than classic in the texture (3px vs 4px)', () => {
     assert.equal(classicArm.width, 4, 'classic arm width should be 4px');
     assert.equal(slimArm.width, 3, 'slim arm width should be 3px');
     assert.ok(slimArm.width < classicArm.width, 'slim arms should be narrower than classic');
+});
+
+test('both skin models expose deterministic six-face boxes for the complete body atlas', () => {
+    for (const modelId of ['classic', 'slim']) {
+        const boxes = AVATAR_ATLAS_BOXES[modelId];
+        for (const part of ['head', 'body', 'leftArm', 'rightArm', 'leftLeg', 'rightLeg']) {
+            const box = boxes[part];
+            assert.ok(box, `${modelId}.${part} box should exist`);
+            for (const face of ['top', 'bottom', 'left', 'front', 'right', 'back']) {
+                assert.ok(box.faces[face], `${modelId}.${part}.${face} UV should exist`);
+            }
+        }
+    }
+    assert.equal(AVATAR_ATLAS_BOXES.classic.leftArm.width, 4);
+    assert.equal(AVATAR_ATLAS_BOXES.slim.leftArm.width, 3);
 });

@@ -2,7 +2,7 @@
 // ponytail: geometri sabit sayılar plan diyagramından birebir; oran/renk shop-showcase'ten import.
 import * as THREE from 'three';
 import { JOINTS } from './character-pose.js';
-import { AVATAR_SKINS, getAvatarArmScale } from './avatar.js';
+import { AVATAR_SKINS, getAvatarArmScale, getAvatarAtlasBoxes } from './avatar.js';
 import { getShowcaseMaterialPalette, getShowcaseCharacterShape, normalizeShowcaseState } from './shop-showcase.js';
 
 export const RIG_SOCKETS = Object.freeze([
@@ -13,10 +13,31 @@ export const RIG_SOCKETS = Object.freeze([
 const MATERIAL_SLOTS = Object.freeze(['head', 'body', 'arms', 'legs', 'accent', 'detail', 'visor']);
 const TEAM_COLORS = Object.freeze({ red: 0xcc3333, blue: 0x3355cc });
 const SHOULDER_X = 0.44;
+const ATLAS_SIZE = 64;
+// Small, socket-safe silhouette signatures make each selectable hero legible from
+// range without replacing the shared animation skeleton or adding per-frame work.
+const CHARACTER_SIGNATURES = Object.freeze({
+    rally: Object.freeze({ crest: [.18, .06, .08, 0, .40, 0], back: [.24, .16, .10, 0, .38, .24] }),
+    tank: Object.freeze({ crest: [.30, .08, .12, 0, .40, 0], back: [.42, .28, .16, 0, .34, .28] }),
+    scout: Object.freeze({ crest: [.12, .15, .08, -.12, .38, 0], back: [.16, .12, .08, 0, .42, .22] }),
+    sniper: Object.freeze({ crest: [.08, .18, .08, .10, .40, 0], back: [.18, .30, .10, 0, .38, .24] }),
+    guardian: Object.freeze({ crest: [.34, .05, .12, 0, .40, 0], back: [.36, .18, .16, 0, .36, .26] }),
+    blazer: Object.freeze({ crest: [.16, .20, .10, 0, .44, 0], back: [.22, .22, .10, 0, .40, .24] }),
+    frost: Object.freeze({ crest: [.28, .12, .08, 0, .43, 0], back: [.28, .20, .12, 0, .38, .24] }),
+    volt: Object.freeze({ crest: [.18, .13, .10, .08, .42, 0], back: [.20, .26, .10, 0, .39, .24] }),
+    nova: Object.freeze({ crest: [.24, .10, .14, 0, .43, 0], back: [.30, .18, .12, 0, .38, .26] }),
+    ripple: Object.freeze({ crest: [.30, .06, .14, 0, .41, 0], back: [.34, .13, .14, 0, .36, .26] }),
+    soldier: Object.freeze({ crest: [.22, .07, .12, 0, .41, 0], back: [.32, .30, .15, 0, .34, .27] }),
+    anchor: Object.freeze({ crest: [.32, .09, .12, 0, .42, 0], back: [.38, .25, .16, 0, .34, .28] }),
+    phantom: Object.freeze({ crest: [.10, .24, .06, 0, .44, 0], back: [.16, .20, .08, 0, .39, .24] }),
+    hardy: Object.freeze({ crest: [.26, .12, .14, 0, .42, 0], back: [.38, .22, .16, 0, .36, .27] }),
+    swift: Object.freeze({ crest: [.14, .16, .08, -.08, .42, 0], back: [.18, .16, .08, 0, .40, .23] })
+});
 // --- Canonical geometry constants (one definition per surface, consumed by rig and exported for cosmetics) ---
-// Head cube (Minecraft-style, replaces old sphere; .32 overhangs .26 neck by .03 a side)
-export const HEAD_SIZE = 0.32;
-export const HEAD_HALF_DEPTH = HEAD_SIZE / 2; // .16
+// Head cube (Minecraft-style; .44 reads as a deliberate block head against the
+// .62 torso instead of the prior tiny-head mannequin silhouette).
+export const HEAD_SIZE = 0.44;
+export const HEAD_HALF_DEPTH = HEAD_SIZE / 2; // .22
 export const HEAD_MESH_LOCAL_Y = 0.20;  // offset on joints.head
 export const HEAD_MESH_LOCAL_Z_FRONT = -HEAD_HALF_DEPTH;  // local -Z is front face plane
 export const FACE_DECAL_DEPTH = 0.01;
@@ -65,6 +86,40 @@ function setMaterialColor(material, hex) {
     const uColor = material.uniforms?.uColor?.value;
     if (uColor?.setHex) { uColor.setHex(hex); return; }
     material.color?.setHex?.(hex);
+}
+
+// BoxGeometry writes its six faces in +X, -X, +Y, -Y, +Z, -Z order. Scale its
+// existing UV orientation into the matching Minecraft atlas rectangle instead
+// of recreating geometry, keeping the established joints and sockets intact.
+function mapBoxGeometryToAtlas(geometry, box, verticalStart = 0, verticalHeight = box?.height) {
+    const uv = geometry?.getAttribute?.('uv') || geometry?.attributes?.uv;
+    if (!uv?.getX || !uv?.getY || !uv?.setXY || !box?.faces) return;
+    const userData = geometry.userData || (geometry.userData = {});
+    const base = userData.avatarAtlasBaseUv || (userData.avatarAtlasBaseUv = Array.from(
+        { length: uv.count }, (_, index) => [uv.getX(index), uv.getY(index)]
+    ));
+    const cropSide = face => ({
+        ...face,
+        y: face.y + verticalStart,
+        height: Math.min(face.height - verticalStart, verticalHeight)
+    });
+    const faces = [
+        cropSide(box.faces.right), cropSide(box.faces.left), box.faces.top,
+        box.faces.bottom, cropSide(box.faces.back), cropSide(box.faces.front)
+    ];
+    for (let faceIndex = 0; faceIndex < faces.length; faceIndex++) {
+        const face = faces[faceIndex];
+        const u0 = face.x / ATLAS_SIZE;
+        const v0 = 1 - (face.y + face.height) / ATLAS_SIZE;
+        const uScale = face.width / ATLAS_SIZE;
+        const vScale = face.height / ATLAS_SIZE;
+        const start = faceIndex * 4;
+        for (let vertex = 0; vertex < 4; vertex++) {
+            const index = start + vertex;
+            uv.setXY(index, u0 + base[index][0] * uScale, v0 + base[index][1] * vScale);
+        }
+    }
+    uv.needsUpdate = true;
 }
 
 function pivot(name, parent, x = 0, y = 0, z = 0) {
@@ -164,7 +219,7 @@ export function createCharacterRig(options = {}) {
         return mesh;
     }
 
-    addPart(joints.torso, {
+    const torsoMesh = addPart(joints.torso, {
         name: 'torso-mesh', geometry: new THREE.BoxGeometry(.62, .68, .36),
         position: [0, .34, 0], material: materials.body
     });
@@ -181,11 +236,11 @@ export function createCharacterRig(options = {}) {
     // by .02 on purpose (matches the shop-showcase.js reference rig's overlap convention) so
     // float error / pose blending never exposes a seam. Height .16->.20 and y .74->.76 because
     // the cube's underside sits .04 above where the old sphere's bottom tangent point did.
-    addPart(joints.torso, {
+    const neckMesh = addPart(joints.torso, {
         name: 'neck-mesh', geometry: new THREE.BoxGeometry(.26, .20, .26),
         position: [0, .76, 0], material: materials.head
     });
-    addPart(joints.head, {
+    const headMesh = addPart(joints.head, {
         name: 'head-mesh', geometry: new THREE.BoxGeometry(HEAD_SIZE, HEAD_SIZE, HEAD_SIZE),
         position: [0, .20, 0], material: materials.head
     });
@@ -212,21 +267,21 @@ export function createCharacterRig(options = {}) {
     // edge -.29) sits strictly inside the torso's (-.31..+.31) instead of matching it
     // exactly -- was reading as one solid block from a distance. hip/knee joint x is
     // untouched (cosmetic-models.js footL/footR sockets hang off it).
-    addPart(joints.hipL, {
+    const thighL = addPart(joints.hipL, {
         name: 'thigh-L', geometry: new THREE.BoxGeometry(.20, .52, .28),
         position: [0, -.26, 0], material: materials.legs
     });
     // ponytail: calf offset -.24->-.22 so its bottom lands on the floor exactly (was -0.02,
     // sinking 2cm through it); the .02 raise stays inside the existing knee/thigh overlap.
-    addPart(joints.kneeL, {
+    const calfL = addPart(joints.kneeL, {
         name: 'calf-L', geometry: new THREE.BoxGeometry(.18, .48, .26),
         position: [0, -.22, 0], material: materials.legs
     });
-    addPart(joints.hipR, {
+    const thighR = addPart(joints.hipR, {
         name: 'thigh-R', geometry: new THREE.BoxGeometry(.20, .52, .28),
         position: [0, -.26, 0], material: materials.legs
     });
-    addPart(joints.kneeR, {
+    const calfR = addPart(joints.kneeR, {
         name: 'calf-R', geometry: new THREE.BoxGeometry(.18, .48, .26),
         position: [0, -.22, 0], material: materials.legs
     });
@@ -251,6 +306,26 @@ export function createCharacterRig(options = {}) {
         name: 'visor', geometry: new THREE.BoxGeometry(.22, .05, .04),
         position: [0, .20, -HEAD_HALF_DEPTH], material: materials.visor, outline: false
     });
+    // Default skins need a readable face at Shop distance too. These are direct
+    // head children: the live renderer's visible scene now has no Mesh-parent
+    // dependency, while the existing visor remains intact for compatibility.
+    const facePlate = addPart(joints.head, {
+        name: 'face-plate', geometry: new THREE.BoxGeometry(.30, .22, .018),
+        position: [0, .20, -(HEAD_HALF_DEPTH + .035)], material: materials.detail, outline: false
+    });
+    const leftEye = addPart(joints.head, {
+        name: 'eye-L', geometry: new THREE.BoxGeometry(.064, .056, .016),
+        position: [-.072, .216, -(HEAD_HALF_DEPTH + .062)], material: materials.visor, outline: false
+    });
+    const rightEye = addPart(joints.head, {
+        name: 'eye-R', geometry: new THREE.BoxGeometry(.070, .056, .016),
+        position: [.072, .204, -(HEAD_HALF_DEPTH + .062)], material: materials.visor, outline: false
+    });
+    const proceduralFaceParts = [visorMesh, facePlate, leftEye, rightEye];
+
+    function setProceduralFaceVisible(visible) {
+        for (const part of proceduralFaceParts) part.visible = visible;
+    }
     // A painted avatar face covers the whole front plane, so it replaces the visor rather than
     // layering over it -- setHeadTexture swaps which of the two is visible.
     const faceMesh = addPart(joints.head, {
@@ -259,6 +334,16 @@ export function createCharacterRig(options = {}) {
         material: materials.face, outline: false
     });
     faceMesh.visible = false;
+    // Distinct blocky silhouettes; configured in applyShape() and never touched
+    // by the animation update, so hero identity has no per-frame cost.
+    const signatureCrest = addPart(joints.head, {
+        name: 'signature-crest', geometry: new THREE.BoxGeometry(1, 1, 1),
+        position: [0, .40, 0], material: materials.accent, outline: false
+    });
+    const signatureBack = addPart(joints.torso, {
+        name: 'signature-back', geometry: new THREE.BoxGeometry(1, 1, 1),
+        position: [0, .38, .24], material: materials.detail, outline: false
+    });
 
     // --- palette / proportions ---
     const PART_SLOTS = ['body', 'arms', 'legs'];
@@ -266,11 +351,27 @@ export function createCharacterRig(options = {}) {
     // while active -- setSkin/setCharacter/setTeam still update state so the right
     // color comes back once setPartColors(null) releases the latch.
     let avatarColorsActive = false;
+    let avatarAtlasActive = false;
+    let avatarAtlasTexture = null;
+    let avatarModelId = null;
+
+    function applySignature() {
+        const signature = CHARACTER_SIGNATURES[state.characterId] || CHARACTER_SIGNATURES.rally;
+        const place = (mesh, values) => {
+            mesh.visible = Array.isArray(values);
+            if (!Array.isArray(values)) return;
+            mesh.scale.set(values[0], values[1], values[2]);
+            mesh.position.set(values[3], values[4], values[5]);
+        };
+        place(signatureCrest, signature.crest);
+        place(signatureBack, signature.back);
+    }
 
     function applyPalette() {
         const palette = getShowcaseMaterialPalette(state);
         for (const slot of MATERIAL_SLOTS) {
-            if (avatarColorsActive && PART_SLOTS.includes(slot)) continue;
+            if ((avatarColorsActive || avatarAtlasActive) && PART_SLOTS.includes(slot)) continue;
+            if (avatarAtlasActive && slot === 'head') continue;
             setMaterialColor(materials[slot], palette[slot]);
         }
         return palette;
@@ -284,13 +385,16 @@ export function createCharacterRig(options = {}) {
         // Derived from the avatar atlas (slim arm 3px vs classic 4px = .75) so a 'slim' pick
         // narrows the in-game arms by exactly what the avatar preview draws -- the old hardcoded
         // .82 rendered arms thicker than the avatar advertised.
-        const armWidth = getAvatarArmScale(AVATAR_SKINS[state.skinId]?.model);
+        const armWidth = getAvatarArmScale(avatarModelId || AVATAR_SKINS[state.skinId]?.model);
         for (const mesh of armMeshes) mesh.scale.x = armWidth;
+        applySignature();
     }
 
     function applyTeam() {
         const hex = TEAM_COLORS[state.team] || TEAM_COLORS.red;
-        for (const material of teamMaterials) setMaterialColor(material, hex);
+        if (!avatarAtlasActive) {
+            for (const material of teamMaterials) setMaterialColor(material, hex);
+        }
     }
 
     applyShape();
@@ -342,6 +446,7 @@ export function createCharacterRig(options = {}) {
     // hex numbers for the slots to recolor; pass null/undefined to release the
     // latch and fall back to the skin palette (legs) / team color (body, arms).
     function setPartColors(colors) {
+        if (avatarAtlasActive) return;
         if (!colors) {
             avatarColorsActive = false;
             applyPartPalette();
@@ -367,28 +472,83 @@ export function createCharacterRig(options = {}) {
     // materialFactory anywhere today, so no shader branch needed. Texture disposal still falls out
     // of the existing dispose() pass (materials.face is in the Object.values scan).
     function setHeadTexture(texture) {
+        if (avatarAtlasActive) setAvatarAtlasTexture(null);
         const face = materials.face;
         if (!face) return;
         if (face.map && face.map !== texture) face.map.dispose?.();
         face.map = texture || null;
         face.needsUpdate = true;
         faceMesh.visible = Boolean(texture);
-        visorMesh.visible = !texture;
+        setProceduralFaceVisible(!texture);
+    }
+
+    // Takes ownership of one shared 64x64 atlas texture. Each skinnable box has
+    // static UVs into that atlas, so a custom skin shows on head, torso, both
+    // arms and both legs without any rendering-loop allocations.
+    function setAvatarAtlasTexture(texture, modelId = 'classic') {
+        if (texture && materials.face?.map) {
+            materials.face.map.dispose?.();
+            materials.face.map = null;
+            materials.face.needsUpdate = true;
+        }
+        if (avatarAtlasTexture && avatarAtlasTexture !== texture) avatarAtlasTexture.dispose?.();
+        avatarAtlasTexture = texture || null;
+        avatarAtlasActive = Boolean(texture);
+        avatarModelId = avatarAtlasActive ? (modelId === 'slim' ? 'slim' : 'classic') : null;
+        const maps = [materials.head, materials.body, materials.arms, materials.legs];
+        for (const material of maps) {
+            if (!material) continue;
+            material.map = avatarAtlasTexture;
+            material.needsUpdate = true;
+            if (avatarAtlasActive) setMaterialColor(material, 0xffffff);
+        }
+        const boxes = getAvatarAtlasBoxes(avatarModelId || AVATAR_SKINS[state.skinId]?.model);
+        if (avatarAtlasActive) {
+            mapBoxGeometryToAtlas(headMesh.geometry, boxes.head);
+            mapBoxGeometryToAtlas(neckMesh.geometry, boxes.head);
+            mapBoxGeometryToAtlas(torsoMesh.geometry, boxes.body);
+            mapBoxGeometryToAtlas(upperArmL.geometry, boxes.leftArm, 0, 6);
+            mapBoxGeometryToAtlas(forearmL.geometry, boxes.leftArm, 6, 6);
+            mapBoxGeometryToAtlas(upperArmR.geometry, boxes.rightArm, 0, 6);
+            mapBoxGeometryToAtlas(forearmR.geometry, boxes.rightArm, 6, 6);
+            mapBoxGeometryToAtlas(thighL.geometry, boxes.leftLeg, 0, 6);
+            mapBoxGeometryToAtlas(calfL.geometry, boxes.leftLeg, 6, 6);
+            mapBoxGeometryToAtlas(thighR.geometry, boxes.rightLeg, 0, 6);
+            mapBoxGeometryToAtlas(calfR.geometry, boxes.rightLeg, 6, 6);
+        }
+        faceMesh.visible = false;
+        setProceduralFaceVisible(!avatarAtlasActive);
+        if (!avatarAtlasActive) {
+            applyPalette();
+            applyTeam();
+        }
+        applyShape();
     }
 
     function dispose() {
         if (disposed) return;
         disposed = true;
+        avatarAtlasTexture = null;
         for (const geometry of geometries) geometry.dispose?.();
         const allMaterials = new Set([...Object.values(materials), ...outlineMaterials]);
-        for (const material of allMaterials) disposeMaterial(material);
+        const disposedTextures = new Set();
+        for (const material of allMaterials) {
+            for (const value of Object.values(material || {})) {
+                if (value?.isTexture && !disposedTextures.has(value)) {
+                    disposedTextures.add(value);
+                    value.dispose?.();
+                }
+            }
+            material?.dispose?.();
+        }
         root.removeFromParent?.();
         root.clear?.();
     }
 
     const handle = {
         root, joints, sockets,
-        applyPose, setSkin, setCharacter, setTeam, setVisible, setHeadTexture, setPartColors, dispose
+        applyPose, setSkin, setCharacter, setTeam, setVisible,
+        setHeadTexture, setAvatarAtlasTexture, setPartColors, dispose
     };
     Object.defineProperty(handle, 'state', {
         enumerable: true,

@@ -815,14 +815,19 @@ export class UI {
     // labels are data, never markup).
     _renderRewardFlow(xpGained = 0, xpSources = []) {
         const panel = document.querySelector('#post-game-screen .pg-panel');
-        if (!panel) return;
+        const stats = document.getElementById('postgame-stats');
+        const report = stats?.parentNode;
+        if (!panel || !stats || !report) return;
         let host = document.getElementById('pg-reward-flow');
         if (!host) {
             host = document.createElement('div');
             host.id = 'pg-reward-flow';
             host.className = 'pg-reward-flow';
-            panel.insertBefore(host, document.getElementById('postgame-stats'));
         }
+        // Post-game details now live in .pg-detail-report, so the reference node
+        // must be inserted by its direct parent instead of the outer panel.
+        // Rehoming also repairs a host created by the former panel-level layout.
+        if (host.parentNode !== report || host.nextSibling !== stats) report.insertBefore(host, stats);
         const summary = buildRewardSummary({
             xp: xpGained,
             xpSources,
@@ -1673,7 +1678,7 @@ export class UI {
                 const owned = ownedSkills.includes(s.id);
                 card.className = `skill-card ${currentSkill === s.id ? 'selected' : ''} ${!owned ? 'locked' : ''}`;
                 card.dataset.skill = s.id;
-                card.innerHTML = `<div class="loadout-icon" ${iconStyle(index)} aria-hidden="true"></div><div class="loadout-card-title">${s.name}</div><div class="char-desc">${s.desc}</div><div class="loadout-card-meta">${s.cooldown}s cooldown</div>${!owned ? '<div class="char-price">🪙 100</div>' : ''}`;
+                card.innerHTML = `<div class="loadout-icon" ${iconStyle(index)} aria-hidden="true"></div><div class="loadout-card-title">${s.name}</div><div class="char-desc">${s.desc}</div><div class="loadout-card-meta">${s.cooldown}s cooldown</div>${!owned ? '<div class="char-price">ARENA CACHE</div>' : ''}`;
                 sg.appendChild(card);
             });
         }
@@ -1691,7 +1696,7 @@ export class UI {
                 const equipped = currentRunes.includes(r.id);
                 card.className = `rune-card ${equipped ? 'selected' : ''} ${!owned ? 'locked' : ''}`;
                 card.dataset.rune = r.id;
-                card.innerHTML = `<div class="loadout-icon rune-icon" ${iconStyle(index + 8)} aria-hidden="true"></div><div class="loadout-card-title">${r.name}</div><div class="char-desc">${r.desc}</div>${!owned ? '<div class="char-price">🪙 80</div>' : ''}`;
+                card.innerHTML = `<div class="loadout-icon rune-icon" ${iconStyle(index + 8)} aria-hidden="true"></div><div class="loadout-card-title">${r.name}</div><div class="char-desc">${r.desc}</div>${!owned ? '<div class="char-price">ARENA CACHE</div>' : ''}`;
                 rg.appendChild(card);
             });
         }
@@ -1700,7 +1705,7 @@ export class UI {
     _syncShopTabs(tab) {
         const labels = {
             chars: 'Characters', live: 'Live Deals', balls: 'Balls', avatars: 'Character Skins',
-            wearables: 'Wearables', cases: 'Cases', inventory: 'Inventory', skills: 'Skills', boosts: 'Boosts'
+            wearables: 'Wearables', cases: 'Cases', inventory: 'Inventory', boosts: 'Boosts'
         };
         document.querySelectorAll('#shop-tabs .shop-tab').forEach(button => {
             const selected = button.dataset.tab === tab;
@@ -1715,6 +1720,28 @@ export class UI {
         if (title) title.textContent = labels[tab] || 'Collection';
         const screen = document.getElementById('shop-screen');
         if (screen) screen.dataset.shopTab = tab;
+        this._syncShopFilters(tab);
+    }
+
+    _syncShopFilters(tab) {
+        const availableByTab = {
+            chars: ['all', 'owned', 'affordable'],
+            avatars: ['all', 'owned', 'affordable'],
+            balls: ['all', 'ball', 'owned', 'affordable'],
+            live: ['all', 'ball', 'cosmetic', 'owned', 'affordable'],
+            wearables: ['all', 'cosmetic', 'owned', 'affordable'],
+            inventory: ['all', 'cosmetic', 'knife', 'owned'],
+            cases: ['all', 'affordable'],
+            boosts: ['all', 'affordable']
+        };
+        const available = new Set(availableByTab[tab] || ['all']);
+        if (!available.has(this._shopFilterId)) this._shopFilterId = 'all';
+        document.querySelectorAll('#shop-filters .shop-filter-chip').forEach(chip => {
+            const enabled = available.has(chip.dataset.filter);
+            chip.hidden = !enabled;
+            chip.disabled = !enabled;
+            chip.setAttribute('aria-hidden', String(!enabled));
+        });
     }
 
     _setShopShowcase(store, skin, previewing = false, announce = false) {
@@ -1729,6 +1756,8 @@ export class UI {
         const meta = document.getElementById('shop-selected-meta');
         const status = document.getElementById('shop-showcase-status');
         const practice = document.getElementById('btn-shop-practice');
+        const action = document.getElementById('shop-selected-action');
+        const kicker = document.getElementById('shop-selected-kicker');
 
         if (stage) {
             stage.dataset.skinId = selected.id;
@@ -1751,7 +1780,21 @@ export class UI {
                     ? `${selected.name} is owned and ready to equip.`
                     : `Previewing ${selected.name}. Purchase keeps it permanently.`;
         }
-        if (practice) practice.dataset.id = selected.id;
+        if (kicker) kicker.textContent = 'CURRENT LOOK';
+        if (practice) {
+            practice.hidden = false;
+            practice.disabled = false;
+            practice.dataset.id = selected.id;
+        }
+        if (action) {
+            action.className = 'btn btn-primary shop-selected-action';
+            action.dataset.type = 'avatar';
+            action.dataset.id = selected.id;
+            action.disabled = equipped;
+            action.textContent = equipped ? 'Equipped' : owned ? 'Equip skin' : `Buy — ${selected.price}`;
+            action.classList.toggle('shop-equip', !equipped && owned);
+            action.classList.toggle('shop-buy', !equipped && !owned);
+        }
 
         document.querySelectorAll('[data-shop-preview="avatar"]').forEach(control => {
             const selectedControl = control.dataset.id === selected.id;
@@ -1760,6 +1803,58 @@ export class UI {
         });
 
         const detail = Object.freeze({ type: 'avatar', id: selected.id, skin: selected, equipped, owned, previewing });
+        if (stage?.dispatchEvent && typeof CustomEvent !== 'undefined') {
+            stage.dispatchEvent(new CustomEvent('shop-preview-change', { bubbles: true, detail }));
+        }
+        if (typeof window !== 'undefined' && window.dispatchEvent && typeof CustomEvent !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('warrball:shop-preview', { detail }));
+        }
+        if (announce && status) status.focus?.({ preventScroll: true });
+    }
+
+    _setShopCharacterDetail(store, character, announce = false) {
+        const selected = character || CHARACTERS.rally;
+        const selectedId = store.get('selectedChar') || 'rally';
+        const owned = store.ownsCharacter(selected.id);
+        const equipped = selected.id === selectedId;
+        const stage = document.getElementById('shop-showcase-stage');
+        const name = document.getElementById('shop-selected-name');
+        const meta = document.getElementById('shop-selected-meta');
+        const status = document.getElementById('shop-showcase-status');
+        const practice = document.getElementById('btn-shop-practice');
+        const action = document.getElementById('shop-selected-action');
+        const kicker = document.getElementById('shop-selected-kicker');
+
+        if (stage) stage.dataset.characterId = selected.id;
+        if (kicker) kicker.textContent = 'FEATURED CHARACTER';
+        if (name) name.textContent = selected.name;
+        if (meta) meta.textContent = `${selected.desc} · ${equipped ? 'In your loadout' : owned ? 'Unlocked' : `${selected.price} credits`}`;
+        if (status) {
+            status.textContent = equipped
+                ? `${selected.name} is active in your loadout.`
+                : owned
+                    ? `${selected.name} is unlocked and ready to use.`
+                    : `Inspecting ${selected.name}. Unlock this character permanently.`;
+        }
+        if (practice) {
+            practice.hidden = true;
+            practice.disabled = true;
+        }
+        if (action) {
+            action.className = 'btn btn-primary shop-selected-action';
+            action.dataset.type = 'char';
+            action.dataset.id = selected.id;
+            action.disabled = equipped;
+            action.textContent = equipped ? 'In loadout' : owned ? 'Use character' : `Unlock — ${selected.price}`;
+            action.classList.toggle('shop-equip', !equipped && owned);
+            action.classList.toggle('shop-buy', !equipped && !owned);
+        }
+        document.querySelectorAll('[data-shop-preview="character"]').forEach(control => {
+            const isSelected = control.dataset.id === selected.id;
+            control.classList.toggle('is-previewing', isSelected);
+            if (control.matches('button')) control.setAttribute('aria-pressed', String(isSelected));
+        });
+        const detail = Object.freeze({ type: 'character', id: selected.id, character: selected, equipped, owned, previewing: true });
         if (stage?.dispatchEvent && typeof CustomEvent !== 'undefined') {
             stage.dispatchEvent(new CustomEvent('shop-preview-change', { bubbles: true, detail }));
         }
@@ -1835,7 +1930,7 @@ export class UI {
         else grid.innerHTML = '';
 
         const equippedSkin = AVATAR_SKINS[store.get('equippedAvatarSkin')] || AVATAR_SKINS.default;
-        this._setShopShowcase(store, equippedSkin);
+        if (tab !== 'chars') this._setShopShowcase(store, equippedSkin);
 
         if (tab === 'live') {
             const market = store.getLiveMarket?.() || { offers: [] };
@@ -1867,21 +1962,29 @@ export class UI {
                 grid.appendChild(card);
             });
         } else if (tab === 'chars') {
+            const selectedCharacter = CHARACTERS[this._shopPreviewCharacter] || CHARACTERS[store.get('selectedChar')] || CHARACTERS.rally;
             Object.values(CHARACTERS).forEach((c, index) => {
-                if (!c.price) return;
                 const owned = store.ownsCharacter(c.id);
                 const card = document.createElement('div');
                 card.className = `shop-card char-${c.id} ${owned ? 'owned' : ''}`;
                 card.style.setProperty('--char-color', `#${c.color.toString(16).padStart(6, '0')}`);
                 card.dataset.nameFit = shopNameFitTier(c.name);
+                card.dataset.shopPreview = 'character';
+                card.dataset.id = c.id;
                 const portraitPath = characterPortraitPath(c.id);
                 const portraitMarkup = portraitPath
                     ? `<img src="${portraitPath}" alt="" loading="lazy" decoding="async" onerror="this.style.display='none';this.nextElementSibling.style.display=''"><div class="shop-portrait-fallback" style="display:none" aria-hidden="true">${c.emoji}</div>`
                     : `<div class="shop-portrait-fallback" aria-hidden="true">${c.emoji}</div>`;
-                card.innerHTML = `<div class="shop-portrait">${portraitMarkup}</div><div class="char-name">${c.name}</div><div class="char-desc">${c.desc}</div>${owned ? '' : `<button class="btn btn-primary btn-small shop-buy" data-type="char" data-id="${c.id}">Buy — ${c.price}</button>`}`;
+                card.innerHTML = `<button type="button" class="shop-character-select" data-shop-preview="character" data-id="${c.id}" aria-label="Inspect ${c.name}" aria-pressed="${selectedCharacter.id === c.id}"><span class="shop-portrait">${portraitMarkup}</span><span class="char-name">${c.name}</span><span class="char-desc">${c.desc}</span><span class="shop-preview-label">Inspect</span></button>`;
+                card.querySelector('.shop-character-select')?.addEventListener('click', () => {
+                    this._shopPreviewCharacter = c.id;
+                    this._setShopCharacterDetail(store, c, true);
+                });
                 this._decorateShopCard(card, { category: 'character', price: c.price, owned, currency: coinBalance });
                 grid.appendChild(card);
             });
+            this._shopPreviewCharacter = selectedCharacter.id;
+            this._setShopCharacterDetail(store, selectedCharacter);
         } else if (tab === 'balls') {
             Object.entries(BALL_SKINS).forEach(([id, b]) => {
                 if (id === 'classic') return;
@@ -1922,27 +2025,6 @@ export class UI {
                 this._decorateShopCard(card, { category: 'ball', price: b.price || 150, owned, equipped, currency: coinBalance });
                 grid.appendChild(card);
             });
-        } else if (tab === 'skills') {
-            const roles = {
-                slow: 'Control', freeze: 'Control', teleport: 'Control', blackhole: 'Control',
-                burn: 'Offense', smash: 'Offense', shield: 'Defense', heal: 'Support'
-            };
-            const activeSkill = store.get('loadout')?.skill;
-            Object.values(SKILLS).forEach(s => {
-                const owned = store.ownsSkill(s.id);
-                const equipped = activeSkill === s.id;
-                const role = roles[s.id] || 'Utility';
-                const card = document.createElement('article');
-                card.className = `shop-card shop-skill-card role-${role.toLowerCase()} ${owned ? 'owned' : ''} ${equipped ? 'equipped' : ''}`;
-                card.innerHTML = `
-                    <div class="shop-skill-top"><div class="shop-item-icon" aria-hidden="true"><svg class="ui-icon"><use href="#i-target"></use></svg></div><span class="skill-role">${role}</span></div>
-                    <div class="char-name">${s.name}</div>
-                    <div class="char-desc">${s.desc}</div>
-                    <div class="skill-cooldown"><span>Cooldown</span><strong>${s.cooldown}s</strong><i style="--cooldown:${Math.min(100, Math.round(s.cooldown / 105 * 100))}%"></i></div>
-                    ${equipped ? '<div class="shop-owned">Equipped</div>' : owned ? `<button class="btn btn-secondary btn-small skill-equip" data-id="${s.id}">Equip skill</button>` : `<button class="btn btn-primary btn-small shop-buy" data-type="skill" data-id="${s.id}">Buy — 100</button>`}`;
-                this._decorateShopCard(card, { category: 'skill', price: 100, owned, equipped, currency: coinBalance });
-                grid.appendChild(card);
-            });
         } else if (tab === 'avatars') {
             const visibleSkins = Object.values(AVATAR_SKINS).filter(s => s.id !== 'default');
             const previewId = AVATAR_SKINS[this._shopPreviewAvatar]?.id || equippedSkin.id;
@@ -1968,31 +2050,6 @@ export class UI {
                 });
                 card.appendChild(select);
 
-                const actions = document.createElement('div');
-                actions.className = 'shop-card-actions';
-                if (equipped) {
-                    const state = document.createElement('div');
-                    state.className = 'shop-owned';
-                    state.textContent = 'Equipped';
-                    actions.appendChild(state);
-                } else {
-                    const action = document.createElement('button');
-                    action.type = 'button';
-                    action.className = owned ? 'btn btn-small shop-equip' : 'btn btn-primary btn-small shop-buy';
-                    action.dataset.type = 'avatar';
-                    action.dataset.id = s.id;
-                    action.textContent = owned ? 'Equip' : `Buy — ${s.price}`;
-                    actions.appendChild(action);
-                }
-                if (!owned) {
-                    const trial = document.createElement('button');
-                    trial.type = 'button';
-                    trial.className = 'btn btn-secondary btn-small shop-trial';
-                    trial.dataset.id = s.id;
-                    trial.textContent = '15m Trial';
-                    actions.appendChild(trial);
-                }
-                card.appendChild(actions);
                 this._decorateShopCard(card, { category: 'cosmetic', price: s.price, owned, equipped, currency: coinBalance });
                 grid.appendChild(card);
             });
@@ -2055,10 +2112,12 @@ export class UI {
                 const card = document.createElement('article');
                 card.className = `shop-card case-card case-${box.id}`;
                 const pity = store.getCasePityState(box.id);
+                const earned = store.getEarnedCaseState?.(box.id)?.cases || 0;
                 card.innerHTML = `
                     <div class="case-art"><img src="${box.art}" width="512" height="512" loading="lazy" alt="${box.name} crate"></div>
                     <div class="case-card-head"><div><span class="case-series">ARENA DROP</span><div class="char-name">${box.name}</div></div><strong>${box.price}</strong></div>
                     <div class="case-balance">Balance: ${store.get('currency')} credits</div>
+                    ${earned ? `<div class="case-earned">${earned} EARNED OPEN${earned === 1 ? '' : 'S'} READY</div>` : '<div class="case-earned muted">Earn free drops from completed matches</div>'}
                     <div class="case-pity ${pity.nextGuaranteed ? 'ready' : ''}">
                         Epic+ guarantee: ${pity.nextGuaranteed ? 'NEXT OPEN' : `${pity.count}/${pity.threshold}`}
                     </div>
@@ -2077,6 +2136,10 @@ export class UI {
                 ...Object.values(COSMETICS).filter(c => ownedCosmeticIds.has(c.id)).map(item => ({ type: 'cosmetic', item }))
             ];
             const groups = groupInventoryEntries(entries);
+            const collection = document.createElement('div');
+            collection.className = 'inventory-collection-count';
+            collection.innerHTML = `<span>COLLECTION</span><strong>${entries.length} cosmetic item${entries.length === 1 ? '' : 's'}</strong><small>${[...ownedKnifeIds].length} weapons · ${[...ownedCosmeticIds].length} wearables</small>`;
+            grid.appendChild(collection);
             groups.forEach(group => {
                 const heading = document.createElement('h3');
                 heading.className = 'cosmetic-category-title';
@@ -2111,7 +2174,7 @@ export class UI {
                     grid.appendChild(card);
                 });
             });
-            if (!entries.length) grid.innerHTML = '<p class="shop-empty">Your inventory is empty. Open a case to add your first item.</p>';
+            if (!entries.length) grid.innerHTML = '<div class="shop-empty inventory-empty"><strong>Your collection is ready for its first drop.</strong><span>Complete matches for earned cosmetic cases, or inspect Cases to view verified odds.</span></div>';
         }
         this._finalizeShopCatalog(grid);
         if (!this._shopFiltersBound) {
@@ -2165,7 +2228,7 @@ export class UI {
         }, true);
     }
 
-    showCaseReel(box, result) {
+    showCaseReel(box, result, { onSettled } = {}) {
         const overlay = document.getElementById('case-reel');
         const track = document.getElementById('case-reel-track');
         const resultEl = document.getElementById('case-reel-result');
@@ -2232,6 +2295,9 @@ export class UI {
             resultEl.dataset.rarity = result.reward.rarity || 'common';
             resultEl.innerHTML = `<span>${result.duplicate ? formatDuplicateConversion(result.refund) : 'UNLOCKED - INVENTORY READY'}</span><strong>${result.reward.name}</strong>`;
             this.onCaseRewardReveal?.(result.reward);
+            // Result toast/CTA belongs to the locked reel state. `settled`
+            // above guarantees normal, skip and reduced-motion paths fire it once.
+            onSettled?.(result);
             // Rarity-tinted glow (blue/purple/gold) — dedicated element, not the
             // shared #juice-flash combat uses, so colors never fight each other.
             if (presentation.glow && presentation.flash > 0) {
@@ -2806,7 +2872,7 @@ export class UI {
         const { rank, pct } = getRankProgress(elo);
 
         document.getElementById('profile-rank').innerHTML = `
-            <div class="rank-icon">${rank.emoji}</div>
+            <svg class="profile-rank-badge" viewBox="0 0 32 36" aria-hidden="true" style="--rank-color:${rank.color}"><path d="M16 2 28 7v11c0 7-5.1 12.7-12 16C9.1 30.7 4 25 4 18V7l12-5Z"></path><path d="m16 9 2 4 4.4.6-3.2 3.1.8 4.4-4-2.1-4 2.1.8-4.4-3.2-3.1 4.4-.6 2-4Z"></path></svg>
             <div class="rank-name" style="color:${rank.color}">${rank.name}</div>
             <div class="rank-progress"><div class="rank-bar" style="width:${pct}%"></div></div>
             <div style="color:#aaa;font-size:12px">${elo} ELO</div>`;

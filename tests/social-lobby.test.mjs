@@ -4,6 +4,7 @@ import { access, readFile } from 'node:fs/promises';
 
 const modulePath = new URL('../js/social-lobby.js', import.meta.url);
 const source = await readFile(modulePath, 'utf8');
+const polishSource = await readFile(new URL('../css/polish.css', import.meta.url), 'utf8');
 const moduleSource = source
     .replace(/^import \* as THREE from 'three';$/m, `
         class Vector3 {
@@ -95,6 +96,39 @@ test('each district carries its own silhouette and the map has real verticality'
     assert.ok(Math.max(...byZone('observatory').map(block => block.maxY)) >= 30);
     const tops = [...new Set(blocks.map(block => block.maxY))].sort((a, b) => a - b);
     assert.ok(tops.length >= 15, 'expected many distinct standing heights');
+});
+
+test('Grand Pavilion is a walk-through, collision-backed focal area with registered platforms', () => {
+    const arena = createSocialLobbyArena();
+    const pavilion = arenaBlocks(arena).filter(block => block.zone === 'pavilion');
+    assert.equal(pavilion.length, 6, 'floor, rear wall, two side walls, and split portico walls must share the collision layout');
+    assert.ok(pavilion.some(block => block.maxY === .35), 'pavilion floor must be a registered landing platform');
+    assert.ok(pavilion.some(block => block.minZ === 123 && block.maxZ === 127 && block.maxX < 0));
+    assert.ok(pavilion.some(block => block.minZ === 123 && block.maxZ === 127 && block.minX > 0));
+    assert.equal(pavilion.some(block => block.minZ === 123 && block.maxZ === 127 && block.minX < 0 && block.maxX > 0), false, 'the southern portico entrance must remain open');
+    for (const block of pavilion) {
+        assert.ok(arena.platforms.some(platform => platform.y === block.maxY
+            && platform.x === (block.minX + block.maxX) / 2
+            && platform.z === (block.minZ + block.maxZ) / 2));
+    }
+    assert.match(source, /function addGrandPavilion\(group, materials\)/);
+    assert.match(source, /addGrandPavilion\(world, materials\)/);
+    const pavilionBuilder = source.slice(source.indexOf('function addGrandPavilion'), source.indexOf('function createNameplate'));
+    assert.match(pavilionBuilder, /leftRoof\.rotation\.z = \.16/);
+    assert.match(pavilionBuilder, /rightRoof\.rotation\.z = -\.16/);
+    assert.match(pavilionBuilder, /materials\.pavilionRoof/);
+    assert.match(source, /pavilionRoof: new THREE\.MeshStandardMaterial\(\{ color: 0x7895a6/);
+    assert.match(pavilionBuilder, /addPavilionLounge\(group, materials\)/);
+    assert.match(pavilionBuilder, /pavilion-warm-lounge-light/);
+    assert.match(pavilionBuilder, /pavilion-lounge-bench/);
+    assert.match(pavilionBuilder, /pavilion-aurora-sculpture/);
+});
+
+test('Squad Center uses readable design tokens for headings, state text, and controls', () => {
+    assert.match(polishSource, /\.community-shell \.shell-title h1,\.community-layout h2 \{ color:var\(--ui-text\)/);
+    assert.match(polishSource, /\.community-row small \{ color:var\(--ui-muted\)/);
+    assert.match(polishSource, /\.community-row span \{ color:var\(--ui-text\)/);
+    assert.match(polishSource, /\.community-add input,\.community-showcase select \{ min-width:0; color:var\(--ui-text\)/);
 });
 
 test('the Skyward Terraces stay reachable with the Player jump budget', () => {

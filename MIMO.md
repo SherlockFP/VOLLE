@@ -1,8 +1,72 @@
 # MIMO.md — 2BALL Project Current State
 
-> **Last updated:** 2026-07-31
+> **Last updated:** 2026-08-11
 > **Status:** Active development. Account system complete; Phase 1-3 done; V4 immersive/economy/combat pass complete (see below); Phase 4 backlog pending.
 > **Tech Stack:** Three.js + PeerJS + vanilla JS (ES modules), browser-based 3D dodgeball.
+
+---
+
+## 2026-08-11 Quality-First Product Cycles
+
+- **Core-fun reliability:** countdown warm-up balls now accept the first primary
+  attack; bot deflect decisions begin early enough to cover reaction + wind-up
+  and hold position through commitment. Regression coverage lives in
+  `tests/first-shot-reliability.test.mjs` and `tests/bot-deflect-regression.test.mjs`.
+  Ordinary deflects outside the perfect window no longer throw on Ball's valid
+  `Infinity` sentinel. Automated pointer-lock still limits a real two-deflect
+  browser check.
+- **P2P startup reliability:** `gameStart` is retained and retried across brief
+  signaling loss, duplicate starts are idempotent, and existing WebRTC data
+  channels survive a broker disconnect where PeerJS permits it. Fresh host and
+  client browsers held for 8.5+ seconds at roughly 20-28 ms / 0% observed loss;
+  both entered the match within five seconds. Production TURN/signaling and a
+  longer multi-peer soak remain launch requirements.
+- **Full-body player identity:** the custom 64x64 Minecraft-style atlas now maps
+  head, torso, both arms, and both legs on the shared character rig. Classic and
+  slim models propagate through menu, Shop, Character Studio, cosmetic practice,
+  gameplay, bots, and P2P roster metadata. Character rigs also expose distinct
+  silhouettes/signatures instead of sharing only a head treatment.
+- **Premium Shop flow:** item cards are browse/select surfaces; inspect,
+  buy/equip state, price/ownership, and the explicit Practice action live in one
+  selected-item panel next to the live 3D avatar. Selecting no longer auto-loads
+  Practice. Desktop and 375x812 mobile runtime QA passed; mobile still needs a
+  small future polish pass because the first catalog item starts just below the
+  initial viewport and the leftmost tab can graze the edge.
+- **Identity + one-more-match visual gate:** non-atlas rigs now use an intentional
+  face plate and two readable block eyes; a cache-busted Neon Runner A/B passed
+  at the real Shop scale while saved custom atlases retain their own face. The
+  populated post-game report puts Rematch in the first desktop/mobile viewport,
+  moves the detailed report below it, keeps mobile XP on one line, and inserts
+  reward flow under the correct nested report parent.
+- **Product/network measurement:** `js/product-analytics.js` and
+  `server/product-analytics.js` provide authenticated, allowlisted,
+  HMAC-pseudonymous, 90-day product events. Run
+  `node scripts/product-kpi-report.js`; formulas and score rules are in
+  `docs/PRODUCT_SCORECARD.md`. The current development-local store is not a
+  cohort, so D1/D7/D30, conversion, rematch, and P2P KPI values remain
+  **NOT MEASURED**. Paid payer/ARPPU/ARPDAU/Battle Pass conversion remains
+  **NOT INSTRUMENTED YET** rather than inferred from soft-currency purchases.
+- **Account + social foundation:** playing now requires registration or sign-in.
+  Embedded SQLite stores scrypt password hashes, revocable hashed sessions,
+  stable `Name#CODE` friend identities, friendships, requests, direct messages,
+  and lobby invitations. Two-account browser/API QA passed request, accept,
+  chat, invite, logout, expiry, and unauthorized-access paths. Match transport
+  remains P2P; account/social/economy authority stays on the local Node server.
+- **Menu + progression loop:** the primary navigation is exactly Play, Ranked,
+  Arcade, Custom, Locker, Battle Pass, Shop, Profile. Locker exposes an earn-only
+  Arena Card collection and five-card same-rarity trade-up. Skills and runes can
+  no longer be purchased; competitive/ranked resolves the same neutral card
+  effects. Completed matches can grant cosmetic cases with a five-match drought
+  guarantee, and earned cases open before credits are charged.
+- **Case + hub presentation:** the case inspector shows contents, verified odds,
+  pity and earned inventory; normal, skip and reduced-motion reveals share one
+  once-only settled callback so rewards are announced after the reel locks. The
+  single Aurora Grand Plaza hub has corrected renderer restoration, improved
+  lighting, pools/statues and a walk-through Grand Pavilion focal space.
+- **Current verified readiness:** `docs/PRODUCT_SCORECARD.md` records an
+  **OVERALL PRODUCT READINESS SCORE of 7.4/10** from independent runtime,
+  visual, P2P, and 1,340-test gates. Player-outcome KPIs remain NOT MEASURED;
+  the readiness score is not a retention or revenue claim.
 
 ---
 
@@ -77,22 +141,28 @@ Key files: `js/ui-theme.js`, `js/settings-controller.js`, `css/ui-tokens.css`, `
 
 ---
 
-### Phase 3 — Accounts & Social (In Progress)
+### Phase 3 — Accounts & Social (Complete for local development)
 
 | # | Feature | Target File | Status |
 |---|---------|-------------|--------|
 | 20 | SQLite-backed Registration | `server/account-store.js` | ✅ scrypt password hashing, case-insensitive username |
-| 21 | Login with Token Recovery | `server/account-store.js` | ✅ bearer token reuses existing ProfileStore integration |
+| 21 | Login with Token Recovery | `server/account-store.js` | ✅ revocable hashed session tokens; internal profile token never reaches the browser |
 | 22 | Presence Tracking | `server/presence-store.js` | ✅ in-memory online/offline, 45s TTL, heartbeat API |
 | 23 | Auth Modal UI | `index.html`, `css/auth.css` | ✅ register/login tabs, error display |
 | 24 | Client Account Module | `js/account.js` | ✅ localStorage persistence, async register/login |
-| 25 | Presence Heartbeat | `js/main.js` | ✅ 20s interval, 0% impact on guests |
-| 26 | Friends Server Status | `js/friends.js` | ✅ `getServerStatus()` for online friend polling |
+| 25 | Presence Heartbeat | `js/main.js` | ✅ 20s authenticated heartbeat |
+| 26 | Persistent Social Graph | `server/social-store.js`, `js/friends.js` | ✅ friend tags, requests, friends, direct messages and lobby invites |
 
-**Key Design:** Accounts are identity-only. Gameplay remains 100% P2P. Only login recovery and presence display use the server. Guest sessions continue unchanged with localStorage-only profiles.
+**Key Design:** account login is mandatory by default; `ALLOW_GUEST_SESSIONS=1`
+exists only as an explicit development escape hatch. Gameplay transport remains
+P2P, while identity, social relationships and economy/profile persistence use
+the Node server. P2P host authority is not sufficient proof for trusted ranked
+or paid-economy results; production still needs authoritative validation.
 
-**Tests:** 12 new tests (8 account-store + 4 presence-store) all passing.
-**Verified:** Register, login, duplicate rejection, wrong password rejection, and end-to-end auth flow.
+**Verified:** full regression `1340/1340`; syntax `96` files; focused final
+acceptance `121/121`. Fresh isolated-data HTTP/browser QA passed mandatory auth,
+two-account friendship/chat/invite, idempotent reward, earned-case opening,
+card equip, purchase rejection and logout revocation.
 
 
 ### Phase 4 — Optional (Not Started)

@@ -254,6 +254,7 @@ test('_lobbyApi returns a distinct error marker (not a bare {}) when the fetch r
     const warnings = [];
     const globals = {
         console: { warn: (...args) => warnings.push(args) },
+        account: { getToken: () => '' },
         fetch: async () => { throw new TypeError('Failed to fetch'); }
     };
     const lobbyApi = compileAppMethod('_lobbyApi', globals);
@@ -268,6 +269,7 @@ test('_lobbyApi treats a non-2xx HTTP response as a failure instead of returning
     const warnings = [];
     const globals = {
         console: { warn: (...args) => warnings.push(args) },
+        account: { getToken: () => '' },
         fetch: async () => ({ ok: false, status: 500, json: async () => ({ oops: true }) })
     };
     const lobbyApi = compileAppMethod('_lobbyApi', globals);
@@ -280,6 +282,7 @@ test('_lobbyApi passes real data through untouched on success and never warns', 
     const warnings = [];
     const globals = {
         console: { warn: (...args) => warnings.push(args) },
+        account: { getToken: () => '' },
         fetch: async () => ({ ok: true, status: 200, json: async () => ([{ code: 'ok' }]) })
     };
     const lobbyApi = compileAppMethod('_lobbyApi', globals);

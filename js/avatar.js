@@ -68,6 +68,38 @@ export const FRONT_UV = Object.freeze({
     rightLeg: Object.freeze({ x: 4, y: 20, width: 4, height: 12 })
 });
 
+// Canonical 64x64 skin-sheet boxes. `paintBox` and the 3D rig both consume this
+// one layout, so an atlas painted in the editor does not silently collapse into
+// a head decal plus averaged body colours at render time.
+const atlasBox = (x, y, width, depth, height) => Object.freeze({
+    x, y, width, depth, height,
+    faces: Object.freeze({
+        top: Object.freeze({ x: x + depth, y, width, height: depth }),
+        bottom: Object.freeze({ x: x + depth + width, y, width, height: depth }),
+        left: Object.freeze({ x, y: y + depth, width: depth, height }),
+        front: Object.freeze({ x: x + depth, y: y + depth, width, height }),
+        right: Object.freeze({ x: x + depth + width, y: y + depth, width: depth, height }),
+        back: Object.freeze({ x: x + depth * 2 + width, y: y + depth, width, height })
+    })
+});
+
+const avatarAtlasBoxes = model => Object.freeze({
+    head: atlasBox(0, 0, 8, 8, 8),
+    body: atlasBox(16, 16, 8, 4, 12),
+    rightArm: atlasBox(40, 16, model.arm.width, 4, 12),
+    rightLeg: atlasBox(0, 16, 4, 4, 12),
+    leftArm: atlasBox(32, 48, model.arm.width, 4, 12),
+    leftLeg: atlasBox(16, 48, 4, 4, 12)
+});
+
+export const AVATAR_ATLAS_BOXES = Object.freeze({
+    classic: avatarAtlasBoxes(AVATAR_MODELS.classic),
+    slim: avatarAtlasBoxes(AVATAR_MODELS.slim)
+});
+
+export const getAvatarAtlasBoxes = (modelId = 'classic') =>
+    AVATAR_ATLAS_BOXES[resolveModel(modelId).id];
+
 const resolveSkin = value => {
     if (typeof value === 'string') return AVATAR_SKINS[value] || AVATAR_SKINS.default;
     return value?.id && AVATAR_SKINS[value.id] ? AVATAR_SKINS[value.id] : AVATAR_SKINS.default;
@@ -141,13 +173,15 @@ const paintBox = (pixels, x, y, width, depth, height, color) => {
 export function createAvatarAtlas(skinId = 'default') {
     const preset = resolveSkin(skinId);
     const model = resolveModel(preset.model);
+    const boxes = getAvatarAtlasBoxes(model.id);
     const pixels = Array(ATLAS_SIZE * ATLAS_SIZE).fill(null);
-    paintBox(pixels, 0, 0, 8, 8, 8, preset.head);
-    paintBox(pixels, 16, 16, 8, 4, 12, preset.body);
-    paintBox(pixels, 40, 16, model.arm.width, 4, 12, preset.arms);
-    paintBox(pixels, 0, 16, 4, 4, 12, preset.legs);
-    paintBox(pixels, 32, 48, model.arm.width, 4, 12, preset.arms);
-    paintBox(pixels, 16, 48, 4, 4, 12, preset.legs);
+    const paint = (box, color) => paintBox(pixels, box.x, box.y, box.width, box.depth, box.height, color);
+    paint(boxes.head, preset.head);
+    paint(boxes.body, preset.body);
+    paint(boxes.rightArm, preset.arms);
+    paint(boxes.rightLeg, preset.legs);
+    paint(boxes.leftArm, preset.arms);
+    paint(boxes.leftLeg, preset.legs);
     pixels[11 * ATLAS_SIZE + 10] = '#222222';
     pixels[11 * ATLAS_SIZE + 13] = '#222222';
     if (preset.team) {

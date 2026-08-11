@@ -19,13 +19,15 @@ import { Network } from './network.js';
 import { VoiceChat } from './voice.js';
 import { Store, shouldArmFirstMatchHints, shouldShowFtueWelcome } from './store.js';
 import { DEFAULT_LOADOUT } from './skills.js';
-import { AvatarPainter, AVATAR_SKINS, cropAtlasFace, sampleAvatarPartColors } from './avatar.js';
+import { ARENA_CARDS, CARD_RARITIES } from './cards.js';
+import { AvatarPainter, AVATAR_SKINS } from './avatar.js';
+import { ProductAnalytics, joinLatencyBucket } from './product-analytics.js';
 import { SKIN_PRESETS, SKIN_PRESET_IDS, renderSkinPreset } from './skin-presets.js';
 import { createShowcaseAvatar, ShopShowcaseRenderer } from './shop-showcase.js';
 import { createMenuStage } from './menu-stage.js';
 import { deriveFeaturedStrip } from './menu-featured.js';
 import { COSMETIC_PRACTICE_MAP_ID, CosmeticPracticeSession } from './cosmetic-practice.js';
-import { CASES, KNIVES } from './cosmetics.js';
+import { CASES, KNIVES, getCaseDropRates } from './cosmetics.js';
 import { createKnifeModel, disposeObject3D } from './weapon-models.js';
 import { MapEditorController } from './map-editor.js';
 import { normalizeMapConfig, validateMapConfig } from './map-config.js';
@@ -41,9 +43,10 @@ import { Console } from './console.js';
 import { tournament } from './tournament.js';
 import { Friends } from './friends.js';
 import { MatchHistory } from './matchhistory.js';
+import { getRank } from './ranked.js';
 import { CHARACTERS } from './characters.js';
 import { appendClanMessage, createClan, listClans } from './social.js';
-import { account, PROFILE_TOKEN_KEY } from './account.js';
+import { account } from './account.js';
 import { SOCIAL_HUB_MAPS, SOCIAL_HUB_MAP_ID, SocialLobby, getSocialLobbyMapState } from './social-lobby.js';
 import { applyUiPreferences, loadUiPreferences, normalizeTheme, normalizeUiScale } from './ui-theme.js';
 import { initSettingsTabs, initThemeSwatches, initSettingsExtras, shouldRenderFrame } from './settings-controller.js';
@@ -57,10 +60,8 @@ import { filterLobbies, pickQuickLobby, formatLobbyAge, lobbyCapacity } from './
 import {
     createParty,
     createSocialProfile,
-    inviteToParty,
     rememberPlayer,
     reportPlayer,
-    requestFriend,
     setMuted,
     setPartyReady
 } from './social-service.js';
@@ -95,6 +96,14 @@ class App {
         this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.2, 2000);
         this.store = Store;
         this.store.load();
+        this.productAnalytics = new ProductAnalytics(this.store);
+        this.productAnalytics.start();
+        window.addEventListener('warrball:screen', event => {
+            const screen = event.detail?.screen;
+            if (['mainMenu', 'shop', 'battlepass', 'multiplayerMenu', 'joinMenu', 'lobby', 'practiceMenu'].includes(screen)) {
+                this.productAnalytics.track('screen_view', { screen });
+            }
+        });
         RuntimeLog.install(window);
         this.afkMonitor = new AfkMonitor();
         this.networkHealth = new RollingNetworkMonitor();
@@ -174,11 +183,30 @@ class App {
                 queuedIds
             ));
             this.awardMatchRewards();
+            this.productAnalytics.track('match_complete', {
+                mode: this.game.mode?.id || 'classic',
+                networkRole: this.network.isHost ? 'host' : this.network.connected ? 'client' : 'solo'
+            }, {
+                matchDurationSec: this._analyticsMatchStartedAt ? Math.max(0, (Date.now() - this._analyticsMatchStartedAt) / 1000) : 0
+            });
             this.refreshMetaStats();
             this.ui.updateContractTracker(Daily, this.store);
         };
         this.game.onRoundEnd = () => this._queueRoundReplay();
         this.game.onMatchStart = () => {
+            this._analyticsMatchStartedAt = Date.now();
+            const networkRole = this.network.isHost ? 'host' : this.network.connected ? 'client' : 'solo';
+            this.productAnalytics.track('match_start', {
+                mode: this.game.mode?.id || 'classic',
+                entry: this._analyticsMatchEntry || 'lobby',
+                networkRole
+            });
+            this.productAnalytics.track('cosmetic_match_use', {
+                itemType: 'avatar',
+                itemId: this.store.get('equippedAvatarSkin') || 'default',
+                networkRole
+            });
+            this._analyticsMatchEntry = null;
             clearTimeout(this._rematchTimer);
             this._rematchTimer = null;
             this._rematchStarting = false;
@@ -191,7 +219,10 @@ class App {
         this.game.onPerfectDeflect = result => this._showPerfectDeflect(result);
         this.game.onPracticeMetrics = summary => this._updatePracticeLab(summary);
         this.game.onGuidedDrillUpdate = snapshot => this._updateGuidedDrillHUD(snapshot);
-        this.game.onGuidedDrillComplete = result => this._showGuidedDrillResult(result);
+        this.game.onGuidedDrillComplete = result => {
+            this.productAnalytics.track('practice_complete', { practiceType: 'guided_deflect', result: 'complete' });
+            this._showGuidedDrillResult(result);
+        };
         this.player.game = this.game;
         this.player.audio = this.audio;
         this.socialLobby = new SocialLobby(this.renderer, this.player, {
@@ -513,27 +544,62 @@ class App {
         this._initMenuStage();
         this.applyAccessibility();
         this.refreshMetaStats();
-        this.store.connectRemote(this.store.get('playerName')).then(connected => {
-            if (!connected) return;
-            this.applyLoadout();
-            // Player.applyLoadout() resets HP from character base stats, silently
-            // clobbering any mode maxHp mutator (e.g. instagib's) applied earlier.
-            // Re-sync current mode's mutators so a slow connectRemote() resolution
-            // doesn't quietly downgrade an active one-shot match back to normal HP.
-            this.game.selectMode(this.game.mode.id);
-            this.refreshMetaStats();
-        });
-        this.store.set('onboardingSeen', true);
-        this.ui.showScreen('mainMenu');
-        if (shouldShowFtueWelcome(this.store.get('ftueSeen'))) this.showFtueWelcome();
+        this._authenticated = false;
+        this.ui.hideAll();
+        this._beginAuthenticatedBoot();
 
         // In-game console (~)
         this.gameConsole = new Console();
         this.gameConsole.init(this.game);
         this.game.console = this.gameConsole; // game loop can check visibility
 
-        this._setupPresenceHeartbeat();
         this.loop();
+    }
+
+    async _beginAuthenticatedBoot() {
+        this._showAuthGate('Checking your saved session…');
+        const restored = await account.restore();
+        if (!restored.ok) {
+            const retry = account.isLoggedIn() || /network|unable|retry/i.test(restored.error || '');
+            this._showAuthGate(restored.error || 'Sign in to continue.', { retry });
+            return;
+        }
+        await this._completeAuthentication();
+    }
+
+    _showAuthGate(status, { retry = false } = {}) {
+        this._authenticated = false;
+        this.ui?.hideAll();
+        const modal = document.getElementById('auth-modal');
+        const statusEl = document.getElementById('auth-status');
+        if (statusEl) statusEl.textContent = status;
+        modal?.classList.remove('hidden');
+        document.getElementById('auth-retry')?.classList.toggle('hidden', !retry);
+        if (!account.isLoggedIn()) document.getElementById('auth-login-username')?.focus();
+    }
+
+    async _completeAuthentication() {
+        const profileName = account.getUsername();
+        if (!profileName) return this._showAuthGate('Sign in to continue.');
+        this.store.set('playerName', profileName);
+        this.game.playerName = profileName;
+        const nameInput = document.getElementById('player-name-input');
+        if (nameInput) { nameInput.value = profileName; nameInput.readOnly = true; }
+        const statusEl = document.getElementById('auth-status');
+        if (statusEl) statusEl.textContent = 'Syncing your profile…';
+        const connected = await this.store.connectRemote(profileName);
+        if (!connected) return this._showAuthGate('Your account is valid, but profile sync failed. Retry connection.', { retry: true });
+        this._authenticated = true;
+        document.getElementById('auth-modal')?.classList.add('hidden');
+        this.store.set('onboardingSeen', true);
+        void this.productAnalytics.flush();
+        this.applyLoadout();
+        this.game.selectMode(this.game.mode.id);
+        this.refreshMetaStats();
+        this.ui.showScreen('mainMenu');
+        if (shouldShowFtueWelcome(this.store.get('ftueSeen'))) this.showFtueWelcome();
+        this._setupPresenceHeartbeat();
+        this._startSocialPolling();
     }
 
     _setupAuthModal() {
@@ -544,10 +610,15 @@ class App {
         document.querySelectorAll('.auth-tab-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 const tab = e.target.getAttribute('data-tab');
-                document.querySelectorAll('.auth-tab-btn').forEach(b => b.classList.remove('auth-tab-active'));
+                document.querySelectorAll('.auth-tab-btn').forEach(b => {
+                    b.classList.remove('auth-tab-active');
+                    b.setAttribute('aria-selected', 'false');
+                });
                 document.querySelectorAll('.auth-tab-content').forEach(c => c.classList.add('hidden'));
                 e.target.classList.add('auth-tab-active');
+                e.target.setAttribute('aria-selected', 'true');
                 document.getElementById(`auth-${tab}-tab`)?.classList.remove('hidden');
+                document.getElementById(`auth-${tab}-username`)?.focus();
             });
         });
         
@@ -578,13 +649,11 @@ class App {
             if (e.key === 'Enter') this._handleRegister();
         });
         
-        // Skip/Guest button
-        document.getElementById('auth-skip')?.addEventListener('click', () => {
-            modal.classList.add('hidden');
-        });
+        document.getElementById('auth-retry')?.addEventListener('click', () => this._beginAuthenticatedBoot());
     }
 
     async _handleLogin() {
+        if (this._authBusy) return;
         const username = document.getElementById('auth-login-username')?.value || '';
         const password = document.getElementById('auth-login-password')?.value || '';
         const errorDiv = document.getElementById('auth-login-error');
@@ -597,24 +666,32 @@ class App {
             return;
         }
         
-        const result = await account.login(username, password);
+        this._authBusy = true;
+        const submit = document.getElementById('auth-login-submit');
+        if (submit) { submit.disabled = true; submit.setAttribute('aria-busy', 'true'); }
+        let result;
+        try { result = await account.login(username, password); }
+        finally {
+            this._authBusy = false;
+            if (submit) { submit.disabled = false; submit.removeAttribute('aria-busy'); }
+        }
         if (result.error) {
             if (errorDiv) {
                 errorDiv.textContent = result.error;
                 errorDiv.classList.remove('hidden');
             }
         } else {
-            document.getElementById('auth-modal')?.classList.add('hidden');
             if (errorDiv) errorDiv.classList.add('hidden');
             document.getElementById('auth-login-username').value = '';
             document.getElementById('auth-login-password').value = '';
+            await this._completeAuthentication();
         }
     }
 
     async _handleRegister() {
+        if (this._authBusy) return;
         const username = document.getElementById('auth-register-username')?.value || '';
         const password = document.getElementById('auth-register-password')?.value || '';
-        const avatar = document.getElementById('auth-register-avatar')?.value || '';
         const errorDiv = document.getElementById('auth-register-error');
         
         if (!username || !password) {
@@ -625,40 +702,83 @@ class App {
             return;
         }
         
-        const result = await account.register(username, password, avatar);
+        this._authBusy = true;
+        const submit = document.getElementById('auth-register-submit');
+        if (submit) { submit.disabled = true; submit.setAttribute('aria-busy', 'true'); }
+        let result;
+        try { result = await account.register(username, password); }
+        finally {
+            this._authBusy = false;
+            if (submit) { submit.disabled = false; submit.removeAttribute('aria-busy'); }
+        }
         if (result.error) {
             if (errorDiv) {
                 errorDiv.textContent = result.error;
                 errorDiv.classList.remove('hidden');
             }
         } else {
-            document.getElementById('auth-modal')?.classList.add('hidden');
             if (errorDiv) errorDiv.classList.add('hidden');
             document.getElementById('auth-register-username').value = '';
             document.getElementById('auth-register-password').value = '';
-            document.getElementById('auth-register-avatar').value = '';
+            await this._completeAuthentication();
         }
     }
 
     _setupPresenceHeartbeat() {
-        // Send presence heartbeat every 20s if logged in. Gracefully no-ops for guests
-        // (offline presence in /api/social/status returns empty, friends list falls back
-        // to local in-match presence). This keeps the server's presence Map fresh without
-        // requiring the app to send auth headers on every frame.
-        this._presenceHeartbeatInterval = setInterval(() => {
-            if (account.isLoggedIn()) {
-                fetch('/api/social/heartbeat', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${account.getToken()}`
-                    },
-                    body: JSON.stringify({ avatar: account.getAvatar() })
-                }).catch(() => {
-                    // Silently ignore network errors; presence is a display hint only
-                });
-            }
-        }, 20000);
+        clearInterval(this._presenceHeartbeatInterval);
+        const heartbeat = () => {
+            if (!this._authenticated || !account.isLoggedIn()) return;
+            fetch('/api/social/heartbeat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${account.getToken()}` },
+                body: JSON.stringify({ avatar: account.getAvatar() })
+            }).catch(() => {});
+        };
+        heartbeat();
+        this._presenceHeartbeatInterval = setInterval(heartbeat, 20000);
+    }
+
+    _startSocialPolling() {
+        clearInterval(this._socialPollTimer);
+        const socialScreens = new Set(['mainMenu', 'multiplayerMenu', 'joinMenu', 'lobby', 'socialCenter']);
+        const poll = async () => {
+            if (!this._authenticated || document.hidden || !socialScreens.has(document.body.dataset.screen)) return;
+            await Friends.sync();
+            this.refreshFriendsSidebar();
+            if (document.body.dataset.screen === 'socialCenter') this._renderSocialCenter();
+        };
+        this._socialPollNow = poll;
+        poll();
+        this._socialPollTimer = setInterval(poll, 5000);
+        if (!this._socialVisibilityBound) {
+            this._socialVisibilityBound = true;
+            document.addEventListener('visibilitychange', () => {
+                if (!document.hidden && this._authenticated) this._socialPollNow?.();
+            }, { signal: this._mainAbort.signal });
+        }
+    }
+
+    async _logout() {
+        if (this._socialHubCode) {
+            await this._socialHubApi(`/api/social-hubs/${encodeURIComponent(this._socialHubCode)}`, { method: 'DELETE' });
+            this._socialHubCode = null;
+        }
+        if (this._lobbyCode && this.network?.isHost) await this._unregisterLobby(this._lobbyCode);
+        this._lobbyCode = null;
+        this._stopHostCheckpointLifecycle();
+        if (this.network?.isHost) this.network.closeLobby?.();
+        else this.network?.disconnect?.();
+        this.game.cancelPreGame?.();
+        this.game.setState(STATES.MENU);
+        this._authenticated = false;
+        clearInterval(this._presenceHeartbeatInterval);
+        clearInterval(this._socialPollTimer);
+        this._presenceHeartbeatInterval = null;
+        this._socialPollTimer = null;
+        this.store.remoteReady = false;
+        this.store.sessionToken = '';
+        await account.logout();
+        this._showAuthGate('Signed out. Sign in to continue.');
     }
 
     _getKnifeStyle(id) {
@@ -669,9 +789,68 @@ class App {
             : base;
     }
 
+    _renderCardCollection() {
+        const panel = document.getElementById('card-collection-panel');
+        const grid = document.getElementById('card-collection-grid');
+        const status = document.getElementById('card-collection-status');
+        const select = document.getElementById('card-tradeup-select');
+        if (!panel || !grid || !status || !select) return;
+        const collection = this.store.getCardCollection();
+        const equipped = this.store.getEquippedCards();
+        const cache = this.store.get('arenaCache') || {};
+        const cards = Object.values(ARENA_CARDS).sort((left, right) => {
+            const rarity = CARD_RARITIES[left.rarity].rank - CARD_RARITIES[right.rarity].rank;
+            return rarity || left.name.localeCompare(right.name);
+        });
+        status.textContent = `${cache.opened || 0} Arena Caches opened. Cards change casual/Arcade only; Ranked uses the shared baseline.`;
+        grid.replaceChildren();
+        for (const card of cards) {
+            const copies = collection[card.id] || 0;
+            const isEquipped = equipped[card.slot] === card.id;
+            const article = document.createElement('article');
+            article.className = `arena-card${isEquipped ? ' is-equipped' : ''}`;
+            article.dataset.rarity = card.rarity;
+            const rarity = document.createElement('span');
+            rarity.className = 'card-rarity';
+            rarity.textContent = CARD_RARITIES[card.rarity].label;
+            const name = document.createElement('strong');
+            name.className = 'card-name';
+            name.textContent = card.name;
+            const copy = document.createElement('p');
+            copy.className = 'card-copy';
+            copy.textContent = card.description;
+            const count = document.createElement('span');
+            count.className = 'card-count';
+            count.textContent = `Owned: ${copies}`;
+            article.append(rarity, name, copy, count);
+            const action = document.createElement('button');
+            action.type = 'button';
+            action.className = 'btn btn-secondary btn-small card-equip';
+            action.dataset.cardId = card.id;
+            action.dataset.slot = card.slot;
+            action.disabled = copies < 1 || isEquipped;
+            action.textContent = isEquipped ? 'Equipped' : copies ? `Equip ${card.slot}` : 'Locked in Arena Cache';
+            article.appendChild(action);
+            grid.appendChild(article);
+        }
+        select.replaceChildren();
+        const tradeable = cards.filter(card => card.rarity !== 'legendary' && (collection[card.id] || 0) >= 5);
+        if (!tradeable.length) {
+            const option = new Option('Need 5 duplicate cards', '');
+            option.disabled = true;
+            option.selected = true;
+            select.add(option);
+        } else {
+            for (const card of tradeable) {
+                select.add(new Option(`${card.name} x5 → next rarity`, card.id));
+            }
+        }
+        document.getElementById('btn-card-tradeup').disabled = !tradeable.length;
+    }
+
     // Store'dan loadout uygula (karakter + rune + ball skin).
     applyLoadout() {
-        const loadout = this.store.get('loadout') || DEFAULT_LOADOUT;
+        const loadout = this.store.getCardEffects?.(this.game.mode?.id) || this.store.get('loadout') || DEFAULT_LOADOUT;
         const charId = this.store.get('selectedChar') || 'rally';
         this.player.applyLoadout(charId, loadout.runes);
         this.player.loadout.skill = loadout.skill || 'slow';
@@ -777,11 +956,46 @@ class App {
             nameInput.dataset.init = '1';
             nameInput.addEventListener('change', () => {
                 this.store.set('playerName', nameInput.value || 'Player');
+                this._renderMenuIdentity();
             });
         }
+        this._renderMenuIdentity();
         this._renderMenuFeatured();
         this._renderRetentionBadge();
         this._renderRetentionStrip();
+    }
+
+    // The home screen only mirrors existing profile and party state; it never opens
+    // a network session or invents a second social-state representation.
+    _renderMenuIdentity() {
+        const name = this.game.playerName || this.store.get('playerName') || 'Player';
+        const elo = Number(this.store.getElo?.()) || 1000;
+        const rank = getRank(elo);
+        const nameNode = document.getElementById('menu-player-name');
+        const rankNode = document.getElementById('menu-player-rank');
+        const eloNode = document.getElementById('menu-player-elo');
+        const badge = document.getElementById('menu-rank-badge');
+        if (nameNode) nameNode.textContent = name;
+        if (rankNode) rankNode.textContent = rank.name;
+        if (eloNode) eloNode.textContent = `${elo} ELO`;
+        if (badge) {
+            badge.dataset.rank = rank.name.toLowerCase();
+            badge.style.setProperty('--menu-rank-color', rank.color);
+        }
+        this._renderMenuPartyRail(name);
+    }
+
+    _renderMenuPartyRail(localName = this.game.playerName || this.store.get('playerName') || 'Player') {
+        if (!this.party?.members?.some(member => member.name === localName)) this.party = createParty(localName);
+        const list = document.getElementById('menu-party-list');
+        const count = document.getElementById('menu-party-count');
+        if (count) count.textContent = `${this.party.members.length} / 8`;
+        if (!list) return;
+        list.innerHTML = this.party.members.slice(0, 4).map(member => {
+            const isLeader = member.name === this.party.owner;
+            const state = member.ready ? 'READY' : 'WAITING';
+            return `<div class="menu-party-member"><span><b>${this._esc(member.name)}</b>${isLeader ? '<small>LEADER</small>' : ''}</span><em class="${member.ready ? 'ready' : ''}">${state}</em></div>`;
+        }).join('');
     }
 
     // Retention strip: daily-challenge + battlepass progress cards on the main
@@ -976,9 +1190,14 @@ class App {
         // Optimistic local grant so guests (and any pre-sync window) never lose
         // the reward; grantMatchRemote() below overwrites currency with the
         // server's absolute total once it resolves, so this never double-counts.
-        const result = this.store.grant({ currency: rewardCalc.total, xp });
         const matchId = this.game.matchId || globalThis.crypto?.randomUUID?.()
             || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const result = this.store.grant({ currency: rewardCalc.total, xp });
+        // Account profiles receive their cache result only from the server's
+        // idempotent match-reward record. Local fallback remains for legacy
+        // offline development profiles.
+        let cardReward = null;
+        if (!this.store.remoteReady) cardReward = this.store.awardArenaCache({ matchId, won, leveledUp: result.leveledUp });
         this.ui._lastMatchReward = { ...rewardCalc, kills: myStat.score || 0, deflects: myStat.deflections || 0 };
         this.store.grantMatchRemote({
             matchId,
@@ -987,7 +1206,20 @@ class App {
             deflections: myStat.deflections,
             score: myStat.score
         }).then(synced => {
-            if (synced) this.refreshMetaStats();
+            if (!synced) return;
+            cardReward = synced.cardReward || null;
+            if (cardReward && !synced.replayed) {
+                const card = cardReward.card;
+                this.productAnalytics.track('arena_cache_earned', { itemId: card.id, itemType: card.rarity, result: 'match_drop' });
+                this.productAnalytics.track('arena_cache_opened', { itemId: card.id, itemType: card.rarity, result: cardReward.duplicate ? 'duplicate' : 'new' });
+                this.productAnalytics.track('card_earned', { itemId: card.id, itemType: card.rarity, result: cardReward.duplicate ? 'duplicate' : 'new' });
+                this.ui.showMessage?.(`Arena Cache: ${card.name} (${CARD_RARITIES[card.rarity].label})`, 4200);
+            }
+            if (synced.earnedCase && !synced.replayed) {
+                this.productAnalytics.track('earned_case_granted', { itemId: synced.earnedCase, itemType: 'cosmetic_case', result: synced.earnedCaseSource || 'match_roll' });
+                this.ui.showMessage?.(`MATCH DROP: Earned ${CASES[synced.earnedCase]?.name || 'Cosmetic Case'} — open it free in Cases.`, 4200);
+            }
+            this.refreshMetaStats();
         });
         const rally = this.game.rallyCount;
         const damageDealt = this.player.totalDamageDealt;
@@ -1029,6 +1261,13 @@ class App {
         }
         if (mastery.masteryLeveledUp) {
             this.ui.showMessage?.(`${CHARACTERS[this.player.charId]?.name || 'Character'} Mastery Lv ${mastery.masteryLevel}!`, 3000);
+        }
+        if (cardReward) {
+            const card = cardReward.card;
+            this.productAnalytics.track('arena_cache_earned', { itemId: card.id, itemType: card.rarity, result: result.leveledUp ? 'level_up' : 'match_drop' });
+            this.productAnalytics.track('arena_cache_opened', { itemId: card.id, itemType: card.rarity, result: cardReward.duplicate ? 'duplicate' : 'new' });
+            this.productAnalytics.track('card_earned', { itemId: card.id, itemType: card.rarity, result: cardReward.duplicate ? 'duplicate' : 'new' });
+            this.ui.showMessage?.(`Arena Cache: ${card.name} (${CARD_RARITIES[card.rarity].label})`, 4200);
         }
         this.ui.showMessage?.(`+${rewardCalc.total} coins, +${xp} XP`, 3000);
 
@@ -1073,11 +1312,13 @@ class App {
     showFtueWelcome() {
         if (this.game.state !== STATES.MENU) return;
         document.getElementById('ftue-welcome')?.classList.remove('hidden');
+        this.productAnalytics.track('ftue_view');
     }
 
     hideFtueWelcome() {
         document.getElementById('ftue-welcome')?.classList.add('hidden');
         this.store.set('ftueSeen', true);
+        this.productAnalytics.track('ftue_complete');
     }
 
     // First-match HUD hints: armed only from the solo/bot start paths below
@@ -1118,14 +1359,17 @@ class App {
             this.ui.showScreen('practiceMenu');
         });
 
-        bind('btn-play-solo', () => {
+        const openMultiplayer = () => {
             // QUICK PLAY opens the multiplayer hub (user decision 2026-07-30): lobby
             // browser + create/host + join-by-code + Solo vs Bots all live there.
             // Bot matches are one click further via btn-mp-solo.
             this.ui.showScreen('multiplayerMenu');
             this._refreshLobbyList();
+            clearInterval(this._mpRefreshTimer);
             this._mpRefreshTimer = setInterval(() => this._refreshLobbyList(), 5000);
-        });
+        };
+        bind('btn-play-solo', openMultiplayer);
+        bind('btn-play', openMultiplayer);
 
         // Multiplayer menü butonları
         bind('btn-mp-create', () => {
@@ -1249,6 +1493,7 @@ class App {
             this.ui.renderCareer(this.store);
             this.ui.showScreen('ranked');
         });
+        bind('btn-profile', () => this.ui.showProfile());
         bind('btn-ranked-play', () => this._startRankedQueue());
         bind('ranked-queue-cancel', () => this._cancelRankedQueue());
         bind('btn-social', () => this._openSocialHubBrowser());
@@ -1287,10 +1532,14 @@ class App {
             document.querySelectorAll('#leaderboard-filters [data-filter]').forEach(item => item.classList.toggle('selected', item === button));
             this.ui.renderLeaderboard?.(this.store, button.dataset.filter);
         });
-        bind('btn-social-center', () => {
+        const openSocialCenter = () => {
             this._renderSocialCenter();
             this.ui.showScreen('socialCenter');
-        });
+        };
+        bind('btn-social-center', openSocialCenter);
+        bind('btn-menu-party-invite', openSocialCenter);
+        bind('btn-menu-squad-center', openSocialCenter);
+        bind('profile-logout', () => this._logout());
         bind('btn-social-center-back', () => {
             if (this._socialInspectReturnToHub && this.socialLobby.active) {
                 this._socialInspectReturnToHub = false;
@@ -1301,19 +1550,19 @@ class App {
             }
             this.ui.showScreen('mainMenu');
         });
-        bind('community-friend-add', () => {
+        bind('community-friend-tag', async () => {
+            const tag = account.getFriendTag();
+            if (!tag) return;
+            try { await navigator.clipboard?.writeText(tag); this.ui.showMessage?.('Friend tag copied.', 1200); } catch { this.ui.showMessage?.(tag, 2200); }
+        });
+        bind('community-friend-add', async () => {
             const input = document.getElementById('community-friend-name');
-            const name = input?.value?.trim();
-            this.socialProfile = requestFriend(this.socialProfile, name);
-            this.socialProfile = createSocialProfile({
-                ...this.socialProfile,
-                friends: [...this.socialProfile.friends, name],
-                outgoing: this.socialProfile.outgoing.filter(item => item !== name)
-            });
-            this.party = inviteToParty(this.party, name);
-            Friends.add(name);
+            const tag = input?.value?.trim();
+            if (!tag) return;
+            const result = await Friends.request(tag);
+            if (result.error) this.ui.showMessage?.(result.error, 1800);
+            else this.ui.showMessage?.('Friend request sent.', 1400);
             if (input) input.value = '';
-            this._saveSocialProfile();
             this._renderSocialCenter();
         });
         bind('party-ready-check', () => {
@@ -1601,6 +1850,16 @@ class App {
             this.refreshMetaStats();
         });
 
+        bind('btn-card-collection', () => {
+            this._renderCardCollection();
+            document.getElementById('card-collection-panel')?.classList.remove('hidden');
+            document.getElementById('btn-card-collection-close')?.focus();
+        });
+        bind('btn-card-collection-close', () => {
+            document.getElementById('card-collection-panel')?.classList.add('hidden');
+            document.getElementById('btn-card-collection')?.focus();
+        });
+
         bind('btn-avatar-clear', () => {
             this.avatarPainter?.clear();
         });
@@ -1670,8 +1929,12 @@ class App {
         };
 
         this._startRematchMatch = (matchId, sourceMatchId = null) => {
+            this._analyticsMatchEntry = 'rematch';
             const started = this.game.startGame(false, matchId);
             if (started === false) return false;
+            this.productAnalytics.track('rematch_start', {
+                networkRole: this.network.isHost ? 'host' : this.network.connected ? 'client' : 'solo'
+            });
             clearTimeout(this._rematchTimer);
             this._rematchTimer = null;
             this.player.lock();
@@ -1740,6 +2003,9 @@ class App {
             if (!isTerminalRematchState(this.game.state)) return;
             const sourceMatchId = this.game.matchId;
             if (!isSafeMatchId(sourceMatchId) || this._rematchStarting) return;
+            this.productAnalytics.track('rematch_click', {
+                networkRole: this.network.isHost ? 'host' : this.network.connected ? 'client' : 'solo'
+            });
             if (!this.network.connected) {
                 this._startRematchMatch(createMatchId());
                 return;
@@ -1799,7 +2065,7 @@ class App {
             this.player.lock();
             this.ui.updateContractTracker(Daily, this.store);
             if (this.network.connected && this.network.isHost) {
-                this.network.broadcast({ type: 'gameStart', ...this.game.snapshotState() });
+                this.network.broadcastGameStart(this.game.snapshotState());
             }
             // Replay kaydı başlat
             Replay.startRecording({
@@ -1871,7 +2137,11 @@ bind('btn-remove-bot', () => {
                     // sendBeacon only supports POST → server'un POST /api/lobbies/:code
                     // handler'ı lobby'yi tek seferde siler.
                     const url = `/api/lobbies/${encodeURIComponent(this._lobbyCode)}`;
-                    navigator.sendBeacon(url, '');
+                    fetch(url, {
+                        method: 'DELETE',
+                        keepalive: true,
+                        headers: { Authorization: `Bearer ${account.getToken()}` }
+                    });
                 } catch (e) {}
             }
             try {
@@ -2473,7 +2743,9 @@ document.querySelectorAll('.mode-btn').forEach(btn => {
             updateCSLobbyInfo();
             return;
         }
-        this.game.selectMode(btn.dataset.mode);
+                this.game.selectMode(btn.dataset.mode);
+                this.applyLoadout();
+                this.game.selectMode(this.game.mode.id);
                 updateCSLobbyInfo();
             });
 });
@@ -2491,6 +2763,37 @@ updateCSLobbyInfo();
 
         // Karakter kart tıklama
         document.addEventListener('click', async e => {
+            const cardEquip = e.target.closest('.card-equip');
+            if (cardEquip) {
+                const equipped = await this.store.equipCardRemote(cardEquip.dataset.cardId, cardEquip.dataset.slot);
+                if (!equipped) {
+                    this.ui.showMessage?.('Earn this card from an Arena Cache first.', 1800);
+                    return;
+                }
+                const card = ARENA_CARDS[cardEquip.dataset.cardId];
+                this.productAnalytics.track('card_equipped', { itemId: card.id, itemType: card.rarity, result: card.slot });
+                this.applyLoadout();
+                this.game.selectMode(this.game.mode.id);
+                this._renderCardCollection();
+                this.ui.renderCharacterSelect(this.store);
+                this.ui.showMessage?.(`${card.name} equipped for casual and Arcade. Ranked stays normalized.`, 2600);
+                return;
+            }
+            const cardTradeup = e.target.closest('#btn-card-tradeup');
+            if (cardTradeup) {
+                const cardId = document.getElementById('card-tradeup-select')?.value;
+                const card = ARENA_CARDS[cardId];
+                const result = card && await this.store.tradeUpCardsRemote(Array(5).fill(cardId));
+                if (!result) {
+                    this.ui.showMessage?.('You need five duplicate non-legendary cards.', 2000);
+                    return;
+                }
+                this.productAnalytics.track('card_trade_up', { itemId: result.reward.id, itemType: result.reward.rarity, result: card.rarity });
+                this._renderCardCollection();
+                this.ui.renderCharacterSelect(this.store);
+                this.ui.showMessage?.(`Trade-up complete: ${result.reward.name}!`, 3200);
+                return;
+            }
             const charCard = e.target.closest('.char-card');
             if (charCard) {
                 const charId = charCard.dataset.char;
@@ -2512,12 +2815,7 @@ updateCSLobbyInfo();
             if (skillCard) {
                 const skillId = skillCard.dataset.skill;
                 if (!this.store.ownsSkill(skillId)) {
-                    if (await this.store.purchase('skill', skillId)) {
-                        this.ui.renderCharacterSelect(this.store);
-                        this.refreshMetaStats();
-                    } else {
-                        this.ui.showMessage?.('Not enough coins!');
-                    }
+                    this.ui.showMessage?.('Abilities are earned from Arena Cache cards in Locker.', 2200);
                     return;
                 }
                 document.querySelectorAll('.skill-card').forEach(c => c.classList.remove('selected'));
@@ -2527,12 +2825,7 @@ updateCSLobbyInfo();
             if (runeCard) {
                 const runeId = runeCard.dataset.rune;
                 if (!this.store.owns(runeId)) {
-                    if (await this.store.purchase('rune', runeId)) {
-                        this.ui.renderCharacterSelect(this.store);
-                        this.refreshMetaStats();
-                    } else {
-                        this.ui.showMessage?.('Not enough coins!');
-                    }
+                    this.ui.showMessage?.('Passive runes are earned from Arena Cache cards in Locker.', 2200);
                     return;
                 }
                 // Rune slot is deliberately single-choice for readable counterplay.
@@ -2548,11 +2841,13 @@ updateCSLobbyInfo();
             if (liveOfferBtn) {
                 const ok = await this.store.purchaseLiveOffer(liveOfferBtn.dataset.offerId);
                 if (ok) {
+                    this.productAnalytics.track('shop_purchase_success', { itemType: 'live_offer', itemId: liveOfferBtn.dataset.offerId });
                     this.ui.showMessage?.('Live deal purchased!');
                     await this.store.refreshLiveMarket();
                     this.ui.renderShop(this.store, 'live');
                     this.refreshMetaStats();
                 } else {
+                    this.productAnalytics.track('shop_purchase_failure', { itemType: 'live_offer', itemId: liveOfferBtn.dataset.offerId, reason: 'unavailable' });
                     this.ui.showMessage?.('Live deal is unavailable, owned, or you need more coins.');
                 }
                 return;
@@ -2563,6 +2858,9 @@ updateCSLobbyInfo();
                 const id = buyBtn.dataset.id;
                 if (type === 'boost') {
                     const ok = this.store.buyAndActivateXpBoost();
+                    this.productAnalytics.track(ok ? 'shop_purchase_success' : 'shop_purchase_failure', {
+                        itemType: 'boost', itemId: id, reason: ok ? 'success' : 'unavailable'
+                    });
                     this.ui.showMessage?.(ok ? '1.5x XP boost active for 1 hour!' : 'Not enough coins or boost active!');
                     this.ui.renderShop(this.store, 'boosts');
                     this.refreshMetaStats();
@@ -2571,11 +2869,17 @@ updateCSLobbyInfo();
                 const kind = type === 'char' ? 'character' : type;
                 const ok = await this.store.purchase(kind, id);
                 if (ok) {
+                    this.productAnalytics.track('shop_purchase_success', { itemType: type, itemId: id });
                     this.ui.showMessage?.('Purchased!');
                     const activeTab = document.querySelector('.shop-tab.selected')?.dataset.tab || 'chars';
+                    if (type === 'avatar') this.ui._shopPreviewAvatar = id;
+                    if (type === 'char') this.ui._shopPreviewCharacter = id;
                     this.ui.renderShop(this.store, activeTab);
+                    if (type === 'avatar' && AVATAR_SKINS[id]) this.ui._setShopShowcase(this.store, AVATAR_SKINS[id], true, true);
+                    if (type === 'char' && CHARACTERS[id]) this.ui._setShopCharacterDetail(this.store, CHARACTERS[id], true);
                     this.refreshMetaStats();
                 } else {
+                    this.productAnalytics.track('shop_purchase_failure', { itemType: type, itemId: id, reason: 'unavailable' });
                     this.ui.showMessage?.('Not enough coins or owned!');
                 }
             }
@@ -2613,21 +2917,30 @@ updateCSLobbyInfo();
             const equipBtn = e.target.closest('.shop-equip');
             if (equipBtn) {
                 const ballId = equipBtn.dataset.id;
+                const itemType = equipBtn.dataset.type || 'ball';
+                let equippedForAnalytics = true;
                 if (equipBtn.dataset.type === 'cosmetic') {
                     const ok = this.store.equipCosmetic(ballId);
+                    equippedForAnalytics = ok;
                     this.ui.showMessage?.(ok ? 'Cosmetic equipped!' : 'This cosmetic cannot be equipped.');
                     if (ok) await this._syncWearableLoadout();
                 } else if (equipBtn.dataset.type === 'avatar') {
-                    this.store.equipAvatarSkin(ballId);
+                    equippedForAnalytics = this.store.equipAvatarSkin(ballId);
                     this.initAvatarPainter();
                     this.avatarPainter?.applyPreset(ballId);
                     this.ui.showMessage?.(`🎨 Equipped: ${AVATAR_SKINS[ballId].name}!`);
+                } else if (equipBtn.dataset.type === 'char' && CHARACTERS[ballId]) {
+                    equippedForAnalytics = this.store.setLoadout({ ...this.store.get('loadout'), char: ballId });
+                    this.applyLoadout();
+                    this.game.selectMode(this.game.mode.id);
+                    this.ui.showMessage?.(`Using ${CHARACTERS[ballId].name}.`);
                 } else {
                     this.store.set('equippedBall', ballId);
                     this.game.ball.setSkin(ballId);
                     this.ui.showMessage?.(`🎾 Equipped: ${BALL_SKINS[ballId].name}!`);
                 }
                 const activeTab = document.querySelector('.shop-tab.selected')?.dataset.tab || 'chars';
+                if (equippedForAnalytics) this.productAnalytics.track('cosmetic_equip', { itemType, itemId: ballId });
                 this.ui.renderShop(this.store, activeTab);
                 this.refreshMetaStats();
             }
@@ -2767,6 +3080,8 @@ updateCSLobbyInfo();
                 if (!box) return;
                 const balance = Number(this.store.get('currency')) || 0;
                 const pity = this.store.getCasePityState(box.id);
+                const earned = this.store.getEarnedCaseState?.(box.id)?.cases || 0;
+                const rates = getCaseDropRates(box.id);
                 const inspector = document.getElementById('case-inspector');
                 const art = document.getElementById('case-inspector-art');
                 const open = document.getElementById('case-inspector-open');
@@ -2775,15 +3090,23 @@ updateCSLobbyInfo();
                     art.alt = `${box.name} crate`;
                 }
                 document.getElementById('case-inspector-title').textContent = box.name;
-                document.getElementById('case-inspector-meta').textContent = 'Confirm to purchase, then the case reel starts.';
+                document.getElementById('case-inspector-meta').textContent = earned
+                    ? 'You earned this opening by completing matches. Confirm to reveal it free.'
+                    : 'Confirm to purchase, then the case reel starts.';
                 document.getElementById('case-inspector-balance').textContent = `${balance} credits`;
                 document.getElementById('case-inspector-pity').textContent = pity.nextGuaranteed
                     ? 'Next open'
                     : `${pity.count}/${pity.threshold}`;
+                document.getElementById('case-inspector-earned').textContent = earned ? `${earned} free` : 'None';
+                const ratesEl = document.getElementById('case-inspector-rates');
+                if (ratesEl) {
+                    const totals = rates.reduce((acc, entry) => ({ ...acc, [entry.rarity]: (acc[entry.rarity] || 0) + entry.chance }), {});
+                    ratesEl.innerHTML = `<small>VERIFIED DROP RATES</small>${['rare', 'epic', 'legendary'].filter(rarity => totals[rarity]).map(rarity => `<span class="rarity-${rarity}">${rarity} <b>${(totals[rarity] * 100).toFixed(1)}%</b></span>`).join('')}`;
+                }
                 if (open) {
                     open.dataset.id = box.id;
                     open.disabled = false;
-                    open.lastChild.textContent = `Open for ${box.price} credits`;
+                    open.lastChild.textContent = earned ? `Open earned case (${earned})` : `Open for ${box.price} credits`;
                 }
                 inspector?.classList.remove('hidden');
                 this.ui._openExclusive('caseInspector', () => { document.getElementById('case-inspector')?.classList.add('hidden'); });
@@ -2801,13 +3124,15 @@ updateCSLobbyInfo();
                 if (!result && !this.store.remoteReady) result = this.store.openCase(box.id);
                 caseOpen.disabled = false;
                 caseOpen.classList.remove('is-opening');
-                this.ui.showMessage?.(result
-                    ? `${result.duplicate ? `Duplicate +${result.refund} coins` : 'Unlocked'}: ${result.reward.name}`
-                    : `Need ${box.price} coins - Balance ${balance}`);
                 if (result) {
                     document.getElementById('case-inspector')?.classList.add('hidden');
                     this.ui._closeExclusive('caseInspector');
-                    this.ui.showCaseReel(box, result);
+                    this.ui.showCaseReel(box, result, { onSettled: settled => {
+                        if (settled.free) this.productAnalytics.track('earned_case_opened', { itemId: box.id, itemType: 'cosmetic_case', result: 'earned' });
+                        this.ui.showMessage?.(settled.duplicate ? `Duplicate converted: +${settled.refund} credits` : `Unlocked: ${settled.reward.name}`);
+                    } });
+                } else {
+                    this.ui.showMessage?.(`Need ${box.price} credits - Balance ${balance}`);
                 }
                 this.ui.renderShop(this.store, 'cases');
                 this.refreshMetaStats();
@@ -2940,7 +3265,9 @@ updateCSLobbyInfo();
     }
 
     _socialHubApi(path, options = {}) {
-        return fetch(path, options).then(response => response.json()).catch(() => ({}));
+        const headers = { ...(options.headers || {}) };
+        if (account.getToken()) headers.Authorization = `Bearer ${account.getToken()}`;
+        return fetch(path, { ...options, headers }).then(response => response.json()).catch(() => ({}));
     }
 
     _tryVoicePing([sound, message]) {
@@ -3071,8 +3398,12 @@ updateCSLobbyInfo();
             fogColor: this.renderer.scene.fog?.color.clone(),
             fogNear: this.renderer.scene.fog?.near,
             fogFar: this.renderer.scene.fog?.far,
+            sunIntensity: this.renderer.sun?.intensity,
+            exposure: this.renderer.renderer.toneMappingExposure,
             handVisible: this.player.armGroup?.visible === true
         };
+        if (this.renderer.sun) this.renderer.sun.intensity = 0.9;
+        this.renderer.renderer.toneMappingExposure = 0.9;
         this.renderer.renderer.setClearColor(0x8ed8f3);
         this.renderer.setHubPerformance?.(true);
         if (this.renderer.scene.fog) {
@@ -3122,6 +3453,12 @@ updateCSLobbyInfo();
                 this.renderer.scene.fog.color.copy(this._hubVisualState.fogColor);
                 this.renderer.scene.fog.near = this._hubVisualState.fogNear;
                 this.renderer.scene.fog.far = this._hubVisualState.fogFar;
+            }
+            if (this.renderer.sun && Number.isFinite(this._hubVisualState.sunIntensity)) {
+                this.renderer.sun.intensity = this._hubVisualState.sunIntensity;
+            }
+            if (Number.isFinite(this._hubVisualState.exposure)) {
+                this.renderer.renderer.toneMappingExposure = this._hubVisualState.exposure;
             }
             this.player.setHandVisible(this._hubVisualState.handVisible);
         }
@@ -3655,16 +3992,19 @@ updateCSLobbyInfo();
         return this.avatarStage3D;
     }
 
-    // Repaints the 3D preview's rig from the painter's live atlas -- same
-    // rig.setHeadTexture()/setPartColors() pipeline as _syncShopShowcase/_syncMenuHero, so the
-    // editor shows exactly what the shop and menu hero will show once saved.
+    // Repaints the 3D preview's rig from the painter's live atlas -- the same
+    // full-body atlas path as Shop/menu/in-game remote avatars.
     _updateAvatar3DStage() {
         if (!this.avatarStage3D || !this.avatarPainter) return;
         this.avatarStage3D.sync({
             characterId: this.store.get('selectedChar'),
             skinId: AVATAR_SKINS[this.avatarPainter.skinId] ? this.avatarPainter.skinId : 'default'
         });
-        this._applyAvatarAtlasToRig(this.avatarStage3D.avatar?.rig, this.avatarPainter.getAtlasPixels());
+        this._applyAvatarAtlasToRig(
+            this.avatarStage3D.avatar?.rig,
+            this.avatarPainter.getAtlasPixels(),
+            AVATAR_SKINS[this.avatarPainter.skinId]?.model
+        );
         this.avatarStage3D.resize();
     }
 
@@ -3843,12 +4183,16 @@ updateCSLobbyInfo();
                 if (status) status.textContent = `${match.eloGap} ELO gap - joining ${match.hostName || 'host'}`;
                 this._rankedMatch = { opponentElo: Number(match.averageElo) || this.store.getElo(), queue: 'online' };
                 this.game.selectMode('competitive');
+                this.applyLoadout();
+                this.game.selectMode(this.game.mode.id);
                 await this._quickJoin(match.code);
             } else {
                 if (status) status.textContent = 'No close match. Creating a ranked room.';
                 this._rankedMatch = { opponentElo: this.store.getElo(), queue: 'host' };
                 this._rankedHosting = true;
                 this.game.selectMode('competitive');
+                this.applyLoadout();
+                this.game.selectMode(this.game.mode.id);
                 await this._doHostGame();
             }
             overlay?.classList.add('hidden');
@@ -3931,11 +4275,39 @@ updateCSLobbyInfo();
             `<div class="community-row"><b>${this._esc(member.name)}</b><span class="${member.ready ? 'ready' : ''}">${member.ready ? 'READY' : 'WAITING'}</span></div>`).join('');
         const friends = document.getElementById('community-friend-list');
         if (friends) {
-            const names = [...this.socialProfile.friends, ...this.socialProfile.outgoing];
-            friends.innerHTML = names.length ? names.map(name =>
-                `<div class="community-row"><b>${this._esc(name)}</b><span>${this.socialProfile.friends.includes(name) ? 'FRIEND' : 'INVITED'}</span></div>`).join('')
-                : '<p class="community-empty">No invites yet.</p>';
+            const makeRow = friend => {
+                const row = document.createElement('div'); row.className = 'community-row';
+                const label = document.createElement('b'); label.textContent = friend.username;
+                const state = document.createElement('span'); state.textContent = Friends.isOnline(friend) ? 'ONLINE' : 'OFFLINE';
+                const message = document.createElement('button'); message.className = 'btn btn-small'; message.type = 'button'; message.textContent = 'Message'; message.onclick = () => this._openChatWith(friend.id);
+                row.append(label, state, message);
+                if (this.network?.isHost && this._lobbyCode) {
+                    const invite = document.createElement('button'); invite.className = 'btn btn-small'; invite.type = 'button'; invite.textContent = 'Invite';
+                    invite.onclick = async () => { const result = await Friends.createLobbyInvite(this._lobbyCode, friend.id); this.ui.showMessage?.(result.error || 'Lobby invite sent.', 1600); };
+                    row.append(invite);
+                }
+                return row;
+            };
+            friends.replaceChildren(...(Friends.friends.length ? Friends.friends.map(makeRow) : [Object.assign(document.createElement('p'), { className: 'community-empty', textContent: 'Add a friend by their full friend tag.' })]));
         }
+        const ownTag = document.getElementById('community-friend-tag');
+        if (ownTag) ownTag.textContent = account.getFriendTag() || 'Loading…';
+        const requests = document.getElementById('community-friend-requests');
+        if (requests) requests.replaceChildren(...Friends.requests.filter(request => request.status === 'pending' && request.recipientAccountId === account.getAccount()?.id).map(request => {
+            const row = document.createElement('div'); row.className = 'community-row';
+            const label = document.createElement('b'); label.textContent = `${request.sender?.username || 'Player'} wants to be friends`;
+            const accept = document.createElement('button'); accept.className = 'btn btn-small'; accept.textContent = 'Accept'; accept.onclick = () => Friends.actOnRequest(request.id, 'accept');
+            const decline = document.createElement('button'); decline.className = 'btn btn-small'; decline.textContent = 'Decline'; decline.onclick = () => Friends.actOnRequest(request.id, 'decline');
+            row.append(label, accept, decline); return row;
+        }));
+        const invites = document.getElementById('community-friend-invites');
+        if (invites) invites.replaceChildren(...Friends.invites.filter(invite => invite.status === 'pending' && invite.recipientAccountId === account.getAccount()?.id).map(invite => {
+            const row = document.createElement('div'); row.className = 'community-row';
+            const label = document.createElement('b'); label.textContent = `${invite.sender?.username || 'Friend'} invited you to a lobby`;
+            const join = document.createElement('button'); join.className = 'btn btn-small'; join.textContent = 'Join'; join.onclick = async () => { const result = await Friends.actOnInvite(invite.id, 'accept'); if (!result.error && result.lobbyCode) this._quickJoin(result.lobbyCode); };
+            const decline = document.createElement('button'); decline.className = 'btn btn-small'; decline.textContent = 'Decline'; decline.onclick = () => Friends.actOnInvite(invite.id, 'decline');
+            row.append(label, join, decline); return row;
+        }));
         const recent = document.getElementById('community-recent-list');
         if (recent) recent.innerHTML = this.socialProfile.recent.length ? this.socialProfile.recent.map(player =>
             `<div class="community-row"><div><b>${this._esc(player.name)}</b><small>${player.elo} ELO</small></div><button class="community-mute btn btn-small" data-name="${this._esc(player.name)}">${this.socialProfile.muted.includes(player.name) ? 'Unmute' : 'Mute'}</button><button class="community-report btn btn-small" data-name="${this._esc(player.name)}">Report</button></div>`).join('')
@@ -3958,6 +4330,7 @@ updateCSLobbyInfo();
         if (pose) pose.value = this.socialProfile.showcase.pose;
         const poseName = document.getElementById('showcase-pose-name');
         if (poseName) poseName.textContent = this.socialProfile.showcase.pose.toUpperCase();
+        this._renderMenuPartyRail(me);
     }
 
     _inspectPlayerProfile(player) {
@@ -4257,34 +4630,33 @@ updateCarousel() {
         }
         window.addEventListener('warrball:shop-preview', event => {
             const detail = event.detail;
-            if (detail?.type !== 'avatar' || !AVATAR_SKINS[detail.id]) return;
-            this._syncShopShowcase(detail.id);
-            if (detail.previewing && !this.cosmeticPractice.active) {
-                queueMicrotask(() => this._startCosmeticPractice(detail.id));
+            if (detail?.type === 'avatar' && AVATAR_SKINS[detail.id]) {
+                this._syncShopShowcase(detail.id);
+                this.productAnalytics.track('shop_inspect', { shopTab: 'avatars', itemType: 'avatar', itemId: detail.id });
+            }
+            if (detail?.type === 'character' && CHARACTERS[detail.id]) {
+                this._syncShopShowcase(null, detail.id);
+                this.productAnalytics.track('shop_inspect', { shopTab: 'chars', itemType: 'character', itemId: detail.id });
             }
         }, { signal: this._mainAbort.signal });
     }
 
-    // Shared consistency-wiring helper: paints the player's live-painted 64x64 atlas onto a
-    // ShopShowcaseRenderer rig's face decal + body/arm/leg materials, reusing the exact same
-    // rig.setHeadTexture()/rig.setPartColors() pipeline js/game.js already uses for in-game
-    // players -- so menu hero, shop showcase, and the avatar editor's 3D preview all read the
-    // same painted pixels instead of three separate re-implementations.
-    _applyAvatarAtlasToRig(rig, pixels) {
+    // Shared consistency-wiring helper: paints one live 64x64 skin sheet onto every
+    // skinnable rig box. Shop, menu hero and Studio therefore show the same full-body
+    // skin that remote in-game players receive.
+    _applyAvatarAtlasToRig(rig, pixels, modelId = 'classic') {
         if (!rig) return;
         if (!Array.isArray(pixels) || pixels.length !== 4096) {
-            rig.setHeadTexture(null);
-            rig.setPartColors(null);
+            rig.setAvatarAtlasTexture(null);
             return;
         }
-        const face = cropAtlasFace(pixels);
         const canvas = document.createElement('canvas');
-        canvas.width = 8;
-        canvas.height = 8;
+        canvas.width = 64;
+        canvas.height = 64;
         const ctx = canvas.getContext('2d');
-        for (let y = 0; y < 8; y++) {
-            for (let x = 0; x < 8; x++) {
-                const color = face[y * 8 + x];
+        for (let y = 0; y < 64; y++) {
+            for (let x = 0; x < 64; x++) {
+                const color = pixels[y * 64 + x];
                 if (color) {
                     ctx.fillStyle = color;
                     ctx.fillRect(x, y, 1, 1);
@@ -4294,23 +4666,23 @@ updateCarousel() {
         const texture = new THREE.CanvasTexture(canvas);
         texture.magFilter = THREE.NearestFilter;
         texture.minFilter = THREE.NearestFilter;
-        rig.setHeadTexture(texture);
-        rig.setPartColors(sampleAvatarPartColors(pixels));
+        rig.setAvatarAtlasTexture(texture, modelId);
     }
 
-    _syncShopShowcase(skinId = null) {
+    _syncShopShowcase(skinId = null, characterId = null) {
         const selected = skinId
             || document.getElementById('shop-showcase-stage')?.dataset.skinId
             || this.store.get('equippedAvatarSkin');
         const resolved = AVATAR_SKINS[selected] ? selected : 'default';
         this.shopShowcase?.sync({
-            characterId: this.store.get('selectedChar'),
+            characterId: CHARACTERS[characterId] ? characterId : this.store.get('selectedChar'),
             skinId: resolved
         });
         const customAvatar = this.store.get('customAvatar');
         this._applyAvatarAtlasToRig(
             this.shopShowcase?.avatar?.rig,
-            customAvatar?.skinId === resolved ? customAvatar.pixels : null
+            customAvatar?.skinId === resolved ? customAvatar.pixels : null,
+            customAvatar?.model
         );
         this.shopShowcase?.resize();
     }
@@ -4381,7 +4753,8 @@ updateCarousel() {
         const customAvatar = this.store.get('customAvatar');
         this._applyAvatarAtlasToRig(
             this.menuHero?.avatar?.rig,
-            customAvatar?.skinId === resolved ? customAvatar.pixels : null
+            customAvatar?.skinId === resolved ? customAvatar.pixels : null,
+            customAvatar?.model
         );
         // Apply equipped cosmetics to the hero avatar
         if (this.menuHero?.root?.rig) {
@@ -4415,6 +4788,7 @@ updateCarousel() {
 
     _startCosmeticPractice(skinId = this.store.get('equippedAvatarSkin')) {
         if (!AVATAR_SKINS[skinId]) return false;
+        this.productAnalytics.track('practice_start', { practiceType: 'cosmetic', itemType: 'avatar', itemId: skinId });
         if (this.cosmeticPractice.active) {
             this._renderCosmeticPractice(this.cosmeticPractice.selectSkin(skinId));
             return true;
@@ -4432,7 +4806,9 @@ updateCarousel() {
         this.game.selectMap(COSMETIC_PRACTICE_MAP_ID);
         this.player.setTeam('red');
         this.player.respawn();
-        this.player.position.set(0, this.player.height, 2);
+        // Twelve metres to the display stage gives the first-person preview a
+        // useful full-body scale without putting the player inside its plinth.
+        this.player.position.set(0, this.player.height, -8);
         this.player.velocity.set(0, 0, 0);
         this.player.euler.set(0, 0, 0, 'YXZ');
         this.player.camera.quaternion.setFromEuler(this.player.euler);
@@ -4455,7 +4831,7 @@ updateCarousel() {
             skinId: snapshot.selectedSkinId
         });
         this._cosmeticPracticeAvatar.root.rotation.y = Math.PI;
-        this._cosmeticPracticeAvatar.root.scale.setScalar(1.35);
+        this._cosmeticPracticeAvatar.root.scale.setScalar(1.55);
         this.arena.cosmeticStudio?.previewAnchor?.add(this._cosmeticPracticeAvatar.root);
         this._renderCosmeticPractice(snapshot);
         return true;
@@ -4509,6 +4885,11 @@ updateCarousel() {
             button.textContent = 'Purchasing...';
         }
         const purchased = await this.store.purchase('avatar', snapshot.selectedSkinId);
+        this.productAnalytics.track(purchased ? 'shop_purchase_success' : 'shop_purchase_failure', {
+            itemType: 'avatar',
+            itemId: snapshot.selectedSkinId,
+            reason: purchased ? 'success' : 'unavailable'
+        });
         button?.removeAttribute('aria-busy');
         this._renderCosmeticPractice(this._syncCosmeticPracticeCommerce());
         this.refreshMetaStats();
@@ -4521,6 +4902,7 @@ updateCarousel() {
         const snapshot = this.cosmeticPractice.snapshot();
         const equipped = this.store.equipAvatarSkin(snapshot.selectedSkinId);
         if (!equipped) return false;
+        this.productAnalytics.track('cosmetic_equip', { itemType: 'avatar', itemId: snapshot.selectedSkinId });
         this.initAvatarPainter();
         this.avatarPainter?.applyPreset(snapshot.selectedSkinId);
         this._renderCosmeticPractice(this._syncCosmeticPracticeCommerce());
@@ -4589,6 +4971,7 @@ updateCarousel() {
     }
 
     startGuidedDeflectDrill() {
+        this.productAnalytics.track('practice_start', { practiceType: 'guided_deflect' });
         this._capturePracticeSession();
         document.getElementById('guided-drill-result')?.classList.add('hidden');
         this.game.state = STATES.LOBBY;
@@ -4601,6 +4984,7 @@ updateCarousel() {
     }
 
     startPractice({ launch = false } = {}) {
+        this.productAnalytics.track('practice_start', { practiceType: launch ? 'free_play' : 'setup' });
         this._capturePracticeSession();
         this.game.cancelGuidedDrill();
         this.game.clearPowerUps?.();
@@ -4862,9 +5246,9 @@ updateCarousel() {
     }
 
     _installMigratedHostHandlers(code) {
-        this.network.onPlayerJoin = (name, playerId, avatar, peerId) => {
+        this.network.onPlayerJoin = (name, playerId, avatar, peerId, avatarModel) => {
             const existing = this.game.remotePlayers.has(playerId);
-            this.game.addRemotePlayer(playerId, name, null, avatar, peerId);
+            this.game.addRemotePlayer(playerId, name, null, avatar, peerId, avatarModel);
             if (!existing && this.game.shouldQueueLateJoin()) this.game.queueRemoteForNextRound(playerId);
             this.broadcastLobbyState();
         };
@@ -4998,6 +5382,7 @@ updateCarousel() {
         this.network.onReconnectState = (state, attempt) => {
             const status = document.getElementById('lobby-network-status');
             if (state === 'reconnecting') {
+                this.productAnalytics.track('network_reconnect', { result: 'attempt' });
                 this.ui.showMessage?.(`Reconnecting... ${attempt}/3`, 1800);
                 if (status) {
                     status.textContent = `RECONNECTING ${attempt}/3`;
@@ -5009,14 +5394,18 @@ updateCarousel() {
                     status.className = 'is-reconnecting';
                 }
             } else if (state === 'connected') {
+                this.productAnalytics.track('network_reconnect', { result: 'success' });
                 this.ui.showMessage?.('Reconnected', 1800);
                 if (status) {
                     status.textContent = 'CONNECTED';
                     status.className = '';
                 }
-            } else if (status) {
-                status.textContent = 'DISCONNECTED';
-                status.className = 'is-offline';
+            } else {
+                this.productAnalytics.track('network_disconnect', { reason: 'peer_closed' });
+                if (status) {
+                    status.textContent = 'DISCONNECTED';
+                    status.className = 'is-offline';
+                }
             }
         };
     }
@@ -5080,7 +5469,9 @@ updateCarousel() {
     // the two apart. Surface a console.warn and a distinct marker so _refreshLobbyList
     // can show "Lobby service unreachable" instead of the misleading empty-lobby state.
     _lobbyApi(path, opts = {}) {
-        return fetch(path, opts).then(r => {
+        const headers = { ...(opts.headers || {}) };
+        if (account.getToken()) headers.Authorization = `Bearer ${account.getToken()}`;
+        return fetch(path, { ...opts, headers }).then(r => {
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             return r.json();
         }).catch(err => {
@@ -5184,6 +5575,10 @@ updateCarousel() {
         const mapId = document.getElementById('quick-play-map')?.value || 'all';
         const mode = modeId === 'all' ? 'all' : GAME_MODES[modeId]?.name || modeId;
         const map = mapId === 'all' ? '' : Arena.MAPS[mapId]?.name || mapId;
+        const quickPlayStartedAt = performance.now();
+        const quickDimensions = { queue, mode: modeId, map: mapId };
+        this.productAnalytics.track('quick_play_click', quickDimensions);
+        this._analyticsMatchEntry = 'quick_play';
         if (button) {
             button.disabled = true;
             button.setAttribute('aria-busy', 'true');
@@ -5192,7 +5587,7 @@ updateCarousel() {
             const lobbies = await this._lobbyApi('/api/lobbies', { method: 'GET' });
             const match = pickQuickLobby(lobbies, { queue, mode, map, openOnly: true });
             if (match) {
-                await this._quickJoin(match.code);
+                await this._quickJoin(match.code, { ...quickDimensions, quickPlayStartedAt });
                 return;
             }
             const hostedMode = queue === 'ranked' ? 'competitive' : modeId;
@@ -5202,7 +5597,20 @@ updateCarousel() {
             }
             this._rankedHosting = queue === 'ranked';
             this.ui.showMessage?.(`No matching ${queue} lobby - creating one.`, 1800);
-            await this._doHostGame();
+            const hosted = await this._doHostGame();
+            if (!hosted) {
+                this.productAnalytics.track('quick_play_failure', { ...quickDimensions, result: 'host_error' });
+                return;
+            }
+            const joinLatencyMs = Math.max(0, performance.now() - quickPlayStartedAt);
+            this.productAnalytics.track('quick_play_success', {
+                ...quickDimensions,
+                result: 'hosted',
+                latencyBucket: joinLatencyBucket(joinLatencyMs)
+            }, { joinLatencyMs });
+        } catch {
+            this.productAnalytics.track('quick_play_failure', { ...quickDimensions, result: 'error' });
+            this.ui.showMessage?.('Quick Play is unavailable. Please try again.', 2200);
         } finally {
             if (button) {
                 button.disabled = false;
@@ -5213,7 +5621,7 @@ updateCarousel() {
 
     _esc(s) { return String(s).replace(/[<>&"']/g, m => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[m])); }
 
-    async _quickJoin(code) {
+    async _quickJoin(code, quickPlay = null) {
         const name = document.getElementById('player-name-input')?.value || 'Player';
         try {
             this._setupClientNetHandlers();
@@ -5223,7 +5631,22 @@ updateCarousel() {
             this._startBgLoop();
             this.ui.showScreen('lobby');
             this.ui.showMessage?.('🔗 Joined lobby!', 2000);
+            this.productAnalytics.track('lobby_join', { networkRole: 'client' });
+            this.productAnalytics.track('network_role', { networkRole: 'client' });
+            if (quickPlay) {
+                const joinLatencyMs = Math.max(0, performance.now() - quickPlay.quickPlayStartedAt);
+                this.productAnalytics.track('quick_play_success', {
+                    queue: quickPlay.queue,
+                    mode: quickPlay.mode,
+                    map: quickPlay.map,
+                    result: 'joined',
+                    latencyBucket: joinLatencyBucket(joinLatencyMs)
+                }, { joinLatencyMs });
+            }
         } catch (e) {
+            if (quickPlay) this.productAnalytics.track('quick_play_failure', {
+                queue: quickPlay.queue, mode: quickPlay.mode, map: quickPlay.map, result: 'join_error'
+            });
             alert('Failed to join: ' + e.message);
         }
     }
@@ -5243,6 +5666,8 @@ updateCarousel() {
             this._startHostCheckpointLifecycle();
             this.ui.setRoomCode(code);
             this.ui.showScreen('lobby');
+            this.productAnalytics.track('lobby_host', { networkRole: 'host' });
+            this.productAnalytics.track('network_role', { networkRole: 'host' });
             const nameInput = document.getElementById('lobby-name-input');
             if (nameInput) { nameInput.disabled = false; nameInput.value = 'Lobby'; }
             this._lobbyName = 'Lobby';
@@ -5261,9 +5686,9 @@ updateCarousel() {
                 this._lobbyNameTimeout = setTimeout(onLobbyNameChange, 400);
             };
             if (nameInput) nameInput.addEventListener('input', onLobbyNameInput);
-            this.network.onPlayerJoin = (pName, playerId, avatar, peerId) => {
+            this.network.onPlayerJoin = (pName, playerId, avatar, peerId, avatarModel) => {
                 const existing = this.game.remotePlayers.has(playerId);
-                this.game.addRemotePlayer(playerId, pName, null, avatar, peerId);
+                this.game.addRemotePlayer(playerId, pName, null, avatar, peerId, avatarModel);
                 if (!existing && this.game.shouldQueueLateJoin()) {
                     this.game.queueRemoteForNextRound(playerId);
                     this.game.broadcastSystemMessage(`${pName} joined as spectator.`);
@@ -5319,8 +5744,10 @@ updateCarousel() {
                 }
             }, 12000);
             this._lobbyCode = code;
+            return true;
         } catch (e) {
             alert('Failed to create lobby: ' + e.message);
+            return false;
         }
     }
 
@@ -5369,7 +5796,7 @@ updateCarousel() {
             this.ui.showMessage?.('You can change class once per round.', 1800);
             return false;
         }
-        const loadout = this.store.get('loadout') || DEFAULT_LOADOUT;
+        const loadout = this.store.getCardEffects?.(this.game.mode?.id) || this.store.get('loadout') || DEFAULT_LOADOUT;
         this.player.applyLoadout(charId, loadout.runes);
         this.player.loadout.skill = loadout.skill || 'slow';
         this.player._classChangeRound = round;
@@ -5425,7 +5852,10 @@ updateCarousel() {
     }
 
     initFriendsSidebar() {
-        Friends.onChange = () => this.refreshFriendsSidebar();
+        Friends.onChange = () => {
+            this.refreshFriendsSidebar();
+            if (document.body.dataset.screen === 'socialCenter') this._renderSocialCenter();
+        };
         this._chattingWith = null;
 
         document.getElementById('fbar-toggle')?.addEventListener('click', () => {
@@ -5438,12 +5868,18 @@ updateCarousel() {
         document.getElementById('fbar-add-input')?.addEventListener('keydown', e => {
             if (e.code !== 'Enter') return;
             const input = document.getElementById('fbar-add-input');
-            const name = input?.value.trim();
-            if (name && name.length >= 2) {
-                Friends.add(name);
+            const friendTag = input?.value.trim();
+            if (friendTag) {
+                Friends.request(friendTag).then(result => {
+                    if (result.error) this.ui.showMessage?.(result.error, 1800);
+                });
                 input.value = '';
-                this.refreshFriendsSidebar();
             }
+        });
+        document.getElementById('fbar-own-tag')?.addEventListener('click', async () => {
+            const tag = account.getFriendTag();
+            if (!tag) return;
+            try { await navigator.clipboard?.writeText(tag); this.ui.showMessage?.('Friend tag copied.', 1200); } catch { this.ui.showMessage?.(tag, 2200); }
         });
 
         document.getElementById('fbar-chat-send')?.addEventListener('click', () => this._sendFriendDM());
@@ -5455,139 +5891,85 @@ updateCarousel() {
             document.getElementById('fbar-chat')?.classList.add('hidden');
         });
 
-        Friends.onDM = (friendName, from, text) => {
-            if (this._chattingWith === friendName) this._renderChatThread(friendName);
+        Friends.onDM = (friendId) => {
+            if (this._chattingWith === friendId) this._renderChatThread(friendId);
         };
-
-        if (this.network) {
-            this.network.onFriendDM = (from, text) => {
-                Friends.addDM(from, from, text);
-            };
-        }
     }
 
     refreshFriendsSidebar() {
-        const allOnline = [];
-        if (this.game) {
-            allOnline.push({ name: this.game.playerName, isMe: true });
-            this.game.bots.forEach(b => allOnline.push({ name: b.name }));
-            this.game.remotePlayers.forEach(p => allOnline.push({ name: p.name }));
-        }
-        const friendSet = new Set(Friends.friends.map(f => f.toLowerCase()));
         const onlineEl = document.getElementById('fbar-online');
         const offlineList = document.getElementById('fbar-offline-list');
-        const offSub = document.querySelector('.friends-sidebar-subtitle');
         const countEl = document.getElementById('fbar-count');
-        if (!onlineEl) return;
-
-        // Separate: friend online vs non-friend online
-        const onlineFriends = allOnline.filter(p => friendSet.has(p.name.toLowerCase()) && !p.isMe);
-        const onlineOthers = allOnline.filter(p => !friendSet.has(p.name.toLowerCase()) && !p.isMe);
-        if (countEl) countEl.textContent = onlineFriends.length ? `${onlineFriends.length} online` : '';
-
-        // Online friends
-        if (!onlineFriends.length && !onlineOthers.length) {
-            onlineEl.innerHTML = '<div class="friends-sidebar-empty">No players online</div>';
-        } else {
-            let html = '';
-            // Friend section
-            if (onlineFriends.length) {
-                html += `<div class="friends-sidebar-subtitle">FRIENDS • ${onlineFriends.length}</div>`;
-                html += onlineFriends.map(n =>
-                    `<div class="fbar-friend" data-name="${n.name}">
-                        <div class="fbar-avatar online-avatar">${n.name.charAt(0).toUpperCase()}<span class="fbar-status-dot online"></span></div>
-                        <span class="fbar-name">${this._escapeHTML(n.name)}</span>
-                        <div class="fbar-actions">
-                            <button class="fbar-msg-btn" title="Message">💬</button>
-                            <button class="fbar-remove-btn" title="Remove">✕</button>
-                        </div>
-                    </div>`
-                ).join('');
-            }
-            // Other online players (not friends)
-            if (onlineOthers.length) {
-                html += `<div class="friends-sidebar-subtitle">IN LOBBY • ${onlineOthers.length}</div>`;
-                html += onlineOthers.map(n =>
-                    `<div class="fbar-friend" data-name="${n.name}">
-                        <div class="fbar-avatar online-avatar">${n.name.charAt(0).toUpperCase()}<span class="fbar-status-dot online"></span></div>
-                        <span class="fbar-name">${this._escapeHTML(n.name)}</span>
-                        <div class="fbar-actions">
-                            <button class="fbar-add-btn" title="Add friend">＋</button>
-                        </div>
-                    </div>`
-                ).join('');
-            }
-            onlineEl.innerHTML = html;
-
-            onlineEl.querySelectorAll('.fbar-friend').forEach(el => {
-                const name = el.dataset.name;
-                el.addEventListener('click', e => {
-                    if (e.target.closest('.fbar-actions')) return;
-                    this._openChatWith(name);
-                });
-                el.querySelector('.fbar-msg-btn')?.addEventListener('click', e => {
-                    e.stopPropagation();
-                    this._openChatWith(name);
-                });
-                el.querySelector('.fbar-remove-btn')?.addEventListener('click', e => {
-                    e.stopPropagation();
-                    Friends.remove(name);
-                    this.refreshFriendsSidebar();
-                });
-                el.querySelector('.fbar-add-btn')?.addEventListener('click', e => {
-                    e.stopPropagation();
-                    Friends.add(name);
-                    this.refreshFriendsSidebar();
-                });
-            });
-        }
-
-        // Offline friends
-        const offline = Friends.friends.filter(f => !allOnline.some(p => p.name.toLowerCase() === f.toLowerCase()));
-        if (offSub) offSub.style.display = offline.length ? '' : 'none';
-        if (!offline.length) {
-            if (offlineList) offlineList.innerHTML = '';
-        } else if (offlineList) {
-            offlineList.innerHTML = offline.map(n =>
-                `<div class="fbar-friend" data-name="${n}">
-                    <div class="fbar-avatar offline-avatar">${n.charAt(0).toUpperCase()}<span class="fbar-status-dot offline"></span></div>
-                    <span class="fbar-name offline-name">${this._escapeHTML(n)}</span>
-                    <div class="fbar-actions">
-                        <button class="fbar-remove-btn" title="Remove">✕</button>
-                    </div>
-                </div>`
-            ).join('');
-            offlineList.querySelectorAll('.fbar-friend').forEach(el => {
-                el.querySelector('.fbar-remove-btn')?.addEventListener('click', e => {
-                    e.stopPropagation();
-                    Friends.remove(el.dataset.name);
-                    this.refreshFriendsSidebar();
-                });
-            });
-        }
-
+        const ownTag = document.getElementById('fbar-own-tag');
+        if (!onlineEl || !offlineList) return;
+        if (ownTag) ownTag.textContent = account.getFriendTag() || 'Your friend tag';
+        const online = Friends.friends.filter(friend => Friends.isOnline(friend));
+        const offline = Friends.friends.filter(friend => !Friends.isOnline(friend));
+        if (countEl) countEl.textContent = online.length ? `${online.length} online` : '';
+        const row = (friend, isOnline) => {
+            const item = document.createElement('div');
+            item.className = 'fbar-friend';
+            const avatar = document.createElement('div');
+            avatar.className = `fbar-avatar ${isOnline ? 'online-avatar' : 'offline-avatar'}`;
+            avatar.textContent = friend.username.slice(0, 1).toUpperCase();
+            const dot = document.createElement('span');
+            dot.className = `fbar-status-dot ${isOnline ? 'online' : 'offline'}`;
+            avatar.append(dot);
+            const name = document.createElement('span');
+            name.className = 'fbar-name';
+            name.textContent = friend.username;
+            const actions = document.createElement('div');
+            actions.className = 'fbar-actions';
+            const message = document.createElement('button');
+            message.className = 'fbar-msg-btn';
+            message.type = 'button';
+            message.textContent = 'Message';
+            message.addEventListener('click', () => this._openChatWith(friend.id));
+            const remove = document.createElement('button');
+            remove.className = 'fbar-remove-btn';
+            remove.type = 'button';
+            remove.textContent = 'Remove';
+            remove.addEventListener('click', () => Friends.remove(friend.id));
+            actions.append(message, remove);
+            item.append(avatar, name, actions);
+            return item;
+        };
+        const empty = Object.assign(document.createElement('div'), {
+            className: 'friends-sidebar-empty',
+            textContent: 'No friends online'
+        });
+        onlineEl.replaceChildren(...(online.length ? online.map(friend => row(friend, true)) : [empty]));
+        offlineList.replaceChildren(...offline.map(friend => row(friend, false)));
         if (this._chattingWith) this._renderChatThread(this._chattingWith);
     }
 
     _openChatWith(name) {
         this._chattingWith = name;
         document.getElementById('fbar-chat')?.classList.remove('hidden');
-        document.getElementById('fbar-chat-name').textContent = name;
+        document.getElementById('fbar-chat-name').textContent = Friends.getFriend(name)?.username || 'Friend';
+        Friends.loadMessages(name).then(() => this._renderChatThread(name));
         this._renderChatThread(name);
     }
 
     _renderChatThread(name) {
         const log = document.getElementById('fbar-chat-log');
         if (!log) return;
-        const msgs = Friends.getDMs(name);
-        const me = this.game?.playerName || 'You';
-        if (!msgs.length) { log.innerHTML = '<div style="opacity:0.3;padding:12px 0;font-style:italic;text-align:center;font-size:0.85em">No messages yet</div>'; return; }
-        log.innerHTML = msgs.map(m =>
-            `<div class="friends-chat-msg ${m.from === me ? 'msg-mine' : ''}">
-                <span class="msg-from">${this._escapeHTML(m.from)}</span>
-                <span class="msg-text">${this._escapeHTML(m.text)}</span>
-            </div>`
-        ).join('');
+        const safeMessages = Friends.getMessages(name);
+        if (!safeMessages.length) {
+            const empty = document.createElement('div');
+            empty.className = 'friends-sidebar-empty';
+            empty.textContent = 'No messages yet';
+            log.replaceChildren(empty);
+            return;
+        }
+        const myId = account.getAccount()?.id;
+        log.replaceChildren(...safeMessages.map(message => {
+            const row = document.createElement('div');
+            row.className = `friends-chat-msg ${message.senderAccountId === myId ? 'msg-mine' : ''}`;
+            const from = document.createElement('span'); from.className = 'msg-from'; from.textContent = message.senderAccountId === myId ? 'You' : (Friends.getFriend(name)?.username || 'Friend');
+            const body = document.createElement('span'); body.className = 'msg-text'; body.textContent = String(message.body || '');
+            row.append(from, body); return row;
+        }));
         log.scrollTop = log.scrollHeight;
     }
 
@@ -5596,18 +5978,10 @@ updateCarousel() {
         const text = input?.value.trim();
         if (!text || !this._chattingWith) return;
         input.value = '';
-        const me = this.game?.playerName || 'You';
-        Friends.addDM(this._chattingWith, me, text);
-        this._renderChatThread(this._chattingWith);
-        const peer = this.game?.remotePlayers?.forEach(p => {
-            if (p.name === this._chattingWith && p.peerId && this.network) {
-                this.network.sendDM(p.peerId, text);
-            }
+        Friends.sendMessage(this._chattingWith, text).then(result => {
+            if (result.error) this.ui.showMessage?.(result.error, 1800);
+            this._renderChatThread(this._chattingWith);
         });
-        // Also try host relay for non-peer-connected friends
-        if (this.network?.hostConn && this.network.hostConn.peer !== this._chattingWith) {
-            this.network.sendDM(this.network.hostConn.peer, text);
-        }
     }
 
     _escapeHTML(str) {

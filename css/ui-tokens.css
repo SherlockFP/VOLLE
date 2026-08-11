@@ -32,6 +32,25 @@
   --ui-space-5: 24px;
   --ui-space-6: 32px;
   --ui-space-7: 48px;
+  --ui-space-8: 64px;
+
+  /* State semantics. Components consume roles, never arbitrary palette values. */
+  --ui-surface-rest: var(--ui-surface);
+  --ui-surface-hover: var(--ui-surface-2);
+  --ui-surface-selected: color-mix(in srgb, var(--ui-primary) 16%, var(--ui-surface));
+  --ui-surface-disabled: color-mix(in srgb, var(--ui-surface) 72%, transparent);
+  --ui-interaction-focus: var(--ui-focus);
+  --ui-interaction-pressed: var(--ui-primary-strong);
+
+  /* Shared layout contracts for menu and competitive HUD. */
+  --ui-menu-max-width: 1680px;
+  --ui-menu-sidebar-min: 360px;
+  --ui-menu-card-gap: clamp(14px, 1.6vw, 26px);
+  --ui-dialog-width-sm: min(520px, calc(100vw - 32px));
+  --ui-dialog-width-lg: min(1120px, calc(100vw - 32px));
+  --ui-hud-edge: clamp(12px, 2vw, 32px);
+  --ui-hud-max-width: 1920px;
+  --ui-ultrawide-safe: min(6vw, 120px);
 
   /* Corner-radius scale */
   --ui-radius-sm: 8px;
@@ -273,6 +292,14 @@
   --z-modal: 300;          /* blocking modal dialog: settings, case inspector, earn overlay */
   --z-toast: 700;          /* transient top-layer notification: kill feed */
   --z-critical: 9999;      /* match intro, loading screen */
+
+  /* Canonical aliases for new component work. Legacy --z-* names stay stable. */
+  --ui-z-hud: var(--z-hud);
+  --ui-z-passive-overlay: var(--z-overlay);
+  --ui-z-active-overlay: var(--z-overlay-active);
+  --ui-z-modal: var(--z-modal);
+  --ui-z-toast: var(--z-toast);
+  --ui-z-critical: var(--z-critical);
 }
 
 :focus-visible {

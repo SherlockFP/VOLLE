@@ -28,10 +28,10 @@ describe('hat and mask positioning derived from rig geometry constants', () => {
         assert.strictEqual(HEAD_SOCKET_WORLD_Y, 2.16, 'head socket world Y position');
     });
 
-    it('HEAD_TOP_WORLD_Y = 2.10 (head mesh center + half-depth)', () => {
-        // HIPS_WORLD_Y (0.94) + head joint (0.80) + HEAD_MESH_LOCAL_Y (0.20) + HEAD_HALF_DEPTH (0.16)
-        const HEAD_TOP_WORLD_Y = 0.94 + 0.80 + 0.20 + 0.16;
-        assert.strictEqual(HEAD_TOP_WORLD_Y, 2.10, 'head mesh top at 2.10 for hat baseline');
+    it('HEAD_TOP_WORLD_Y = 2.16 (head mesh center + half-depth)', () => {
+        // HIPS_WORLD_Y (0.94) + head joint (0.80) + HEAD_MESH_LOCAL_Y (0.20) + HEAD_HALF_DEPTH (0.22)
+        const HEAD_TOP_WORLD_Y = 0.94 + 0.80 + 0.20 + 0.22;
+        assert.strictEqual(HEAD_TOP_WORLD_Y, 2.16, 'head mesh top at 2.16 for hat baseline');
     });
 
     it('FACE_SOCKET_WORLD_Y = 1.74 (head joint, face socket sits at head center y)', () => {
@@ -40,10 +40,10 @@ describe('hat and mask positioning derived from rig geometry constants', () => {
         assert.strictEqual(FACE_SOCKET_WORLD_Y, 1.74, 'masks anchor at head center y=1.74');
     });
 
-    it('hat group.position.y = HEAD_TOP_WORLD_Y - 0.04 positions base at 2.06 (crown sits right)', () => {
-        const HEAD_TOP_WORLD_Y = 2.10;
+    it('hat group.position.y = HEAD_TOP_WORLD_Y - 0.04 positions base at 2.12 (crown sits right)', () => {
+        const HEAD_TOP_WORLD_Y = 2.16;
         const hatBaseY = HEAD_TOP_WORLD_Y - 0.04;
-        assert.strictEqual(hatBaseY, 2.06, 'hat base at 2.06 where crown cylinder sits');
+        assert.strictEqual(hatBaseY, 2.12, 'hat base at 2.12 where crown cylinder sits');
     });
 
     it('masks are face-socket-attached with their parts positioned in local space', () => {
@@ -52,10 +52,10 @@ describe('hat and mask positioning derived from rig geometry constants', () => {
         assert.strictEqual(FACE_SOCKET_WORLD_Y, 1.74, 'mask base attaches at face socket y=1.74');
     });
 
-    it('head constants propagate from character-rig.js: HEAD_SIZE=0.32, HEAD_HALF_DEPTH=0.16', () => {
-        const HEAD_SIZE = 0.32;
-        const HEAD_HALF_DEPTH = 0.16;
-        assert.strictEqual(HEAD_SIZE, 0.32, 'cube head size');
-        assert.strictEqual(HEAD_HALF_DEPTH, 0.16, 'cube head half-depth');
+    it('head constants propagate from character-rig.js: HEAD_SIZE=0.44, HEAD_HALF_DEPTH=0.22', () => {
+        const HEAD_SIZE = 0.44;
+        const HEAD_HALF_DEPTH = 0.22;
+        assert.strictEqual(HEAD_SIZE, 0.44, 'cube head size');
+        assert.strictEqual(HEAD_HALF_DEPTH, 0.22, 'cube head half-depth');
     });
 });

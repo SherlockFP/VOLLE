@@ -103,6 +103,14 @@ export function isEditableTarget(target) {
     return !!target.closest?.('[contenteditable]:not([contenteditable="false"])');
 }
 
+// Countdown only accepts a primary attack while its warm-up ball is explicitly live.
+// This keeps menus/lobby countdowns inert while making the first practice deflect reliable.
+export function canStartPrimaryAttack(state, ball) {
+    return state === 'PLAYING'
+        || state === 'CELEBRATION'
+        || (state === 'COUNTDOWN' && ball?._warmup === true);
+}
+
 export function resolveJump({ spaceDown, onGround, jumpHeld, jumpsRemaining, verticalVel, jumpForce, bhopEnabled }) {
     if (!spaceDown) {
         return { onGround, jumpHeld: false, jumpsRemaining, verticalVel, kind: null };
@@ -584,7 +592,7 @@ export class Player {
             if (isEditableTarget(e.target)) return;
             // ponytail: pointer lock re-activation removed — causes mouse bug during pause
             const state = this.game?.state;
-            if (e.button === 0 && this.alive && !this.game?.ui?.spectating && (state === 'PLAYING' || state === 'CELEBRATION')) {
+            if (e.button === 0 && this.alive && !this.game?.ui?.spectating && canStartPrimaryAttack(state, this.game?.ball)) {
                 this.tryAttack('slash');
                 this._deflectHeld = true;
             }

@@ -1,5 +1,8 @@
 /* Auth Modal Styles */
-.auth-card { max-width: 420px; }
+.auth-card { width: min(420px, calc(100vw - 32px)); max-width: 420px; }
+.auth-card header { display: grid; gap: 8px; }
+.auth-status { margin: 0; min-height: 1.5em; color: var(--ui-text-muted, #9edce4); }
+.auth-label { font-size: .8rem; font-weight: 700; letter-spacing: .06em; color: var(--ui-text-muted, #9edce4); text-transform: uppercase; }
 
 .auth-tabs {
     display: flex;
@@ -29,6 +32,7 @@
     color: #6ef0dc;
     border-bottom-color: #6ef0dc;
 }
+.auth-tab-btn:focus-visible, .auth-retry:focus-visible { outline: 2px solid var(--ui-focus, #6ef0dc); outline-offset: 2px; }
 
 .auth-tab-content {
     display: flex;
@@ -96,7 +100,11 @@
     text-decoration: underline;
 }
 
-.auth-skip {
+.auth-retry {
     width: 100%;
     margin-top: 16px;
 }
+
+.auth-card [aria-busy="true"] { cursor: progress; opacity: .7; }
+@media (max-width: 420px) { .auth-card { width: min(100vw - 20px, 420px); } .auth-tab-btn { min-height: 44px; padding-inline: 8px; } }
+@media (prefers-reduced-motion: reduce) { .auth-card *, .auth-card *::before, .auth-card *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; } }

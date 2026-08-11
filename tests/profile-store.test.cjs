@@ -110,7 +110,98 @@ test('match rewards are bounded and idempotent', t => {
     assert.equal(reward.base, 120);
     assert.equal(reward.bonus, 60);
     assert.equal(reward.coins, 180);
-    assert.equal(store.reward(profile, { matchId: 'match-1' }).status, 409);
+    const replay = store.reward(profile, { matchId: 'match-1' });
+    assert.equal(replay.status, 200);
+    assert.equal(replay.replayed, true);
     const lossReward = store.reward(profile, { matchId: 'match-2', won: false, deflections: 0, score: 0 });
     assert.equal(lossReward.coins, 40);
+});
+
+test('earned case entitlement is match-idempotent, drought-bounded, and opens before credits', t => {
+    const { dir, store } = tempStore();
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const session = store.session('', 'EarnedCases', { currency: 0 });
+    const profile = store.authenticate(session.token);
+    let earned = null;
+    for (let index = 0; index < 5 && !earned; index += 1) {
+        const result = store.reward(profile, { matchId: `earned-case-${index}`, won: false, score: 0, deflections: 0 });
+        if (result.earnedCase) earned = { matchId: `earned-case-${index}`, result };
+    }
+    assert.equal(earned?.result.earnedCase, 'kickoff', 'a completed-match cosmetic case must arrive within five rewards');
+    assert.ok(['match_roll', 'drought_guarantee'].includes(earned.result.earnedCaseSource));
+    const balance = profile.currency;
+    const opened = store.openCase(profile, 'kickoff', 'earned-open:first', 0);
+    assert.equal(opened.status, 200);
+    assert.equal(opened.result.free, true);
+    assert.equal(profile.currency, balance, 'earned case must consume entitlement before credits');
+    const replay = store.reward(profile, { matchId: earned.matchId, won: true, score: 99, deflections: 99 });
+    assert.equal(replay.replayed, true);
+    assert.equal(replay.earnedCase, 'kickoff');
+});
+
+test('Arena Cache is awarded by the idempotent match-reward record, not a purchase', t => {
+    const { dir, store } = tempStore();
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const session = store.session('', 'Cards');
+    const profile = store.authenticate(session.token);
+    let awarded = null;
+    for (let index = 0; index < 80 && !awarded; index += 1) {
+        const matchId = `card-match-${index}`;
+        const result = store.reward(profile, { matchId, won: index % 2 === 0, score: 0, deflections: 0 });
+        if (result.cardReward) awarded = { matchId, result };
+    }
+    assert.ok(awarded?.result.cardReward?.card?.id, 'a deterministic earned match should grant a cache in this bounded sample');
+    const earnedBeforeReplay = profile.arenaCache.earned;
+    const copiesBeforeReplay = profile.cardCollection[awarded.result.cardReward.card.id];
+    const replay = store.reward(profile, { matchId: awarded.matchId, won: true, score: 99, deflections: 99 });
+    assert.equal(replay.status, 200);
+    assert.equal(replay.replayed, true);
+    assert.deepEqual(replay.cardReward, awarded.result.cardReward);
+    assert.equal(profile.arenaCache.earned, earnedBeforeReplay);
+    assert.equal(profile.cardCollection[awarded.result.cardReward.card.id], copiesBeforeReplay);
+    assert.equal(replay.profile.cardRewardReceipts, undefined);
+    assert.equal(replay.profile.cardTradeReceipts, undefined);
+});
+
+test('card equip and trade-up validate ownership and are idempotent', t => {
+    const { dir, store } = tempStore();
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const session = store.session('', 'Cards');
+    const profile = store.authenticate(session.token);
+    assert.equal(store.equipCard(profile, 'apex-smash', 'active').status, 403);
+    profile.cardCollection['apex-smash'] = 1;
+    assert.equal(store.equipCard(profile, 'apex-smash', 'passive').status, 400);
+    const equip = store.equipCard(profile, 'apex-smash', 'active');
+    assert.equal(equip.status, 200);
+    assert.equal(equip.loadout.active, 'apex-smash');
+    profile.cardCollection['bastion-shield'] = 5;
+    assert.equal(store.tradeUpCards(profile, Array(5).fill('bastion-shield')).status, 400);
+    const first = store.tradeUpCards(profile, Array(5).fill('bastion-shield'), 'cardtrade:one');
+    assert.equal(first.status, 200);
+    assert.equal(first.result.reward.rarity, 'epic');
+    const replay = store.tradeUpCards(profile, Array(5).fill('bastion-shield'), 'cardtrade:one');
+    assert.equal(replay.status, 200);
+    assert.equal(replay.replayed, true);
+    assert.deepEqual(replay.result, first.result);
+    assert.equal(store.tradeUpCards(profile, Array(5).fill('bastion-shield'), 'cardtrade:two').status, 409);
+});
+
+test('legacy skill and rune ownership survives migration but cannot be purchased again', t => {
+    const { dir, store } = tempStore();
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const session = store.session('', 'LegacyCards', {
+        currency: 1000,
+        ownedSkills: ['freeze', 'unknown'],
+        ownedItems: ['speed_bonus', 'unknown'],
+        cardCollection: { 'apex-smash': 1, 'unknown-card': 8 },
+        equippedCards: { active: 'apex-smash', passive: 'deflect-plate' }
+    });
+    const profile = store.authenticate(session.token);
+    assert.ok(profile.ownedSkills.includes('freeze'));
+    assert.ok(profile.ownedItems.includes('speed_bonus'));
+    assert.equal(profile.cardCollection['apex-smash'], 1);
+    assert.equal(profile.cardCollection['unknown-card'], undefined);
+    assert.equal(profile.equippedCards.active, 'apex-smash');
+    assert.equal(store.purchase(profile, 'skill', 'freeze').status, 403);
+    assert.equal(store.purchase(profile, 'rune', 'speed_bonus').status, 403);
 });

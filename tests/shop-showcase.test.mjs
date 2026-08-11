@@ -142,6 +142,7 @@ test('renderer supports canvas mounts, keyboard rotation, reactive reduced motio
     assert.equal(typeof renderer.renderer.loop, 'function');
 
     const initialYaw = renderer.avatar.root.rotation.y;
+    assert.equal(initialYaw, Math.PI, 'camera on +Z should open on the rig face, not its back');
     let prevented = false;
     canvas.dispatch('keydown', { key: 'ArrowRight', shiftKey: false, preventDefault: () => { prevented = true; } });
     assert.equal(prevented, true);
@@ -151,6 +152,8 @@ test('renderer supports canvas mounts, keyboard rotation, reactive reduced motio
     canvas.dispatch('pointermove', { clientX: 30, clientY: 24, pointerId: 1 });
     canvas.dispatch('pointerup', { pointerId: 1 });
     assert.ok(renderer.avatar.root.rotation.y > keyboardYaw);
+    canvas.dispatch('keydown', { key: 'Home', shiftKey: false, preventDefault: () => {} });
+    assert.equal(renderer.avatar.root.rotation.y, Math.PI, 'Home restores the front-facing rest pose');
     assert.deepEqual(renderer.sync({ skinId: 'neon' }), { characterId: 'rally', skinId: 'neon' });
 
     media.matches = true;

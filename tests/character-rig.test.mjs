@@ -443,6 +443,35 @@ test('setPartColors composes with setSkin: avatar colors survive a skin change w
     freshFrostRig.dispose();
 });
 
+test('full avatar atlas maps every skinnable material, survives classic/slim swaps, and disposes once', () => {
+    const texture = () => ({ isTexture: true, disposeCalls: 0, dispose() { this.disposeCalls += 1; } });
+    const rig = createCharacterRig({ characterId: 'rally', skinId: 'default' });
+    const first = texture();
+    rig.setAvatarAtlasTexture(first, 'slim');
+    const head = meshChild(rig.joints.head, 'head-mesh').material;
+    const torso = meshChild(rig.joints.torso, 'torso-mesh').material;
+    const arm = meshChild(rig.joints.shoulderL, 'upper-arm-L').material;
+    const leg = meshChild(rig.joints.hipL, 'thigh-L').material;
+    assert.equal(head.map, first);
+    assert.equal(torso.map, first);
+    assert.equal(arm.map, first);
+    assert.equal(leg.map, first);
+    assert.equal(meshChild(rig.joints.shoulderL, 'upper-arm-L').scale.x, .75);
+
+    const second = texture();
+    rig.setAvatarAtlasTexture(second, 'classic');
+    assert.equal(first.disposeCalls, 1, 'replaced shared texture should dispose once');
+    assert.equal(head.map, second);
+    assert.equal(meshChild(rig.joints.shoulderL, 'upper-arm-L').scale.x, 1);
+
+    const third = texture();
+    rig.setAvatarAtlasTexture(third, 'slim');
+    assert.equal(second.disposeCalls, 1, 'second replacement should also dispose once');
+    assert.equal(meshChild(rig.joints.shoulderL, 'upper-arm-L').scale.x, .75);
+    rig.dispose();
+    assert.equal(third.disposeCalls, 1, 'one atlas shared by four materials disposes once on rig teardown');
+});
+
 test('createCharacterAnimator.update() drives rig.applyPose every frame', () => {
     let calls = 0;
     let lastPose = null;

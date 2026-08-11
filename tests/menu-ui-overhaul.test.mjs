@@ -24,7 +24,8 @@ test('patch notes lead with the 2026-07-31 entry and only one current card', () 
 });
 
 test('the current patch entry names this wave in player-facing wording', () => {
-    const current = html.slice(html.indexOf('patch-card current'), html.indexOf('</article>'));
+    const currentStart = html.indexOf('patch-card current');
+    const current = html.slice(currentStart, html.indexOf('</article>', currentStart));
     for (const phrase of [
         'ball freezing',           // solo/host sim-loop stall
         'QUICK PLAY',              // multiplayer hub reroute

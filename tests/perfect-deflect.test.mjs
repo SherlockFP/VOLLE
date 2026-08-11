@@ -1,9 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
 
 import {
     DEFLECT_CHAIN_RULES,
     DEFLECT_REWARDS,
+    DEFLECT_TIMING_WINDOWS,
     PracticeLabMetrics,
     classifyDeflectTiming,
     createPracticeMetrics,
@@ -13,6 +16,15 @@ import {
     summarizePracticeMetrics,
     updateDeflectChain
 } from '../js/perfect-deflect.js';
+
+const gameSource = readFileSync(new URL('../js/game.js', import.meta.url), 'utf8');
+
+function gameTimingNormalizer() {
+    const start = gameSource.indexOf('function normalizeGameplayDeflectTimingError');
+    const end = gameSource.indexOf('\n}', start) + 2;
+    assert.ok(start >= 0 && end > start, 'game timing normalizer is present');
+    return runInNewContext(`(${gameSource.slice(start, end)})`, { DEFLECT_TIMING_WINDOWS });
+}
 
 test('contact timing uses bounded normal, great, and perfect tiers', () => {
     assert.equal(classifyDeflectTiming(0), 'perfect');
@@ -100,4 +112,24 @@ test('all numeric inputs reject non-finite values', () => {
         () => summarizePracticeMetrics({ ...createPracticeMetrics(), best: Infinity }),
         TypeError
     );
+});
+
+test('game turns the Ball inactive-window sentinel into an ordinary deflect', () => {
+    const normalizeTimingError = gameTimingNormalizer();
+    const normalTimingError = normalizeTimingError(Infinity);
+    const resolved = resolvePerfectDeflect({
+        timingErrorMs: normalTimingError,
+        at: 100,
+        homingStrength: 0
+    });
+
+    assert.equal(normalTimingError, DEFLECT_TIMING_WINDOWS.normal);
+    assert.equal(resolved.tier, 'normal');
+    assert.equal(resolved.chain.count, 0);
+    assert.throws(
+        () => resolvePerfectDeflect({ timingErrorMs: normalizeTimingError(NaN), at: 100, homingStrength: 0 }),
+        TypeError
+    );
+    assert.match(gameSource, /const rawTimingErrorMs = this\.ball\.getPerfectTimingErrorMs\(\);\s+const timingErrorMs = normalizeGameplayDeflectTimingError\(rawTimingErrorMs\);/);
+    assert.match(gameSource, /const remoteTimingMs = normalizeGameplayDeflectTimingError\(this\.ball\.getPerfectTimingErrorMs\(\)\);/);
 });

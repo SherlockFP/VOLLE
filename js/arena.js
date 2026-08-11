@@ -282,8 +282,8 @@ export const MAPS = {
     cosmetic_studio: {
         name: '✨ Cosmetic Studio',
         courtWidth: 84, courtLength: 104, wallHeight: 24, ceilingHeight: 34,
-        floorRed: 0xeaf7ff, floorBlue: 0xd7edf7, wallColor: 0x72d8dd,
-        skyTop: 0x82cde8, skyBottom: 0xf5fbff, fogColor: 0xe8f7fb,
+        floorRed: 0xc6e8ed, floorBlue: 0xb7deeb, wallColor: 0x539eb2,
+        skyTop: 0x15436b, skyBottom: 0x78b7c8, fogColor: 0x669fb4,
         hasOcean: false, hasGlass: true, isCosmeticStudio: true, size: 'medium',
         weather: 'indoor', openSides: false,
         practiceOnly: true, hiddenFromRotation: true, noCombat: true, noBots: true,
@@ -303,7 +303,7 @@ export const MAPS = {
             displayStage: [0, 1.15, -20],
             comparisonPads: [[-20, 0.06, 17], [0, 0.06, 17], [20, 0.06, 17]]
         },
-        sky: { horizonColor: 0xffffff, sun: true, sunColor: 0xfff4cf, cloudAmount: 0.08 }
+        sky: { horizonColor: 0x9dccd6, sun: false, sunColor: 0xfff4cf, cloudAmount: 0.02 }
     },
     temple_sym: {
         name: '🏛️ Temple',

@@ -183,7 +183,10 @@ test('server: existing match-reward formula (base/bonus/coins) is unchanged by t
     assert.equal(reward.base, 120);
     assert.equal(reward.bonus, 60);
     assert.equal(reward.coins, 180);
-    assert.equal(store.reward(profile, { matchId: 'match-1' }, UTC_DAY1).status, 409);
+    const replay = store.reward(profile, { matchId: 'match-1' }, UTC_DAY1);
+    assert.equal(replay.status, 200);
+    assert.equal(replay.replayed, true);
+    assert.equal(replay.coins, 0);
 });
 
 test('server: streakClaim pays day-based coins, cycles on day 7, and rejects a same-day double-claim', t => {

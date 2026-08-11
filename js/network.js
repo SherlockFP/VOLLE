@@ -41,6 +41,7 @@ const UTF8_ENCODER = new TextEncoder();
 const UTF8_DECODER = new TextDecoder('utf-8', { fatal: true });
 const PLAYER_HIT_DAMAGE_MAX = 1000;
 const PENDING_JOIN_AVATAR_MAX_LENGTH = 512 * 1024;
+const isAvatarModel = value => value === undefined || value === 'classic' || value === 'slim';
 const RESUME_TOKEN_MAX_BYTES = 256;
 const RESUME_CHALLENGE_TTL_MS = 10_000;
 const RESUME_PROOF_PATTERN = /^[a-f0-9]{64}$/;
@@ -516,6 +517,11 @@ export class Network {
         this._manualDisconnect = false;
         this._reconnectAttempts = 0;
         this._reconnectTimer = null;
+        this._signalReconnectAttempts = 0;
+        this._signalReconnectTimer = null;
+        this._peerOpened = false;
+        this._latestGameStart = null;
+        this._gameStartRetryTimers = [];
         this._joinPromise = null;
         this._socialRate = new Map();
         this._sentPackets = 0;
@@ -536,6 +542,7 @@ export class Network {
     async initPeer() {
         const rtcConfig = await fetchRtcConfig();
         return new Promise((resolve, reject) => {
+            this._peerOpened = false;
             const peerOptions = { debug: 0 };
             if (rtcConfig.iceServers?.length) {
                 peerOptions.config = { iceServers: rtcConfig.iceServers };
@@ -548,15 +555,40 @@ export class Network {
             this.peer.on('open', id => {
                 this.roomCode = id;
                 this.connected = true;
+                this._peerOpened = true;
+                this._signalReconnectAttempts = 0;
                 resolve(id);
             });
             this.peer.on('error', err => {
-                console.error('Peer error:', err);
-                reject(err);
+                // PeerJS can lose its *signalling* WebSocket after WebRTC data
+                // channels are established. Rejecting only matters before open;
+                // tearing down a live P2P match here would be a false disconnect.
+                if (!this._peerOpened) {
+                    console.error('Peer error:', err);
+                    reject(err);
+                    return;
+                }
+                console.warn('Peer signalling error; keeping live data channels:', err);
+                this._reconnectSignalling();
             });
+            this.peer.on('disconnected', () => this._reconnectSignalling());
             // ALL peers accept incoming connections (mesh: P2P position relay)
             this.peer.on('connection', (conn) => this._onIncomingConnection(conn));
         });
+    }
+
+    _reconnectSignalling() {
+        if (this._manualDisconnect || !this.peer || this._signalReconnectTimer) return;
+        const attempt = ++this._signalReconnectAttempts;
+        this._signalReconnectTimer = setTimeout(() => {
+            this._signalReconnectTimer = null;
+            if (this._manualDisconnect || !this.peer) return;
+            try {
+                this.peer.reconnect?.();
+            } catch (_) {
+                if (attempt < 3) this._reconnectSignalling();
+            }
+        }, reconnectDelay(attempt));
     }
 
     async hostGame(playerName) {
@@ -856,6 +888,9 @@ export class Network {
             migrationEpoch: this.migrationEpoch,
             checkpoint: this.latestHostCheckpoint
         });
+        if (this._latestGameStart && conn.open) {
+            try { conn.send(this._latestGameStart); } catch (_) {}
+        }
         conn.on('close', () => {
             if (this.connections.get(conn.peer) === conn) {
                 this.connections.delete(conn.peer);
@@ -881,7 +916,8 @@ export class Network {
             type: 'join',
             name: data.name,
             ...(data.playerId === undefined ? {} : { playerId: data.playerId }),
-            ...(data.avatar === undefined ? {} : { avatar: data.avatar })
+            ...(data.avatar === undefined ? {} : { avatar: data.avatar }),
+            ...(isAvatarModel(data.avatarModel) && data.avatarModel !== undefined ? { avatarModel: data.avatarModel } : {})
         });
     }
 
@@ -949,7 +985,9 @@ export class Network {
         const conn = this.connections.get(peerId);
         if (!conn || conn.closed || conn.open === false) return;
         const token = this.resumeToken;
-        const avatar = globalThis.window?.__store?.get?.('customAvatar')?.dataURL || '';
+        const customAvatar = globalThis.window?.__store?.get?.('customAvatar');
+        const avatar = customAvatar?.dataURL || '';
+        const avatarModel = customAvatar?.model === 'slim' ? 'slim' : 'classic';
         if (typeof token !== 'string' || !token || token.length > RESUME_TOKEN_MAX_LENGTH
             || typeof avatar !== 'string' || avatar.length > PENDING_JOIN_AVATAR_MAX_LENGTH) {
             conn.close();
@@ -963,6 +1001,7 @@ export class Network {
                 name: this.playerName,
                 password: this.joinPassword,
                 avatar,
+                avatarModel,
                 resumeToken: token,
                 capabilities: PROTOCOL_CAPABILITIES
             });
@@ -1064,7 +1103,9 @@ export class Network {
             admission.earlyJoin = null;
             if (earlyJoin?.resumeAdmission) {
                 try {
-                    this.onPlayerJoin?.(name, playerId, earlyJoin.avatar, conn.peer);
+                    const joinArgs = [name, playerId, earlyJoin.avatar, conn.peer];
+                    if (earlyJoin.avatarModel === 'slim') joinArgs.push('slim');
+                    this.onPlayerJoin?.(...joinArgs);
                     conn._sendWelcome?.();
                 } catch (_) {
                     // Gameplay callbacks must not invalidate transport admission.
@@ -1115,6 +1156,7 @@ export class Network {
             && data.password.length <= RESUME_TOKEN_MAX_LENGTH
             && typeof data.avatar === 'string'
             && data.avatar.length <= PENDING_JOIN_AVATAR_MAX_LENGTH
+            && isAvatarModel(data.avatarModel)
             && normalizeProtocolCapabilities(data.capabilities)
             && (!this.lobbyPassword || data.password === this.lobbyPassword)
             && (!this.lobbyPassword || conn.metadata?.password === this.lobbyPassword);
@@ -1142,7 +1184,7 @@ export class Network {
             name,
             typeof data.resumeToken === 'string' ? data.resumeToken : '',
             proofReserved ? expectedProof : null,
-            { type: 'join', name, playerId, avatar: data.avatar, resumeAdmission: true }
+            { type: 'join', name, playerId, avatar: data.avatar, avatarModel: data.avatarModel, resumeAdmission: true }
         )).then(admitted => {
             if (admitted && this.playerConnections.get(playerId) === conn) {
                 this.peerCapabilities.set(conn.peer, capabilities);
@@ -2187,7 +2229,9 @@ export class Network {
                         }
                     ]);
                     if (this.onPlayerJoin) {
-                        this.onPlayerJoin(conn._playerName, playerId, data.avatar, peerId);
+                        const joinArgs = [conn._playerName, playerId, data.avatar, peerId];
+                        if (data.avatarModel === 'slim') joinArgs.push('slim');
+                        this.onPlayerJoin(...joinArgs);
                     }
                     conn._sendWelcome?.();
                 }
@@ -2356,6 +2400,7 @@ export class Network {
                 break;
             case 'gameStart':
                 if (!this.isHost && peerId === this.hostConn?.peer) {
+                    if (data.matchId && this.game.matchId === data.matchId) break;
                     this.game.startGameFromNetwork(data);
                 }
                 break;
@@ -2633,6 +2678,20 @@ case 'modeChange':
         });
     }
 
+    // Match start is a one-shot transition, not a high-frequency simulation
+    // packet. Retain it across a brief signalling outage and replay it on the
+    // existing ordered DataChannel so a client cannot be stranded in lobby.
+    broadcastGameStart(snapshot = {}) {
+        if (!this.isHost) return;
+        const packet = Object.freeze({ type: 'gameStart', ...snapshot });
+        this._latestGameStart = packet;
+        this.broadcast(packet);
+        this._gameStartRetryTimers.forEach(timer => clearTimeout(timer));
+        this._gameStartRetryTimers = [300, 900, 1800].map(delay => setTimeout(() => {
+            if (this._latestGameStart === packet) this.broadcast(packet);
+        }, delay));
+    }
+
     broadcastAll(data) {
         this.connections.forEach(conn => {
             if (conn.open) { conn.send(data); this._sentPackets++; }
@@ -2833,6 +2892,13 @@ case 'modeChange':
     disconnect() {
         this._ensureIdentityMaps();
         this._manualDisconnect = true;
+        if (this._signalReconnectTimer) {
+            clearTimeout(this._signalReconnectTimer);
+            this._signalReconnectTimer = null;
+        }
+        this._gameStartRetryTimers.forEach(timer => clearTimeout(timer));
+        this._gameStartRetryTimers = [];
+        this._latestGameStart = null;
         this._clearMigrationTimers();
         if (this._reconnectTimer) {
             clearTimeout(this._reconnectTimer);
@@ -2862,6 +2928,7 @@ case 'modeChange':
         this._socialRate.clear();
         if (this.peer) this.peer.destroy();
         this.peer = null;
+        this._peerOpened = false;
         this.connected = false;
         this.isHost = false;
         this.isParty = false;

@@ -222,7 +222,9 @@ export class ShopShowcaseRenderer {
 
         this._environmentResources = [];
         this._buildEnvironment();
-        this._yaw = -.26;
+        // Camera sits on +Z while the rig's face is -Z, therefore pi is the
+        // actual front-facing rest pose (the old -.26 showed its back first).
+        this._yaw = Math.PI;
         this._pitch = -.02;
         this._dragging = false;
         this._lastPointer = null;
@@ -329,7 +331,7 @@ export class ShopShowcaseRenderer {
             else if (event.key === 'ArrowUp') this._pitch = Math.max(-.18, this._pitch - step * .45);
             else if (event.key === 'ArrowDown') this._pitch = Math.min(.18, this._pitch + step * .45);
             else if (event.key === 'Home') {
-                this._yaw = -.26;
+                this._yaw = Math.PI;
                 this._pitch = -.02;
             } else return;
             event.preventDefault?.();

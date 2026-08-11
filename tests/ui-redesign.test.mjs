@@ -39,8 +39,8 @@ test('quick play, progression, and hero dashboards keep stable hooks', () => {
     for (const id of ['hero-selected-name', 'achievement-unlocked-count', 'achievement-reward-total', 'challenge-complete-count']) {
         assert.match(html, new RegExp(`id="${id}"`));
     }
-    assert.match(ui, /card\.className = `shop-card shop-skill-card/);
-    assert.match(ui, /class="btn btn-secondary btn-small skill-equip"/);
+    assert.doesNotMatch(html, /id="shop-tab-skills"/);
+    assert.doesNotMatch(ui, /tab === 'skills'/);
     assert.match(main, /pickQuickLobby\(lobbies, \{ queue, mode, map, openOnly: true \}\)/);
     assert.match(main, /const skillEquip = e\.target\.closest\('\.skill-equip'\)/);
     assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);

@@ -80,6 +80,50 @@ test('reconnect backoff is bounded', () => {
     assert.deepEqual([1, 2, 3, 4].map(reconnectDelay), [500, 1000, 2000, 2000]);
 });
 
+test('client accepts the host game-start transition once even when the reliable retry repeats it', () => {
+    let starts = 0;
+    const game = {
+        matchId: null,
+        startGameFromNetwork: packet => {
+            starts++;
+            game.matchId = packet.matchId;
+        }
+    };
+    const network = new Network(game);
+    network.isHost = false;
+    network.hostConn = { peer: 'host-peer' };
+    const packet = { type: 'gameStart', matchId: 'match-start-123' };
+
+    network.handleMessage(packet, 'host-peer');
+    network.handleMessage(packet, 'host-peer');
+    network.handleMessage(packet, 'mesh-peer');
+
+    assert.equal(starts, 1);
+});
+
+test('host retains game start and sends immediate + bounded retries through open data channels', () => {
+    const sent = [];
+    const network = new Network({});
+    network.isHost = true;
+    network.connections.set('client-peer', { open: true, send: packet => sent.push(packet) });
+
+    network.broadcastGameStart({ matchId: 'match-start-456', mode: 'classic' });
+
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].type, 'gameStart');
+    assert.equal(network._latestGameStart.matchId, 'match-start-456');
+    network._gameStartRetryTimers.forEach(timer => clearTimeout(timer));
+});
+
+test('signalling loss is recovered independently of open WebRTC data channels', () => {
+    const source = readFileSync(new URL('../js/network.js', import.meta.url), 'utf8');
+    const main = readFileSync(new URL('../js/main.js', import.meta.url), 'utf8');
+    assert.match(source, /this\.peer\.on\('disconnected', \(\) => this\._reconnectSignalling\(\)\)/);
+    assert.match(source, /Peer signalling error; keeping live data channels/);
+    assert.match(source, /broadcastGameStart\(snapshot = \{\}\)/);
+    assert.match(main, /this\.network\.broadcastGameStart\(this\.game\.snapshotState\(\)\)/);
+});
+
 test('legacy position packet remains readable', () => {
     const network = new Network({});
     const buffer = new ArrayBuffer(30);

@@ -12,6 +12,10 @@ export const SOCIAL_HUB_MAP_ID = 'plaza';
 const PLAZA_BOUNDS = Object.freeze({ minX: -250, maxX: 250, minY: -14, maxY: 110, minZ: -230, maxZ: 230 });
 const PLAZA_GROUND_Y = 0;
 const POSE_AREA = Object.freeze({ x: 0, z: 56, radius: 11 });
+// The pavilion sits on the south-to-court route. Its open southern portico is
+// deliberate: it reads as a mansion-scale focal point without interrupting the
+// plaza's main walking line or requiring a larger social map.
+const PLAZA_PAVILION = Object.freeze({ x: 0, z: 108, halfWidth: 18, halfDepth: 17, roofY: 12.6 });
 
 // Swim volumes. surfaceY sits above the 1.7 eye height so Player.getWaterAt
 // actually flips into swim mode (surfaceY + .25 >= standing eye height).
@@ -50,6 +54,11 @@ function buildPlazaBlocks() {
         [-104, 194, 3, 33, 20, 'lobby'], [104, 194, 3, 33, 20, 'lobby'],
         [-46, 160, 12, 7, 30, 'lobby'], [46, 160, 12, 7, 30, 'lobby'],
         [-88, 160, 12, 4, 16, 'lobby'], [88, 160, 12, 4, 16, 'lobby'],
+        // --- Grand Pavilion (walk-through social focal point) ------------
+        [PLAZA_PAVILION.x, PLAZA_PAVILION.z, PLAZA_PAVILION.halfWidth, PLAZA_PAVILION.halfDepth, .35, 'pavilion'],
+        [-19, 108, 2, 17, 12, 'pavilion'], [19, 108, 2, 17, 12, 'pavilion'],
+        [0, 91, 19, 2, 12, 'pavilion'],
+        [-12, 125, 7, 2, 12, 'pavilion'], [12, 125, 7, 2, 12, 'pavilion'],
         // --- Aurora Court (social) ---------------------------------------
         [0, 8, 11, 11, 62, 'social'],                                   // Aurora Spire core
         [-32, 8, 3, 32, 1.2, 'social'], [32, 8, 3, 32, 1.2, 'social'],  // fountain rim
@@ -306,6 +315,9 @@ function createPlazaMaterials(renderer) {
         wood: textured(0x8a5a34, createProceduralTexture(renderer, 'wood', ['#77482c', '#8e5c3c', '#4f2c1d'], 6, 6), .68),
         stucco: textured(0xeadcc5, createProceduralTexture(renderer, 'stone', ['#ddd0b8', '#f0e6d6', '#c9b99e'], 12, 6), .85),
         roof: textured(0x2f4254, createProceduralTexture(renderer, 'stone', ['#233542', '#3d5364', '#1b2833'], 16, 8), .7),
+        // The Pavilion is viewed from below as well as across the plaza. A lighter,
+        // double-sided roof avoids an unlit black underside in its open interior.
+        pavilionRoof: new THREE.MeshStandardMaterial({ color: 0x7895a6, emissive: 0x102a38, emissiveIntensity: .18, roughness: .46, metalness: .14, side: THREE.DoubleSide }),
         trim: new THREE.MeshStandardMaterial({ color: 0xfff5e6, roughness: .5 }),
         metal: new THREE.MeshStandardMaterial({ color: 0xc79a4e, roughness: .26, metalness: .84 }),
         glass: new THREE.MeshPhysicalMaterial({ color: 0x9fe2f4, roughness: .1, metalness: .08, transparent: true, opacity: .5, depthWrite: false }),
@@ -323,6 +335,7 @@ const ZONE_MATERIAL = Object.freeze({
     activity: 'stone',
     shop: 'wood',
     observatory: 'stucco',
+    pavilion: 'stucco',
     garden: 'hedge',
     perimeter: 'stone'
 });
@@ -440,6 +453,68 @@ function addGateAndBanners(group, materials) {
     }
 }
 
+function addGrandPavilion(group, materials) {
+    const { x, z, halfWidth, halfDepth, roofY } = PLAZA_PAVILION;
+    // A layered gable roof and a deep portico make this legible at a distance while
+    // the collision blocks above keep the interior genuinely walk-through.
+    addBox(group, [halfWidth * 2 + 3, .42, halfDepth * 2 + 2.6], [x, roofY - .9, z], materials.trim, { castShadow: false });
+    // The outer edges sit above the wall cap and each plane rises toward the
+    // centre ridge: left +Z rotation, right -Z rotation. Thin slabs keep the
+    // open lounge ceiling clear instead of hanging into the eye line.
+    const leftRoof = addBox(group, [halfWidth + 4, .24, halfDepth * 2 + 4.2], [x - (halfWidth + 2) / 2, roofY + 2.3, z], materials.pavilionRoof);
+    const rightRoof = addBox(group, [halfWidth + 4, .24, halfDepth * 2 + 4.2], [x + (halfWidth + 2) / 2, roofY + 2.3, z], materials.pavilionRoof);
+    leftRoof.rotation.z = .16;
+    rightRoof.rotation.z = -.16;
+    addBox(group, [1.25, .54, halfDepth * 2 + 4.3], [x, roofY + 4.05, z], materials.metal, { castShadow: false });
+    addBox(group, [halfWidth * 2 - 1, .55, 3.2], [x, roofY + .72, z - halfDepth + 2.2], materials.aurora, { castShadow: false });
+    for (const side of [-1, 1]) {
+        for (const offset of [-12, 0, 12]) {
+            addCylinder(group, 1.05, 11.6, [x + side * (halfWidth + .15), 5.8, z + offset], materials.marble, 16);
+        }
+        addBox(group, [.32, 5.8, 8.5], [x + side * (halfWidth - .15), 6.2, z], materials.glass, { castShadow: false });
+    }
+    for (const px of [-12, 12]) {
+        addCylinder(group, 1.15, 11.8, [x + px, 5.9, z + halfDepth + .25], materials.marble, 16);
+        addBox(group, [4.6, .42, 1.1], [x + px, 10.8, z + halfDepth + .15], materials.metal, { castShadow: false });
+    }
+    addBox(group, [halfWidth * 2 - 4, .45, 2.3], [x, .55, z + halfDepth + 2.3], materials.marble, { castShadow: false });
+    addBox(group, [18, .55, 2.5], [x, .3, z + halfDepth + 4.5], materials.stone, { castShadow: false });
+    addPavilionLounge(group, materials);
+}
+
+function addPavilionLounge(group, materials) {
+    const lounge = new THREE.Group();
+    lounge.name = 'grand-pavilion-lounge';
+    group.add(lounge);
+    // Side seating deliberately leaves a clear centre aisle from the portico to
+    // the rear sculpture. These are static authored meshes, never updated per frame.
+    for (const side of [-1, 1]) {
+        const seatX = side * 11.5;
+        for (const seatZ of [102, 114]) {
+            const bench = addBox(lounge, [7.4, 1.05, 2.4], [seatX, 1.15, seatZ], materials.wood);
+            bench.name = 'pavilion-lounge-bench';
+            addBox(lounge, [7.4, 2.2, .34], [seatX, 2.25, seatZ + (seatZ < 108 ? -1.03 : 1.03)], materials.stucco, { castShadow: false });
+            addBox(lounge, [7.7, .18, 2.7], [seatX, .66, seatZ], materials.trim, { castShadow: false });
+        }
+        addCylinder(lounge, 1.5, 1.7, [side * 6.7, .85, 108], materials.metal, 16);
+        addBox(lounge, [4.3, .32, 4.3], [side * 6.7, 1.78, 108], materials.marble, { castShadow: false });
+    }
+    addBox(lounge, [9, 2.2, 1.2], [0, 2, 94.1], materials.stone);
+    addBox(lounge, [7.2, 1.25, .34], [0, 3.05, 93.42], materials.aurora, { castShadow: false });
+    const sculpture = new THREE.Mesh(new THREE.OctahedronGeometry(2.25, 1), materials.aurora);
+    sculpture.name = 'pavilion-aurora-sculpture';
+    sculpture.position.set(0, 5.1, 95.2);
+    sculpture.castShadow = true;
+    sculpture.receiveShadow = true;
+    lounge.add(sculpture);
+    for (const side of [-1, 1]) {
+        const light = new THREE.PointLight(0xffb86a, 1.45, 25, 2);
+        light.name = 'pavilion-warm-lounge-light';
+        light.position.set(side * 10, 7.3, 110);
+        lounge.add(light);
+    }
+}
+
 function createNameplate(name) {
     if (typeof document === 'undefined' || !THREE.Sprite || !THREE.CanvasTexture) return null;
     const canvas = document.createElement('canvas');
@@ -540,6 +615,7 @@ export class SocialLobby {
         addObservatoryDome(world, materials);
         addBazaarRoofs(world, materials);
         addGateAndBanners(world, materials);
+        addGrandPavilion(world, materials);
 
         const posePad = addCylinder(world, POSE_AREA.radius, .42, [POSE_AREA.x, .3, POSE_AREA.z], materials.accent, 40);
         posePad.userData.poseArea = true;
@@ -566,10 +642,13 @@ export class SocialLobby {
             fragmentShader: 'varying vec3 vDir;uniform vec3 sunDirection;void main(){float h=clamp(vDir.y*.7+.34,0.,1.);vec3 c=mix(vec3(.98,.78,.62),vec3(.09,.24,.52),h);float band=pow(max(0.,sin(vDir.x*5.0+vDir.y*9.0)),6.0)*smoothstep(.12,.62,vDir.y);c+=vec3(.22,.68,.55)*band;float s=pow(max(dot(vDir,sunDirection),0.),300.);c+=vec3(1.,.82,.5)*s;gl_FragColor=vec4(c,1.);}'
         }));
         world.add(sky);
-        const sun = new THREE.DirectionalLight(0xffeccd, 2.4);
+        // The main renderer already contributes sun + ambient bounce. Keep
+        // hub-local lights deliberately low so the two rigs do not wash the
+        // marble and foliage into one flat highlight when shadows are off.
+        const sun = new THREE.DirectionalLight(0xffeccd, 0.58);
         sun.position.set(-130, 190, -120);
         sun.castShadow = true;
-        world.add(sun, new THREE.HemisphereLight(0xbfeeff, 0x3f5a48, 1.3));
+        world.add(sun, new THREE.HemisphereLight(0xbfeeff, 0x3f5a48, 0.32));
         this.root.add(world);
         this.mapWorlds = { [SOCIAL_HUB_MAP_ID]: world };
         this.plazaWorld = world;
