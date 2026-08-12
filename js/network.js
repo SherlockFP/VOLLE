@@ -36,6 +36,10 @@ const IDENTITY_CLAIM_HEARTBEAT_MS = 5000;
 export const TARGET_ID_MAX_BYTES = 128;
 export const NETWORK_WORLD_BOUND = 512;
 export const NETWORK_SPEED_BOUND = 512;
+// Ball rallies are intentionally uncapped in gameplay. Keep a separate,
+// generous wire guard so legitimate long rallies pass while absurd/hostile
+// Float32 payloads are still rejected.
+export const NETWORK_BALL_SPEED_BOUND = 16384;
 const TARGET_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
 const UTF8_ENCODER = new TextEncoder();
 const UTF8_DECODER = new TextDecoder('utf-8', { fatal: true });
@@ -103,10 +107,10 @@ function isValidBallPacket(data) {
     return [data.x, data.y, data.z]
         .every(value => isBoundedFinite(value, NETWORK_WORLD_BOUND))
         && [data.vx, data.vy, data.vz]
-            .every(value => isBoundedFinite(value, NETWORK_SPEED_BOUND))
+            .every(value => isBoundedFinite(value, NETWORK_BALL_SPEED_BOUND))
         && Number.isFinite(data.speed)
         && data.speed >= 0
-        && data.speed <= NETWORK_SPEED_BOUND;
+        && data.speed <= NETWORK_BALL_SPEED_BOUND;
 }
 
 function normalizePlayerHitPacket(data) {

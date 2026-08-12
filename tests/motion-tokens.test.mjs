@@ -16,21 +16,21 @@ test('motion tokens are defined in ui-tokens.css', () => {
     assert.match(tokens, /--ui-ease:/, 'must define --ui-ease');
 });
 
-test('#main-menu background is declared exactly once in polish.css', () => {
-    // Find all bare #main-menu rules (not pseudo-elements like ::before, ::after).
-    // Count background declarations in those rules.
+test('#main-menu has one cinematic image layer without duplicate image declarations', () => {
+    // The base theme keeps its background shorthand; Cycle C2 adds exactly one
+    // image layer plus its size/position. Guard duplicate image URLs, not the
+    // supporting background properties required to render one full-bleed image.
     const RULE_RE = /([^{}]*)\{([^{}]*)\}/g;
-    let count = 0;
+    let imageCount = 0;
     for (const m of polish.matchAll(RULE_RE)) {
         const sel = m[1].replace(/\/\*[\s\S]*?\*\//g, '').trim().replace(/\s+/g, ' ');
         // selector list: split by comma, check if any selector is exactly #main-menu (no pseudo, no descendants)
         const sels = sel.split(',').map(s => s.trim());
         if (!sels.includes('#main-menu')) continue;
-        // count background-related properties in this rule
-        const bgProps = [...m[2].matchAll(/background[\w-]*\s*:/g)];
-        count += bgProps.length;
+        imageCount += [...m[2].matchAll(/background-image\s*:/g)].length;
     }
-    assert.equal(count, 1, 'exactly one background-* property across all bare #main-menu rules');
+    assert.ok(imageCount >= 1, 'the cinematic menu must declare a background-image layer');
+    assert.equal((polish.match(/warrball-arena-menu-bg-v1\.webp/g) || []).length, 1);
 });
 
 test('motion token adoption meets minimum floor', () => {

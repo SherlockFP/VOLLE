@@ -8,37 +8,41 @@ import { registerThreeStub } from './helpers/three-loader.mjs';
 
 registerThreeStub();
 
-const { createCharacterRig, RIG_SOCKETS } = await import('../js/character-rig.js');
+const {
+    ARM_DEPTH, ARM_HEIGHT, CLASSIC_ARM_WIDTH, HEAD_SIZE, LEG_DEPTH, LEG_HEIGHT,
+    LEG_WIDTH, RIG_SOCKETS, SLIM_ARM_WIDTH, TORSO_DEPTH, TORSO_HEIGHT,
+    TORSO_WIDTH, TOTAL_BODY_HEIGHT, VOXEL_UNIT, createCharacterRig
+} = await import('../js/character-rig.js');
 const { createCharacterAnimator } = await import('../js/character-anim.js');
 const { JOINTS, POSE_STATES, STATE_DURATION, poseFor } = await import('../js/character-pose.js');
 const { Group } = await import('./helpers/three-stub.mjs');
 
 // Exact hierarchy + local offsets from docs/WARBALL_IO_PLAN.md section 1.2's diagram.
 const EXPECTED_JOINT_OFFSETS = {
-    hips: { parent: 'root', x: 0, y: 0.94, z: 0 },
+    hips: { parent: 'root', x: 0, y: 0.75, z: 0 },
     torso: { parent: 'hips', x: 0, y: 0, z: 0 },
     head: { parent: 'torso', x: 0, y: 0.80, z: 0 },
-    shoulderL: { parent: 'torso', x: -0.44, y: 0.60, z: 0 },
-    elbowL: { parent: 'shoulderL', x: 0, y: -0.46, z: 0 },
-    shoulderR: { parent: 'torso', x: 0.44, y: 0.60, z: 0 },
-    elbowR: { parent: 'shoulderR', x: 0, y: -0.46, z: 0 },
-    hipL: { parent: 'hips', x: -0.19, y: 0, z: 0 },
-    kneeL: { parent: 'hipL', x: 0, y: -0.48, z: 0 },
-    hipR: { parent: 'hips', x: 0.19, y: 0, z: 0 },
-    kneeR: { parent: 'hipR', x: 0, y: -0.48, z: 0 }
+    shoulderL: { parent: 'torso', x: -0.375, y: 0.75, z: 0 },
+    elbowL: { parent: 'shoulderL', x: 0, y: -0.375, z: 0 },
+    shoulderR: { parent: 'torso', x: 0.375, y: 0.75, z: 0 },
+    elbowR: { parent: 'shoulderR', x: 0, y: -0.375, z: 0 },
+    hipL: { parent: 'hips', x: -0.125, y: 0, z: 0 },
+    kneeL: { parent: 'hipL', x: 0, y: -0.375, z: 0 },
+    hipR: { parent: 'hips', x: 0.125, y: 0, z: 0 },
+    kneeR: { parent: 'hipR', x: 0, y: -0.375, z: 0 }
 };
 
 const EXPECTED_SOCKET_OFFSETS = {
-    head: { parent: 'head', x: 0, y: 0.42, z: 0 },
-    face: { parent: 'head', x: 0, y: 0, z: -0.24 },
-    back: { parent: 'torso', x: 0, y: 0.34, z: 0.24 },
-    chest: { parent: 'torso', x: 0, y: 0.36, z: -0.26 },
-    waist: { parent: 'hips', x: 0, y: 0.02, z: 0 },
-    handL: { parent: 'elbowL', x: 0, y: -0.46, z: 0 },
-    handR: { parent: 'elbowR', x: 0, y: -0.46, z: 0 },
-    footL: { parent: 'kneeL', x: 0, y: -0.46, z: 0 },
-    footR: { parent: 'kneeR', x: 0, y: -0.46, z: 0 },
-    aura: { parent: 'root', x: 0, y: 0.9, z: 0 },
+    head: { parent: 'head', x: 0, y: 0.45, z: 0 },
+    face: { parent: 'head', x: 0, y: 0.20, z: -0.27 },
+    back: { parent: 'torso', x: 0, y: 0.375, z: 0.145 },
+    chest: { parent: 'torso', x: 0, y: 0.375, z: -0.145 },
+    waist: { parent: 'hips', x: 0, y: 0, z: 0 },
+    handL: { parent: 'elbowL', x: 0, y: -0.375, z: 0 },
+    handR: { parent: 'elbowR', x: 0, y: -0.375, z: 0 },
+    footL: { parent: 'kneeL', x: 0, y: -0.375, z: 0 },
+    footR: { parent: 'kneeR', x: 0, y: -0.375, z: 0 },
+    aura: { parent: 'root', x: 0, y: 1, z: 0 },
     trail: { parent: 'root', x: 0, y: 0.1, z: 0 }
 };
 
@@ -143,22 +147,18 @@ test('neutral-pose rig: lowest point across every mesh is exactly floor level (y
     rig.dispose();
 });
 
-test('neutral-pose rig: no vertical gap from torso up through the neck into the head', () => {
+test('neutral-pose rig: head sits directly on torso with no visible neck or gap', () => {
     const rig = createCharacterRig({});
     const torso = meshExtent(meshChild(rig.joints.torso, 'torso-mesh'));
-    const neck = meshExtent(meshChild(rig.joints.torso, 'neck-mesh'));
     const head = meshExtent(meshChild(rig.joints.head, 'head-mesh'));
 
-    // Each segment must overlap (or exactly touch) the next -- never leave daylight
-    // between torso top -> neck bottom, or neck top -> head bottom.
-    assert.ok(neck.minY <= torso.maxY + EPS,
-        `neck bottom (${neck.minY}) should overlap/touch torso top (${torso.maxY}), not float above it`);
-    assert.ok(head.minY <= neck.maxY + EPS,
-        `head bottom (${head.minY}) should overlap/touch neck top (${neck.maxY}), not float above it`);
+    assert.equal(meshChild(rig.joints.torso, 'neck-mesh'), undefined, 'Minecraft base has no neck mesh');
+    assert.ok(Math.abs(head.minY - torso.maxY) < EPS,
+        `head bottom (${head.minY}) must touch torso top (${torso.maxY})`);
     rig.dispose();
 });
 
-test('neutral-pose rig: leg x-extent sits strictly inside the torso x-extent (readable silhouette)', () => {
+test('neutral-pose rig: paired 4u legs tile the full 8u torso width', () => {
     const rig = createCharacterRig({});
     const torso = meshExtent(meshChild(rig.joints.torso, 'torso-mesh'));
     const legMeshes = [
@@ -167,8 +167,51 @@ test('neutral-pose rig: leg x-extent sits strictly inside the torso x-extent (re
     ];
     for (const mesh of legMeshes) {
         const extent = meshExtent(mesh);
-        assert.ok(extent.minX > torso.minX, `${mesh.name}.minX (${extent.minX}) should be inside torso.minX (${torso.minX})`);
-        assert.ok(extent.maxX < torso.maxX, `${mesh.name}.maxX (${extent.maxX}) should be inside torso.maxX (${torso.maxX})`);
+        assert.ok(extent.minX >= torso.minX - EPS, `${mesh.name}.minX stays within torso`);
+        assert.ok(extent.maxX <= torso.maxX + EPS, `${mesh.name}.maxX stays within torso`);
+    }
+    const left = meshExtent(meshChild(rig.joints.hipL, 'thigh-L'));
+    const right = meshExtent(meshChild(rig.joints.hipR, 'thigh-R'));
+    assert.ok(Math.abs(left.minX - torso.minX) < EPS);
+    assert.ok(Math.abs(left.maxX - right.minX) < EPS, 'legs meet at center without a gap');
+    assert.ok(Math.abs(right.maxX - torso.maxX) < EPS);
+    rig.dispose();
+});
+
+test('core body uses one voxel unit and exact 8/12/4 Minecraft dimensions', () => {
+    assert.equal(VOXEL_UNIT, 1 / 16);
+    assert.equal(TOTAL_BODY_HEIGHT, 32 * VOXEL_UNIT);
+    assert.deepEqual([HEAD_SIZE, HEAD_SIZE, HEAD_SIZE], [8, 8, 8].map(value => value * VOXEL_UNIT));
+    assert.deepEqual([TORSO_WIDTH, TORSO_HEIGHT, TORSO_DEPTH], [8, 12, 4].map(value => value * VOXEL_UNIT));
+    assert.deepEqual([CLASSIC_ARM_WIDTH, ARM_HEIGHT, ARM_DEPTH], [4, 12, 4].map(value => value * VOXEL_UNIT));
+    assert.deepEqual([SLIM_ARM_WIDTH, ARM_HEIGHT, ARM_DEPTH], [3, 12, 4].map(value => value * VOXEL_UNIT));
+    assert.deepEqual([LEG_WIDTH, LEG_HEIGHT, LEG_DEPTH], [4, 12, 4].map(value => value * VOXEL_UNIT));
+
+    const rig = createCharacterRig({ skinId: 'default' });
+    const torso = meshChild(rig.joints.torso, 'torso-mesh');
+    const head = meshChild(rig.joints.head, 'head-mesh');
+    const arm = meshChild(rig.joints.shoulderL, 'upper-arm-L');
+    const leg = meshChild(rig.joints.hipL, 'thigh-L');
+    assert.deepEqual(torso.geometry.args, [TORSO_WIDTH, TORSO_HEIGHT, TORSO_DEPTH]);
+    assert.deepEqual(head.geometry.args, [HEAD_SIZE, HEAD_SIZE, HEAD_SIZE]);
+    assert.deepEqual(arm.geometry.args, [CLASSIC_ARM_WIDTH, ARM_HEIGHT / 2, ARM_DEPTH]);
+    assert.deepEqual(leg.geometry.args, [LEG_WIDTH, LEG_HEIGHT / 2, LEG_DEPTH]);
+    rig.dispose();
+});
+
+test('split limbs remain contiguous and character identity never non-uniformly deforms the core', () => {
+    const rig = createCharacterRig({ characterId: 'rally', skinId: 'default' });
+    const upperArm = meshExtent(meshChild(rig.joints.shoulderL, 'upper-arm-L'));
+    const forearm = meshExtent(meshChild(rig.joints.elbowL, 'forearm-L'));
+    const thigh = meshExtent(meshChild(rig.joints.hipL, 'thigh-L'));
+    const calf = meshExtent(meshChild(rig.joints.kneeL, 'calf-L'));
+    assert.ok(Math.abs(upperArm.minY - forearm.maxY) < EPS, 'arm halves meet at elbow');
+    assert.ok(Math.abs(thigh.minY - calf.maxY) < EPS, 'leg halves meet at knee');
+
+    for (const characterId of ['rally', 'tank', 'scout', 'sniper', 'guardian']) {
+        rig.setCharacter(characterId);
+        assert.equal(rig.root.scale.x, rig.root.scale.y, `${characterId} x/y scale`);
+        assert.equal(rig.root.scale.y, rig.root.scale.z, `${characterId} y/z scale`);
     }
     rig.dispose();
 });

@@ -8,3 +8,5 @@ graphify-out/
 
 # graft's local graph cache — regenerable, not committed (run `graft build`).
 graft/
+# Local runtime analytics can contain pseudonymous profile/session identifiers.
+data/product-analytics.json

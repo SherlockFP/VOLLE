@@ -9,7 +9,12 @@ class MatchAuthority {
     }
     _key(profile, id, mode) { return mode === 'solo' ? `solo:${profile.id}:${id}` : `${mode}:${id}`; }
     _valid(id, mode) { return MATCH_ID.test(String(id || '')) && MODES.has(mode); }
-    _clean(now = this.now()) { for (const [key, match] of this.matches) if (now - match.startedAt > this.ttlMs) { this.matches.delete(key); for (const id of match.required) if (this.activeByProfile.get(id) === key) this.activeByProfile.delete(id); } }
+    _clean(now = this.now()) { for (const [key, match] of this.matches) if (now - match.startedAt > this.ttlMs) { this.matches.delete(key); for (const id of match.started) if (this.activeByProfile.get(id) === key) this.activeByProfile.delete(id); } }
+    isProfileActive(profileId) {
+        this._clean(this.now());
+        const key = this.activeByProfile.get(String(profileId || ''));
+        return !!(key && this.matches.has(key));
+    }
     _public(match, profile) { return { matchId: match.id, mode: match.mode, status: match.finalized ? 'finalized' : match.reports.size ? 'pending' : match.readyAt ? 'ready' : 'started', participants: match.required.size, reported: match.reports.has(profile.id), profile: this.profiles._public(profile), completion: match.completions?.get(profile.id) || null }; }
     _lobbySnapshot(profile, lobbyCode, mode) {
         const lobby = this.getLobby(String(lobbyCode || ''));

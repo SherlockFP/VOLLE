@@ -16,7 +16,8 @@ test('case catalog uses unique image-backed cards and a confirmation dialog', ()
     assert.equal(new Set(paths).size, 6);
     assert.match(ui, /class="case-art"><img src="\$\{box\.art\}"/);
     assert.match(ui, /class="btn btn-primary btn-small case-select"/);
-    const caseBranch = ui.slice(ui.indexOf("tab === 'cases'"), ui.indexOf("tab === 'inventory'"));
+    const caseStart = ui.indexOf("tab === 'cases'");
+    const caseBranch = ui.slice(caseStart, ui.indexOf('this._finalizeShopCatalog(grid)', caseStart));
     assert.doesNotMatch(caseBranch, /case-drop-rates|drop\.name|drop\.chance/);
     for (const id of ['case-inspector', 'case-inspector-art', 'case-inspector-title', 'case-inspector-open', 'case-inspector-close']) {
         assert.match(html, new RegExp(`id="${id}"`));
@@ -27,9 +28,10 @@ test('case catalog uses unique image-backed cards and a confirmation dialog', ()
 
 test('inventory is standalone and collection layouts are spacious', () => {
     assert.doesNotMatch(html, /id="cosmetic-customizer"/);
-    assert.match(css, /data-shop-tab="inventory"[\s\S]*?grid-template-columns: 1fr;/);
-    assert.match(css, /#shop-screen \.inventory-card \{ min-height: 280px; \}/);
-    assert.match(css, /#shop-screen \.inventory-card \.inventory-icon-area \{/);
+    assert.doesNotMatch(html, /id="shop-tab-inventory"/);
+    assert.match(html, /id="locker-panel-inventory"/);
+    assert.match(css, /\.locker-inventory-grid \{[\s\S]*?repeat\(4, minmax\(0, 1fr\)\)/);
+    assert.match(css, /@media \(max-width: 700px\)[\s\S]*?\.locker-inventory-grid \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); gap: 16px; \}/);
 });
 
 test('quick play, progression, and hero dashboards keep stable hooks', () => {

@@ -123,36 +123,30 @@ test('custom face textures and atlases hide every procedural face mesh together'
     rig.dispose();
 });
 
-test('neck-mesh is BoxGeometry .26x.20x.26 (taller than the old .16 to close the torso-head gap)', () => {
+test('exact Minecraft silhouette has no visible neck mesh', () => {
     const rig = createCharacterRig({});
     const neckMesh = meshChild(rig.joints.torso, 'neck-mesh');
-    assert.ok(neckMesh, 'neck-mesh should exist');
-    const [width, height, depth] = neckMesh.geometry.args;
-    assert.equal(width, 0.26, 'neck width should be 0.26');
-    assert.equal(height, 0.20, 'neck height should be 0.20 (was 0.16 before)');
-    assert.equal(depth, 0.26, 'neck depth should be 0.26');
+    assert.equal(neckMesh, undefined);
     rig.dispose();
 });
 
-test('head and neck overlap without a gap (test 146 from character-rig.test.mjs constraint)', () => {
+test('head bottom touches torso top without a gap', () => {
     const rig = createCharacterRig({});
-    const neckMesh = meshChild(rig.joints.torso, 'neck-mesh');
+    const torsoMesh = meshChild(rig.joints.torso, 'torso-mesh');
     const headMesh = meshChild(rig.joints.head, 'head-mesh');
 
-    // World positions: neck at y=.76 with half-height .10, so top at 1.76.
-    // Head at y=.20 with half-height .16, positioned at y=1.94 on joints.head (torso+.80+.20),
-    // so bottom at 1.78. This creates a .02 overlap, matching the reference rig convention.
-    let neckWorldY = 0;
+    let torsoWorldY = 0;
     let headWorldY = 0;
-    for (let n = neckMesh; n; n = n.parent) neckWorldY += n.position.y;
+    for (let n = torsoMesh; n; n = n.parent) torsoWorldY += n.position.y;
     for (let n = headMesh; n; n = n.parent) headWorldY += n.position.y;
 
-    const neckHalfHeight = halfExtents(neckMesh.geometry).y;
+    const torsoHalfHeight = halfExtents(torsoMesh.geometry).y;
     const headHalfHeight = halfExtents(headMesh.geometry).y;
 
-    const neckTop = neckWorldY + neckHalfHeight;
+    const torsoTop = torsoWorldY + torsoHalfHeight;
     const headBottom = headWorldY - headHalfHeight;
 
-    assert.ok(headBottom <= neckTop + 0.001, `head bottom (${headBottom}) should not float above neck top (${neckTop})`);
+    assert.ok(Math.abs(headBottom - torsoTop) < 0.001,
+        `head bottom (${headBottom}) should touch torso top (${torsoTop})`);
     rig.dispose();
 });

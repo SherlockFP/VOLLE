@@ -246,19 +246,35 @@
                 <span class="ow-hint">WASD move / L-Click deflect / Q skill / Tab scores / Y chat</span>
             </aside>
 
-            <!-- Friends sidebar (Messenger-style) -->
-            <div id="friends-sidebar" class="friends-sidebar">
+            <!-- Authoritative social rail: friends, online players, nearby discovery, party. -->
+            <aside id="friends-sidebar" class="friends-sidebar" aria-label="Social and party">
+                <button class="fbar-sheet-handle" id="fbar-sheet-handle" type="button" aria-label="Open social panel" aria-expanded="false"><span aria-hidden="true"></span>Social</button>
                 <div class="friends-sidebar-header">
                     <button id="fbar-toggle" class="fbar-toggle-btn" aria-label="Toggle friends panel"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg></button>
-                    <span>FRIENDS</span>
+                    <span>SOCIAL</span>
                     <span class="friends-sidebar-count" id="fbar-count"></span>
                 </div>
                 <div class="friends-sidebar-body" id="fbar-body">
+                    <section class="fbar-party" aria-labelledby="fbar-party-title">
+                        <header><span><small>PARTY</small><strong id="fbar-party-title">Your squad</strong></span><b id="fbar-party-count">1 / 8</b></header>
+                        <div id="fbar-party-members" class="fbar-party-members" aria-live="polite"></div>
+                        <button id="fbar-party-leave" class="fbar-party-leave" type="button" hidden>Leave party</button>
+                    </section>
+                    <div class="fbar-tabs" role="tablist" aria-label="Social directory">
+                        <button type="button" role="tab" aria-selected="true" data-fbar-tab="friends">Friends</button>
+                        <button type="button" role="tab" aria-selected="false" data-fbar-tab="online">Online</button>
+                        <button type="button" role="tab" aria-selected="false" data-fbar-tab="nearby">Nearby</button>
+                    </div>
+                    <div id="fbar-directory" class="fbar-directory" role="tabpanel" aria-live="polite"></div>
+                    <div class="fbar-presence-controls">
+                        <label><input id="fbar-discoverable" type="checkbox" checked> Discoverable</label>
+                        <label><span>Region</span><select id="fbar-region" aria-label="Discovery region"><option value="global">Global</option><option value="eu">Europe</option><option value="na">North America</option><option value="sa">South America</option><option value="asia">Asia</option><option value="oce">Oceania</option><option value="mea">Middle East &amp; Africa</option></select></label>
+                    </div>
                     <button id="fbar-own-tag" class="friends-own-tag" type="button" title="Copy your friend tag"></button>
-                    <div class="friends-sidebar-online" id="fbar-online">
+                    <div class="friends-sidebar-online hidden" id="fbar-online" aria-hidden="true">
                         <div class="friends-sidebar-empty">No friends online</div>
                     </div>
-                    <div class="friends-sidebar-offline" id="fbar-offline">
+                    <div class="friends-sidebar-offline hidden" id="fbar-offline" aria-hidden="true">
                         <div class="friends-sidebar-subtitle">Offline</div>
                         <div id="fbar-offline-list"></div>
                     </div>
@@ -276,6 +292,15 @@
                             <button id="fbar-chat-send" aria-label="Send message"><svg class="ui-icon" aria-hidden="true"><use href="#i-play"></use></svg></button>
                         </div>
                     </div>
+                </div>
+            </aside>
+            <div id="party-invite-dialog" class="party-invite-dialog hidden" role="alertdialog" aria-modal="true" aria-labelledby="party-invite-title" aria-describedby="party-invite-copy">
+                <div class="party-invite-card">
+                    <span class="menu-player-label">PARTY INVITE</span>
+                    <h2 id="party-invite-title">Join squad?</h2>
+                    <p id="party-invite-copy"></p>
+                    <output id="party-invite-countdown" aria-live="polite">30s</output>
+                    <div><button id="party-invite-accept" type="button">Accept</button><button id="party-invite-decline" type="button">Decline</button></div>
                 </div>
             </div>
         </div>
@@ -881,40 +906,48 @@
     <div id="character-screen" class="screen hidden">
         <div id="character-locker-content" class="panel wide-panel shell-panel hero-shell">
             <header class="shell-header">
-                <div class="shell-title"><span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-user"></use></svg></span><div><span class="shell-kicker">HERO BAY</span><h1>Heroes</h1><p>Build a readable role, ability, and rune package.</p></div></div>
+                <div class="shell-title"><span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-user"></use></svg></span><div><span class="shell-kicker">PLAYER LOCKER</span><h1>Locker</h1><p>Build your match loadout and manage everything you own.</p></div></div>
                 <div class="hero-loadout-summary" aria-label="Current loadout">
                     <span><small>Hero</small><strong id="hero-selected-name">Rally</strong></span>
                     <span><small>Ability</small><strong id="hero-selected-skill">Slow Ball</strong></span>
                     <span><small>Rune</small><strong id="hero-selected-rune">Deflect Power</strong></span>
                 </div>
             </header>
-            <section class="loadout-section hero-roster"><header><span class="shell-kicker">ROSTER</span><h2>Choose Your Hero</h2><p>Compare health, speed, deflect power, and mastery at a glance.</p></header><div class="char-grid" id="char-grid"></div></section>
-            <section class="loadout-section"><header><span class="shell-kicker">ACTIVE CARD</span><h2>Ability Card</h2><p>Earn cards from Arena Cache drops. Cooldowns stay tuned for fair rallies.</p></header><div class="skill-grid" id="skill-grid"></div></section>
-            <section class="loadout-section"><header><span class="shell-kicker">PASSIVE CARD</span><h2>Passive Card</h2><p>Choose one collected passive card for a clear playstyle.</p></header><div class="rune-grid" id="rune-grid"></div></section>
-            <div class="hero-actions">
-                <button id="btn-char-back" class="btn btn-secondary"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back</button>
-                <button id="btn-card-collection" class="btn btn-secondary" type="button">Card Collection</button>
-                <button id="btn-char-save" class="btn btn-primary">Save Loadout</button>
+            <nav id="locker-tabs" class="locker-rail" role="tablist" aria-label="Locker sections">
+                <button id="locker-tab-loadout" class="locker-tab selected" type="button" role="tab" aria-selected="true" aria-controls="locker-panel-loadout" data-locker-tab="loadout">Loadout</button>
+                <button id="locker-tab-inventory" class="locker-tab" type="button" role="tab" aria-selected="false" aria-controls="locker-panel-inventory" data-locker-tab="inventory">Inventory</button>
+                <button id="locker-tab-cards" class="locker-tab" type="button" role="tab" aria-selected="false" aria-controls="locker-panel-cards" data-locker-tab="cards">Cards</button>
+            </nav>
+            <div id="locker-panel-loadout" class="locker-panel" role="tabpanel" aria-labelledby="locker-tab-loadout" data-locker-panel="loadout">
+                <section class="loadout-section hero-roster"><header><span class="shell-kicker">ROSTER</span><h2>Choose Your Hero</h2><p>Compare health, speed, deflect power, and mastery at a glance.</p></header><div class="char-grid" id="char-grid"></div></section>
+                <section class="loadout-section"><header><span class="shell-kicker">ACTIVE CARD</span><h2>Ability Card</h2><p>Earn cards from Arena Cache drops. Cooldowns stay tuned for fair rallies.</p></header><div class="skill-grid" id="skill-grid"></div></section>
+                <section class="loadout-section"><header><span class="shell-kicker">PASSIVE CARD</span><h2>Passive Card</h2><p>Choose one collected passive card for a clear playstyle.</p></header><div class="rune-grid" id="rune-grid"></div></section>
             </div>
-        </div>
-        <section id="card-collection-panel" class="card-collection-panel hidden" role="dialog" aria-modal="true" aria-labelledby="card-collection-title">
-            <div class="card-collection-dialog" role="document" tabindex="-1">
-                <header class="card-collection-header"><div><span class="shell-kicker">ARENA CACHE</span><h2 id="card-collection-title">Card Collection</h2><p id="card-collection-status" role="status" aria-live="polite"></p></div><button id="btn-card-collection-close" class="btn btn-secondary btn-small" type="button" aria-label="Close Card Collection">Close</button></header>
+            <section id="locker-panel-inventory" class="locker-panel hidden" role="tabpanel" aria-labelledby="locker-tab-inventory" data-locker-panel="inventory">
+                <header class="locker-section-header"><div><span class="shell-kicker">OWNED COLLECTION</span><h2>Inventory</h2><p>Inspect and equip earned items. Nothing is sold from this screen.</p></div><span id="locker-inventory-count" class="shop-catalog-count">0 items</span></header>
+                <div id="locker-inventory-grid" class="locker-inventory-grid" aria-label="Owned inventory"></div>
+            </section>
+            <section id="locker-panel-cards" class="locker-panel hidden" role="tabpanel" aria-labelledby="locker-tab-cards" data-locker-panel="cards">
+                <header class="locker-section-header"><div><span class="shell-kicker">ARENA CACHE</span><h2 id="card-collection-title">Card Collection</h2><p id="card-collection-status" role="status" aria-live="polite"></p></div></header>
                 <div class="card-collection-content">
                     <div id="card-collection-grid" class="card-collection-grid" aria-label="Collectible cards"></div>
                     <div class="card-tradeup"><div><span class="shell-kicker">TRADE-UP</span><h3>Trade 5 duplicate cards</h3><p>Roll one card from the next rarity. Legendary cards cannot be traded.</p></div><label for="card-tradeup-select">Duplicate stack</label><select id="card-tradeup-select"></select><button id="btn-card-tradeup" class="btn btn-primary btn-small" type="button">Trade Up</button></div>
                 </div>
+            </section>
+            <div class="hero-actions">
+                <button id="btn-char-back" class="btn btn-secondary"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back</button>
+                <button id="btn-card-collection" class="btn btn-secondary" type="button" data-locker-tab="cards">View Cards</button>
+                <button id="btn-char-save" class="btn btn-primary">Save Loadout</button>
             </div>
-        </section>
+        </div>
     </div>
 
     <!-- ===== SHOP ===== -->
     <div id="shop-screen" class="screen hidden">
         <div class="panel wide-panel shell-panel shop-shell">
             <header class="shell-header shop-header">
-                <div class="shell-title"><span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-shop"></use></svg></span><div><span class="shell-kicker">WARRBALL COLLECTION</span><h1>Arena Shop</h1><p>Preview every look in 3D before it enters your loadout.</p></div></div>
-                <div id="shop-earn-slot"></div>
-                <div class="meta-stats"><span class="meta-stat" aria-label="Current credit balance"><svg class="ui-icon" aria-hidden="true"><use href="#i-coins"></use></svg><strong id="shop-coins">0</strong><small>credits</small></span></div>
+                <div class="shop-header-title"><span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-shop"></use></svg></span><h1>Shop</h1></div>
+                <div class="shop-header-wallet"><div id="shop-earn-slot"></div><span class="meta-stat" aria-label="Current credit balance"><svg class="ui-icon" aria-hidden="true"><use href="#i-coins"></use></svg><strong id="shop-coins">0</strong><small>credits</small></span></div>
             </header>
             <div class="shop-toolbar">
                 <div class="shop-tabs" id="shop-tabs" role="tablist" aria-label="Shop categories">
@@ -924,7 +957,6 @@
                     <button id="shop-tab-avatars" class="shop-tab" role="tab" aria-selected="false" aria-controls="shop-grid" data-tab="avatars"><svg class="ui-icon" aria-hidden="true"><use href="#i-access"></use></svg><span>Skins</span></button>
                     <button id="shop-tab-wearables" class="shop-tab" role="tab" aria-selected="false" aria-controls="shop-grid" data-tab="wearables"><svg class="ui-icon" aria-hidden="true"><use href="#i-ticket"></use></svg><span>Wearables</span></button>
                     <button id="shop-tab-cases" class="shop-tab" role="tab" aria-selected="false" aria-controls="shop-grid" data-tab="cases"><svg class="ui-icon" aria-hidden="true"><use href="#i-shop"></use></svg><span>Cases</span></button>
-                    <button id="shop-tab-inventory" class="shop-tab" role="tab" aria-selected="false" aria-controls="shop-grid" data-tab="inventory"><svg class="ui-icon" aria-hidden="true"><use href="#i-chart"></use></svg><span>Inventory</span></button>
                     <button id="shop-tab-boosts" class="shop-tab" role="tab" aria-selected="false" aria-controls="shop-grid" data-tab="boosts"><svg class="ui-icon" aria-hidden="true"><use href="#i-play"></use></svg><span>Boosts</span></button>
                 </div>
             </div>
@@ -1565,7 +1597,7 @@
             </div>
         </div>
     </div>
-    <div id="case-reel" class="case-reel hidden" role="dialog" aria-modal="true" aria-label="Case opening"><div class="case-reel-card"><div class="case-reel-top"><span>WARRBALL CASE OPENING</span><button id="case-reel-skip" type="button">SKIP</button></div><div class="case-reel-window"><div id="case-reel-track" class="case-reel-track"></div></div><div id="case-reel-result" class="case-reel-result" aria-live="polite"></div><div id="case-reward-preview" class="case-reward-preview" aria-label="3D reward preview"><i></i></div></div></div>
+    <div id="case-reel" class="case-reel hidden" role="dialog" aria-modal="true" aria-label="Case opening"><div class="case-reel-card" role="document" tabindex="-1"><div class="case-reel-top"><span>WARRBALL CASE OPENING</span><button id="case-reel-skip" type="button">SKIP</button></div><div class="case-reel-window"><div id="case-reel-track" class="case-reel-track"></div></div><div id="case-reel-result" class="case-reel-result" aria-live="polite"></div><div id="case-reward-preview" class="case-reward-preview" aria-label="3D reward preview"><i></i></div><div id="case-reel-actions" class="case-reel-actions hidden" aria-label="Case reward actions"><button id="case-reel-inspect" class="btn btn-secondary" type="button">Inspect</button><button id="case-reel-equip" class="btn btn-primary" type="button">Equip</button><button id="case-reel-open-another" class="btn btn-primary" type="button">Open another</button><button id="case-reel-close" class="btn btn-secondary" type="button">Close</button></div></div></div>
 
     <!-- ===== TEAM SWITCH OVERLAY (M) ===== -->
     <div id="team-overlay" class="hidden">

@@ -20,8 +20,7 @@ test('rig constructs with all required meshes (head is a cube, not a sphere)', (
     assert.equal(headMesh.geometry.constructor.name, 'BoxGeometry', 'head must be a box');
     
     const neckMesh = rig.joints.torso.children.find(c => c.name === 'neck-mesh');
-    assert.ok(neckMesh, 'neck-mesh should exist under joints.torso');
-    assert.equal(neckMesh.geometry.args[1], 0.20, 'neck height should be 0.20');
+    assert.equal(neckMesh, undefined, 'exact Minecraft base should not render a neck');
     
     // Verify face decal exists
     const faceMesh = rig.joints.head.children.find(c => c.name === 'face-mesh');

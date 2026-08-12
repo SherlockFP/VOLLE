@@ -42,7 +42,7 @@ test('ball catalog contains the new cosmetic skin collection', () => {
 test('wearable catalog is server-priced and migrated through its own ownership field', t => {
     const { dir, store } = tempStore();
     t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-    assert.equal(Object.keys(CATALOG.cosmetic).length, 31);
+    assert.equal(Object.keys(CATALOG.cosmetic).length, 73);
     const session = store.session('', 'Player', {
         currency: 1000,
         ownedCosmetics: ['cape_ember', 'unknown_cosmetic']

@@ -51,6 +51,12 @@ import {
 } from './cards.js';
 
 const KEY = 'dodgball_save_v2';
+const CASE_OPEN_REQUEST_TTL_MS = 10 * 60 * 1000;
+const CASE_OPEN_REQUEST_MAX = 12;
+
+export function isDefinitiveCaseOpenRejection(status) {
+    return Number.isInteger(status) && status >= 400 && status < 500 && status !== 408;
+}
 
 function buildCharacterProgress() {
     return Object.fromEntries(Object.keys(CHARACTERS).map(id => [id, { level: 1, xp: 0 }]));
@@ -224,6 +230,9 @@ class StoreClass {
         this.data = this._read();
         this.remoteReady = false;
         this.sessionToken = '';
+        this.remoteAccountId = '';
+        this._caseOpenRequests = new Map();
+        this._caseOpenFlights = new Map();
         this.liveMarket = { offers: [], expiresAt: 0 };
     }
 
@@ -332,6 +341,7 @@ class StoreClass {
             const result = await response.json();
             if (!result.sessionToken || !result.profile || !result.account) return false;
             this.sessionToken = result.sessionToken;
+            this.remoteAccountId = String(result.account.id || '');
             this._applyRemoteProfile(result.profile);
             this.remoteReady = true;
             return true;
@@ -1113,11 +1123,32 @@ class StoreClass {
         return this._openCase(caseId, random, false);
     }
 
-    async openCaseRemote(caseId) {
-        if (!this.remoteReady && !await this.connectRemote(this.get('playerName'))) return null;
+    _caseOpenScope(caseId) {
+        const accountScope = this.remoteAccountId || this.sessionToken;
+        return `${accountScope}\u0000${caseId}`;
+    }
+
+    _caseOpenRequest(scope, caseId, now = Date.now()) {
+        for (const [key, entry] of this._caseOpenRequests) {
+            if (!entry || now - entry.createdAt > CASE_OPEN_REQUEST_TTL_MS) this._caseOpenRequests.delete(key);
+        }
+        const pending = this._caseOpenRequests.get(scope);
+        if (pending) return pending.requestId;
+        const nonce = globalThis.crypto?.randomUUID?.() || `${now}-${Math.random().toString(36).slice(2)}`;
+        const requestId = `case:${caseId}:${nonce}`.slice(0, 96);
+        this._caseOpenRequests.set(scope, { requestId, createdAt: now });
+        while (this._caseOpenRequests.size > CASE_OPEN_REQUEST_MAX) {
+            this._caseOpenRequests.delete(this._caseOpenRequests.keys().next().value);
+        }
+        return requestId;
+    }
+
+    _clearCaseOpenRequest(scope, requestId) {
+        if (this._caseOpenRequests.get(scope)?.requestId === requestId) this._caseOpenRequests.delete(scope);
+    }
+
+    async _performCaseOpenRemote(caseId, scope, requestId) {
         try {
-            const nonce = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-            const requestId = `case:${caseId}:${nonce}`.slice(0, 96);
             const response = await fetch('/api/profile/cases/open', {
                 method: 'POST',
                 headers: {
@@ -1127,13 +1158,36 @@ class StoreClass {
                 },
                 body: JSON.stringify({ caseId, requestId })
             });
-            if (!response.ok) return null;
+            if (!response.ok) {
+                if (isDefinitiveCaseOpenRejection(response.status)) this._clearCaseOpenRequest(scope, requestId);
+                return null;
+            }
             const payload = await response.json();
-            if (payload.profile) this._applyRemoteProfile(payload.profile);
             const reward = resolveCaseReward(caseId, payload.result?.reward);
-            return reward ? { ...payload.result, reward } : null;
+            if (!reward) return null;
+            if (payload.profile) this._applyRemoteProfile(payload.profile);
+            this._clearCaseOpenRequest(scope, requestId);
+            return { ...payload.result, reward };
         } catch {
+            // The server may have committed before transport/JSON failed. Retain
+            // this logical request id so the next manual retry replays its receipt.
             return null;
+        }
+    }
+
+    async openCaseRemote(caseId) {
+        if (!this.remoteReady && !await this.connectRemote(this.get('playerName'))) return null;
+        if (!CASES[caseId]) return null;
+        const scope = this._caseOpenScope(caseId);
+        const active = this._caseOpenFlights.get(scope);
+        if (active) return active;
+        const requestId = this._caseOpenRequest(scope, caseId);
+        const operation = this._performCaseOpenRemote(caseId, scope, requestId);
+        this._caseOpenFlights.set(scope, operation);
+        try {
+            return await operation;
+        } finally {
+            if (this._caseOpenFlights.get(scope) === operation) this._caseOpenFlights.delete(scope);
         }
     }
 
@@ -1337,6 +1391,14 @@ class StoreClass {
         this.data.currency -= price;
         this.data.stats.totalSpent = (this.data.stats.totalSpent || 0) + price;
         this.data.ownedBalls.push(ballId);
+        this.save();
+        return true;
+    }
+
+    equipBall(ballId) {
+        if (!BALL_PRICES[ballId] && ballId !== 'classic') return false;
+        if (!this.ownsBall(ballId)) return false;
+        this.data.equippedBall = ballId;
         this.save();
         return true;
     }

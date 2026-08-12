@@ -29,6 +29,8 @@ import { deriveFeaturedStrip } from './menu-featured.js';
 import { COSMETIC_PRACTICE_MAP_ID, CosmeticPracticeSession } from './cosmetic-practice.js';
 import { CASES, KNIVES, getCaseDropRates } from './cosmetics.js';
 import { createKnifeModel, disposeObject3D } from './weapon-models.js';
+import { applyEntityCosmetics, updateEntityCosmetics } from './cosmetic-models.js';
+import { COSMETICS } from './cosmetic-catalog.js';
 import { MapEditorController } from './map-editor.js';
 import { normalizeMapConfig, validateMapConfig } from './map-config.js';
 import { checkAchievements } from './achievements.js';
@@ -80,6 +82,16 @@ import {
     renderCrosshair
 } from './crosshair.js';
 
+const SOCIAL_DISCOVERY_KEY = 'warrball.social.discovery.v1';
+const PARTY_INVITE_BLOCKED_STATES = new Set([STATES.PLAYING, STATES.COUNTDOWN, STATES.ROUND_END, STATES.CELEBRATION]);
+
+function presenceStateFor(screen, gameState) {
+    if (PARTY_INVITE_BLOCKED_STATES.has(gameState)) return 'match';
+    if (['lobby', 'multiplayerMenu', 'joinMenu'].includes(screen)) return 'lobby';
+    if (['socialCenter', 'socialLobby'].includes(screen)) return 'social';
+    return 'menu';
+}
+
 // Only catalog effect ids map to these existing sprite symbols. Keep the slot
 // fallback below so a future catalog entry remains readable before it gets art.
 const CARD_EFFECT_ICON_IDS = Object.freeze({
@@ -106,6 +118,11 @@ const HOST_CHECKPOINT_SIGNATURE_MAX_CHARS = 64 * 1024;
 
 class App {
     constructor() {
+        // Lifetime owner for every App-level DOM/window listener. This must exist
+        // before any subsystem initializer (including initFriendsSidebar) binds
+        // with its signal; a later assignment would both crash startup and orphan
+        // listeners attached to the previous controller.
+        this._mainAbort = new AbortController();
         this.chatOpen = false;
         this._voicePingAttempts = [];
         this._voicePingMutedUntil = 0;
@@ -346,8 +363,7 @@ class App {
         this._lastHostCheckpointSignature = null;
         this._lastHostCheckpointEpoch = null;
         this._lastHostCheckpointSequence = null;
-        // ponytail: AbortController prevents listener accumulation on game restart
-        this._mainAbort = new AbortController();
+        // ponytail: the constructor-owned AbortController prevents listener accumulation on game restart
         document.addEventListener('visibilitychange', () => this._onVisibilityChange(), { signal: this._mainAbort.signal });
         ['pointerdown', 'keydown', 'mousemove'].forEach(type => {
             document.addEventListener(type, () => this.afkMonitor.recordActivity(), {
@@ -491,10 +507,11 @@ class App {
                     if (owned.includes(skins[idx])) { next = skins[idx]; break; }
                 }
                 if (next && next !== current) {
-                    this.store.set('equippedBall', next);
-                    this.game.ball.setSkin(next);
-                    this.ui.updateBallSkin?.(next);
-                    this.ui.showMessage?.(`🎾 Ball: ${BALL_SKINS[next].name}`, 1500);
+                    if (this.store.equipBall(next)) {
+                        this.game.ball.setSkin(next);
+                        this.ui.updateBallSkin?.(next);
+                        this.ui.showMessage?.(`🎾 Ball: ${BALL_SKINS[next].name}`, 1500);
+                    }
                 }
             }
             // Z or G → emote wheel toggle
@@ -518,12 +535,6 @@ class App {
             }
             if (e.code === 'Escape') {
                 if (this.gameConsole?.visible) return;
-                const cardCollection = document.getElementById('card-collection-panel');
-                if (cardCollection && !cardCollection.classList.contains('hidden')) {
-                    e.preventDefault();
-                    this._setCardCollectionOpen(false);
-                    return;
-                }
                 const ftueEl = document.getElementById('ftue-welcome');
                 if (ftueEl && !ftueEl.classList.contains('hidden')) {
                     e.preventDefault();
@@ -796,14 +807,43 @@ class App {
         clearInterval(this._presenceHeartbeatInterval);
         const heartbeat = () => {
             if (!this._authenticated || !account.isLoggedIn()) return;
+            const preferences = this._socialDiscoveryPreferences();
             fetch('/api/social/heartbeat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${account.getToken()}` },
-                body: JSON.stringify({ avatar: account.getAvatar() })
+                body: JSON.stringify({
+                    instanceId: this.network.playerId,
+                    state: presenceStateFor(document.body.dataset.screen, this.game.state),
+                    discoverable: preferences.discoverable,
+                    region: preferences.region
+                })
             }).catch(() => {});
         };
+        this._presenceHeartbeatNow = heartbeat;
         heartbeat();
         this._presenceHeartbeatInterval = setInterval(heartbeat, 20000);
+        if (!this._presenceScreenBound) {
+            this._presenceScreenBound = true;
+            window.addEventListener('warrball:screen', event => {
+                heartbeat();
+                if (event.detail?.screen === 'mainMenu') this._socialPollNow?.();
+                else this._closePartyInviteDialog();
+            }, { signal: this._mainAbort.signal });
+        }
+    }
+
+    _socialDiscoveryPreferences() {
+        try {
+            const saved = JSON.parse(localStorage.getItem(SOCIAL_DISCOVERY_KEY) || '{}');
+            const region = /^[a-z0-9-]{1,24}$/.test(String(saved.region || '').toLowerCase()) ? String(saved.region).toLowerCase() : 'global';
+            return { discoverable: saved.discoverable !== false, region };
+        } catch { return { discoverable: true, region: 'global' }; }
+    }
+
+    _saveSocialDiscoveryPreferences(discoverable, region) {
+        const safeRegion = /^[a-z0-9-]{1,24}$/.test(String(region || '').toLowerCase()) ? String(region).toLowerCase() : 'global';
+        try { localStorage.setItem(SOCIAL_DISCOVERY_KEY, JSON.stringify({ discoverable: discoverable !== false, region: safeRegion })); } catch {}
+        return { discoverable: discoverable !== false, region: safeRegion };
     }
 
     _startSocialPolling() {
@@ -811,8 +851,10 @@ class App {
         const socialScreens = new Set(['mainMenu', 'multiplayerMenu', 'joinMenu', 'lobby', 'socialCenter']);
         const poll = async () => {
             if (!this._authenticated || document.hidden || !socialScreens.has(document.body.dataset.screen)) return;
-            await Friends.sync();
+            const { region } = this._socialDiscoveryPreferences();
+            await Promise.all([Friends.sync(), Friends.refreshAvailable(region), Friends.refreshParty()]);
             this.refreshFriendsSidebar();
+            this._presentPendingPartyInvite();
             if (document.body.dataset.screen === 'socialCenter') this._renderSocialCenter();
         };
         this._socialPollNow = poll;
@@ -827,6 +869,7 @@ class App {
     }
 
     async _logout() {
+        this._closePartyInviteDialog();
         if (this._socialHubCode) {
             await this._socialHubApi(`/api/social-hubs/${encodeURIComponent(this._socialHubCode)}`, { method: 'DELETE' });
             this._socialHubCode = null;
@@ -858,11 +901,10 @@ class App {
     }
 
     _renderCardCollection() {
-        const panel = document.getElementById('card-collection-panel');
         const grid = document.getElementById('card-collection-grid');
         const status = document.getElementById('card-collection-status');
         const select = document.getElementById('card-tradeup-select');
-        if (!panel || !grid || !status || !select) return;
+        if (!grid || !status || !select) return;
         const collection = this.store.getCardCollection();
         const equipped = this.store.getEquippedCards();
         const cache = this.store.get('arenaCache') || {};
@@ -923,26 +965,6 @@ class App {
             }
         }
         document.getElementById('btn-card-tradeup').disabled = !tradeable.length;
-    }
-
-    _setCardCollectionOpen(open) {
-        const panel = document.getElementById('card-collection-panel');
-        const locker = document.getElementById('character-locker-content');
-        if (!panel || !locker) return false;
-        if (open) {
-            this._cardCollectionReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-            this._renderCardCollection();
-            locker.inert = true;
-            panel.classList.remove('hidden');
-            document.getElementById('btn-card-collection-close')?.focus();
-            return true;
-        }
-        panel.classList.add('hidden');
-        locker.inert = false;
-        const returnFocus = this._cardCollectionReturnFocus || document.getElementById('btn-card-collection');
-        this._cardCollectionReturnFocus = null;
-        returnFocus?.focus();
-        return true;
     }
 
     // Store'dan loadout uygula (karakter + rune + ball skin).
@@ -1083,16 +1105,37 @@ class App {
     }
 
     _renderMenuPartyRail(localName = this.game.playerName || this.store.get('playerName') || 'Player') {
-        if (!this.party?.members?.some(member => member.name === localName)) this.party = createParty(localName);
         const list = document.getElementById('menu-party-list');
         const count = document.getElementById('menu-party-count');
-        if (count) count.textContent = `${this.party.members.length} / 8`;
+        const accountId = account.getAccount()?.id;
+        const party = Friends.party;
+        const members = party?.memberAccountIds?.length ? party.memberAccountIds : (accountId ? [accountId] : []);
+        if (count) count.textContent = `${Math.max(1, members.length)} / ${party?.maxMembers || 8}`;
         if (!list) return;
-        list.innerHTML = this.party.members.slice(0, 4).map(member => {
-            const isLeader = member.name === this.party.owner;
-            const state = member.ready ? 'READY' : 'WAITING';
-            return `<div class="menu-party-member"><span><b>${this._esc(member.name)}</b>${isLeader ? '<small>LEADER</small>' : ''}</span><em class="${member.ready ? 'ready' : ''}">${state}</em></div>`;
-        }).join('');
+        list.replaceChildren(...members.slice(0, 4).map(memberId => {
+            const row = document.createElement('div');
+            row.className = 'menu-party-member';
+            const identity = document.createElement('span');
+            const name = document.createElement('b');
+            name.textContent = this._socialAccountName(memberId, localName);
+            identity.append(name);
+            if (party?.leaderAccountId === memberId) {
+                const leader = document.createElement('small');
+                leader.textContent = 'LEADER';
+                identity.append(leader);
+            }
+            const state = document.createElement('em');
+            state.textContent = memberId === accountId ? 'YOU' : 'IN PARTY';
+            row.append(identity, state);
+            return row;
+        }));
+    }
+
+    _socialAccountName(accountId, fallback = 'Player') {
+        if (accountId === account.getAccount()?.id) return account.getUsername() || fallback;
+        return Friends.getFriend(accountId)?.username
+            || Friends.available.find(player => player.accountId === accountId)?.username
+            || 'Squad member';
     }
 
     // Retention strip: daily-challenge + battlepass progress cards on the main
@@ -1471,6 +1514,14 @@ class App {
             if (el) el.addEventListener('click', fn);
         };
 
+        // Mobile primary navigation is intentionally swipeable. Always return it
+        // to PLAY when re-entering the menu so a previous sub-screen cannot leave
+        // the first routes off-screen.
+        const primaryNav = document.querySelector('#main-menu .ow-tabs');
+        window.addEventListener('warrball:screen', event => {
+            if (event.detail?.screen === 'mainMenu' && primaryNav) primaryNav.scrollLeft = 0;
+        }, { signal: this._mainAbort.signal });
+
         bind('menu-streak-badge', () => this._claimRetentionStreak());
 
         bind('btn-how-to-play', () => this.showFtueWelcome());
@@ -1568,6 +1619,8 @@ class App {
 
         bind('btn-character', () => {
             this.ui.renderCharacterSelect(this.store);
+            this.ui.renderLockerInventory(this.store);
+            this.ui.setLockerTab('loadout');
             this.ui.showScreen('character');
         });
 
@@ -1658,7 +1711,14 @@ class App {
             this.ui.showScreen('socialCenter');
         };
         bind('btn-social-center', openSocialCenter);
-        bind('btn-menu-party-invite', openSocialCenter);
+        bind('btn-menu-party-invite', () => {
+            if (!Friends.isPartyLeader(account.getAccount()?.id)) {
+                this.ui.showMessage?.('Only the party leader can invite players.', 1800);
+                return;
+            }
+            this._setFriendsRailTab('nearby');
+            this._setMobileSocialRailOpen(true);
+        });
         bind('btn-menu-squad-center', openSocialCenter);
         bind('profile-logout', () => this._logout());
         bind('btn-social-center-back', () => {
@@ -1970,13 +2030,6 @@ class App {
             this.ui.showMessage?.('Loadout saved!');
             this.ui.showScreen('mainMenu');
             this.refreshMetaStats();
-        });
-
-        bind('btn-card-collection', () => {
-            this._setCardCollectionOpen(true);
-        });
-        bind('btn-card-collection-close', () => {
-            this._setCardCollectionOpen(false);
         });
 
         bind('btn-avatar-clear', () => {
@@ -2918,6 +2971,14 @@ updateCSLobbyInfo();
                 this.ui.showMessage?.(`${card.name} equipped for casual and Arcade. Ranked stays normalized.`, 2600);
                 return;
             }
+            const lockerTab = e.target.closest('[data-locker-tab]');
+            if (lockerTab && lockerTab.closest('#character-screen')) {
+                const tab = this.ui.setLockerTab(lockerTab.dataset.lockerTab);
+                if (tab === 'inventory') this.ui.renderLockerInventory(this.store);
+                if (tab === 'cards') this._renderCardCollection();
+                document.querySelector(`[data-locker-panel="${tab}"]`)?.focus?.({ preventScroll: true });
+                return;
+            }
             const cardTradeup = e.target.closest('#btn-card-tradeup');
             if (cardTradeup) {
                 const cardId = document.getElementById('card-tradeup-select')?.value;
@@ -3052,6 +3113,21 @@ updateCSLobbyInfo();
                 this.ui.showMessage?.('Cosmetic removed.');
                 return;
             }
+            const wearableInspect = e.target.closest('.wearable-inspect');
+            if (wearableInspect) {
+                const cosmetic = COSMETICS[wearableInspect.dataset.id];
+                if (cosmetic && typeof CustomEvent !== 'undefined') {
+                    const fromLocker = Boolean(wearableInspect.closest('#character-screen'));
+                    if (!fromLocker) return;
+                    this.ui.showScreen('shop');
+                    this.ui.renderShop(this.store, 'wearables');
+                    this.shopShowcase?.start();
+                    window.dispatchEvent(new CustomEvent('warrball:shop-preview', {
+                        detail: { type: 'cosmetic', id: cosmetic.id, cosmetic, source: 'locker' }
+                    }));
+                }
+                return;
+            }
             // Equip ball from shop
             const equipBtn = e.target.closest('.shop-equip');
             if (equipBtn) {
@@ -3064,32 +3140,36 @@ updateCSLobbyInfo();
                     this.ui.showMessage?.(ok ? 'Cosmetic equipped!' : 'This cosmetic cannot be equipped.');
                     if (ok) await this._syncWearableLoadout();
                 } else if (equipBtn.dataset.type === 'avatar') {
-                    equippedForAnalytics = this.store.equipAvatarSkin(ballId);
-                    this.initAvatarPainter();
-                    this.avatarPainter?.applyPreset(ballId);
-                    this.ui.showMessage?.(`🎨 Equipped: ${AVATAR_SKINS[ballId].name}!`);
+                    const avatarSkin = AVATAR_SKINS[ballId];
+                    equippedForAnalytics = Boolean(avatarSkin) && this.store.equipAvatarSkin(ballId);
+                    if (equippedForAnalytics) {
+                        this.initAvatarPainter();
+                        this.avatarPainter?.applyPreset(ballId);
+                    }
+                    this.ui.showMessage?.(equippedForAnalytics ? `🎨 Equipped: ${avatarSkin.name}!` : 'This character skin is not owned.');
                 } else if (equipBtn.dataset.type === 'char' && CHARACTERS[ballId]) {
                     equippedForAnalytics = this.store.setLoadout({ ...this.store.get('loadout'), char: ballId });
                     this.applyLoadout();
                     this.game.selectMode(this.game.mode.id);
                     this.ui.showMessage?.(`Using ${CHARACTERS[ballId].name}.`);
                 } else {
-                    this.store.set('equippedBall', ballId);
-                    this.game.ball.setSkin(ballId);
-                    this.ui.showMessage?.(`🎾 Equipped: ${BALL_SKINS[ballId].name}!`);
+                    equippedForAnalytics = this.store.equipBall(ballId);
+                    if (equippedForAnalytics) this.game.ball.setSkin(ballId);
+                    this.ui.showMessage?.(equippedForAnalytics ? `🎾 Equipped: ${BALL_SKINS[ballId].name}!` : 'This ball skin is not owned.');
                 }
                 const activeTab = document.querySelector('.shop-tab.selected')?.dataset.tab || 'chars';
                 if (equippedForAnalytics) this.productAnalytics.track('cosmetic_equip', { itemType, itemId: ballId });
-                this.ui.renderShop(this.store, activeTab);
+                if (equipBtn.closest('#character-screen')) this.ui.renderLockerInventory(this.store);
+                else this.ui.renderShop(this.store, activeTab);
                 this.refreshMetaStats();
             }
             const ballInspect = e.target.closest('.ball-inspect');
             if (ballInspect) {
-                const card = ballInspect.closest('.ball-skin');
+                const card = ballInspect.closest('.ball-skin, .inventory-card');
                 const inspecting = card?.classList.toggle('inspecting') === true;
                 ballInspect.setAttribute('aria-pressed', String(inspecting));
                 const skin = BALL_SKINS[ballInspect.dataset.id];
-                const stage = card?.querySelector('.ball-inspect-stage');
+                const stage = card?.querySelector('.ball-inspect-stage, .inventory-icon-area');
                 // Model skins (shuriken / baseball / blockball / dark eater) are only
                 // distinguishable as geometry, so inspect spins the real mesh for them.
                 if (skin?.shape && stage) {
@@ -3295,26 +3375,8 @@ updateCSLobbyInfo();
             const caseOpen = e.target.closest('#case-inspector-open');
             if (caseOpen) {
                 const box = CASES[caseOpen.dataset.id];
-                const balance = Number(this.store.get('currency')) || 0;
                 if (!box || caseOpen.disabled) return;
-                caseOpen.disabled = true;
-                caseOpen.classList.add('is-opening');
-                let result = await this.store.openCaseRemote(box.id);
-                if (!result && !this.store.remoteReady) result = this.store.openCase(box.id);
-                caseOpen.disabled = false;
-                caseOpen.classList.remove('is-opening');
-                if (result) {
-                    document.getElementById('case-inspector')?.classList.add('hidden');
-                    this.ui._closeExclusive('caseInspector');
-                    this.ui.showCaseReel(box, result, { onSettled: settled => {
-                        if (settled.free) this.productAnalytics.track('earned_case_opened', { itemId: box.id, itemType: 'cosmetic_case', result: 'earned' });
-                        this.ui.showMessage?.(settled.duplicate ? `Duplicate converted: +${settled.refund} credits` : `Unlocked: ${settled.reward.name}`);
-                    } });
-                } else {
-                    this.ui.showMessage?.(`Need ${box.price} credits - Balance ${balance}`);
-                }
-                this.ui.renderShop(this.store, 'cases');
-                this.refreshMetaStats();
+                await this._openShopCase(box, caseOpen);
                 return;
             }
             const knifeBtn = e.target.closest('.knife-equip');
@@ -3329,7 +3391,7 @@ updateCSLobbyInfo();
                 }
                 this.ui.showMessage?.(ok ? `Equipped for ${knifeBtn.dataset.team.toUpperCase()}` : 'This knife cannot be equipped.');
                 if (ok) this.audio.playCue('equip-change');
-                this.ui.renderShop(this.store, 'inventory');
+                this.ui.renderLockerInventory(this.store);
                 return;
             }
             const inspectBtn = e.target.closest('.knife-inspect');
@@ -4820,7 +4882,119 @@ updateCarousel() {
                 this._syncShopShowcase(null, detail.id);
                 this.productAnalytics.track('shop_inspect', { shopTab: 'chars', itemType: 'character', itemId: detail.id });
             }
+            if (detail?.type === 'cosmetic' && COSMETICS[detail.id]) {
+                const cosmetic = COSMETICS[detail.id];
+                const equipped = this.store.get('equippedWearables') || {};
+                this._applyShopShowcaseCosmetics({ ...equipped, [cosmetic.type]: cosmetic.id }, cosmetic.type);
+                this.ui._setShopCosmeticShowcase?.(this.store, cosmetic, true);
+                this.productAnalytics.track('shop_inspect', { shopTab: 'wearables', itemType: 'cosmetic', itemId: detail.id });
+            }
         }, { signal: this._mainAbort.signal });
+        window.addEventListener('warrball:shop-preview-reset', () => {
+            this._applyShopShowcaseCosmetics(this.store.get('equippedWearables'));
+            this.ui._resetShopCosmeticShowcase?.(this.store);
+        }, { signal: this._mainAbort.signal });
+        window.addEventListener('warrball:screen', event => {
+            if (event.detail?.screen !== 'shop') this._applyShopShowcaseCosmetics(this.store.get('equippedWearables'));
+        }, { signal: this._mainAbort.signal });
+    }
+
+    _applyShopShowcaseCosmetics(loadout, focusType = '') {
+        const avatar = this.shopShowcase?.avatar?.root;
+        if (!avatar) return false;
+        applyEntityCosmetics(avatar, loadout);
+        this.shopShowcase.avatar.onPoseTime = seconds => updateEntityCosmetics(avatar, seconds);
+        if (focusType && ['cape', 'wings', 'backpack', 'banner'].includes(focusType)) this.shopShowcase._yaw = 0;
+        else if (!focusType) this.shopShowcase._yaw = Math.PI;
+        this.shopShowcase._renderFrame?.();
+        return true;
+    }
+
+    _presentCaseResult(box, result) {
+        this.ui.showCaseReel(box, result, { onSettled: settled => {
+            if (settled.free) this.productAnalytics.track('earned_case_opened', { itemId: box.id, itemType: 'cosmetic_case', result: 'earned' });
+            this.ui.showMessage?.(settled.duplicate ? `Duplicate converted: +${settled.refund} credits` : `Unlocked: ${settled.reward.name}`);
+        }, onInspect: settled => {
+            this.ui.renderLockerInventory(this.store);
+            this.ui.renderCharacterSelect(this.store);
+            this.ui.setLockerTab('inventory');
+            this.ui.showScreen('character');
+            const item = settled.reward;
+            if (item.type === 'cosmetic' && COSMETICS[item.id] && typeof CustomEvent !== 'undefined') {
+                this.ui.showScreen('shop');
+                this.ui.renderShop(this.store, 'wearables');
+                this.shopShowcase?.start();
+                window.dispatchEvent(new CustomEvent('warrball:shop-preview', { detail: { type: 'cosmetic', id: item.id, cosmetic: COSMETICS[item.id], source: 'case' } }));
+            }
+        }, onEquip: settled => this._equipCaseReward(settled.reward), onOpenAnother: () => {
+            void this._openShopCase(box);
+        } });
+    }
+
+    _showCaseOpenError(box, message) {
+        this.ui.showMessage?.(message);
+        this.ui.renderShop(this.store, 'cases');
+        document.querySelector(`.case-select[data-id="${box.id}"]`)?.click();
+    }
+
+    async _openShopCase(box, trigger = null) {
+        if (!box || this._caseOpenInFlight) return false;
+        const balance = Number(this.store.get('currency')) || 0;
+        const earned = this.store.getEarnedCaseState?.(box.id)?.cases || 0;
+        if (!earned && balance < box.price) {
+            this._showCaseOpenError(box, `Need ${box.price} credits - Balance ${balance}`);
+            return false;
+        }
+        this._caseOpenInFlight = true;
+        if (trigger) {
+            trigger.disabled = true;
+            trigger.classList.add('is-opening');
+        }
+        let result = null;
+        try {
+            result = await this.store.openCaseRemote(box.id);
+            if (!result && !this.store.remoteReady) result = this.store.openCase(box.id);
+        } finally {
+            this._caseOpenInFlight = false;
+            if (trigger) {
+                trigger.disabled = false;
+                trigger.classList.remove('is-opening');
+            }
+        }
+        if (!result) {
+            this._showCaseOpenError(box, earned ? 'Case opening failed. Your earned case was not consumed.' : 'Case opening failed. No credits were charged.');
+            this.refreshMetaStats();
+            return false;
+        }
+        document.getElementById('case-inspector')?.classList.add('hidden');
+        this.ui._closeExclusive('caseInspector');
+        this.ui.renderShop(this.store, 'cases');
+        this._presentCaseResult(box, result);
+        this.refreshMetaStats();
+        return true;
+    }
+
+    async _equipCaseReward(reward) {
+        if (!reward || reward.type === 'knife') return false;
+        let equipped = false;
+        if (reward.type === 'ball') {
+            equipped = this.store.equipBall(reward.id);
+            if (equipped) this.game.ball.setSkin(reward.id);
+        } else if (reward.type === 'avatar') {
+            equipped = this.store.equipAvatarSkin(reward.id);
+            if (equipped) this._syncShopShowcase(reward.id);
+        } else if (reward.type === 'cosmetic') {
+            equipped = this.store.equipCosmetic(reward.id);
+            if (equipped) await this._syncWearableLoadout();
+        }
+        if (equipped) {
+            this.productAnalytics.track('cosmetic_equip', { itemType: reward.type, itemId: reward.id, source: 'case_reveal' });
+            this.ui.showMessage?.(`Equipped: ${reward.name}`);
+            this.refreshMetaStats();
+        } else {
+            this.ui.showMessage?.(reward.type === 'knife' ? 'Equip knives per team from Locker.' : 'This reward cannot be equipped.');
+        }
+        return equipped;
     }
 
     // Shared consistency-wiring helper: paints one live 64x64 skin sheet onto every
@@ -4866,6 +5040,7 @@ updateCarousel() {
             customAvatar?.skinId === resolved ? customAvatar.pixels : null,
             customAvatar?.model
         );
+        this._applyShopShowcaseCosmetics(this.store.get('equippedWearables'));
         this.shopShowcase?.resize();
     }
 
@@ -6194,12 +6369,53 @@ updateCarousel() {
             if (document.body.dataset.screen === 'socialCenter') this._renderSocialCenter();
         };
         this._chattingWith = null;
+        this._friendsRailTab = 'friends';
+        const preferences = this._socialDiscoveryPreferences();
+        const discoverable = document.getElementById('fbar-discoverable');
+        const region = document.getElementById('fbar-region');
+        if (discoverable) discoverable.checked = preferences.discoverable;
+        if (region) region.value = preferences.region;
 
         document.getElementById('fbar-toggle')?.addEventListener('click', () => {
             const sidebar = document.getElementById('friends-sidebar');
             if (!sidebar) return;
             sidebar.classList.toggle('collapsed');
-            document.getElementById('fbar-toggle').textContent = sidebar.classList.contains('collapsed') ? '▶' : '◀';
+            document.getElementById('fbar-toggle')?.setAttribute('aria-expanded', String(!sidebar.classList.contains('collapsed')));
+        });
+        document.getElementById('fbar-sheet-handle')?.addEventListener('click', () => {
+            const sidebar = document.getElementById('friends-sidebar');
+            const open = sidebar?.classList.toggle('mobile-open') === true;
+            this._setMobileSocialRailOpen(open);
+        });
+        this._setMobileSocialRailOpen(false, { moveFocus: false });
+        const mobileRailQuery = window.matchMedia?.('(max-width: 760px)');
+        mobileRailQuery?.addEventListener?.('change', () => this._setMobileSocialRailOpen(false, { moveFocus: false }), { signal: this._mainAbort.signal });
+        document.querySelectorAll('[data-fbar-tab]').forEach(button => button.addEventListener('click', () => this._setFriendsRailTab(button.dataset.fbarTab)));
+        const savePresence = () => {
+            const next = this._saveSocialDiscoveryPreferences(discoverable?.checked !== false, region?.value || 'global');
+            if (region) region.value = next.region;
+            this._presenceHeartbeatNow?.();
+            Friends.refreshAvailable(next.region).then(() => this.refreshFriendsSidebar());
+        };
+        discoverable?.addEventListener('change', savePresence);
+        region?.addEventListener('change', savePresence);
+        document.getElementById('fbar-party-leave')?.addEventListener('click', async () => {
+            const result = await Friends.leaveParty();
+            if (result.error) this.ui.showMessage?.(result.error, 1800);
+            this.refreshFriendsSidebar();
+        });
+        document.getElementById('party-invite-accept')?.addEventListener('click', () => this._actOnPresentedPartyInvite('accept'));
+        document.getElementById('party-invite-decline')?.addEventListener('click', () => this._actOnPresentedPartyInvite('decline'));
+        document.getElementById('party-invite-dialog')?.addEventListener('keydown', event => {
+            if (event.key === 'Escape') { event.preventDefault(); this._actOnPresentedPartyInvite('decline'); }
+            if (event.key === 'Tab') {
+                const buttons = [...event.currentTarget.querySelectorAll('button:not(:disabled)')];
+                if (!buttons.length) return;
+                const index = buttons.indexOf(document.activeElement);
+                const next = event.shiftKey ? (index <= 0 ? buttons.length - 1 : index - 1) : (index >= buttons.length - 1 ? 0 : index + 1);
+                event.preventDefault();
+                buttons[next].focus();
+            }
         });
 
         document.getElementById('fbar-add-input')?.addEventListener('keydown', e => {
@@ -6234,50 +6450,169 @@ updateCarousel() {
     }
 
     refreshFriendsSidebar() {
-        const onlineEl = document.getElementById('fbar-online');
-        const offlineList = document.getElementById('fbar-offline-list');
+        const directory = document.getElementById('fbar-directory');
         const countEl = document.getElementById('fbar-count');
         const ownTag = document.getElementById('fbar-own-tag');
-        if (!onlineEl || !offlineList) return;
+        if (!directory) return;
         if (ownTag) ownTag.textContent = account.getFriendTag() || 'Your friend tag';
         const online = Friends.friends.filter(friend => Friends.isOnline(friend));
-        const offline = Friends.friends.filter(friend => !Friends.isOnline(friend));
-        if (countEl) countEl.textContent = online.length ? `${online.length} online` : '';
-        const row = (friend, isOnline) => {
+        if (countEl) countEl.textContent = `${online.length} online`;
+        const currentAccountId = account.getAccount()?.id;
+        const partyMembers = new Set(Friends.party?.memberAccountIds || []);
+        const canInvite = Friends.isPartyLeader(currentAccountId);
+        let players;
+        if (this._friendsRailTab === 'nearby') players = Friends.available.map(player => ({ ...player, id: player.accountId, online: true, nearby: true }));
+        else if (this._friendsRailTab === 'online') players = online.map(friend => ({ ...friend, online: true }));
+        else players = Friends.friends.map(friend => ({ ...friend, online: Friends.isOnline(friend) }));
+        const row = player => {
             const item = document.createElement('div');
             item.className = 'fbar-friend';
             const avatar = document.createElement('div');
-            avatar.className = `fbar-avatar ${isOnline ? 'online-avatar' : 'offline-avatar'}`;
-            avatar.textContent = friend.username.slice(0, 1).toUpperCase();
+            avatar.className = `fbar-avatar ${player.online ? 'online-avatar' : 'offline-avatar'}`;
+            avatar.textContent = String(player.username || 'P').slice(0, 1).toUpperCase();
             const dot = document.createElement('span');
-            dot.className = `fbar-status-dot ${isOnline ? 'online' : 'offline'}`;
+            dot.className = `fbar-status-dot ${player.online ? 'online' : 'offline'}`;
             avatar.append(dot);
-            const name = document.createElement('span');
+            const identity = document.createElement('span');
+            identity.className = 'fbar-identity';
+            const name = document.createElement('b');
             name.className = 'fbar-name';
-            name.textContent = friend.username;
+            name.textContent = String(player.username || 'Player');
+            const state = document.createElement('small');
+            state.textContent = player.nearby ? `${player.state || 'menu'} · ${player.region || 'global'}` : (player.online ? 'Online' : 'Offline');
+            identity.append(name, state);
             const actions = document.createElement('div');
             actions.className = 'fbar-actions';
-            const message = document.createElement('button');
-            message.className = 'fbar-msg-btn';
-            message.type = 'button';
-            message.textContent = 'Message';
-            message.addEventListener('click', () => this._openChatWith(friend.id));
-            const remove = document.createElement('button');
-            remove.className = 'fbar-remove-btn';
-            remove.type = 'button';
-            remove.textContent = 'Remove';
-            remove.addEventListener('click', () => Friends.remove(friend.id));
-            actions.append(message, remove);
-            item.append(avatar, name, actions);
+            if (Friends.getFriend(player.id)) {
+                const message = document.createElement('button');
+                message.className = 'fbar-msg-btn';
+                message.type = 'button';
+                message.textContent = 'Message';
+                message.addEventListener('click', () => this._openChatWith(player.id));
+                actions.append(message);
+            }
+            if (player.online && canInvite && player.id !== currentAccountId && !partyMembers.has(player.id)) {
+                const invite = document.createElement('button');
+                invite.className = 'fbar-invite-btn';
+                invite.type = 'button';
+                invite.textContent = 'Invite';
+                invite.addEventListener('click', async () => {
+                    invite.disabled = true;
+                    const result = await Friends.inviteToParty(player.id);
+                    invite.disabled = false;
+                    this.ui.showMessage?.(result.error || 'Party invite sent.', 1600);
+                    this.refreshFriendsSidebar();
+                });
+                actions.append(invite);
+            }
+            item.append(avatar, identity, actions);
             return item;
         };
         const empty = Object.assign(document.createElement('div'), {
             className: 'friends-sidebar-empty',
-            textContent: 'No friends online'
+            textContent: this._friendsRailTab === 'nearby' ? 'No discoverable players nearby' : this._friendsRailTab === 'online' ? 'No friends online' : 'Add friends with your profile code'
         });
-        onlineEl.replaceChildren(...(online.length ? online.map(friend => row(friend, true)) : [empty]));
-        offlineList.replaceChildren(...offline.map(friend => row(friend, false)));
+        directory.replaceChildren(...(players.length ? players.map(row) : [empty]));
+        this._renderAuthoritativeParty();
+        this._renderMenuPartyRail();
         if (this._chattingWith) this._renderChatThread(this._chattingWith);
+    }
+
+    _setFriendsRailTab(tab) {
+        this._friendsRailTab = ['friends', 'online', 'nearby'].includes(tab) ? tab : 'friends';
+        document.querySelectorAll('[data-fbar-tab]').forEach(button => {
+            const selected = button.dataset.fbarTab === this._friendsRailTab;
+            button.setAttribute('aria-selected', String(selected));
+        });
+        this.refreshFriendsSidebar();
+    }
+
+    _setMobileSocialRailOpen(open, { moveFocus = true } = {}) {
+        const sidebar = document.getElementById('friends-sidebar');
+        const body = document.getElementById('fbar-body');
+        const handle = document.getElementById('fbar-sheet-handle');
+        if (!sidebar || !body || !handle) return false;
+        const mobile = window.matchMedia?.('(max-width: 760px)').matches === true;
+        const expanded = mobile && open === true;
+        sidebar.classList.toggle('mobile-open', expanded);
+        handle.setAttribute('aria-expanded', String(expanded));
+        body.inert = mobile && !expanded;
+        body.setAttribute('aria-hidden', String(mobile && !expanded));
+        if (moveFocus) {
+            if (expanded) document.querySelector('[data-fbar-tab][aria-selected="true"]')?.focus();
+            else handle.focus();
+        }
+        return expanded;
+    }
+
+    _renderAuthoritativeParty() {
+        const list = document.getElementById('fbar-party-members');
+        const count = document.getElementById('fbar-party-count');
+        const leave = document.getElementById('fbar-party-leave');
+        if (!list) return;
+        const myId = account.getAccount()?.id;
+        const party = Friends.party;
+        const members = party?.memberAccountIds?.length ? party.memberAccountIds : (myId ? [myId] : []);
+        if (count) count.textContent = `${Math.max(1, members.length)} / ${party?.maxMembers || 8}`;
+        if (leave) leave.hidden = !party;
+        list.replaceChildren(...members.map(memberId => {
+            const row = document.createElement('div');
+            row.className = 'fbar-party-member';
+            const name = document.createElement('span');
+            name.textContent = this._socialAccountName(memberId);
+            const role = document.createElement('small');
+            role.textContent = party?.leaderAccountId === memberId ? 'Leader' : memberId === myId ? 'You' : 'Member';
+            row.append(name, role);
+            return row;
+        }));
+    }
+
+    _presentPendingPartyInvite() {
+        if (document.body.dataset.screen !== 'mainMenu' || PARTY_INVITE_BLOCKED_STATES.has(this.game.state)) {
+            this._closePartyInviteDialog();
+            return false;
+        }
+        const myId = account.getAccount()?.id;
+        const invite = Friends.partyInvites.find(item => item.recipientAccountId === myId && item.expiresAt > Date.now());
+        if (!invite) { this._closePartyInviteDialog(); return false; }
+        if (this._presentedPartyInviteId === invite.id) return true;
+        this._closePartyInviteDialog();
+        this._presentedPartyInviteId = invite.id;
+        this._partyInviteFocusReturn = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        const dialog = document.getElementById('party-invite-dialog');
+        const copy = document.getElementById('party-invite-copy');
+        if (copy) copy.textContent = `${this._socialAccountName(invite.senderAccountId)} invited you to their party.`;
+        dialog?.classList.remove('hidden');
+        const updateCountdown = () => {
+            const seconds = Math.max(0, Math.ceil((invite.expiresAt - Date.now()) / 1000));
+            const output = document.getElementById('party-invite-countdown');
+            if (output) output.textContent = `${seconds}s`;
+            if (seconds <= 0) { this._closePartyInviteDialog(); this._socialPollNow?.(); }
+        };
+        updateCountdown();
+        this._partyInviteCountdownTimer = setInterval(updateCountdown, 250);
+        document.getElementById('party-invite-accept')?.focus();
+        return true;
+    }
+
+    async _actOnPresentedPartyInvite(action) {
+        const inviteId = this._presentedPartyInviteId;
+        if (!inviteId) return;
+        this._closePartyInviteDialog();
+        const result = await Friends.actOnPartyInvite(inviteId, action);
+        if (result.error) this.ui.showMessage?.(result.error, 1800);
+        this.refreshFriendsSidebar();
+        this._socialPollNow?.();
+    }
+
+    _closePartyInviteDialog() {
+        if (this._partyInviteCountdownTimer) clearInterval(this._partyInviteCountdownTimer);
+        this._partyInviteCountdownTimer = null;
+        this._presentedPartyInviteId = null;
+        document.getElementById('party-invite-dialog')?.classList.add('hidden');
+        const focusReturn = this._partyInviteFocusReturn;
+        this._partyInviteFocusReturn = null;
+        if (document.body.dataset.screen === 'mainMenu' && focusReturn?.isConnected) focusReturn.focus();
     }
 
     _openChatWith(name) {

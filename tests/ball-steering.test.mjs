@@ -16,6 +16,7 @@ const {
     createAimRouteOffset,
     createWideWaypoint,
     hasCrossedTargetPlane,
+    homingRescueRange,
     isSteeringControlLocked,
     networkBallStep,
     predictLeadTarget,
@@ -25,7 +26,8 @@ const {
     smoothSampledVelocity,
     splitSteeringDisplacement,
     steeringActiveDt,
-    steeringTurnAlpha
+    steeringTurnAlpha,
+    shouldDirectHomingRescue
 } = ballModule;
 
 test('every purchasable ball skin is cosmetic-only and ready for the shop', () => {
@@ -157,6 +159,95 @@ test('homing gains strength near its target without exceeding its turn cap', () 
     assert.equal(proximityHomingTurnRate(0, 999), 7.5);
 });
 
+function segmentEntersRadius(from, to, radius) {
+    const dx = to.x - from.x;
+    const dz = to.z - from.z;
+    const lengthSq = dx * dx + dz * dz;
+    const t = lengthSq > 0
+        ? Math.max(0, Math.min(1, -(from.x * dx + from.z * dz) / lengthSq))
+        : 0;
+    const x = from.x + dx * t;
+    const z = from.z + dz * t;
+    return x * x + z * z <= radius * radius;
+}
+
+function simulateTerminalRescue(speed, fps, headingDegrees) {
+    const dt = 1 / fps;
+    const heading = headingDegrees * Math.PI / 180;
+    const position = { x: 12, z: 0 };
+    const velocity = { x: Math.cos(heading) * speed, z: Math.sin(heading) * speed };
+    const hitRadius = 0.4 + Math.min(speed * 0.003, 2);
+    let homingAge = 0;
+    let directRescueObserved = false;
+
+    for (let frame = 0; frame < fps * 3; frame++) {
+        const distance = Math.hypot(position.x, position.z);
+        const targetX = -position.x / distance;
+        const targetZ = -position.z / distance;
+        const velocityLength = Math.hypot(velocity.x, velocity.z);
+        const currentX = velocity.x / velocityLength;
+        const currentZ = velocity.z / velocityLength;
+        const alignment = currentX * targetX + currentZ * targetZ;
+        homingAge += dt;
+
+        const directRescue = shouldDirectHomingRescue(
+            distance, speed, homingAge, alignment
+        );
+        directRescueObserved ||= directRescue;
+        let nextX = targetX;
+        let nextZ = targetZ;
+        if (!directRescue) {
+            const turn = 1 - Math.exp(-proximityHomingTurnRate(distance, homingAge) * dt);
+            nextX = currentX + (targetX - currentX) * turn;
+            nextZ = currentZ + (targetZ - currentZ) * turn;
+            const nextLength = Math.hypot(nextX, nextZ);
+            nextX /= nextLength;
+            nextZ /= nextLength;
+        }
+
+        velocity.x = nextX * speed;
+        velocity.z = nextZ * speed;
+        assert.ok(
+            Math.abs(Math.hypot(velocity.x, velocity.z) - speed) < 1e-9,
+            `rescue changed speed ${speed} at ${fps} FPS`
+        );
+
+        const before = { x: position.x, z: position.z };
+        position.x += velocity.x * dt;
+        position.z += velocity.z * dt;
+        if (segmentEntersRadius(before, position, hitRadius)) {
+            return { hitTime: (frame + 1) * dt, directRescueObserved };
+        }
+    }
+    return { hitTime: null, directRescueObserved };
+}
+
+test('terminal rescue ends tangent and away orbits without capping rally speed', () => {
+    const speeds = [17, 22.1, 27.2, 51, 102, 204];
+    const frameRates = [20, 60, 144];
+    const headings = [90, 0]; // tangent orbit and exact antiparallel deadlock
+
+    for (const speed of speeds) {
+        for (const fps of frameRates) {
+            for (const heading of headings) {
+                const result = simulateTerminalRescue(speed, fps, heading);
+                if (heading === 0) {
+                    assert.equal(result.directRescueObserved, true, `no away rescue at ${speed}/${fps}`);
+                }
+                assert.ok(
+                    result.hitTime !== null && result.hitTime <= 3,
+                    `orbit survived at ${speed} speed, ${fps} FPS, heading ${heading}`
+                );
+            }
+        }
+    }
+
+    assert.equal(homingRescueRange(17), 3.5);
+    assert.equal(homingRescueRange(204), 6);
+    assert.equal(shouldDirectHomingRescue(20, 204, 0.5, 0.2), false);
+    assert.equal((source.match(/shouldDirectHomingRescue\(/g) || []).length, 4);
+});
+
 // Regresyon koruması: orbit kurtarma yalnızca _updatePlayerSteering'de vardı.
 // Aimed/steering aktif olmayan yolda (bot atışları, steering penceresi bittikten
 // sonra) yoktu ve top hedefin etrafında sonsuz dönüyordu.
@@ -166,13 +257,14 @@ test('non-steering homing branch also rescues from orbiting', () => {
         source.indexOf('            // Close range (<2): skip gravity to avoid orbiting')
     );
     assert.ok(branch.length > 0, 'homing branch not found');
-    assert.match(branch, /const isCircling = dist < rescueRange && velDir\.dot\(targetDir\) < 0\.15/);
+    assert.match(branch, /const alignment = velDir\.dot\(targetDir\)/);
+    assert.match(branch, /const isCircling = dist < rescueRange && alignment < 0\.15/);
     assert.match(branch, /const hasOverstayed = this\._homingAge > 1\.15/);
     assert.match(branch, /rescuing \? 1 - Math\.exp\(-7 \* dt\) : 0/);
-    // kurtarma sırasında yumuşatılmış "desired" değil doğrudan hedefe dönülmeli
-    assert.match(branch, /velDir\.lerp\(rescuing \? targetDir : desired, steer\)/);
+    // Patolojik yörünge, aynı yumuşak lerp'e geri düşmeden doğrudan kapanmalı.
+    assert.match(branch, /const newDir = directRescue\s+\? targetDir/);
     // eşikler _updatePlayerSteering'deki kurtarma ile aynı kalmalı
-    assert.match(source, /const rescueRange = clamp\(this\.currentSpeed \* 0\.055, 3\.5, 6\)/);
+    assert.match(source, /const rescueRange = homingRescueRange\(this\.currentSpeed\)/);
 });
 
 test('homing age resets with steering so a new target starts a fresh rescue clock', () => {

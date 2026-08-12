@@ -14,13 +14,12 @@ import { COSMETICS, COSMETIC_TYPES, cosmeticsByType } from './cosmetic-catalog.j
 import { accountRankLabel, accountRankShort, levelProgress, prestigeTitle } from './prestige.js';
 import { Store } from './store.js';
 import { matchesShopFilter, deriveShopCardState } from './shop-clarity.js';
-import { characterPortraitPath, shopNameFitTier, groupInventoryEntries, knifeTeamRestriction, isKnifeEquippedAny } from './shop-ux2.js';
+import { characterPortraitPath, shopNameFitTier, knifeTeamRestriction, isKnifeEquippedAny } from './shop-ux2.js';
 import { classifyDamageTier, nextPoolCursor, damageJitterFor, comboTier } from './combat-fx.js';
 import { rewardRowState, tierCardState } from './battlepass.js';
 import { buildRewardSummary, rewardStepDelays } from './match-analytics.js';
 import { Daily } from './daily.js';
 
-const CHARACTER_ATLAS = 'assets/generated/characters/character-atlas.png';
 const BALL_BASE_SPEED = 17;
 
 export function getBallHeat(ballSpeed, baseSpeed = BALL_BASE_SPEED) {
@@ -53,14 +52,6 @@ export function getBallThreat(isTarget, ballSpeed, distance) {
         eta,
         label: Number.isFinite(eta) ? `INCOMING ${eta.toFixed(1)}S` : 'INCOMING'
     };
-}
-
-// Ponytail: 4-column atlas grid, each cell is 25% wide and 25% tall. The old
-// 100/3 math produced positions that leaked past the right edge of column 4.
-function characterPortrait(index) {
-    const x = (index % 4) * 25;
-    const y = Math.floor(index / 4) * 25;
-    return `<div class="char-portrait" style="background-image:url('${CHARACTER_ATLAS}');background-position:${x}% ${y}%"></div>`;
 }
 
 export class UI {
@@ -1672,8 +1663,12 @@ export class UI {
             const masteryNeed = mastery.level < 10 ? mastery.level * 250 : 0;
             card.className = `char-card ${isSelected ? 'selected' : ''} ${!isOwned ? 'locked' : ''}`;
             card.dataset.char = c.id;
+            const portraitPath = characterPortraitPath(c.id);
+            const portrait = portraitPath
+                ? `<div class="char-portrait generated"><img src="${portraitPath}" alt="" loading="lazy" decoding="async" onerror="this.style.display='none';this.nextElementSibling.style.display='grid'"><span style="display:none" aria-hidden="true">${c.emoji}</span></div>`
+                : `<div class="char-portrait generated fallback" aria-hidden="true"><span>${c.emoji}</span></div>`;
             card.innerHTML = `
-                ${characterPortrait(index)}
+                ${portrait}
                 <div class="char-name">${c.name}</div>
                 <div class="char-stats">
                     ❤️${c.maxHp} 💨${c.speed} 🎯${c.deflectPower}
@@ -1721,10 +1716,98 @@ export class UI {
         }
     }
 
+    setLockerTab(tab = 'loadout') {
+        const selectedTab = ['loadout', 'inventory', 'cards'].includes(tab) ? tab : 'loadout';
+        document.querySelectorAll('[data-locker-tab]').forEach(button => {
+            const selected = button.dataset.lockerTab === selectedTab;
+            button.classList.toggle('selected', selected);
+            if (button.matches('[role="tab"]')) {
+                button.setAttribute('aria-selected', String(selected));
+                button.tabIndex = selected ? 0 : -1;
+            }
+        });
+        document.querySelectorAll('[data-locker-panel]').forEach(panel => {
+            panel.classList.toggle('hidden', panel.dataset.lockerPanel !== selectedTab);
+        });
+        return selectedTab;
+    }
+
+    _dispatchCosmeticPreview(item, source = 'shop') {
+        if (!item || typeof window === 'undefined' || !window.dispatchEvent || typeof CustomEvent === 'undefined') return;
+        window.dispatchEvent(new CustomEvent('warrball:shop-preview', {
+            detail: Object.freeze({ type: 'cosmetic', id: item.id, cosmetic: item, source })
+        }));
+    }
+
+    renderLockerInventory(store) {
+        const grid = document.getElementById('locker-inventory-grid');
+        if (!grid) return;
+        const coinBalance = store.get('currency') || 0;
+        const ownedKnifeIds = new Set(store.get('ownedKnives') || []);
+        const equippedKnives = store.get('equippedKnives') || {};
+        const ownedCosmeticIds = new Set(store.get('ownedCosmetics') || []);
+        const equippedWearables = store.get('equippedWearables') || {};
+        const ownedBallIds = new Set(store.get('ownedBalls') || []);
+        const equippedBall = store.get('equippedBall') || 'classic';
+        const ownedAvatarIds = new Set(store.get('ownedAvatarSkins') || []);
+        const equippedAvatar = store.get('equippedAvatarSkin') || 'default';
+        const knifeStats = store.get('knifeStats') || {};
+        const groups = [
+            { label: 'Knives', type: 'knife', items: Object.values(KNIVES).filter(item => ownedKnifeIds.has(item.id)) },
+            { label: 'Wearables', type: 'cosmetic', items: Object.values(COSMETICS).filter(item => ownedCosmeticIds.has(item.id)) },
+            { label: 'Ball Skins', type: 'ball', items: Object.entries(BALL_SKINS).filter(([id]) => ownedBallIds.has(id)).map(([id, item]) => ({ ...item, id })) },
+            { label: 'Character Skins', type: 'avatar', items: Object.values(AVATAR_SKINS).filter(item => ownedAvatarIds.has(item.id)) }
+        ].filter(group => group.items.length);
+        const total = groups.reduce((sum, group) => sum + group.items.length, 0);
+        const count = document.getElementById('locker-inventory-count');
+        if (count) count.textContent = `${total} ${total === 1 ? 'item' : 'items'}`;
+        grid.replaceChildren();
+        for (const group of groups) {
+            const heading = document.createElement('h3');
+            heading.className = 'cosmetic-category-title';
+            heading.textContent = group.label;
+            grid.appendChild(heading);
+            for (const item of group.items) {
+                const card = document.createElement('article');
+                card.dataset.invType = group.type;
+                card.dataset.invRarity = item.rarity || 'common';
+                card.className = `shop-card inventory-card inventory-tile rarity-${item.rarity || 'common'}`;
+                if (group.type === 'knife') {
+                    const equippedAny = isKnifeEquippedAny(item.id, equippedKnives);
+                    const restriction = knifeTeamRestriction(item.teams);
+                    const restrictBadge = restriction ? `<span class="inventory-team-restrict team-${restriction}">${restriction.toUpperCase()} ONLY</span>` : '';
+                    card.dataset.invModel = item.model;
+                    card.innerHTML = `<div class="inventory-icon-area"><div class="knife-preview knife-preview-3d model-${item.model}" style="--knife-color:${item.color};--knife-accent:${item.accent}" aria-hidden="true"></div></div><div class="inventory-card-copy"><span class="skin-rarity rarity-${item.rarity}">${item.rarity}</span>${restrictBadge}<div class="char-name">${item.name}</div><div class="char-desc">${item.model.toUpperCase()} / ${(item.finish || 'satin').toUpperCase()}</div></div><div class="stat-track"><span>STATTRACK</span><b>${String(Number(knifeStats[item.id]) || 0).padStart(6, '0')}</b></div><button class="btn btn-small knife-inspect" data-id="${item.id}">3D Inspect</button><div class="inventory-actions">${item.teams.map(team => equippedKnives[team] === item.id ? `<span class="shop-owned">${team.toUpperCase()} equipped</span>` : `<button class="btn btn-small knife-equip" data-id="${item.id}" data-team="${team}">Equip ${team}</button>`).join('')}</div>`;
+                    this._decorateShopCard(card, { category: 'knife', owned: true, equipped: equippedAny, currency: coinBalance });
+                } else if (group.type === 'cosmetic') {
+                    const active = equippedWearables[item.type] === item.id;
+                    card.dataset.invModel = item.type;
+                    card.classList.add('cosmetic-card');
+                    card.style.setProperty('--cosmetic-primary', item.colors[0]);
+                    card.style.setProperty('--cosmetic-secondary', item.colors[1]);
+                    card.innerHTML = `<div class="inventory-icon-area"><div class="cosmetic-preview cosmetic-preview-${item.type}" data-style="${item.style}" aria-hidden="true"></div></div><div class="inventory-card-copy"><span class="skin-rarity rarity-${item.rarity}">${item.rarity}</span><div class="char-name">${item.name}</div><div class="char-desc">${COSMETIC_TYPES[item.type] || item.type}</div></div><div class="inventory-actions"><button class="btn btn-small wearable-inspect" data-id="${item.id}">Inspect</button>${active ? '<span class="shop-owned">Equipped</span>' : `<button class="btn btn-small shop-equip" data-type="cosmetic" data-id="${item.id}">Equip</button>`}</div>`;
+                    this._decorateShopCard(card, { category: 'cosmetic', owned: true, equipped: active, currency: coinBalance });
+                } else if (group.type === 'ball') {
+                    const active = equippedBall === item.id;
+                    card.dataset.invModel = item.shape || 'sphere';
+                    card.innerHTML = `<div class="inventory-icon-area"><div class="ball-preview" data-shape="${item.shape || 'sphere'}" data-effect="${item.effect || 'core'}" style="--ball-color:#${item.color.toString(16).padStart(6, '0')};--ball-glow:#${item.glow.toString(16).padStart(6, '0')}"></div></div><div class="inventory-card-copy"><span class="skin-rarity rarity-${item.rarity || 'common'}">${item.rarity || 'common'}</span><div class="char-name">${item.name}</div><div class="char-desc">${(item.shape || 'sphere').toUpperCase()} BALL</div></div><div class="inventory-actions"><button class="btn btn-small ball-inspect" data-id="${item.id}">Inspect</button>${active ? '<span class="shop-owned">Equipped</span>' : `<button class="btn btn-small shop-equip" data-type="ball" data-id="${item.id}">Equip</button>`}</div>`;
+                    this._decorateShopCard(card, { category: 'ball', owned: true, equipped: active, currency: coinBalance });
+                } else {
+                    const active = equippedAvatar === item.id;
+                    card.dataset.invModel = item.model || 'classic';
+                    card.innerHTML = `<div class="inventory-icon-area"><span class="skin-preview" style="--skin-head:${item.head};--skin-body:${item.body};--skin-arms:${item.arms};--skin-legs:${item.legs}" aria-hidden="true"></span></div><div class="inventory-card-copy"><span class="skin-rarity rarity-${item.rarity || 'common'}">${item.rarity || 'common'}</span><div class="char-name">${item.name}</div><div class="char-desc">${item.model === 'slim' ? 'SLIM' : 'CLASSIC'} PLAYER MODEL</div></div>${active ? '<div class="shop-owned">Equipped</div>' : `<button class="btn btn-small shop-equip" data-type="avatar" data-id="${item.id}">Equip</button>`}`;
+                    this._decorateShopCard(card, { category: 'avatar', owned: true, equipped: active, currency: coinBalance });
+                }
+                grid.appendChild(card);
+            }
+        }
+        if (!total) grid.innerHTML = '<div class="shop-empty inventory-empty"><strong>Your collection is ready for its first drop.</strong><span>Complete matches and open earned cases to grow it.</span></div>';
+    }
+
     _syncShopTabs(tab) {
         const labels = {
             chars: 'Characters', live: 'Live Deals', balls: 'Balls', avatars: 'Character Skins',
-            wearables: 'Wearables', cases: 'Cases', inventory: 'Inventory', boosts: 'Boosts'
+            wearables: 'Wearables', cases: 'Cases', boosts: 'Boosts'
         };
         document.querySelectorAll('#shop-tabs .shop-tab').forEach(button => {
             const selected = button.dataset.tab === tab;
@@ -1749,7 +1832,6 @@ export class UI {
             balls: ['all', 'ball', 'owned', 'affordable'],
             live: ['all', 'ball', 'cosmetic', 'owned', 'affordable'],
             wearables: ['all', 'cosmetic', 'owned', 'affordable'],
-            inventory: ['all', 'cosmetic', 'knife', 'owned'],
             cases: ['all', 'affordable'],
             boosts: ['all', 'affordable']
         };
@@ -1763,7 +1845,7 @@ export class UI {
         });
     }
 
-    _setShopShowcase(store, skin, previewing = false, announce = false) {
+    _setShopShowcase(store, skin, previewing = false, announce = false, dispatchPreview = true) {
         const selected = skin || AVATAR_SKINS.default;
         const equippedId = store.get('equippedAvatarSkin') || 'default';
         const equipped = selected.id === equippedId;
@@ -1825,10 +1907,60 @@ export class UI {
         if (stage?.dispatchEvent && typeof CustomEvent !== 'undefined') {
             stage.dispatchEvent(new CustomEvent('shop-preview-change', { bubbles: true, detail }));
         }
-        if (typeof window !== 'undefined' && window.dispatchEvent && typeof CustomEvent !== 'undefined') {
+        if (dispatchPreview && typeof window !== 'undefined' && window.dispatchEvent && typeof CustomEvent !== 'undefined') {
             window.dispatchEvent(new CustomEvent('warrball:shop-preview', { detail }));
         }
         if (announce && status) status.focus?.({ preventScroll: true });
+    }
+
+    _setShopCosmeticShowcase(store, item, announce = false) {
+        if (!item) return false;
+        const equippedWearables = store.get('equippedWearables') || {};
+        const equipped = equippedWearables[item.type] === item.id;
+        const owned = store.ownsCosmetic(item.id);
+        const typeLabel = COSMETIC_TYPES[item.type] || item.type;
+        const name = document.getElementById('shop-selected-name');
+        const meta = document.getElementById('shop-selected-meta');
+        const status = document.getElementById('shop-showcase-status');
+        const practice = document.getElementById('btn-shop-practice');
+        const action = document.getElementById('shop-selected-action');
+        const kicker = document.getElementById('shop-selected-kicker');
+        this._shopPreviewCosmetic = item.id;
+        if (kicker) kicker.textContent = 'WEARABLE PREVIEW';
+        if (name) name.textContent = item.name;
+        if (meta) meta.textContent = `${typeLabel} · ${String(item.rarity || 'rare').toUpperCase()} · ${equipped ? 'Equipped' : owned ? 'Owned' : `${item.price} credits`}`;
+        if (status) status.textContent = `${item.name} · Preview`;
+        if (practice) {
+            practice.hidden = true;
+            practice.disabled = true;
+        }
+        if (action) {
+            action.className = 'btn btn-primary shop-selected-action';
+            action.dataset.type = 'cosmetic';
+            action.dataset.id = item.id;
+            action.disabled = equipped;
+            action.textContent = equipped ? `${item.name} equipped` : owned ? `Equip ${item.name}` : `Buy ${item.name} — ${item.price}`;
+            action.classList.toggle('shop-equip', !equipped && owned);
+            action.classList.toggle('shop-buy', !equipped && !owned);
+            action.setAttribute('aria-label', action.textContent);
+        }
+        document.querySelectorAll('.wearable-inspect').forEach(control => {
+            const selected = control.dataset.id === item.id;
+            control.setAttribute('aria-pressed', String(selected));
+            control.closest('.cosmetic-card')?.classList.toggle('is-previewing', selected);
+        });
+        if (announce && status) status.focus?.({ preventScroll: true });
+        return true;
+    }
+
+    _resetShopCosmeticShowcase(store) {
+        this._shopPreviewCosmetic = null;
+        document.querySelectorAll('.wearable-inspect').forEach(control => {
+            control.setAttribute('aria-pressed', 'false');
+            control.closest('.cosmetic-card')?.classList.remove('is-previewing');
+        });
+        const equippedSkin = AVATAR_SKINS[store.get('equippedAvatarSkin')] || AVATAR_SKINS.default;
+        this._setShopShowcase(store, equippedSkin, false, false, false);
     }
 
     _setShopCharacterDetail(store, character, announce = false) {
@@ -1941,6 +2073,9 @@ export class UI {
         const coinsEl = document.getElementById('shop-coins');
         if (coinsEl) coinsEl.textContent = store.get('currency');
         if (!grid) return;
+        if (typeof window !== 'undefined' && window.dispatchEvent && typeof CustomEvent !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('warrball:shop-preview-reset'));
+        }
         window.UI?.renderEarnSlot?.();
         const coinBalance = store.get('currency') || 0;
         this._syncShopTabs(tab);
@@ -2094,6 +2229,7 @@ export class UI {
                     const active = equipped[type] === item.id;
                     const card = document.createElement('article');
                     card.className = `shop-card cosmetic-card rarity-${item.rarity} ${owned ? 'owned' : ''} ${active ? 'equipped' : ''}`;
+                    card.dataset.cosmeticId = item.id;
                     card.style.setProperty('--cosmetic-primary', item.colors[0]);
                     card.style.setProperty('--cosmetic-secondary', item.colors[1]);
                     const preview = document.createElement('div');
@@ -2115,7 +2251,17 @@ export class UI {
                     action.dataset.id = item.id;
                     action.textContent = active ? 'Equipped' : owned ? 'Equip' : `Buy — ${item.price}`;
                     action.disabled = active;
-                    card.append(preview, name, rarity, description, action);
+                    const actions = document.createElement('div');
+                    actions.className = 'shop-card-actions';
+                    const inspect = document.createElement('button');
+                    inspect.type = 'button';
+                    inspect.className = 'btn btn-small wearable-inspect';
+                    inspect.dataset.id = item.id;
+                    inspect.setAttribute('aria-pressed', 'false');
+                    inspect.textContent = 'Inspect';
+                    inspect.addEventListener('click', () => this._dispatchCosmeticPreview(item));
+                    actions.append(inspect, action);
+                    card.append(preview, name, rarity, description, actions);
                     this._decorateShopCard(card, { category: 'cosmetic', price: item.price, owned, equipped: active, currency: coinBalance });
                     grid.appendChild(card);
                 });
@@ -2144,56 +2290,6 @@ export class UI {
                 this._decorateShopCard(card, { category: 'case', price: box.price, owned: false, currency: coinBalance });
                 grid.appendChild(card);
             });
-        } else if (tab === 'inventory') {
-            const ownedKnifeIds = new Set(store.get('ownedKnives') || []);
-            const equippedKnives = store.get('equippedKnives') || {};
-            const ownedCosmeticIds = new Set(store.get('ownedCosmetics') || []);
-            const equippedWearables = store.get('equippedWearables') || {};
-            const knifeStats = store.get('knifeStats') || {};
-            const entries = [
-                ...Object.values(KNIVES).filter(k => ownedKnifeIds.has(k.id)).map(item => ({ type: 'knife', item })),
-                ...Object.values(COSMETICS).filter(c => ownedCosmeticIds.has(c.id)).map(item => ({ type: 'cosmetic', item }))
-            ];
-            const groups = groupInventoryEntries(entries);
-            const collection = document.createElement('div');
-            collection.className = 'inventory-collection-count';
-            collection.innerHTML = `<span>COLLECTION</span><strong>${entries.length} cosmetic item${entries.length === 1 ? '' : 's'}</strong><small>${[...ownedKnifeIds].length} weapons · ${[...ownedCosmeticIds].length} wearables</small>`;
-            grid.appendChild(collection);
-            groups.forEach(group => {
-                const heading = document.createElement('h3');
-                heading.className = 'cosmetic-category-title';
-                heading.textContent = group.label;
-                grid.appendChild(heading);
-                group.items.forEach(({ type, item }) => {
-                    const card = document.createElement('article');
-                    // CS-style tile: the type/model/rarity live on the element so the grid can
-                    // draw a per-model silhouette and a rarity-coloured base edge in pure CSS.
-                    card.dataset.invType = type;
-                    card.dataset.invRarity = item.rarity || 'common';
-                    if (type === 'knife') {
-                        const knife = item;
-                        const equippedAny = isKnifeEquippedAny(knife.id, equippedKnives);
-                        const kills = Number(knifeStats[knife.id]) || 0;
-                        const restriction = knifeTeamRestriction(knife.teams);
-                        const restrictBadge = restriction ? `<span class="inventory-team-restrict team-${restriction}">${restriction.toUpperCase()} ONLY</span>` : '';
-                        card.dataset.invModel = knife.model;
-                        card.className = `shop-card inventory-card inventory-tile rarity-${knife.rarity}`;
-                        card.innerHTML = `<div class="inventory-icon-area"><div class="knife-preview knife-preview-3d model-${knife.model}" style="--knife-color:${knife.color};--knife-accent:${knife.accent}" aria-hidden="true"></div></div><div class="inventory-card-copy"><span class="skin-rarity rarity-${knife.rarity}">${knife.rarity}</span>${restrictBadge}<div class="char-name">${knife.name}</div><div class="char-desc">${knife.model.toUpperCase()} / ${(knife.finish || 'satin').toUpperCase()}</div></div><div class="stat-track"><span>STATTRACK</span><b>${String(kills).padStart(6, '0')}</b></div><button class="btn btn-small knife-inspect" data-id="${knife.id}">3D Inspect</button><div class="inventory-actions">${knife.teams.map(team => equippedKnives[team] === knife.id ? `<span class="shop-owned">${team.toUpperCase()} equipped</span>` : `<button class="btn btn-small knife-equip" data-id="${knife.id}" data-team="${team}">Equip ${team}</button>`).join('')}</div>`;
-                        this._decorateShopCard(card, { category: 'knife', price: 0, owned: true, equipped: equippedAny, currency: coinBalance });
-                    } else {
-                        const cosmetic = item;
-                        const equippedC = equippedWearables[cosmetic.type] === cosmetic.id;
-                        card.dataset.invModel = cosmetic.type;
-                        card.className = `shop-card inventory-card inventory-tile cosmetic-card rarity-${cosmetic.rarity}`;
-                        card.style.setProperty('--cosmetic-primary', cosmetic.colors[0]);
-                        card.style.setProperty('--cosmetic-secondary', cosmetic.colors[1]);
-                        card.innerHTML = `<div class="inventory-icon-area"><div class="cosmetic-preview cosmetic-preview-${cosmetic.type}" data-style="${cosmetic.style}" aria-hidden="true"></div></div><div class="inventory-card-copy"><span class="skin-rarity rarity-${cosmetic.rarity}">${cosmetic.rarity}</span><div class="char-name">${cosmetic.name}</div><div class="char-desc">${COSMETIC_TYPES[cosmetic.type] || cosmetic.type}</div></div>${equippedC ? '<div class="shop-owned">Equipped</div>' : `<button class="btn btn-small shop-equip" data-type="cosmetic" data-id="${cosmetic.id}">Equip</button>`}`;
-                        this._decorateShopCard(card, { category: 'cosmetic', price: 0, owned: true, equipped: equippedC, currency: coinBalance });
-                    }
-                    grid.appendChild(card);
-                });
-            });
-            if (!entries.length) grid.innerHTML = '<div class="shop-empty inventory-empty"><strong>Your collection is ready for its first drop.</strong><span>Complete matches for earned cosmetic cases, or inspect Cases to view verified odds.</span></div>';
         }
         this._finalizeShopCatalog(grid);
         if (!this._shopFiltersBound) {
@@ -2249,11 +2345,32 @@ export class UI {
         }, true);
     }
 
-    showCaseReel(box, result, { onSettled } = {}) {
+    showCaseReel(box, result, { onSettled, onInspect, onEquip, onOpenAnother, onClose } = {}) {
         const overlay = document.getElementById('case-reel');
         const track = document.getElementById('case-reel-track');
         const resultEl = document.getElementById('case-reel-result');
         if (!overlay || !track || !resultEl || !result?.reward) return;
+        this._caseReelCleanup?.(false);
+        const generation = (this._caseReelGeneration || 0) + 1;
+        this._caseReelGeneration = generation;
+        const getReturnFocus = () => document.querySelector(`.case-select[data-id="${box?.id}"]`)
+            || document.getElementById('shop-tab-cases')
+            || document.getElementById('btn-shop-back');
+        const actions = document.getElementById('case-reel-actions');
+        const inspectAction = document.getElementById('case-reel-inspect');
+        const equipAction = document.getElementById('case-reel-equip');
+        const anotherAction = document.getElementById('case-reel-open-another');
+        const closeAction = document.getElementById('case-reel-close');
+        const skipAction = document.getElementById('case-reel-skip');
+        actions?.classList.add('hidden');
+        if (skipAction) {
+            skipAction.hidden = false;
+            skipAction.disabled = false;
+        }
+        if (equipAction) {
+            equipAction.disabled = false;
+            equipAction.textContent = result.reward.type === 'knife' ? 'Manage in Locker' : 'Equip';
+        }
         const drops = getCaseDropRates(box?.id);
         const targetIndex = 24;
         const items = Array.from({ length: 31 }, (_, index) => drops[index % Math.max(1, drops.length)] || result.reward);
@@ -2299,8 +2416,26 @@ export class UI {
         let preStopTimer = null;
         let tickTimers = [];
         let timer = null;
+        let onKeyDown = null;
+        const closeReel = (restoreFocus = true) => {
+            if (this._caseReelGeneration !== generation) return false;
+            clearTimeout(timer);
+            clearTimeout(flashFadeTimer);
+            clearTimeout(preStopTimer);
+            tickTimers.forEach(clearTimeout);
+            if (onKeyDown) overlay.removeEventListener('keydown', onKeyDown);
+            overlay.classList.add('hidden');
+            actions?.classList.add('hidden');
+            this._closeExclusive('caseReel');
+            this._caseReelCleanup = null;
+            this._caseReelGeneration = generation + 1;
+            if (restoreFocus) getReturnFocus()?.focus?.({ preventScroll: true });
+            return true;
+        };
+        this._caseReelCleanup = closeReel;
+        this._openExclusive('caseReel', () => closeReel(true));
         const finish = () => {
-            if (settled) return;
+            if (settled || this._caseReelGeneration !== generation) return;
             settled = true;
             clearTimeout(flashFadeTimer);
             clearTimeout(preStopTimer);
@@ -2315,6 +2450,9 @@ export class UI {
             }
             resultEl.dataset.rarity = result.reward.rarity || 'common';
             resultEl.innerHTML = `<span>${result.duplicate ? formatDuplicateConversion(result.refund) : 'UNLOCKED - INVENTORY READY'}</span><strong>${result.reward.name}</strong>`;
+            actions?.classList.remove('hidden');
+            if (skipAction) skipAction.hidden = true;
+            inspectAction?.focus?.({ preventScroll: true });
             this.onCaseRewardReveal?.(result.reward);
             // Result toast/CTA belongs to the locked reel state. `settled`
             // above guarantees normal, skip and reduced-motion paths fire it once.
@@ -2329,6 +2467,7 @@ export class UI {
                     const decaySteps = 28;
                     let step = 0;
                     const fadeOut = () => {
+                        if (this._caseReelGeneration !== generation) return;
                         step++;
                         glow.style.opacity = presentation.flash * Math.max(0, 1 - step / decaySteps);
                         if (step < decaySteps) flashFadeTimer = setTimeout(fadeOut, decayTime / decaySteps);
@@ -2341,22 +2480,62 @@ export class UI {
             if (presentation.sfx && this.audio?.playSfx) {
                 this.audio.playSfx(presentation.sfx, 0.7);
             }
-            setTimeout(() => overlay.classList.add('hidden'), presentation.holdMs);
         };
+        const settleImmediately = () => {
+            clearTimeout(timer);
+            clearTimeout(flashFadeTimer);
+            clearTimeout(preStopTimer);
+            tickTimers.forEach(clearTimeout);
+            track.classList.remove('spin');
+            track.style.animation = 'none';
+            finish();
+        };
+        onKeyDown = event => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                if (settled) closeReel(true);
+                else settleImmediately();
+                return;
+            }
+            if (event.key !== 'Tab') return;
+            const focusable = [...overlay.querySelectorAll('button:not([hidden]):not([disabled])')]
+                .filter(node => node.offsetParent !== null);
+            if (!focusable.length) return;
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (!focusable.includes(document.activeElement)) {
+                event.preventDefault();
+                (event.shiftKey ? last : first).focus();
+            } else if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault();
+                last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                first.focus();
+            }
+        };
+        overlay.addEventListener('keydown', onKeyDown);
         requestAnimationFrame(() => {
+            if (this._caseReelGeneration !== generation) return;
             const selected = track.children[targetIndex];
             const stop = Math.round(
                 overlay.querySelector('.case-reel-window').clientWidth / 2
                 - (selected.offsetLeft + selected.offsetWidth / 2)
             );
             track.style.setProperty('--case-reel-stop', `${stop}px`);
+            if (settled) {
+                track.style.transform = `translate3d(${stop}px, 0, 0)`;
+                return;
+            }
             if (presentation.reducedMotion) {
                 // Reduced motion: skip the 6-7s CS:GO crawl outright — jump
                 // straight to the settled position with a short opacity fade
                 // instead of the spin; ticks never fire (nothing is crossing).
                 track.style.transform = `translate3d(${stop}px, 0, 0)`;
                 track.classList.add('case-reel-reduced');
-                requestAnimationFrame(() => track.classList.add('case-reel-reduced-in'));
+                requestAnimationFrame(() => {
+                    if (this._caseReelGeneration === generation) track.classList.add('case-reel-reduced-in');
+                });
                 finish();
                 return;
             }
@@ -2383,7 +2562,32 @@ export class UI {
             }
             timer = setTimeout(finish, presentation.spinMs + 100);
         }
-        document.getElementById('case-reel-skip')?.addEventListener('click', () => { clearTimeout(timer); clearTimeout(flashFadeTimer); clearTimeout(preStopTimer); tickTimers.forEach(clearTimeout); finish(); }, { once: true });
+        if (skipAction) skipAction.onclick = settleImmediately;
+        if (inspectAction) inspectAction.onclick = () => {
+            if (!settled || !closeReel(false)) return;
+            onInspect?.(result);
+        };
+        if (equipAction) equipAction.onclick = async () => {
+            if (!settled || equipAction.disabled) return;
+            if (result.reward.type === 'knife') {
+                if (!closeReel(false)) return;
+                onInspect?.(result);
+                return;
+            }
+            equipAction.disabled = true;
+            const equipped = await onEquip?.(result);
+            equipAction.textContent = equipped === false ? 'Unavailable' : 'Equipped';
+            if (equipped === false) equipAction.disabled = false;
+        };
+        if (anotherAction) anotherAction.onclick = () => {
+            if (!settled || !closeReel(false)) return;
+            onOpenAnother?.(box, result);
+        };
+        if (closeAction) closeAction.onclick = () => {
+            if (!closeReel(true)) return;
+            onClose?.(result);
+        };
+        overlay.querySelector('.case-reel-card')?.focus?.({ preventScroll: true });
     }
 
     // Schedules WebAudio tick cues for the case-reel spin — one per tile

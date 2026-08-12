@@ -23,3 +23,23 @@ test('solo rewards are base-loss only, capped at three per UTC day, and restart 
 });
 test('late admitted third member cannot alter a frozen two-player match', t => { const f=fixture(); t.after(()=>fs.rmSync(f.dir,{recursive:true,force:true})); const lobby={ranked:false,players:2,memberProfileIds:new Set([f.a.id,f.b.id,f.c.id])}; const authority=f.authority; authority.getLobby=code=>code==='crowded'?lobby:null; const matchId=id('frozen'); authority.start(f.a,{matchId,mode:'casual',lobbyCode:'crowded'}); authority.start(f.b,{matchId,mode:'casual',lobbyCode:'crowded'}); assert.equal(authority.start(f.c,{matchId,mode:'casual',lobbyCode:'crowded'}).httpStatus,409); f.advance(100); assert.equal(authority.complete(f.a,{matchId,mode:'casual',lobbyCode:'missing',result:'win'}).httpStatus,202); assert.equal(authority.complete(f.b,{matchId,mode:'casual',lobbyCode:'missing',result:'loss'}).httpStatus,200); });
 test('ranked pair guard rejects a fourth same-day pair when the second starter freezes it', t => { const f=fixture(); t.after(()=>fs.rmSync(f.dir,{recursive:true,force:true})); for(let n=0;n<3;n++){ const matchId=id(`pair${n}`); f.authority.start(f.a,{matchId,mode:'ranked',lobbyCode:'ranked'}); f.authority.start(f.b,{matchId,mode:'ranked',lobbyCode:'ranked'}); f.advance(100); f.authority.complete(f.a,{matchId,mode:'ranked',lobbyCode:'ranked',result:'win'}); assert.equal(f.authority.complete(f.b,{matchId,mode:'ranked',lobbyCode:'ranked',result:'loss'}).httpStatus,200); } const fourth=id('pair4'); assert.equal(f.authority.start(f.a,{matchId:fourth,mode:'ranked',lobbyCode:'ranked'}).httpStatus,200); assert.equal(f.authority.start(f.b,{matchId:fourth,mode:'ranked',lobbyCode:'ranked'}).httpStatus,429); });
+
+test('isProfileActive reflects start, finish and ttl cleanup', t => {
+    const f = fixture(); t.after(() => fs.rmSync(f.dir, { recursive: true, force: true }));
+    const matchId = id('active-check');
+    assert.equal(f.authority.isProfileActive(f.a.id), false);
+    f.authority.start(f.a, { matchId, mode: 'solo' });
+    assert.equal(f.authority.isProfileActive(f.a.id), true);
+    f.advance(100);
+    f.authority.complete(f.a, { matchId, mode: 'solo' });
+    assert.equal(f.authority.isProfileActive(f.a.id), false);
+});
+
+test('ttl cleanup releases a participant even when a multiplayer match never became ready', t => {
+    const f = fixture(); t.after(() => fs.rmSync(f.dir, { recursive: true, force: true }));
+    const abandoned = id('abandoned');
+    assert.equal(f.authority.start(f.a, { matchId: abandoned, mode: 'casual', lobbyCode: 'casual' }).httpStatus, 200);
+    f.advance(7200001);
+    assert.equal(f.authority.isProfileActive(f.a.id), false);
+    assert.equal(f.authority.start(f.a, { matchId: id('after-expiry'), mode: 'casual', lobbyCode: 'casual' }).httpStatus, 200);
+});

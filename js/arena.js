@@ -7,6 +7,16 @@ import { getTexture, clearTextureCache } from './procedural-textures.js';
 import { loadArenaDecor, disposeArenaDecor, preloadTrophyTemplate } from './arena-decor.js';
 import { loadSkyboxTexture, resolveFogColor } from './skybox-loader.js';
 
+export const ARENA_PRESENTATION_PROFILES = Object.freeze({
+    default: Object.freeze({ exposure: 1.10, sun: 1.80, bloomRadius: 0.22, bloomThreshold: 0.78 }),
+    neon: Object.freeze({ exposure: 1.06, sun: 1.65, bloomRadius: 0.18, bloomThreshold: 0.72 }),
+    grand_stadium: Object.freeze({ exposure: 1.12, sun: 1.90, bloomRadius: 0.18, bloomThreshold: 0.82 })
+});
+
+export function arenaPresentationProfile(mapId) {
+    return ARENA_PRESENTATION_PROFILES[mapId] || ARENA_PRESENTATION_PROFILES.default;
+}
+
 // Daha büyük court'lar + aydınlık temalar. dark space/neon → aydınlık palet.
 export const MAPS = {
     beach: {
@@ -538,6 +548,7 @@ export class Arena {
         this.spawnPoint = new THREE.Vector3(0, this._ballSpawnHeight(), 0);
         this.bounds = getArenaBounds(this.config);
         this.spectatorBounds = getSpectatorBounds(this.config);
+        this._applyPresentation(this.mapId);
         this.objects = [];
         this.collidables = [];  // ball collision objects: {mesh, radius, pos}
         this.hazardZones = [];
@@ -3883,9 +3894,23 @@ export class Arena {
         this.spawnPoint = new THREE.Vector3(0, this._ballSpawnHeight(), 0);
         this.bounds = getArenaBounds(this.config);
         this.spectatorBounds = getSpectatorBounds(this.config);
+        this._applyPresentation(mapId);
         this.build();
         // ponytail: apply per-map UI theme overrides
         this._applyTheme(mapId);
+    }
+
+    _applyPresentation(mapId) {
+        const profile = arenaPresentationProfile(mapId);
+        if (this.renderer?.renderer) {
+            this.renderer.renderer.toneMappingExposure = profile.exposure;
+        }
+        if (this.renderer?.sun) this.renderer.sun.intensity = profile.sun;
+        this.renderer?.setBloomProfile?.({
+            strength: null,
+            radius: profile.bloomRadius,
+            threshold: profile.bloomThreshold
+        });
     }
 
     // Apply per-map CSS theme variables so HUD matches the active arena palette.

@@ -6,6 +6,59 @@
 
 ---
 
+## 2026-08-12 Menu, Commerce, Identity, Ball and Social Cycle
+
+- **CS-style main lobby:** the authenticated landing screen now keeps the exact
+  eight-route navigation (`Play / Ranked / Arcade / Custom / Locker / Battle
+  Pass / Shop / Profile`), a live full-body voxel hero, Quick Play focus, party
+  leadership and a nearby-player rail in one wide composition. Exact 375x812
+  QA reached every route through the left-aligned horizontal rail with no page
+  overflow or console errors.
+- **Server-owned party discovery:** presence exposes bounded, opt-out nearby
+  discovery; invitations expire, party capacity is eight, and only the server
+  party leader can invite. Logout removes ghost presence and concurrent party
+  operations remain atomic. Gameplay transport remains P2P.
+- **Shop and Locker separation:** Shop is purchase/preview-only; Locker owns
+  `Loadout / Inventory / Cards`. All client-visible ball and wearable catalog
+  entries have matching server prices/types. Character cards use distinct
+  generated portraits, owned inventory has readable metadata, and wearable
+  Inspect applies a temporary live 3D preview without mutating the loadout.
+- **Case reveal lifecycle:** the CS-style reel keeps its result and
+  `Inspect / Equip / Open another / Close` actions on screen after settling,
+  supports skip/reduced-motion/Escape/focus trapping, and ignores stale reveal
+  callbacks. `Open another` starts one direct server/fallback opening without a
+  second confirmation; the in-flight guard prevents duplicate charges.
+- **Canonical voxel identity:** the shared classic/slim character rig now uses
+  exact 64x64 Minecraft-style proportions (16px world unit, 8x8x8 head,
+  8x12x4 torso, separate arms/legs), so head and body skins update together.
+  Existing wearables provide hats, capes, wings, backpacks and other silhouette
+  changes without replacing the animation/socket contract. Imported Kenney GLB
+  characters remain unsuitable as sellable player models until they receive a
+  skin, socket, pose and P2P adapter.
+- **Ball reliability and escalating rallies:** terminal steering rescues a ball
+  that is close to its target but moving tangentially/away, preventing the
+  reported endless horizontal orbit. The former 6x/102 gameplay cap is removed:
+  every deflection adds another linear +30% base-speed step. Spike retains a
+  stable 1.2x modifier without exponential compounding. P2P rejects non-finite
+  or abusive ball packets above the separate 16,384 protocol safety bound while
+  leaving the player-motion bound unchanged.
+- **Trails and arena presentation:** seven trail families now select four shared
+  silhouettes (orb, shard, crystal, pixel); trail sampling reuses persistent
+  vectors instead of allocating clones in the hot path. Default, Neon and Grand
+  Stadium explicitly reset exposure, sun and bloom presentation on every map
+  rebuild, preventing dull cross-map leakage while retaining low-quality bloom
+  disablement.
+- **Case transport idempotency:** an ambiguous network/JSON/5xx failure retains
+  the account-and-case-scoped request ID for the next manual retry, so a server
+  commit with a lost response cannot charge twice. A confirmed success or
+  definitive 4xx rotates the key; concurrent same-case calls share one flight.
+- **Verification:** `node scripts/check-js.js` passes 96 files; the full suite is
+  **1,541/1,541**; the refreshed Graft wiring graph is in sync at 3,480 nodes and
+  8,692 edges. Runtime visual QA passed the main menu, 10/10 Shop portraits,
+  wearable live preview, Locker separation and case inspector at 1440x900 with
+  no console errors. Real cohort FUN/retention/revenue outcomes remain NOT
+  MEASURED.
+
 ## 2026-08-11 Quality-First Product Cycles
 
 - **Graft code context:** NanoNets Graft 0.9.1 is pinned as repo-local

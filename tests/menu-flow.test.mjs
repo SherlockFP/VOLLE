@@ -231,22 +231,26 @@ test('first-match hint arming remains restricted to solo/bot paths', async () =>
     assert.doesNotMatch(hostSlice, /_armFirstMatchHints/);
 });
 
-test('Card Collection is a modal dialog that isolates Locker controls and restores focus on close', async () => {
+test('Card Collection is a local Locker tab with roving tab state', async () => {
     const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
     assert.match(html, /id="character-locker-content"/);
-    assert.match(html, /id="card-collection-panel"[^>]*role="dialog"[^>]*aria-modal="true"/);
-    assert.match(html, /class="card-collection-dialog"[^>]*role="document"/);
+    assert.match(html, /id="locker-tabs"[^>]*role="tablist"/);
+    assert.match(html, /id="locker-tab-cards"[^>]*role="tab"[^>]*aria-controls="locker-panel-cards"[^>]*data-locker-tab="cards"/);
+    assert.match(html, /id="locker-panel-cards"[^>]*role="tabpanel"[^>]*aria-labelledby="locker-tab-cards"[^>]*data-locker-panel="cards"/);
     assert.match(html, /class="card-collection-content"/);
+    assert.doesNotMatch(html, /id="card-collection-panel"|aria-modal="true"[^>]*card-collection/);
+    const ui = await readFile(new URL('../js/ui.js', import.meta.url), 'utf8');
+    assert.match(ui, /setLockerTab\(tab = 'loadout'\)/);
+    assert.match(ui, /button\.setAttribute\('aria-selected', String\(selected\)\)/);
+    assert.match(ui, /button\.tabIndex = selected \? 0 : -1;/);
+    assert.match(ui, /panel\.classList\.toggle\('hidden', panel\.dataset\.lockerPanel !== selectedTab\)/);
     const source = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
-    assert.match(source, /_setCardCollectionOpen\(open\)/);
-    assert.match(source, /locker\.inert = true;/);
-    assert.match(source, /locker\.inert = false;/);
-    assert.match(source, /bind\('btn-card-collection', \(\) => \{\s*this\._setCardCollectionOpen\(true\);/);
-    assert.match(source, /bind\('btn-card-collection-close', \(\) => \{\s*this\._setCardCollectionOpen\(false\);/);
-    assert.match(source, /cardCollection && !cardCollection\.classList\.contains\('hidden'\)[\s\S]*?this\._setCardCollectionOpen\(false\)/);
+    assert.match(source, /const lockerTab = e\.target\.closest\('\[data-locker-tab\]'\)/);
+    assert.match(source, /if \(tab === 'cards'\) this\._renderCardCollection\(\);/);
+    assert.doesNotMatch(source, /_setCardCollectionOpen|btn-card-collection-close|card-collection-panel/);
 });
 
-test('Card Collection render uses sprite art, rarity/state datasets, and responsive modal rules', async () => {
+test('Card Collection render uses sprite art, rarity/state datasets, and responsive Locker rules', async () => {
     const source = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
     assert.match(source, /\$\{ownedUnique\}\/\$\{cards\.length\} unique owned/);
     assert.match(source, /article\.dataset\.rarity = card\.rarity;/);
@@ -257,20 +261,16 @@ test('Card Collection render uses sprite art, rarity/state datasets, and respons
     }
     assert.match(source, /CARD_EFFECT_ICON_IDS\[card\.effectId\] \|\| \(card\.slot === 'active' \? '#i-target' : '#i-chart'\)/);
     const css = await readFile(new URL('../css/polish.css', import.meta.url), 'utf8');
-    assert.match(css, /\.card-collection-panel\s*\{[^}]*position:\s*fixed;[^}]*inset:\s*0;[^}]*overflow:\s*hidden/);
-    assert.match(css, /\.card-collection-dialog\s*\{[^}]*width:\s*min\(1040px, 100%\);[^}]*overflow:\s*auto/);
-    assert.match(css, /\.card-collection-header\s*\{[^}]*position:\s*sticky;/);
+    assert.match(css, /\.locker-rail\s*\{[^}]*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/);
+    assert.match(css, /\.locker-tab\s*\{[^}]*min-height:\s*44px/);
     assert.match(css, /\.card-collection-grid\s*\{[^}]*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/);
     assert.match(css, /\.arena-card\[data-rarity="rare"\]\s*\{\s*--card-rarity:\s*#55d9c6;/, 'rarity must not reuse team blue');
-    assert.match(css, /\.card-collection-header h2\s*\{\s*color:\s*#f7fbff;/);
     assert.match(css, /\.card-tradeup h3\s*\{\s*color:\s*#f7fbff;/);
     assert.match(css, /\.card-tradeup label\s*\{[^}]*color:\s*#dceeff;/);
     assert.match(css, /\.arena-card \.card-equip:disabled\s*\{[^}]*opacity:\s*1;[^}]*filter:\s*none;/);
     assert.match(css, /\.arena-card\.is-locked \.card-equip:disabled\s*\{[^}]*color:\s*#d5e2ec;[^}]*border-color:/);
     assert.match(css, /\.arena-card\.is-equipped \.card-equip:disabled\s*\{[^}]*color:\s*#d8f4ee;[^}]*border-color:/);
-    assert.match(css, /@media \(max-width: 700px\)[\s\S]*?\.card-collection-dialog\s*\{[^}]*height:\s*100dvh;[^}]*border-radius:\s*0/);
     assert.match(css, /@media \(max-width: 700px\)[\s\S]*?\.card-collection-grid\s*\{\s*grid-template-columns:\s*1fr/);
-    assert.match(css, /\.card-collection-header \.btn\s*\{\s*min-width:\s*44px;\s*min-height:\s*44px/);
 });
 
 // Pure-function pins (same style as store.js's isFirstMatchOfDay/loginStreakReward):

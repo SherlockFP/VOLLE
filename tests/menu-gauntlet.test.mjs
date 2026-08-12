@@ -52,7 +52,7 @@ test('menu uses the shared live renderer, player identity card and social-center
     assert.match(menu, /id="btn-menu-squad-center"/);
     assert.match(main, /_renderMenuIdentity\(\)/);
     assert.match(main, /_renderMenuPartyRail\(/);
-    assert.match(main, /bind\('btn-menu-party-invite', openSocialCenter\)/);
+    assert.match(main, /bind\('btn-menu-party-invite', \(\) => \{[\s\S]*?Friends\.isPartyLeader/);
     assert.match(main, /bind\('btn-menu-squad-center', openSocialCenter\)/);
     assert.match(main, /new ShopShowcaseRenderer\(canvas/);
 });
@@ -73,6 +73,18 @@ test('menu layout supplies tokenized responsive, focus and reduced-motion contra
     assert.match(css, /@media \(max-width: 760px\)/);
     assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
     assert.match(css, /#main-menu :is\(button, input\):focus-visible/);
+});
+
+test('mobile menu protects the full-body hero and resets primary navigation on entry', () => {
+    const cycleMenuCss = css.slice(css.indexOf('/* Cycle C2: cinematic CS-style command menu'));
+    const mobileCss = cycleMenuCss.slice(
+        cycleMenuCss.indexOf('@media (max-width: 760px)'),
+        cycleMenuCss.indexOf('@media (prefers-reduced-motion: reduce)')
+    );
+    assert.match(mobileCss, /\.ow-name-input \{[^}]*margin-top: var\(--ui-space-2\)/);
+    assert.match(mobileCss, /\.ow-showcase \{[^}]*height: 300px/);
+    assert.match(mobileCss, /\.ow-hero-stage \{[^}]*inset: -2% -6% var\(--ui-space-5\)/);
+    assert.match(main, /const primaryNav = document\.querySelector\('#main-menu \.ow-tabs'\);\s*window\.addEventListener\('warrball:screen', event => \{\s*if \(event\.detail\?\.screen === 'mainMenu' && primaryNav\) primaryNav\.scrollLeft = 0/);
 });
 
 test('the implementation bible preserves commercial and competitive guardrails', () => {

@@ -1,6 +1,7 @@
 const crypto = require('crypto');
+const { COSMETIC_TYPES } = require('./case-catalog');
 
-const TYPES = ['cape', 'pet', 'shoes', 'aura', 'impact'];
+const TYPES = COSMETIC_TYPES;
 const PLAYER_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 
 function normalizeEquippedCosmetics(value, owned, catalog) {

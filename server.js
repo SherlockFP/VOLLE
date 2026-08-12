@@ -7,6 +7,7 @@ const { CATALOG, ProfileStore } = require('./server/profile-store');
 const { AccountStore } = require('./server/account-store');
 const { SocialStore } = require('./server/social-store');
 const { PresenceStore } = require('./server/presence-store');
+const { PartyStore } = require('./server/party-store');
 const { verifyMatchReceipt } = require('./server/match-receipt');
 const { CreatorMapStore } = require('./server/creator-map-store');
 const { RequestLimiter } = require('./server/request-limiter');
@@ -71,6 +72,7 @@ const RATE_LIMITS = {
     social: [60, 60000],
     directMessage: [30, 60000],
     lobbyInvite: [20, 60000],
+    party: [30, 60000],
     paymentWebhook: [40, 60000],
     telemetry: [120, 60000],
     productAnalytics: [120, 60000],
@@ -108,6 +110,13 @@ const SOCIAL_HUB_MAP_NAMES = Object.freeze({
     plaza: 'Aurora Grand Plaza'
 });
 matchAuthority = new MatchAuthority(profiles, { getLobby: code => lobbies.get(code) || null });
+const partyStore = new PartyStore({
+    isAccountAvailable: accountId => presence.isAccountAvailable(accountId),
+    isAccountActive: accountId => {
+        const profileId = presence.getAccount(accountId)?.profileId;
+        return !!profileId && matchAuthority.isProfileActive(profileId);
+    }
+});
 // 90s stale prune. The host keep-alive is a 12s setInterval, but Chrome's intensive
 // throttling clamps timers in a hidden tab to ONE tick per minute — the previous 45s
 // TTL sat below that floor, so a host's lobby silently expired off the browser the
@@ -158,6 +167,13 @@ function sendJson(res, obj, status = 200) {
 function bearer(req) {
     const value = req.headers.authorization || '';
     return value.startsWith('Bearer ') ? value.slice(7) : '';
+}
+
+function presenceInstanceId(req, body = null) {
+    const supplied = typeof body?.instanceId === 'string' ? body.instanceId : '';
+    if (supplied) return supplied;
+    const token = bearer(req) || String(body?.sessionToken || body?.token || '');
+    return token ? `session-${crypto.createHash('sha256').update(token).digest('hex').slice(0, 32)}` : '';
 }
 
 // Session bearer is the only public profile credential. The legacy profile token
@@ -243,25 +259,92 @@ const server = http.createServer(async (req, res) => {
         if (!allowRequest(req, res, 'account')) return;
         const b = await readBody(req, 512);
         const auth = requireAuth(req, res, b);
-        if (auth) sendJson(res, { ok: accounts.logout(bearer(req) || b.sessionToken || b.token, auth.account.id) });
+        if (auth) {
+            const ok = accounts.logout(bearer(req) || b.sessionToken || b.token, auth.account.id);
+            if (ok) presence.removeAccount(auth.account.id);
+            sendJson(res, { ok });
+        }
         return;
     }
 
     // --- Social presence: heartbeat, friend status ---
     if (urlPath === '/api/social/heartbeat' && req.method === 'POST') {
         if (!allowRequest(req, res, 'social')) return;
-        const b = await readBody(req, 256);
+        const b = await readBody(req, 512);
         const auth = requireAuth(req, res, b);
-        if (auth) { presence.heartbeat(auth.account.username, b.avatar || ''); sendJson(res, { ok: true }); }
+        if (auth) {
+            const result = presence.heartbeatAccount({
+                accountId: auth.account.id,
+                profileId: auth.profile.id,
+                username: auth.account.username,
+                avatar: auth.account.avatar
+            }, { ...b, instanceId: presenceInstanceId(req, b) });
+            sendJson(res, result.error ? { error: result.error } : { ok: true, presence: result.presence }, result.status);
+        }
         return;
     }
     if (urlPath === '/api/social/status' && req.method === 'POST') {
         if (!allowRequest(req, res, 'social')) return;
         const b = await readBody(req, 2048);
-        if (requireAuth(req, res, b)) {
-            const usernames = Array.isArray(b.usernames) ? b.usernames : [];
+        const auth = requireAuth(req, res, b);
+        if (auth) {
+            const friends = social.listFriends(auth.account.id);
+            const accepted = new Map(friends.map(friend => [friend.username.toLowerCase(), friend.username]));
+            const requested = Array.isArray(b.usernames) ? b.usernames.slice(0, 200) : [];
+            const usernames = requested.map(name => accepted.get(String(name || '').toLowerCase())).filter(Boolean);
             sendJson(res, { statuses: presence.status(usernames) });
         }
+        return;
+    }
+    if (urlPath === '/api/social/available' && req.method === 'GET') {
+        if (!allowRequest(req, res, 'social')) return;
+        const auth = requireAuth(req, res);
+        if (auth) {
+            const params = new URLSearchParams(req.url.split('?')[1] || '');
+            const players = presence.available({
+                requesterAccountId: auth.account.id,
+                requesterRegion: params.get('region') || '',
+                isProfileActive: profileId => matchAuthority.isProfileActive(profileId),
+                limit: 20
+            });
+            sendJson(res, { players });
+        }
+        return;
+    }
+
+    // --- Ephemeral parties. Membership mutations are synchronous in PartyStore. ---
+    if (urlPath === '/api/party' && req.method === 'GET') {
+        if (!allowRequest(req, res, 'social')) return;
+        const auth = requireAuth(req, res);
+        if (auth) sendJson(res, partyStore.snapshot(auth.account.id));
+        return;
+    }
+    if (urlPath === '/api/party/invites' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'party')) return;
+        const b = await readBody(req, 512);
+        const auth = requireAuth(req, res, b);
+        if (auth) {
+            const result = partyStore.invite(auth.account.id, String(b.recipientAccountId || ''));
+            sendJson(res, result, result.status);
+        }
+        return;
+    }
+    if (urlPath.startsWith('/api/party/invites/') && req.method === 'POST') {
+        if (!allowRequest(req, res, 'party')) return;
+        const b = await readBody(req, 512);
+        const auth = requireAuth(req, res, b);
+        if (auth) {
+            const inviteId = decodeURIComponent(urlPath.slice('/api/party/invites/'.length));
+            const result = partyStore.act(auth.account.id, inviteId, b.action);
+            sendJson(res, result, result.status);
+        }
+        return;
+    }
+    if (urlPath === '/api/party/leave' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'party')) return;
+        const b = await readBody(req, 256);
+        const auth = requireAuth(req, res, b);
+        if (auth) { const result = partyStore.leave(auth.account.id); sendJson(res, result, result.status); }
         return;
     }
 
@@ -921,4 +1004,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { normalizeLobbyRecord, pruneLobbies, lobbies, LOBBY_TTL };
+module.exports = { normalizeLobbyRecord, pruneLobbies, lobbies, LOBBY_TTL, server, accounts, social, presence, partyStore, matchAuthority };

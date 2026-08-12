@@ -23,6 +23,18 @@ export function proximityHomingTurnRate(distance, homingAge = 0) {
     return clamp(3.5 + proximity * 3.4 + ageBonus, 3.5, 7.5);
 }
 
+export function homingRescueRange(speed) {
+    const safeSpeed = Number.isFinite(speed) ? Math.max(0, speed) : 0;
+    return clamp(safeSpeed * 0.055, 3.5, 6);
+}
+
+export function shouldDirectHomingRescue(distance, speed, homingAge, alignment) {
+    if (!Number.isFinite(alignment) || alignment >= 0.15) return false;
+    const isCircling = Number.isFinite(distance) && distance < homingRescueRange(speed);
+    const hasOverstayed = Number.isFinite(homingAge) && homingAge > 1.15;
+    return isCircling || hasOverstayed;
+}
+
 export function createAimRouteOffset(origin, target, aimDirection) {
     if (!finitePoint(origin) || !finitePoint(target) || !finitePoint(aimDirection)) {
         return { x: 0, y: 0, z: 0 };
@@ -259,6 +271,30 @@ export const BALL_SKINS = {
     dark_eater:     { name: 'Dark Eater',       price: 500, rarity: 'legendary', effect: 'void',   color: 0x0b0416, glow: 0x9a3dff, trail: 0x5a17b8, starColor: 0xe6ccff, shape: 'orb', burstTrail: true, trailStyle: 'void' }
 };
 
+export const TRAIL_STYLE_PROFILES = Object.freeze({
+    comet: Object.freeze({ geometry: 'orb', x: 1, y: 1, z: 1 }),
+    ember: Object.freeze({ geometry: 'shard', x: 0.72, y: 0.72, z: 1.55 }),
+    frost: Object.freeze({ geometry: 'crystal', x: 0.82, y: 1.28, z: 0.82 }),
+    spark: Object.freeze({ geometry: 'pixel', x: 0.72, y: 0.72, z: 0.72 }),
+    plasma: Object.freeze({ geometry: 'pixel', x: 0.88, y: 0.88, z: 0.88 }),
+    prism: Object.freeze({ geometry: 'crystal', x: 0.92, y: 1.22, z: 0.92 }),
+    void: Object.freeze({ geometry: 'crystal', x: 1.05, y: 1.05, z: 1.05 })
+});
+
+let sharedTrailGeometries = null;
+
+function getSharedTrailGeometries() {
+    if (!sharedTrailGeometries) {
+        sharedTrailGeometries = Object.freeze({
+            orb: new THREE.SphereGeometry(1, 4, 4),
+            shard: new THREE.TetrahedronGeometry(1, 0),
+            crystal: new THREE.OctahedronGeometry(1, 0),
+            pixel: new THREE.BoxGeometry(1.35, 1.35, 1.35)
+        });
+    }
+    return sharedTrailGeometries;
+}
+
 // ---------------------------------------------------------------------------
 // Model skins — VISUAL ONLY.
 // Physics reads this.radius / this.position and never touches the mesh, so every
@@ -467,8 +503,10 @@ export class Ball {
         this.baseSpeed = 17;
         this.currentSpeed = this.baseSpeed;
         this.rallySpeedStep = 0.30;             // 100 -> 130 -> 160 ...
-        this.maxRallyMultiplier = 6.0;          // hard cap: 600% base speed
-        this.maxSpeed = 102;
+        // Rally speed is intentionally uncapped: each successful return raises
+        // the reaction/skill check. Protocol validation remains bounded.
+        this.maxRallyMultiplier = Infinity;
+        this.maxSpeed = Infinity;
         this.deflections = 0;
         this.radius = 0.47;
         this._baseRadius = this.radius;
@@ -483,10 +521,12 @@ export class Ball {
 
         this.trail = [];
         this.trailTimer = 0;
-        this._trailLastPosition = null;
-        this._trailGeometry = new THREE.SphereGeometry(1, 4, 4);
+        this._trailLastPosition = new THREE.Vector3();
+        this._trailSamplePosition = new THREE.Vector3();
+        this._trailHasLastPosition = false;
+        this._trailGeometries = getSharedTrailGeometries();
         this._trailPool = new ObjectPool(
-            () => new THREE.Mesh(this._trailGeometry, new THREE.MeshBasicMaterial({ transparent: true })),
+            () => new THREE.Mesh(this._trailGeometries.orb, new THREE.MeshBasicMaterial({ transparent: true })),
             mesh => { this.scene.remove(mesh); mesh.visible = false; },
             mesh => mesh.material.dispose(),
             64
@@ -806,11 +846,18 @@ export class Ball {
                         ? 1 + (this.currentSpeed - 500) / 400
                         : 1;
                     this._homingAge = (this._homingAge || 0) + dt;
-                    // ponytail: softer steer at close range — prevents aggressive snap
+                    const alignment = velDir.dot(targetDir);
+                    const directRescue = shouldDirectHomingRescue(
+                        dist, this.currentSpeed, this._homingAge, alignment
+                    );
+                    // ponytail: ordinary homing stays soft. A proven orbit/overstay
+                    // gets a terminal heading so rally speed can keep rising safely.
                     const steer = 1 - Math.exp(
                         -proximityHomingTurnRate(dist, this._homingAge) * speedFactor * dt
                     );
-                    const newDir = velDir.lerp(desired, steer).normalize();
+                    const newDir = directRescue
+                        ? targetDir
+                        : velDir.lerp(desired, steer).normalize();
                     this.velocity.copy(newDir.multiplyScalar(this.currentSpeed));
                 }
             }
@@ -850,16 +897,22 @@ export class Ball {
                     // hic yoktu: donus yaricapi (hiz / donus hizi) force-hit menzilinden
                     // buyuk oldugunda top hedefe kapanamayip etrafinda sonsuz doniyordu.
                     // Ayni esikler _updatePlayerSteering'deki kurtarma ile birebir.
-                    const rescueRange = clamp(this.currentSpeed * 0.055, 3.5, 6);
-                    const isCircling = dist < rescueRange && velDir.dot(targetDir) < 0.15;
+                    const alignment = velDir.dot(targetDir);
+                    const rescueRange = homingRescueRange(this.currentSpeed);
+                    const isCircling = dist < rescueRange && alignment < 0.15;
                     const hasOverstayed = this._homingAge > 1.15;
                     const rescuing = hasOverstayed || isCircling;
+                    const directRescue = shouldDirectHomingRescue(
+                        dist, this.currentSpeed, this._homingAge, alignment
+                    );
                     if (rescuing) this._targetRouteOffset = { x: 0, y: 0, z: 0 };
                     const steer = Math.max(
                         1 - Math.exp(-proximityHomingTurnRate(dist, this._homingAge) * speedFactor * dt),
                         rescuing ? 1 - Math.exp(-7 * dt) : 0
                     );
-                    const newDir = velDir.lerp(rescuing ? targetDir : desired, steer).normalize();
+                    const newDir = directRescue
+                        ? targetDir
+                        : velDir.lerp(rescuing ? targetDir : desired, steer).normalize();
                     this.velocity.copy(newDir.multiplyScalar(this.currentSpeed));
                 }
             }
@@ -951,7 +1004,8 @@ export class Ball {
             if (this._affixShrinkTimer < 10 && this.radius > 0.15) {
                 this.radius -= 0.05 * dt;
                 this.mesh.scale.multiplyScalar(1 - 0.05 * dt);
-                this.currentSpeed = Math.min(this.currentSpeed * (1 + 0.05 * dt), this.maxSpeed);
+                this.currentSpeed *= 1 + 0.05 * dt;
+                if (!Number.isFinite(this.currentSpeed)) this.currentSpeed = this.baseSpeed;
             }
         }
         if (this._affixGrow && this.active) {
@@ -1254,8 +1308,12 @@ export class Ball {
         const torsoDistance = toTorso.length();
         const torsoDirection = torsoDistance > 0.001 ? toTorso.normalize() : desired;
         const hasOverstayed = this._steeringAge > 1.15;
-        const rescueRange = clamp(this.currentSpeed * 0.055, 3.5, 6);
-        const isCircling = torsoDistance < rescueRange && current.dot(torsoDirection) < 0.15;
+        const alignment = current.dot(torsoDirection);
+        const rescueRange = homingRescueRange(this.currentSpeed);
+        const isCircling = torsoDistance < rescueRange && alignment < 0.15;
+        const directRescue = shouldDirectHomingRescue(
+            torsoDistance, this.currentSpeed, this._steeringAge, alignment
+        );
         if (hasOverstayed || isCircling) {
             this._steeringPhase = 'torso';
             this._steeringWaypoint = null;
@@ -1276,7 +1334,7 @@ export class Ball {
             proximityTurn,
             rescueTurn
         );
-        const next = current.lerp(direct, turn);
+        const next = directRescue ? torsoDirection : current.lerp(direct, turn);
         if (finitePoint(next) && next.lengthSq() > 0.000001) {
             this.velocity.copy(next.normalize().multiplyScalar(this.currentSpeed));
         }
@@ -1285,7 +1343,7 @@ export class Ball {
 
     _clampSpeed() {
         if (!Number.isFinite(this.currentSpeed)) this.currentSpeed = this.baseSpeed;
-        this.currentSpeed = clamp(this.currentSpeed, 0, this.maxSpeed);
+        this.currentSpeed = Math.max(0, this.currentSpeed);
         if (!finitePoint(this.velocity)) {
             const fallback = this._steeringInitialDir || new THREE.Vector3(1, 0, 0);
             this.velocity.copy(fallback).multiplyScalar(this.currentSpeed);
@@ -1306,7 +1364,10 @@ export class Ball {
     }
 
     getRallyMultiplier() {
-        return Math.min(1 + this.deflections * this.rallySpeedStep, this.maxRallyMultiplier);
+        const deflections = Number.isFinite(this.deflections) ? Math.max(0, this.deflections) : 0;
+        const step = Number.isFinite(this.rallySpeedStep) ? Math.max(0, this.rallySpeedStep) : 0;
+        const multiplier = 1 + deflections * step;
+        return Number.isFinite(multiplier) ? multiplier : 1;
     }
 
     getRallySpeed() {
@@ -1355,7 +1416,9 @@ export class Ball {
 
         if (spike) {
             shot = 'spike';
-            speed = this.currentSpeed * 1.2 * powerBonus;
+            // Keep the 1.2x spike payoff without compounding the previous spike
+            // velocity. The uncapped rally ramp remains linear per deflection.
+            speed = this.getRallySpeed() * 1.2 * powerBonus;
             const dir = aimDir.clone();
             dir.y = Math.min(dir.y - 0.3, -0.1);
             dir.normalize();
@@ -1397,7 +1460,7 @@ export class Ball {
             this.curveSpin = spinFromStrafe(momentum, forward, 'normal');
         }
 
-        this.currentSpeed = Math.min(speed, this.maxSpeed);
+        this.currentSpeed = speed;
         // Clamp velocity magnitude to currentSpeed so physics stays consistent
         this._clampSpeed();
         this._beginPlayerSteering(target, this.velocity);
@@ -1418,7 +1481,7 @@ export class Ball {
         this._proximityTimer = 0;
         this.bodyZone = ['head','chest','abdomen','legs'][Math.floor(Math.random() * 4)];
         // Source-style rally ramp: fixed steps, no multiplicative snowball.
-        this.currentSpeed = Math.min(this.getRallySpeed(), this.maxSpeed);
+        this.currentSpeed = this.getRallySpeed();
         this.state = 'rally';
         this.aimed = false;
 
@@ -1498,7 +1561,7 @@ export class Ball {
         // Speed scales with how long you orbited
         const bonus = 1 + Math.max(0, (2.5 - (this.orbitTimer || 0)) / 2.5); // up to 2x at full duration
         const speed = this.baseSpeed * 1.2 * bonus;
-        this.currentSpeed = Math.min(speed, this.maxSpeed);
+        this.currentSpeed = speed;
         const dir = new THREE.Vector3(aimDir.x, 0, aimDir.z).normalize();
         this.velocity.copy(dir.multiplyScalar(this.currentSpeed));
         this.velocity.y = this.currentSpeed * 0.25;
@@ -1529,7 +1592,7 @@ export class Ball {
         this.state = 'rally';
         this.aimed = true;
         const speed = this.baseSpeed * profile.power;
-        this.currentSpeed = Math.min(speed, this.maxSpeed);
+        this.currentSpeed = speed;
         const dir = new THREE.Vector3(aimDir.x, 0, aimDir.z).normalize();
         if (profile.spread > 0.001) {
             const angle = (Math.random() - 0.5) * 2 * profile.spread;
@@ -1555,16 +1618,20 @@ export class Ball {
         this.trailTimer %= trailGap;
 
         const previous = this._trailLastPosition;
-        const distance = previous ? previous.distanceTo(this.position) : 0;
+        const hasPrevious = this._trailHasLastPosition;
+        const distance = hasPrevious ? previous.distanceTo(this.position) : 0;
         const spacing = clamp(0.25 - speed * 0.0012, 0.1, 0.25);
-        const samples = previous ? clamp(Math.ceil(distance / spacing), 1, 5) : 1;
+        const samples = hasPrevious ? clamp(Math.ceil(distance / spacing), 1, 5) : 1;
         for (let i = 1; i <= samples; i++) {
-            const point = previous
-                ? previous.clone().lerp(this.position, i / samples)
-                : this.position;
-            this.addTrailDot(point);
+            if (hasPrevious) {
+                this._trailSamplePosition.lerpVectors(previous, this.position, i / samples);
+            } else {
+                this._trailSamplePosition.copy(this.position);
+            }
+            this.addTrailDot(this._trailSamplePosition);
         }
-        this._trailLastPosition = this.position.clone();
+        previous.copy(this.position);
+        this._trailHasLastPosition = true;
     }
 
     addTrailDot(position = this.position) {
@@ -1577,11 +1644,13 @@ export class Ball {
                     : this.skinId === 'lightning' || this.skinId === 'star' ? 'spark'
                         : this.skinId === 'rainbow' ? 'prism'
                             : this.skinId === 'abyss' ? 'void' : 'comet');
+        const profile = TRAIL_STYLE_PROFILES[style] || TRAIL_STYLE_PROFILES.comet;
         const skinTrailMul = this.skinConfig?.burstTrail ? 1.7 : this.skinConfig?.frostTrail ? 1.35 : style === 'spark' ? 1.18 : 1;
         const r = Math.min(0.3, 0.055 * skinTrailMul * (1 + sr * 0.58 + spinFactor * 0.35));
         const trailColor = this._affixTrailColor ?? (this.skinConfig?.trail || 0xff2222);
         const dot = this._trailPool.acquire();
         dot.visible = true;
+        dot.geometry = this._trailGeometries[profile.geometry];
         dot.material.color.setHex(trailColor);
         dot.material.blending = ['ember', 'spark', 'plasma', 'prism'].includes(style)
             ? THREE.AdditiveBlending
@@ -1590,7 +1659,7 @@ export class Ball {
         dot.material.depthTest = true;
         const opacity = Math.min(0.94, 0.58 + sr * 0.08 + (this.skinConfig?.frostTrail ? 0.12 : 0));
         dot.material.opacity = opacity;
-        dot.scale.setScalar(r);
+        dot.scale.set(r * profile.x, r * profile.y, r * profile.z);
         dot.position.copy(position);
         // Spin offset — trail spreads slightly in curve direction
         if (Math.abs(this.spin) > 1) {
@@ -1601,7 +1670,7 @@ export class Ball {
         this.scene.add(dot);
         // Faster ball = longer trail life
         const maxLife = (0.42 + sr * 0.24) * (style === 'frost' ? 1.15 : style === 'void' ? 1.08 : 1);
-        this.trail.push({ mesh: dot, life: maxLife, maxLife, radius: r, opacity });
+        this.trail.push({ mesh: dot, life: maxLife, maxLife, radius: r, opacity, profile });
         const maxTrail = 44 + Math.round(sr * 24);
         if (this.trail.length > maxTrail) {
             const old = this.trail.shift();
@@ -1615,7 +1684,8 @@ export class Ball {
             t.life -= dt;
             const ratio = Math.max(0, t.life / t.maxLife);
             t.mesh.material.opacity = t.opacity * Math.pow(ratio, 0.72);
-            t.mesh.scale.setScalar(Math.max(0.01, t.radius * (0.32 + ratio * 0.68)));
+            const scale = Math.max(0.01, t.radius * (0.32 + ratio * 0.68));
+            t.mesh.scale.set(scale * t.profile.x, scale * t.profile.y, scale * t.profile.z);
             if (t.life <= 0) {
                 this._trailPool.release(t.mesh);
                 this.trail.splice(i, 1);
@@ -1629,7 +1699,7 @@ export class Ball {
         });
         this.trail = [];
         this.trailTimer = 0;
-        this._trailLastPosition = null;
+        this._trailHasLastPosition = false;
     }
 
     // Client-side: visual-only update when lerping from network

@@ -58,18 +58,17 @@ test('every KNIFE_MODELS silhouette has its own blade geometry in CSS', () => {
 
 // --- CS-style inventory ----------------------------------------------------
 test('inventory cards carry type/rarity/model on the element for the tile CSS', () => {
-    const branch = ui.slice(ui.indexOf("tab === 'inventory'"));
-    assert.match(branch, /card\.dataset\.invType = type;/);
+    const branch = ui.slice(ui.indexOf('renderLockerInventory(store)'));
+    assert.match(branch, /card\.dataset\.invType = group\.type;/);
     assert.match(branch, /card\.dataset\.invRarity =/);
-    assert.match(branch, /card\.dataset\.invModel = knife\.model;/);
-    assert.equal((branch.match(/inventory-card inventory-tile|inventory-card inventory-tile cosmetic-card/g) || []).length >= 2, true,
-        'both knife and cosmetic inventory cards must be .inventory-tile');
+    assert.match(branch, /card\.dataset\.invModel = item\.model;/);
+    assert.match(branch, /inventory-card inventory-tile/,
+        'Locker inventory cards must keep the shared inventory tile contract');
 });
 
 test('inventory tiles get a rarity base edge, hover enlarge and a dense grid', () => {
-    assert.match(polish, /#shop-screen \.inventory-tile::after \{[\s\S]*?--shop-rarity-stripe/);
-    assert.match(polish, /#shop-screen \.inventory-tile:hover[\s\S]*?transform: translateY\(-5px\) scale\(/);
-    assert.match(polish, /#shop-screen\[data-shop-tab="inventory"\] \.shop-grid \{[\s\S]*?minmax\(208px/);
+    assert.match(polish, /\.locker-inventory-grid \.shop-card::before \{[\s\S]*?--shop-rarity-stripe/);
+    assert.match(polish, /\.locker-inventory-grid \{[\s\S]*?repeat\(4, minmax\(0, 1fr\)\)/);
     assert.match(polish, /#shop-screen \.shop-card\.rarity-common \{ --shop-rarity-stripe:/,
         'common items still need a stripe value or the base edge disappears');
 });

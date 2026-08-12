@@ -3,6 +3,47 @@ import { account } from './account.js';
 
 const LEGACY_KEY = 'dodgball_friends_v1';
 const LEGACY_DM_KEY = 'dodgball_friend_dms_v1';
+const SOCIAL_STATES = new Set(['menu', 'lobby', 'social', 'match']);
+
+function safeText(value, max = 80) {
+    return typeof value === 'string' ? value.trim().slice(0, max) : '';
+}
+
+export function normalizeAvailablePlayers(value) {
+    if (!Array.isArray(value)) return [];
+    return value.slice(0, 20).map(entry => ({
+        accountId: safeText(entry?.accountId, 80),
+        username: safeText(entry?.username, 20) || 'Player',
+        avatar: safeText(entry?.avatar, 64),
+        state: SOCIAL_STATES.has(entry?.state) ? entry.state : 'menu',
+        region: safeText(entry?.region, 24).toLowerCase(),
+        sameRegion: entry?.sameRegion === true
+    })).filter(entry => entry.accountId);
+}
+
+export function normalizePartySnapshot(value) {
+    const party = value?.party;
+    const memberAccountIds = Array.isArray(party?.memberAccountIds)
+        ? [...new Set(party.memberAccountIds.map(id => safeText(id, 80)).filter(Boolean))].slice(0, 8)
+        : [];
+    const normalizedParty = party && safeText(party.partyId, 80) ? {
+        partyId: safeText(party.partyId, 80),
+        leaderAccountId: safeText(party.leaderAccountId, 80),
+        maxMembers: Math.max(1, Math.min(8, Math.floor(Number(party.maxMembers) || 8))),
+        revision: Math.max(0, Math.floor(Number(party.revision) || 0)),
+        memberAccountIds
+    } : null;
+    const invites = Array.isArray(value?.invites) ? value.invites.slice(0, 40).map(invite => ({
+        id: safeText(invite?.id, 80),
+        partyId: safeText(invite?.partyId, 80),
+        senderAccountId: safeText(invite?.senderAccountId, 80),
+        recipientAccountId: safeText(invite?.recipientAccountId, 80),
+        status: invite?.status === 'pending' ? 'pending' : safeText(invite?.status, 16),
+        expiresAt: Number.isFinite(Number(invite?.expiresAt)) ? Number(invite.expiresAt) : 0,
+        createdAt: Number.isFinite(Number(invite?.createdAt)) ? Number(invite.createdAt) : 0
+    })).filter(invite => invite.id && invite.status === 'pending') : [];
+    return { party: normalizedParty, invites };
+}
 
 export class FriendsList {
     constructor() {
@@ -11,6 +52,10 @@ export class FriendsList {
         this.invites = [];
         this.statuses = new Map();
         this.messages = new Map();
+        this.available = [];
+        this.party = null;
+        this.partyInvites = [];
+        this._partyRefreshEpoch = 0;
         this.legacy = this._readLegacy();
         this.onChange = null;
         this.onDM = null;
@@ -57,6 +102,57 @@ export class FriendsList {
         this.statuses = new Map((data.statuses || []).map(status => [String(status.username || '').toLowerCase(), status]));
         this._changed();
         return data.statuses || [];
+    }
+
+    async refreshAvailable(region = 'global') {
+        const safeRegion = /^[a-z0-9-]{1,24}$/.test(String(region || '').toLowerCase()) ? String(region).toLowerCase() : 'global';
+        const data = await this._request(`/api/social/available?region=${encodeURIComponent(safeRegion)}`);
+        if (data.error) return data;
+        this.available = normalizeAvailablePlayers(data.players);
+        this._changed();
+        return { ok: true, players: this.available };
+    }
+
+    async refreshParty() {
+        const epoch = ++this._partyRefreshEpoch;
+        const data = await this._request('/api/party');
+        if (data.error) return data;
+        const snapshot = normalizePartySnapshot(data);
+        if (epoch !== this._partyRefreshEpoch) return { ok: true, stale: true, party: this.party, invites: this.partyInvites };
+        this.party = snapshot.party;
+        this.partyInvites = snapshot.invites;
+        this._changed();
+        return { ok: true, ...snapshot };
+    }
+
+    isPartyLeader(accountId = account.getAccount()?.id) {
+        return !this.party || this.party.leaderAccountId === accountId;
+    }
+
+    async inviteToParty(recipientAccountId) {
+        const data = await this._request('/api/party/invites', { method: 'POST', body: JSON.stringify({ recipientAccountId: safeText(recipientAccountId, 80) }) });
+        if (!data.error) {
+            this._partyRefreshEpoch += 1;
+            await this.refreshParty();
+        }
+        return data;
+    }
+
+    async actOnPartyInvite(id, action) {
+        const safeAction = action === 'accept' ? 'accept' : 'decline';
+        const data = await this._request(`/api/party/invites/${encodeURIComponent(safeText(id, 80))}`, { method: 'POST', body: JSON.stringify({ action: safeAction }) });
+        // Invalidate every GET that began before this authoritative mutation
+        // completed; its older snapshot must never overwrite the accepted state.
+        this._partyRefreshEpoch += 1;
+        await this.refreshParty();
+        return data;
+    }
+
+    async leaveParty() {
+        const data = await this._request('/api/party/leave', { method: 'POST', body: '{}' });
+        this._partyRefreshEpoch += 1;
+        if (!data.error) await this.refreshParty();
+        return data;
     }
 
     isOnline(friend) { return Boolean(this.statuses.get(String(friend?.username || '').toLowerCase())?.online); }

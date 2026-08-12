@@ -206,12 +206,12 @@ test('case reveal only exposes the external reward callback from its settled gat
     const mainPath = join(__dirname, '..', 'js', 'main.js');
     const uiSource = readFileSync(uiPath, 'utf8');
     const mainSource = readFileSync(mainPath, 'utf8');
-    const settledIndex = uiSource.indexOf('if (settled) return;');
+    const settledIndex = uiSource.indexOf("if (settled || this._caseReelGeneration !== generation) return;");
     const callbackIndex = uiSource.indexOf('onSettled?.(result);');
     assert.ok(settledIndex >= 0 && callbackIndex > settledIndex, 'reveal callback must sit behind the once-only settled gate');
-    const openBranch = mainSource.slice(mainSource.indexOf("const caseOpen = e.target.closest('#case-inspector-open')"), mainSource.indexOf("const knifeBtn = e.target.closest('.knife-equip')"));
-    assert.match(openBranch, /showCaseReel\(box, result, \{ onSettled:/, 'main must defer the toast until the reel settles');
-    assert.doesNotMatch(openBranch, /this\.ui\.showMessage\?\.\(result/, 'main must not leak result toast before the reel locks');
+    const presentBranch = mainSource.slice(mainSource.indexOf('_presentCaseResult(box, result)'), mainSource.indexOf('_showCaseOpenError(', mainSource.indexOf('_presentCaseResult(box, result)')));
+    assert.match(presentBranch, /showCaseReel\(box, result, \{ onSettled:/, 'main must defer the toast until the reel settles');
+    assert.doesNotMatch(presentBranch, /this\.ui\.showMessage\?\.\(result/, 'main must not leak result toast before the reel locks');
 });
 
 // ===== duplicate → coin conversion text (pure, no DOM) =====

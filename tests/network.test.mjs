@@ -4,6 +4,7 @@ import { EventEmitter } from 'node:events';
 import { readFileSync } from 'node:fs';
 
 import {
+    NETWORK_BALL_SPEED_BOUND,
     NETWORK_SPEED_BOUND,
     NETWORK_WORLD_BOUND,
     Network,
@@ -345,7 +346,7 @@ test('malformed and out-of-bounds motion packets are dropped without mutation', 
         { ...ball, vx: Number.NaN },
         { ...ball, vy: Number.NEGATIVE_INFINITY },
         { ...ball, z: NETWORK_WORLD_BOUND + 1 },
-        { ...ball, speed: NETWORK_SPEED_BOUND + 1 }
+        { ...ball, speed: NETWORK_BALL_SPEED_BOUND + 1 }
     ]) network.handleMessage(malformed, 'host-peer');
 
     assert.equal(positions, 0);

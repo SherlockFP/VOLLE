@@ -12,7 +12,6 @@ export const RIG_SOCKETS = Object.freeze([
 
 const MATERIAL_SLOTS = Object.freeze(['head', 'body', 'arms', 'legs', 'accent', 'detail', 'visor']);
 const TEAM_COLORS = Object.freeze({ red: 0xcc3333, blue: 0x3355cc });
-const SHOULDER_X = 0.44;
 const ATLAS_SIZE = 64;
 // Small, socket-safe silhouette signatures make each selectable hero legible from
 // range without replacing the shared animation skeleton or adding per-frame work.
@@ -33,43 +32,54 @@ const CHARACTER_SIGNATURES = Object.freeze({
     hardy: Object.freeze({ crest: [.26, .12, .14, 0, .42, 0], back: [.38, .22, .16, 0, .36, .27] }),
     swift: Object.freeze({ crest: [.14, .16, .08, -.08, .42, 0], back: [.18, .16, .08, 0, .40, .23] })
 });
-// --- Canonical geometry constants (one definition per surface, consumed by rig and exported for cosmetics) ---
-// Head cube (Minecraft-style; .44 reads as a deliberate block head against the
-// .62 torso instead of the prior tiny-head mannequin silhouette).
-export const HEAD_SIZE = 0.44;
-export const HEAD_HALF_DEPTH = HEAD_SIZE / 2; // .22
-export const HEAD_MESH_LOCAL_Y = 0.20;  // offset on joints.head
+// --- Canonical Minecraft-compatible geometry --------------------------------
+// 32 vertical pixels map to exactly 2 world units. Every core dimension derives
+// from this one unit so classic/slim skins keep the original 64x64 atlas ratios.
+export const VOXEL_UNIT = 1 / 16;
+export const TOTAL_BODY_HEIGHT = 32 * VOXEL_UNIT;
+export const HEAD_SIZE = 8 * VOXEL_UNIT;
+export const HEAD_HALF_DEPTH = HEAD_SIZE / 2;
+// The long-lived head pivot remains .80 above hips for socket/API compatibility;
+// its mesh is offset .20 so the cube still touches the torso at exactly y=1.50.
+export const HEAD_MESH_LOCAL_Y = 0.20;
 export const HEAD_MESH_LOCAL_Z_FRONT = -HEAD_HALF_DEPTH;  // local -Z is front face plane
 export const FACE_DECAL_DEPTH = 0.01;
 
-// Neck box (bridges torso top to head bottom; height raised .16->.20 to close gap)
-export const NECK_WIDTH = 0.26;
-export const NECK_HEIGHT = 0.20;
-export const NECK_DEPTH = 0.26;
-export const NECK_HALF_HEIGHT = NECK_HEIGHT / 2;  // .10
-export const NECK_MESH_LOCAL_Y = 0.76;  // offset on joints.torso
+// Kept as zero-valued compatibility exports; the exact silhouette has no neck mesh.
+export const NECK_WIDTH = 0;
+export const NECK_HEIGHT = 0;
+export const NECK_DEPTH = 0;
+export const NECK_HALF_HEIGHT = 0;
+export const NECK_MESH_LOCAL_Y = 12 * VOXEL_UNIT;
 
-// Torso box (body proportions, unchanged)
-export const TORSO_WIDTH = 0.62;
-export const TORSO_HEIGHT = 0.68;
-export const TORSO_DEPTH = 0.36;
-export const TORSO_HALF_HEIGHT = TORSO_HEIGHT / 2;  // .34
-export const TORSO_MESH_LOCAL_Y = 0.34;  // offset on joints.torso
+export const TORSO_WIDTH = 8 * VOXEL_UNIT;
+export const TORSO_HEIGHT = 12 * VOXEL_UNIT;
+export const TORSO_DEPTH = 4 * VOXEL_UNIT;
+export const TORSO_HALF_HEIGHT = TORSO_HEIGHT / 2;
+export const TORSO_MESH_LOCAL_Y = TORSO_HALF_HEIGHT;
+export const CLASSIC_ARM_WIDTH = 4 * VOXEL_UNIT;
+export const SLIM_ARM_WIDTH = 3 * VOXEL_UNIT;
+export const ARM_HEIGHT = 12 * VOXEL_UNIT;
+export const ARM_DEPTH = 4 * VOXEL_UNIT;
+export const LEG_WIDTH = 4 * VOXEL_UNIT;
+export const LEG_HEIGHT = 12 * VOXEL_UNIT;
+export const LEG_DEPTH = 4 * VOXEL_UNIT;
+export const LIMB_SEGMENT_HEIGHT = 6 * VOXEL_UNIT;
 
 // Visor (thin bar on head front plane, straddles it half-embedded/half-proud)
 export const VISOR_WIDTH = 0.22;
 export const VISOR_HEIGHT = 0.05;
 export const VISOR_DEPTH = 0.04;
-export const VISOR_MESH_LOCAL_Y = 0.20;  // same as head center, on joints.head
+export const VISOR_MESH_LOCAL_Y = HEAD_MESH_LOCAL_Y;
 export const VISOR_MESH_LOCAL_Z = -HEAD_HALF_DEPTH;  // derives from head front plane
 
 // Rig skeleton: joints positioned relative to their parents (for cosmetics to compute socket world positions)
-export const HIPS_WORLD_Y = 0.94;
-export const HEAD_SOCKET_LOCAL_Y = 0.42;  // offset on joints.head (world: 2.16)
-export const FACE_SOCKET_LOCAL_Y = 0;     // offset on joints.head (world: 1.74)
-export const FACE_SOCKET_LOCAL_Z = -0.24;  // offset on joints.head
-export const HAND_SOCKET_LOCAL_Y = -0.46; // offset on elbow joints (world: ~0.66)
-export const FOOT_SOCKET_LOCAL_Y = -0.46; // offset on knee joints (world: ~0)
+export const HIPS_WORLD_Y = LEG_HEIGHT;
+export const HEAD_SOCKET_LOCAL_Y = 0.45;
+export const FACE_SOCKET_LOCAL_Y = HEAD_MESH_LOCAL_Y;
+export const FACE_SOCKET_LOCAL_Z = -(HEAD_HALF_DEPTH + 0.02);
+export const HAND_SOCKET_LOCAL_Y = -LIMB_SEGMENT_HEIGHT;
+export const FOOT_SOCKET_LOCAL_Y = -LIMB_SEGMENT_HEIGHT;
 
 const num = value => (typeof value === 'number' && Number.isFinite(value) ? value : 0);
 
@@ -164,17 +174,18 @@ export function createCharacterRig(options = {}) {
 
     // --- skeleton (pivots at the joint; meshes offset below/above the pivot) ---
     const joints = {};
-    joints.hips = pivot('hips', root, 0, 0.94, 0);
+    joints.hips = pivot('hips', root, 0, HIPS_WORLD_Y, 0);
     joints.torso = pivot('torso', joints.hips, 0, 0, 0);
     joints.head = pivot('head', joints.torso, 0, 0.80, 0);
-    joints.shoulderL = pivot('shoulderL', joints.torso, -SHOULDER_X, 0.60, 0);
-    joints.elbowL = pivot('elbowL', joints.shoulderL, 0, -0.46, 0);
-    joints.shoulderR = pivot('shoulderR', joints.torso, SHOULDER_X, 0.60, 0);
-    joints.elbowR = pivot('elbowR', joints.shoulderR, 0, -0.46, 0);
-    joints.hipL = pivot('hipL', joints.hips, -0.19, 0, 0);
-    joints.kneeL = pivot('kneeL', joints.hipL, 0, -0.48, 0);
-    joints.hipR = pivot('hipR', joints.hips, 0.19, 0, 0);
-    joints.kneeR = pivot('kneeR', joints.hipR, 0, -0.48, 0);
+    const classicShoulderX = TORSO_WIDTH / 2 + CLASSIC_ARM_WIDTH / 2;
+    joints.shoulderL = pivot('shoulderL', joints.torso, -classicShoulderX, TORSO_HEIGHT, 0);
+    joints.elbowL = pivot('elbowL', joints.shoulderL, 0, -LIMB_SEGMENT_HEIGHT, 0);
+    joints.shoulderR = pivot('shoulderR', joints.torso, classicShoulderX, TORSO_HEIGHT, 0);
+    joints.elbowR = pivot('elbowR', joints.shoulderR, 0, -LIMB_SEGMENT_HEIGHT, 0);
+    joints.hipL = pivot('hipL', joints.hips, -LEG_WIDTH / 2, 0, 0);
+    joints.kneeL = pivot('kneeL', joints.hipL, 0, -LIMB_SEGMENT_HEIGHT, 0);
+    joints.hipR = pivot('hipR', joints.hips, LEG_WIDTH / 2, 0, 0);
+    joints.kneeR = pivot('kneeR', joints.hipR, 0, -LIMB_SEGMENT_HEIGHT, 0);
 
     // ponytail: kaymayı önlemek için isimlerin character-pose.js JOINTS ile birebir eşleştiğini doğrula.
     for (const name of JOINTS) {
@@ -183,16 +194,16 @@ export function createCharacterRig(options = {}) {
 
     // --- sockets (empty anchors for cosmetics, no geometry) ---
     const sockets = {};
-    sockets.head = pivot('socket:head', joints.head, 0, 0.42, 0);
-    sockets.face = pivot('socket:face', joints.head, 0, 0, -0.24);
-    sockets.back = pivot('socket:back', joints.torso, 0, 0.34, 0.24);
-    sockets.chest = pivot('socket:chest', joints.torso, 0, 0.36, -0.26);
-    sockets.waist = pivot('socket:waist', joints.hips, 0, 0.02, 0);
-    sockets.handL = pivot('socket:handL', joints.elbowL, 0, -0.46, 0);
-    sockets.handR = pivot('socket:handR', joints.elbowR, 0, -0.46, 0);
-    sockets.footL = pivot('socket:footL', joints.kneeL, 0, -0.46, 0);
-    sockets.footR = pivot('socket:footR', joints.kneeR, 0, -0.46, 0);
-    sockets.aura = pivot('socket:aura', root, 0, 0.9, 0);
+    sockets.head = pivot('socket:head', joints.head, 0, HEAD_SOCKET_LOCAL_Y, 0);
+    sockets.face = pivot('socket:face', joints.head, 0, FACE_SOCKET_LOCAL_Y, FACE_SOCKET_LOCAL_Z);
+    sockets.back = pivot('socket:back', joints.torso, 0, TORSO_HALF_HEIGHT, TORSO_DEPTH / 2 + .02);
+    sockets.chest = pivot('socket:chest', joints.torso, 0, TORSO_HALF_HEIGHT, -(TORSO_DEPTH / 2 + .02));
+    sockets.waist = pivot('socket:waist', joints.hips, 0, 0, 0);
+    sockets.handL = pivot('socket:handL', joints.elbowL, 0, HAND_SOCKET_LOCAL_Y, 0);
+    sockets.handR = pivot('socket:handR', joints.elbowR, 0, HAND_SOCKET_LOCAL_Y, 0);
+    sockets.footL = pivot('socket:footL', joints.kneeL, 0, FOOT_SOCKET_LOCAL_Y, 0);
+    sockets.footR = pivot('socket:footR', joints.kneeR, 0, FOOT_SOCKET_LOCAL_Y, 0);
+    sockets.aura = pivot('socket:aura', root, 0, TOTAL_BODY_HEIGHT / 2, 0);
     sockets.trail = pivot('socket:trail', root, 0, 0.1, 0);
 
     for (const name of RIG_SOCKETS) {
@@ -213,6 +224,7 @@ export function createCharacterRig(options = {}) {
         if (outline && outlineFactory) {
             const outlineMesh = outlineFactory(geometry);
             outlineMesh.position.copy(mesh.position);
+            mesh.userData.outlineMesh = outlineMesh;
             outlineMaterials.add(outlineMesh.material);
             parent.add(outlineMesh);
         }
@@ -220,70 +232,47 @@ export function createCharacterRig(options = {}) {
     }
 
     const torsoMesh = addPart(joints.torso, {
-        name: 'torso-mesh', geometry: new THREE.BoxGeometry(.62, .68, .36),
-        position: [0, .34, 0], material: materials.body
-    });
-    // ponytail: neck bridges the fixed 0.12 gap between torso top (0.94+.34+.34=1.62) and
-    // the head joint (torso+0.80=1.74) — parented to torso (not head) so it stays fused to
-    // the shoulders instead of swinging away and reopening a gap during head pitch/aim
-    // (head.x swings up to ~aim*.55 + idle sway, torso barely rotates). Overlaps both
-    // neighbors by .02 on purpose (matches the shop-showcase.js reference rig's overlap
-    // convention) so float error / pose blending never exposes a seam.
-    // ponytail: neck bridges torso top (0.94+.34+.34=1.62) and the cube head's flat underside
-    // (head joint 1.74 + .20 - HEAD_SIZE/2 = 1.78) — parented to torso (not head) so it stays
-    // fused to the shoulders instead of swinging away and reopening a gap during head pitch/aim
-    // (head.x swings up to ~aim*.55 + idle sway, torso barely rotates). Overlaps both neighbors
-    // by .02 on purpose (matches the shop-showcase.js reference rig's overlap convention) so
-    // float error / pose blending never exposes a seam. Height .16->.20 and y .74->.76 because
-    // the cube's underside sits .04 above where the old sphere's bottom tangent point did.
-    const neckMesh = addPart(joints.torso, {
-        name: 'neck-mesh', geometry: new THREE.BoxGeometry(.26, .20, .26),
-        position: [0, .76, 0], material: materials.head
+        name: 'torso-mesh', geometry: new THREE.BoxGeometry(TORSO_WIDTH, TORSO_HEIGHT, TORSO_DEPTH),
+        position: [0, TORSO_MESH_LOCAL_Y, 0], material: materials.body
     });
     const headMesh = addPart(joints.head, {
         name: 'head-mesh', geometry: new THREE.BoxGeometry(HEAD_SIZE, HEAD_SIZE, HEAD_SIZE),
-        position: [0, .20, 0], material: materials.head
+        position: [0, HEAD_MESH_LOCAL_Y, 0], material: materials.head
     });
 
     const upperArmL = addPart(joints.shoulderL, {
-        name: 'upper-arm-L', geometry: new THREE.BoxGeometry(.20, .48, .22),
-        position: [0, -.24, 0], material: materials.arms
+        name: 'upper-arm-L', geometry: new THREE.BoxGeometry(CLASSIC_ARM_WIDTH, LIMB_SEGMENT_HEIGHT, ARM_DEPTH),
+        position: [0, -LIMB_SEGMENT_HEIGHT / 2, 0], material: materials.arms
     });
     const forearmL = addPart(joints.elbowL, {
-        name: 'forearm-L', geometry: new THREE.BoxGeometry(.18, .44, .20),
-        position: [0, -.22, 0], material: materials.arms
+        name: 'forearm-L', geometry: new THREE.BoxGeometry(CLASSIC_ARM_WIDTH, LIMB_SEGMENT_HEIGHT, ARM_DEPTH),
+        position: [0, -LIMB_SEGMENT_HEIGHT / 2, 0], material: materials.arms
     });
     const upperArmR = addPart(joints.shoulderR, {
-        name: 'upper-arm-R', geometry: new THREE.BoxGeometry(.20, .48, .22),
-        position: [0, -.24, 0], material: materials.arms
+        name: 'upper-arm-R', geometry: new THREE.BoxGeometry(CLASSIC_ARM_WIDTH, LIMB_SEGMENT_HEIGHT, ARM_DEPTH),
+        position: [0, -LIMB_SEGMENT_HEIGHT / 2, 0], material: materials.arms
     });
     const forearmR = addPart(joints.elbowR, {
-        name: 'forearm-R', geometry: new THREE.BoxGeometry(.18, .44, .20),
-        position: [0, -.22, 0], material: materials.arms
+        name: 'forearm-R', geometry: new THREE.BoxGeometry(CLASSIC_ARM_WIDTH, LIMB_SEGMENT_HEIGHT, ARM_DEPTH),
+        position: [0, -LIMB_SEGMENT_HEIGHT / 2, 0], material: materials.arms
     });
     armMeshes.push(upperArmL, forearmL, upperArmR, forearmR);
 
-    // ponytail: legs narrowed (.26->.20 thigh, .24->.18 calf) so the leg silhouette (outer
-    // edge -.29) sits strictly inside the torso's (-.31..+.31) instead of matching it
-    // exactly -- was reading as one solid block from a distance. hip/knee joint x is
-    // untouched (cosmetic-models.js footL/footR sockets hang off it).
     const thighL = addPart(joints.hipL, {
-        name: 'thigh-L', geometry: new THREE.BoxGeometry(.20, .52, .28),
-        position: [0, -.26, 0], material: materials.legs
+        name: 'thigh-L', geometry: new THREE.BoxGeometry(LEG_WIDTH, LIMB_SEGMENT_HEIGHT, LEG_DEPTH),
+        position: [0, -LIMB_SEGMENT_HEIGHT / 2, 0], material: materials.legs
     });
-    // ponytail: calf offset -.24->-.22 so its bottom lands on the floor exactly (was -0.02,
-    // sinking 2cm through it); the .02 raise stays inside the existing knee/thigh overlap.
     const calfL = addPart(joints.kneeL, {
-        name: 'calf-L', geometry: new THREE.BoxGeometry(.18, .48, .26),
-        position: [0, -.22, 0], material: materials.legs
+        name: 'calf-L', geometry: new THREE.BoxGeometry(LEG_WIDTH, LIMB_SEGMENT_HEIGHT, LEG_DEPTH),
+        position: [0, -LIMB_SEGMENT_HEIGHT / 2, 0], material: materials.legs
     });
     const thighR = addPart(joints.hipR, {
-        name: 'thigh-R', geometry: new THREE.BoxGeometry(.20, .52, .28),
-        position: [0, -.26, 0], material: materials.legs
+        name: 'thigh-R', geometry: new THREE.BoxGeometry(LEG_WIDTH, LIMB_SEGMENT_HEIGHT, LEG_DEPTH),
+        position: [0, -LIMB_SEGMENT_HEIGHT / 2, 0], material: materials.legs
     });
     const calfR = addPart(joints.kneeR, {
-        name: 'calf-R', geometry: new THREE.BoxGeometry(.18, .48, .26),
-        position: [0, -.22, 0], material: materials.legs
+        name: 'calf-R', geometry: new THREE.BoxGeometry(LEG_WIDTH, LIMB_SEGMENT_HEIGHT, LEG_DEPTH),
+        position: [0, -LIMB_SEGMENT_HEIGHT / 2, 0], material: materials.legs
     });
 
     // trim — gives the accent/detail/visor palette slots somewhere to live
@@ -304,22 +293,22 @@ export function createCharacterRig(options = {}) {
     // future head resize instead of drifting inside/off the face like the sphere-era -.19 would.
     const visorMesh = addPart(joints.head, {
         name: 'visor', geometry: new THREE.BoxGeometry(.22, .05, .04),
-        position: [0, .20, -HEAD_HALF_DEPTH], material: materials.visor, outline: false
+        position: [0, HEAD_MESH_LOCAL_Y, -HEAD_HALF_DEPTH], material: materials.visor, outline: false
     });
     // Default skins need a readable face at Shop distance too. These are direct
     // head children: the live renderer's visible scene now has no Mesh-parent
     // dependency, while the existing visor remains intact for compatibility.
     const facePlate = addPart(joints.head, {
         name: 'face-plate', geometry: new THREE.BoxGeometry(.30, .22, .018),
-        position: [0, .20, -(HEAD_HALF_DEPTH + .035)], material: materials.detail, outline: false
+        position: [0, HEAD_MESH_LOCAL_Y, -(HEAD_HALF_DEPTH + .035)], material: materials.detail, outline: false
     });
     const leftEye = addPart(joints.head, {
         name: 'eye-L', geometry: new THREE.BoxGeometry(.064, .056, .016),
-        position: [-.072, .216, -(HEAD_HALF_DEPTH + .062)], material: materials.visor, outline: false
+        position: [-.072, HEAD_MESH_LOCAL_Y + .016, -(HEAD_HALF_DEPTH + .062)], material: materials.visor, outline: false
     });
     const rightEye = addPart(joints.head, {
         name: 'eye-R', geometry: new THREE.BoxGeometry(.070, .056, .016),
-        position: [.072, .204, -(HEAD_HALF_DEPTH + .062)], material: materials.visor, outline: false
+        position: [.072, HEAD_MESH_LOCAL_Y + .004, -(HEAD_HALF_DEPTH + .062)], material: materials.visor, outline: false
     });
     const proceduralFaceParts = [visorMesh, facePlate, leftEye, rightEye];
 
@@ -330,7 +319,7 @@ export function createCharacterRig(options = {}) {
     // layering over it -- setHeadTexture swaps which of the two is visible.
     const faceMesh = addPart(joints.head, {
         name: 'face-mesh', geometry: new THREE.BoxGeometry(HEAD_SIZE, HEAD_SIZE, FACE_DECAL_DEPTH),
-        position: [0, .20, -(HEAD_HALF_DEPTH + FACE_DECAL_DEPTH / 2)],
+        position: [0, HEAD_MESH_LOCAL_Y, -(HEAD_HALF_DEPTH + FACE_DECAL_DEPTH / 2)],
         material: materials.face, outline: false
     });
     faceMesh.visible = false;
@@ -379,14 +368,21 @@ export function createCharacterRig(options = {}) {
 
     function applyShape() {
         const shape = getShowcaseCharacterShape(state.characterId);
-        root.scale.set(shape.width, shape.height, shape.depth);
-        joints.shoulderL.position.x = -SHOULDER_X * shape.shoulder;
-        joints.shoulderR.position.x = SHOULDER_X * shape.shoulder;
+        // Character size may vary, but Minecraft proportions never stretch on
+        // individual axes. Gear/signatures carry the remaining hero identity.
+        const uniformScale = Number.isFinite(shape.width) ? shape.width : 1;
+        root.scale.set(uniformScale, uniformScale, uniformScale);
         // Derived from the avatar atlas (slim arm 3px vs classic 4px = .75) so a 'slim' pick
         // narrows the in-game arms by exactly what the avatar preview draws -- the old hardcoded
         // .82 rendered arms thicker than the avatar advertised.
         const armWidth = getAvatarArmScale(avatarModelId || AVATAR_SKINS[state.skinId]?.model);
-        for (const mesh of armMeshes) mesh.scale.x = armWidth;
+        const shoulderX = TORSO_WIDTH / 2 + CLASSIC_ARM_WIDTH * armWidth / 2;
+        joints.shoulderL.position.x = -shoulderX;
+        joints.shoulderR.position.x = shoulderX;
+        for (const mesh of armMeshes) {
+            mesh.scale.x = armWidth;
+            if (mesh.userData.outlineMesh) mesh.userData.outlineMesh.scale.x = armWidth;
+        }
         applySignature();
     }
 
@@ -505,7 +501,6 @@ export function createCharacterRig(options = {}) {
         const boxes = getAvatarAtlasBoxes(avatarModelId || AVATAR_SKINS[state.skinId]?.model);
         if (avatarAtlasActive) {
             mapBoxGeometryToAtlas(headMesh.geometry, boxes.head);
-            mapBoxGeometryToAtlas(neckMesh.geometry, boxes.head);
             mapBoxGeometryToAtlas(torsoMesh.geometry, boxes.body);
             mapBoxGeometryToAtlas(upperArmL.geometry, boxes.leftArm, 0, 6);
             mapBoxGeometryToAtlas(forearmL.geometry, boxes.leftArm, 6, 6);

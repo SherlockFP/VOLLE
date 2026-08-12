@@ -1,8 +1,8 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { CASES } = require('./case-catalog');
-const { normalizeEquippedCosmetics } = require('./cosmetic-entitlement');
+const { BALL_PRICES, CASES, COSMETIC_PRICES, KNIFE_CATALOG } = require('./case-catalog');
+const { TYPES: COSMETIC_TYPES, normalizeEquippedCosmetics } = require('./cosmetic-entitlement');
 const {
     ARENA_CARDS,
     DEFAULT_CARD_COLLECTION,
@@ -35,32 +35,15 @@ const CATALOG = {
     character: {
         tank: 300, scout: 300, sniper: 400, guardian: 400, blazer: 500, frost: 500
     },
-    ball: {
-        fire: 150, ice: 150, lightning: 150, bomb: 150, star: 150, rainbow: 150,
-        plasma: 180, abyss: 180, melon: 180,
-        inferno: 220, frostbite: 220, voltstorm: 260, nebula: 280, creeper: 300,
-        happy: 300, glitch: 340, void_eye: 340, candy: 260, solar: 360, toxic: 240, disco: 320,
-        magma: 380, ocean: 300, honey: 280, dragon: 420, portal: 400,
-        moon: 260, pumpkin: 300, matrix: 340, sakura: 320, blackhole: 460
-    },
+    ball: BALL_PRICES,
     avatar: {
         neon: 250, samurai: 350, frost: 300, astro: 420, arcade: 380, moss: 450,
         striker: 500, void: 600, royal: 750, circuit: 650, creeper_knight: 520,
         ender_mage: 680, magma_guard: 620, bee_runner: 460, axolotl_scout: 560,
         ghost_keeper: 720, infernal_smile: 760, galaxy_idol: 820
     },
-    knife: {
-        tide: 1, flare: 1, prism: 1, sherlock: 1, doppler: 1, fade: 1, crimson_web: 1,
-        obsidian: 1, aurora: 1, pixel_edge: 1, icefang: 1, dragonclaw: 1, reactor: 1
-    },
-    cosmetic: {
-        cape_ember: 280, cape_frost: 300, cape_void: 440, cape_creeper: 360, cape_royal: 520, cape_glitch: 480,
-        pet_slime: 260, pet_dragon: 520, pet_drone: 420, pet_snowman: 300, pet_bee: 340, pet_axolotl: 460,
-        shoes_blaze: 240, shoes_ice: 240, shoes_lightning: 340, shoes_cloud: 300, shoes_magma: 420, shoes_pixel: 380,
-        aura_flame: 320, aura_frost: 340, aura_void: 520, aura_hearts: 360, aura_music: 420, aura_toxic: 460,
-        impact_confetti: 220, impact_ice: 260, impact_fire: 320, impact_pixels: 360, impact_stars: 400, impact_glitch: 480,
-        finisher_explosion: 620
-    }
+    knife: KNIFE_CATALOG,
+    cosmetic: COSMETIC_PRICES
 };
 
 const PROFILE_FIELDS = {
@@ -231,7 +214,7 @@ function defaults(id, name) {
         ownedAvatarSkins: ['default'],
         ownedKnives: ['training'],
         ownedCosmetics: [],
-        equippedWearables: { cape: 'none', pet: 'none', shoes: 'none', aura: 'none', impact: 'none' },
+        equippedWearables: Object.fromEntries(COSMETIC_TYPES.map(type => [type, 'none'])),
         casePity: {},
         caseReceipts: [],
         // Earned cosmetic openings are server-owned. A completed match can

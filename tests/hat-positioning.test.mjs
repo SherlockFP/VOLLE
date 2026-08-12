@@ -21,41 +21,38 @@ const extractConstants = () => {
 };
 
 describe('hat and mask positioning derived from rig geometry constants', () => {
-    it('HEAD_SOCKET_WORLD_Y = 2.16 (HIPS + torso offset + head joint offset + HEAD_SOCKET_LOCAL_Y)', () => {
+    it('HEAD_SOCKET_WORLD_Y = 2.00 on the 32-voxel silhouette', () => {
         // Manual calculation from exported constants
-        // HIPS_WORLD_Y = 0.94, HEAD_SOCKET_LOCAL_Y = 0.42, head joint offset = 0.80
-        const HEAD_SOCKET_WORLD_Y = 0.94 + 0.80 + 0.42;
-        assert.strictEqual(HEAD_SOCKET_WORLD_Y, 2.16, 'head socket world Y position');
+        const HEAD_SOCKET_WORLD_Y = 0.75 + 0.80 + 0.45;
+        assert.strictEqual(HEAD_SOCKET_WORLD_Y, 2.00, 'head socket world Y position');
     });
 
-    it('HEAD_TOP_WORLD_Y = 2.16 (head mesh center + half-depth)', () => {
-        // HIPS_WORLD_Y (0.94) + head joint (0.80) + HEAD_MESH_LOCAL_Y (0.20) + HEAD_HALF_DEPTH (0.22)
-        const HEAD_TOP_WORLD_Y = 0.94 + 0.80 + 0.20 + 0.22;
-        assert.strictEqual(HEAD_TOP_WORLD_Y, 2.16, 'head mesh top at 2.16 for hat baseline');
+    it('HEAD_TOP_WORLD_Y = 2.00 (head mesh center + half-depth)', () => {
+        const HEAD_TOP_WORLD_Y = 0.75 + 0.80 + 0.20 + 0.25;
+        assert.strictEqual(HEAD_TOP_WORLD_Y, 2.00, 'head mesh top at 2.00 for hat baseline');
     });
 
-    it('FACE_SOCKET_WORLD_Y = 1.74 (head joint, face socket sits at head center y)', () => {
-        // HIPS_WORLD_Y (0.94) + head joint (0.80) + FACE_SOCKET_LOCAL_Y (0)
-        const FACE_SOCKET_WORLD_Y = 0.94 + 0.80 + 0;
-        assert.strictEqual(FACE_SOCKET_WORLD_Y, 1.74, 'masks anchor at head center y=1.74');
+    it('FACE_SOCKET_WORLD_Y = 1.75 at the head center', () => {
+        const FACE_SOCKET_WORLD_Y = 0.75 + 0.80 + 0.20;
+        assert.strictEqual(FACE_SOCKET_WORLD_Y, 1.75, 'masks anchor at head center y=1.75');
     });
 
-    it('hat group.position.y = HEAD_TOP_WORLD_Y - 0.04 positions base at 2.12 (crown sits right)', () => {
-        const HEAD_TOP_WORLD_Y = 2.16;
+    it('hat group.position.y = HEAD_TOP_WORLD_Y - 0.04 positions base at 1.96', () => {
+        const HEAD_TOP_WORLD_Y = 2.00;
         const hatBaseY = HEAD_TOP_WORLD_Y - 0.04;
-        assert.strictEqual(hatBaseY, 2.12, 'hat base at 2.12 where crown cylinder sits');
+        assert.strictEqual(hatBaseY, 1.96, 'hat base at 1.96 where crown cylinder sits');
     });
 
     it('masks are face-socket-attached with their parts positioned in local space', () => {
-        const FACE_SOCKET_WORLD_Y = 1.74;
+        const FACE_SOCKET_WORLD_Y = 1.75;
         // Masks attach to face socket and use FACE_SOCKET_WORLD_Y as their base y
-        assert.strictEqual(FACE_SOCKET_WORLD_Y, 1.74, 'mask base attaches at face socket y=1.74');
+        assert.strictEqual(FACE_SOCKET_WORLD_Y, 1.75, 'mask base attaches at face socket y=1.75');
     });
 
-    it('head constants propagate from character-rig.js: HEAD_SIZE=0.44, HEAD_HALF_DEPTH=0.22', () => {
-        const HEAD_SIZE = 0.44;
-        const HEAD_HALF_DEPTH = 0.22;
-        assert.strictEqual(HEAD_SIZE, 0.44, 'cube head size');
-        assert.strictEqual(HEAD_HALF_DEPTH, 0.22, 'cube head half-depth');
+    it('head constants propagate from character-rig.js: 8 voxels = 0.50', () => {
+        const HEAD_SIZE = 0.50;
+        const HEAD_HALF_DEPTH = 0.25;
+        assert.strictEqual(HEAD_SIZE, 0.50, 'cube head size');
+        assert.strictEqual(HEAD_HALF_DEPTH, 0.25, 'cube head half-depth');
     });
 });

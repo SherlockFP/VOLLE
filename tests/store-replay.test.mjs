@@ -51,11 +51,17 @@ test('coin purchases reject insufficient funds and persist ownership', () => {
 
 test('ball purchases validate the catalog and use the configured price', () => {
     Store.reset();
+    const original = Store.get('equippedBall');
+    assert.equal(Store.equipBall('solar'), false, 'unowned ball cannot be equipped');
+    assert.equal(Store.get('equippedBall'), original);
     Store.grant({ currency: 360 });
     const before = Store.get('currency');
     assert.equal(Store.buyBall('solar'), true);
     assert.equal(Store.ownsBall('solar'), true);
     assert.equal(Store.get('currency'), before - 360);
+    assert.equal(Store.equipBall('solar'), true);
+    assert.equal(Store.get('equippedBall'), 'solar');
+    assert.equal(Store.equipBall('not-a-ball'), false);
     assert.equal(Store.buyBall('not-a-ball'), false);
 });
 
