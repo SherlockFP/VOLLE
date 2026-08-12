@@ -14,7 +14,8 @@ function normalizePlayerIds(playerIds) {
 }
 
 export function isTerminalRematchState(state) {
-    return state === 'celebration';
+    return state === 'CELEBRATION' || state === 'GAME_OVER'
+        || state === 'celebration' || state === 'game_over';
 }
 
 export function snapshotRematchParticipants(localPlayerId, connectedPlayerIds, queuedPlayerIds = []) {

@@ -21,7 +21,7 @@ import { Store, shouldArmFirstMatchHints, shouldShowFtueWelcome } from './store.
 import { DEFAULT_LOADOUT } from './skills.js';
 import { ARENA_CARDS, CARD_RARITIES } from './cards.js';
 import { AvatarPainter, AVATAR_SKINS } from './avatar.js';
-import { ProductAnalytics, joinLatencyBucket } from './product-analytics.js';
+import { ProductAnalytics, joinLatencyBucket, matchStartTimingMetrics } from './product-analytics.js';
 import { SKIN_PRESETS, SKIN_PRESET_IDS, renderSkinPreset } from './skin-presets.js';
 import { createShowcaseAvatar, ShopShowcaseRenderer } from './shop-showcase.js';
 import { createMenuStage } from './menu-stage.js';
@@ -79,6 +79,27 @@ import {
     normalizeCrosshairConfig,
     renderCrosshair
 } from './crosshair.js';
+
+// Only catalog effect ids map to these existing sprite symbols. Keep the slot
+// fallback below so a future catalog entry remains readable before it gets art.
+const CARD_EFFECT_ICON_IDS = Object.freeze({
+    slow: '#i-ball',
+    heal: '#i-refresh',
+    freeze: '#i-target',
+    burn: '#i-trophy',
+    shield: '#i-access',
+    teleport: '#i-play',
+    blackhole: '#i-ball',
+    smash: '#i-trophy',
+    deflect_power: '#i-target',
+    hp_bonus: '#i-access',
+    speed_bonus: '#i-play',
+    stam_regen: '#i-refresh',
+    cooldown_red: '#i-chart',
+    lifesteal: '#i-ball',
+    dmg_resist: '#i-access',
+    thorns: '#i-trophy'
+});
 
 const HOST_CHECKPOINT_INTERVAL_MS = 750;
 const HOST_CHECKPOINT_SIGNATURE_MAX_CHARS = 64 * 1024;
@@ -170,9 +191,21 @@ class App {
             this.store.progressSeasonContracts({ rocketJumps: 1 });
             Replay.record({ type: 'rocketJump', data: { strength: event?.strength || 0 } });
         };
-        this.game.onMatchLoading = data => this._showMatchLoading(900, data);
+        this.game.onMatchLoading = data => {
+            const startedAt = performance.now();
+            this._matchLaunchTiming = { requestedAt: startedAt, setupStartedAt: startedAt };
+            return this._showMatchLoading(900, data);
+        };
         this.game.onLateJoinActivated = team => this._exitLateJoinSpectator(team);
+        this.game.onMatchEnded = () => {
+            if (!Number.isFinite(this._analyticsGameplayEndedAt)) this._analyticsGameplayEndedAt = Date.now();
+        };
         this.game.onMatchComplete = () => {
+            const postgameReadyAt = Date.now();
+            const gameplayEndedAt = Number.isFinite(this._analyticsGameplayEndedAt)
+                ? this._analyticsGameplayEndedAt
+                : postgameReadyAt;
+            this._analyticsPostgameReadyAt = postgameReadyAt;
             const connectedIds = [...this.network.playerConnections.keys()];
             const queuedIds = connectedIds.filter(playerId =>
                 this.game.remotePlayers.get(playerId)?.queuedForNextRound
@@ -185,9 +218,11 @@ class App {
             this.awardMatchRewards();
             this.productAnalytics.track('match_complete', {
                 mode: this.game.mode?.id || 'classic',
-                networkRole: this.network.isHost ? 'host' : this.network.connected ? 'client' : 'solo'
+                networkRole: this.network.isHost ? 'host' : this.network.connected ? 'client' : 'solo',
+                ...(typeof this.game.matchId === 'string' && this.game.matchId.length <= 40 ? { matchId: this.game.matchId } : {})
             }, {
-                matchDurationSec: this._analyticsMatchStartedAt ? Math.max(0, (Date.now() - this._analyticsMatchStartedAt) / 1000) : 0
+                matchDurationSec: this._analyticsMatchStartedAt ? Math.max(0, (gameplayEndedAt - this._analyticsMatchStartedAt) / 1000) : 0,
+                postgameDelaySec: Math.max(0, (postgameReadyAt - gameplayEndedAt) / 1000)
             });
             this.refreshMetaStats();
             this.ui.updateContractTracker(Daily, this.store);
@@ -195,12 +230,22 @@ class App {
         this.game.onRoundEnd = () => this._queueRoundReplay();
         this.game.onMatchStart = () => {
             this._analyticsMatchStartedAt = Date.now();
+            this._analyticsGameplayEndedAt = null;
+            this._analyticsPostgameReadyAt = null;
+            this._activeMatchMode = !this.network.connected ? 'solo' : (this._rankedMatch
+                ? 'ranked'
+                : (this._analyticsMatchEntry === 'rematch' && this._lastMatchAuthorityMode === 'ranked' ? 'ranked' : 'casual'));
+            this._lastMatchAuthorityMode = this._activeMatchMode;
+            this._matchAuthorityReady = this.store.remoteReady && !this.game._practiceMode
+                ? this.store.beginMatchRemote({ matchId: this.game.matchId, mode: this._activeMatchMode, lobbyCode: this._lobbyCode || '' })
+                : Promise.resolve(false);
             const networkRole = this.network.isHost ? 'host' : this.network.connected ? 'client' : 'solo';
-            this.productAnalytics.track('match_start', {
+            this._pendingMatchStartAnalytics = {
                 mode: this.game.mode?.id || 'classic',
                 entry: this._analyticsMatchEntry || 'lobby',
-                networkRole
-            });
+                networkRole,
+                ...(typeof this.game.matchId === 'string' && this.game.matchId.length <= 40 ? { matchId: this.game.matchId } : {})
+            };
             this.productAnalytics.track('cosmetic_match_use', {
                 itemType: 'avatar',
                 itemId: this.store.get('equippedAvatarSkin') || 'default',
@@ -216,12 +261,29 @@ class App {
             this.ui.spectating = false;
             this.ui.hideTeamPopup();
         };
+        this.game.onCountdownReady = () => {
+            const match = this._pendingMatchStartAnalytics;
+            const matchId = match?.matchId || this.game.matchId;
+            if (!match || this._analyticsMatchStartTrackedId === matchId) return;
+            this._analyticsMatchStartTrackedId = matchId;
+            this.productAnalytics.track('match_start', match, matchStartTimingMetrics(this._matchLaunchTiming, performance.now()));
+            this._matchLaunchTiming = null;
+            this._pendingMatchStartAnalytics = null;
+        };
         this.game.onPerfectDeflect = result => this._showPerfectDeflect(result);
         this.game.onPracticeMetrics = summary => this._updatePracticeLab(summary);
         this.game.onGuidedDrillUpdate = snapshot => this._updateGuidedDrillHUD(snapshot);
         this.game.onGuidedDrillComplete = result => {
-            this.productAnalytics.track('practice_complete', { practiceType: 'guided_deflect', result: 'complete' });
-            this._showGuidedDrillResult(result);
+            const firstRun = this._ftueGuidedRun === true;
+            const resultState = result.allPassed === true ? 'passed' : 'finished';
+            this.productAnalytics.track('practice_complete', { practiceType: 'guided_deflect', result: resultState });
+            if (this._ftueGuidedRun === true && this.store.get('ftueCompleted') !== true) {
+                this.store.set('ftueCompleted', true);
+                void this.store.syncOnboarding({ ftueCompleted: true });
+                this.productAnalytics.track('ftue_complete', { source: 'guided_deflect', result: resultState });
+            }
+            this._showGuidedDrillResult(result, { firstRun });
+            this._ftueGuidedRun = false;
         };
         this.player.game = this.game;
         this.player.audio = this.audio;
@@ -456,10 +518,16 @@ class App {
             }
             if (e.code === 'Escape') {
                 if (this.gameConsole?.visible) return;
+                const cardCollection = document.getElementById('card-collection-panel');
+                if (cardCollection && !cardCollection.classList.contains('hidden')) {
+                    e.preventDefault();
+                    this._setCardCollectionOpen(false);
+                    return;
+                }
                 const ftueEl = document.getElementById('ftue-welcome');
                 if (ftueEl && !ftueEl.classList.contains('hidden')) {
                     e.preventDefault();
-                    this.hideFtueWelcome();
+                    this.hideFtueWelcome({ reason: 'escape', trackExit: true });
                     return;
                 }
                 if (this.game.state === STATES.SOCIAL_HUB) {
@@ -802,14 +870,23 @@ class App {
             const rarity = CARD_RARITIES[left.rarity].rank - CARD_RARITIES[right.rarity].rank;
             return rarity || left.name.localeCompare(right.name);
         });
-        status.textContent = `${cache.opened || 0} Arena Caches opened. Cards change casual/Arcade only; Ranked uses the shared baseline.`;
+        const ownedUnique = cards.filter(card => (collection[card.id] || 0) > 0).length;
+        status.textContent = `${ownedUnique}/${cards.length} unique owned · ${cache.opened || 0} Arena Caches opened. Casual/Arcade only; Ranked uses the shared baseline.`;
         grid.replaceChildren();
         for (const card of cards) {
             const copies = collection[card.id] || 0;
             const isEquipped = equipped[card.slot] === card.id;
             const article = document.createElement('article');
-            article.className = `arena-card${isEquipped ? ' is-equipped' : ''}`;
+            article.className = `arena-card${isEquipped ? ' is-equipped' : ''}${copies < 1 ? ' is-locked' : ''}`;
             article.dataset.rarity = card.rarity;
+            article.dataset.slot = card.slot;
+            article.dataset.state = isEquipped ? 'equipped' : copies ? 'owned' : 'locked';
+            const art = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            art.setAttribute('class', 'ui-icon card-art');
+            art.setAttribute('aria-hidden', 'true');
+            const icon = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+            icon.setAttribute('href', CARD_EFFECT_ICON_IDS[card.effectId] || (card.slot === 'active' ? '#i-target' : '#i-chart'));
+            art.appendChild(icon);
             const rarity = document.createElement('span');
             rarity.className = 'card-rarity';
             rarity.textContent = CARD_RARITIES[card.rarity].label;
@@ -822,7 +899,7 @@ class App {
             const count = document.createElement('span');
             count.className = 'card-count';
             count.textContent = `Owned: ${copies}`;
-            article.append(rarity, name, copy, count);
+            article.append(art, rarity, name, copy, count);
             const action = document.createElement('button');
             action.type = 'button';
             action.className = 'btn btn-secondary btn-small card-equip';
@@ -846,6 +923,26 @@ class App {
             }
         }
         document.getElementById('btn-card-tradeup').disabled = !tradeable.length;
+    }
+
+    _setCardCollectionOpen(open) {
+        const panel = document.getElementById('card-collection-panel');
+        const locker = document.getElementById('character-locker-content');
+        if (!panel || !locker) return false;
+        if (open) {
+            this._cardCollectionReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+            this._renderCardCollection();
+            locker.inert = true;
+            panel.classList.remove('hidden');
+            document.getElementById('btn-card-collection-close')?.focus();
+            return true;
+        }
+        panel.classList.add('hidden');
+        locker.inert = false;
+        const returnFocus = this._cardCollectionReturnFocus || document.getElementById('btn-card-collection');
+        this._cardCollectionReturnFocus = null;
+        returnFocus?.focus();
+        return true;
     }
 
     // Store'dan loadout uygula (karakter + rune + ball skin).
@@ -1006,7 +1103,7 @@ class App {
     _renderRetentionStrip() {
         const dailyCard = document.getElementById('menu-daily-card');
         if (dailyCard) {
-            const challenges = Daily.getChallenges();
+            const challenges = this.store.getDailyChallenges?.() || Daily.getChallenges();
             const total = challenges.length;
             const done = challenges.filter(c => c.progress >= c.target).length;
             dailyCard.hidden = total === 0;
@@ -1124,7 +1221,7 @@ class App {
     }
 
     // Maç sonu reward: coins + xp, battlepass tier dolum, istatistik, achievement, daily.
-    awardMatchRewards() {
+    async awardMatchRewards() {
         if (!isTerminalRematchState(this.game.state)) return;
         if (this.game._rewardsClaimed) return;
         this.game._rewardsClaimed = true;
@@ -1138,12 +1235,17 @@ class App {
         const myTeam = this.player.team;
         const won = this.game._ffa ? winner === this.game.playerName : winner === myTeam.toUpperCase();
         const draw = winner === 'DRAW';
-        const ranked = this.store.recordRankedMatch({
-            matchId: this.game.matchId || createMatchId(),
-            opponentElo: this._rankedMatch?.opponentElo ?? this.store.getElo(),
-            result: draw ? 'draw' : won ? 'win' : 'loss',
-            playedAt: Date.now()
-        });
+        const matchId = this.game.matchId || createMatchId();
+        const isRanked = this._activeMatchMode === 'ranked';
+        const matchResult = draw ? 'draw' : won ? 'win' : 'loss';
+        const ranked = !this.store.remoteReady && isRanked
+            ? this.store.recordRankedMatch({
+                matchId,
+                opponentElo: this._rankedMatch?.opponentElo ?? this.store.getElo(),
+                result: matchResult,
+                playedAt: Date.now()
+            })
+            : { elo: this.store.getElo() };
         MatchHistory.add({
             playerName: this.game.playerName,
             winner: won ? this.game.playerName : winner,
@@ -1169,13 +1271,12 @@ class App {
             }
         }
         this._saveSocialProfile();
-        const isRanked = !!this._rankedMatch;
         this._rankedMatch = null;
         // Free earning route: today's first completed match pays a flat bonus
         // (docs/V3_ECONOMY.md "First match of day"). Guest truth lives here;
         // account players get the server's own decision inside grantMatchRemote()
         // below (server never trusts this local guess for the real grant).
-        const firstOfDay = this.store.claimFirstMatchOfDay();
+        const firstOfDay = this.store.remoteReady ? false : this.store.claimFirstMatchOfDay();
         const rewardCalc = this.store.matchRewardBreakdown({
             won, kills: myStat.score || 0, deflects: myStat.deflections || 0, firstOfDay
         });
@@ -1187,27 +1288,33 @@ class App {
             survived: (myStat.deaths || 0) === 0,
             won
         }));
-        // Optimistic local grant so guests (and any pre-sync window) never lose
-        // the reward; grantMatchRemote() below overwrites currency with the
-        // server's absolute total once it resolves, so this never double-counts.
-        const matchId = this.game.matchId || globalThis.crypto?.randomUUID?.()
-            || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        const result = this.store.grant({ currency: rewardCalc.total, xp });
+        // Authenticated matches never add client-issued currency. XP remains
+        // local presentation/progression while the economy profile is synced
+        // from the lifecycle completion response.
+        const result = this.store.grant({ currency: this.store.remoteReady ? 0 : rewardCalc.total, xp });
         // Account profiles receive their cache result only from the server's
         // idempotent match-reward record. Local fallback remains for legacy
         // offline development profiles.
         let cardReward = null;
         if (!this.store.remoteReady) cardReward = this.store.awardArenaCache({ matchId, won, leveledUp: result.leveledUp });
         this.ui._lastMatchReward = { ...rewardCalc, kills: myStat.score || 0, deflects: myStat.deflections || 0 };
-        this.store.grantMatchRemote({
+        const started = await this._matchAuthorityReady;
+        const synced = started && await this.store.grantMatchRemote({
             matchId,
-            mode: isRanked ? 'ranked' : 'casual',
+            mode: this._activeMatchMode || (isRanked ? 'ranked' : 'solo'),
+            lobbyCode: this._lobbyCode || '',
+            result: matchResult,
             won,
             deflections: myStat.deflections,
             score: myStat.score
-        }).then(synced => {
-            if (!synced) return;
+        });
+        if (synced) {
             cardReward = synced.cardReward || null;
+            if (!synced.replayed && Array.isArray(synced.dailyProgress?.completed)) {
+                for (const challengeId of synced.dailyProgress.completed) {
+                    this.productAnalytics.track('daily_challenge_completed', { itemId: challengeId, source: 'match_authority' });
+                }
+            }
             if (cardReward && !synced.replayed) {
                 const card = cardReward.card;
                 this.productAnalytics.track('arena_cache_earned', { itemId: card.id, itemType: card.rarity, result: 'match_drop' });
@@ -1220,7 +1327,7 @@ class App {
                 this.ui.showMessage?.(`MATCH DROP: Earned ${CASES[synced.earnedCase]?.name || 'Cosmetic Case'} — open it free in Cases.`, 4200);
             }
             this.refreshMetaStats();
-        });
+        }
         const rally = this.game.rallyCount;
         const damageDealt = this.player.totalDamageDealt;
         const damageTaken = this.player.totalDamageTaken;
@@ -1239,7 +1346,7 @@ class App {
         });
 
         // Daily challenge ilerlemesi
-        Daily.progress({ won, deflects: myStat.deflections, bestRally: rally, spikes, damage: damageDealt, winStreak: this.store.getWinStreak(), cleanWin });
+        if (!this.store.remoteReady) Daily.progress({ won, deflects: myStat.deflections, bestRally: rally, spikes, damage: damageDealt, winStreak: this.store.getWinStreak(), cleanWin });
         this.store.progressSeasonContracts({
             games: 1,
             wins: won ? 1 : 0,
@@ -1311,14 +1418,26 @@ class App {
     // on demand via the "?" button. Never shows mid-match (guarded on MENU state).
     showFtueWelcome() {
         if (this.game.state !== STATES.MENU) return;
+        this._ftueWelcomeFirstRun = shouldShowFtueWelcome(this.store.get('ftueSeen'));
         document.getElementById('ftue-welcome')?.classList.remove('hidden');
-        this.productAnalytics.track('ftue_view');
+        this.productAnalytics.track('ftue_view', { source: this._ftueWelcomeFirstRun ? 'first_run' : 'manual' });
     }
 
-    hideFtueWelcome() {
+    hideFtueWelcome({ reason = 'dismiss', trackExit = false } = {}) {
+        const firstRun = this._ftueWelcomeFirstRun === true;
         document.getElementById('ftue-welcome')?.classList.add('hidden');
-        this.store.set('ftueSeen', true);
-        this.productAnalytics.track('ftue_complete');
+        if (firstRun) {
+            this.store.set('ftueSeen', true);
+            void this.store.syncOnboarding({ ftueSeen: true });
+        }
+        if (trackExit) this.productAnalytics.track('ftue_exit', { reason, source: firstRun ? 'first_run' : 'manual' });
+        this._ftueWelcomeFirstRun = false;
+    }
+
+    startFtueGuidedDrill() {
+        const firstRun = this._ftueWelcomeFirstRun === true && this.store.get('ftueCompleted') !== true;
+        this.hideFtueWelcome({ reason: 'start_guided_drill' });
+        this.startGuidedDeflectDrill({ source: firstRun ? 'ftue' : 'manual_help' });
     }
 
     // First-match HUD hints: armed only from the solo/bot start paths below
@@ -1327,10 +1446,12 @@ class App {
     _armFirstMatchHints() {
         if (!shouldArmFirstMatchHints(this.store.get('ftueMatchHintsSeen'))) return;
         this._pendingFirstMatchHints = true;
+        this.game.armFirstSoloBotDeflectGuard();
     }
 
     _runFirstMatchHints() {
         this.store.set('ftueMatchHintsSeen', true);
+        void this.store.syncOnboarding({ ftueMatchHintsSeen: true });
         const hints = [
             'Hold Left-Click near the ball to deflect it back',
             'Flick your mouse up to lob, down to spike',
@@ -1353,11 +1474,8 @@ class App {
         bind('menu-streak-badge', () => this._claimRetentionStreak());
 
         bind('btn-how-to-play', () => this.showFtueWelcome());
-        bind('ftue-welcome-start', () => this.hideFtueWelcome());
-        bind('ftue-welcome-practice', () => {
-            this.hideFtueWelcome();
-            this.ui.showScreen('practiceMenu');
-        });
+        bind('ftue-welcome-start', () => this.startFtueGuidedDrill());
+        bind('ftue-welcome-practice', () => this.hideFtueWelcome({ reason: 'skip', trackExit: true }));
 
         const openMultiplayer = () => {
             // QUICK PLAY opens the multiplayer hub (user decision 2026-07-30): lobby
@@ -1426,12 +1544,15 @@ class App {
                 if (!code) return;
                 this._setupClientNetHandlers();
                 await this.network.joinGame(code, name, password);
+                this._lobbyCode = code;
+                await this._confirmLobbyAdmission(code);
                 this.game.playerName = name;
                 // Same client bootstrap _quickJoin does — without the bg loop this join
                 // path stops interpolating and stops sending positions whenever the tab
                 // is hidden, so the joiner freezes for everyone else.
                 this._startBgLoop();
                 this.ui.showScreen('lobby');
+                this._finalizeClientLobbyJoin(code);
             } catch (e) {
                 alert('Failed to join: ' + e.message);
             }
@@ -1623,6 +1744,7 @@ class App {
             this.ui.showScreen('practiceMenu');
         });
         bind('btn-guided-deflect', () => this.startGuidedDeflectDrill());
+        bind('btn-drill-first-bot', () => this._startFirstBotMatchFromDrill());
         bind('btn-free-practice', () => this.startPractice({ launch: true }));
         bind('btn-practice-back', () => this.ui.showScreen('mainMenu'));
         bind('btn-drill-retry', () => this.startGuidedDeflectDrill());
@@ -1851,13 +1973,10 @@ class App {
         });
 
         bind('btn-card-collection', () => {
-            this._renderCardCollection();
-            document.getElementById('card-collection-panel')?.classList.remove('hidden');
-            document.getElementById('btn-card-collection-close')?.focus();
+            this._setCardCollectionOpen(true);
         });
         bind('btn-card-collection-close', () => {
-            document.getElementById('card-collection-panel')?.classList.add('hidden');
-            document.getElementById('btn-card-collection')?.focus();
+            this._setCardCollectionOpen(false);
         });
 
         bind('btn-avatar-clear', () => {
@@ -1930,10 +2049,21 @@ class App {
 
         this._startRematchMatch = (matchId, sourceMatchId = null) => {
             this._analyticsMatchEntry = 'rematch';
+            const startedAt = performance.now();
+            this._matchLaunchTiming = {
+                requestedAt: startedAt,
+                matchLoadElapsedMs: 0,
+                setupStartedAt: startedAt
+            };
             const started = this.game.startGame(false, matchId);
-            if (started === false) return false;
+            if (started === false) {
+                this._matchLaunchTiming = null;
+                return false;
+            }
             this.productAnalytics.track('rematch_start', {
-                networkRole: this.network.isHost ? 'host' : this.network.connected ? 'client' : 'solo'
+                networkRole: this.network.isHost ? 'host' : this.network.connected ? 'client' : 'solo',
+                ...(typeof matchId === 'string' && matchId.length <= 40 ? { matchId } : {}),
+                ...(typeof sourceMatchId === 'string' && sourceMatchId.length <= 40 ? { source: sourceMatchId } : {})
             });
             clearTimeout(this._rematchTimer);
             this._rematchTimer = null;
@@ -1973,7 +2103,7 @@ class App {
 
         this._receiveRematchReady = ({ playerId, sourceMatchId, ready }) => {
             if (!this.network.isHost || sourceMatchId !== this.game.matchId) return;
-            if (this.game.state !== STATES.CELEBRATION) return;
+            if (!isTerminalRematchState(this.game.state)) return;
             if (this.rematchVote.sourceMatchId !== sourceMatchId) {
                 if (!this.rematchVote.begin(sourceMatchId, this._activeRematchPlayerIds()).accepted) return;
             } else {
@@ -2003,11 +2133,15 @@ class App {
             if (!isTerminalRematchState(this.game.state)) return;
             const sourceMatchId = this.game.matchId;
             if (!isSafeMatchId(sourceMatchId) || this._rematchStarting) return;
+            const rematchMetrics = Number.isFinite(this._analyticsPostgameReadyAt)
+                ? { postgameToRematchSec: Math.max(0, (Date.now() - this._analyticsPostgameReadyAt) / 1000) }
+                : {};
             this.productAnalytics.track('rematch_click', {
-                networkRole: this.network.isHost ? 'host' : this.network.connected ? 'client' : 'solo'
-            });
+                networkRole: this.network.isHost ? 'host' : this.network.connected ? 'client' : 'solo',
+                ...(sourceMatchId.length <= 40 ? { source: sourceMatchId } : {})
+            }, rematchMetrics);
             if (!this.network.connected) {
-                this._startRematchMatch(createMatchId());
+                this._startRematchMatch(createMatchId(), sourceMatchId);
                 return;
             }
             this.network.sendRematchReady(sourceMatchId, true);
@@ -2040,9 +2174,14 @@ class App {
             if (startButton?.disabled) return;
             if (startButton) startButton.disabled = true;
             this.audio.init();
-            await this._showMatchLoading(950);
+            const requestedAt = performance.now();
+            this._matchLaunchTiming = { requestedAt };
+            const matchLoadElapsedMs = await this._showMatchLoading(950);
+            this._matchLaunchTiming.matchLoadElapsedMs = matchLoadElapsedMs;
+            this._matchLaunchTiming.setupStartedAt = performance.now();
             const started = this.game.startGame();
             if (started === false) {
+                this._matchLaunchTiming = null;
                 if (startButton) startButton.disabled = false;
                 return;
             }
@@ -2967,23 +3106,54 @@ updateCSLobbyInfo();
             if (claimBtn) {
                 const tier = parseInt(claimBtn.dataset.tier);
                 const track = claimBtn.dataset.track === 'premium' ? 'premium' : 'free';
-                const reward = this.store.claimBattlepassReward(tier, track);
+                const reward = await this.store.claimBattlepassReward(tier, track);
                 if (reward) {
-                    this.ui.showMessage?.(`Claimed: ${reward.name}!`);
+                    const displayReward = getBattlepassRewardEntry(tier, track) || reward;
+                    this.productAnalytics.track('battlepass_reward_claimed', {
+                        itemId: displayReward.id,
+                        itemType: track,
+                        source: 'battlepass'
+                    });
+                    this.ui.showMessage?.(`Claimed: ${displayReward.name || 'Battle Pass reward'}!`);
                     this.ui.renderBattlepass(this.store);
                     this.refreshMetaStats();
+                } else if (this.store.lastBattlepassError) {
+                    this.ui.showMessage?.(this.store.lastBattlepassError);
                 }
+            }
+            const bpBoostBtn = e.target.closest('.bp-boost-activate');
+            if (bpBoostBtn && bpBoostBtn.dataset.boostId) {
+                const boostId = bpBoostBtn.dataset.boostId;
+                bpBoostBtn.disabled = true;
+                const activation = await this.store.activateBattlepassBoost(boostId);
+                if (activation.ok) {
+                    if (!activation.replayed) {
+                        this.productAnalytics.track('battlepass_boost_activated', {
+                            itemId: boostId,
+                            source: 'battlepass'
+                        });
+                    }
+                    const multiplier = Number(activation.activeBoost?.multiplier || 1)
+                        .toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+                    this.ui.showMessage?.(`${multiplier}x Battle Pass XP boost activated!`);
+                } else {
+                    this.ui.showMessage?.(activation.error || this.store.lastBattlepassError || 'Battle Pass boost unavailable');
+                }
+                this.ui.renderBattlepass(this.store);
+                this.refreshMetaStats();
+                return;
             }
             // Battlepass premium track unlock
             const bpPremiumBtn = e.target.closest('.bp-premium-buy');
             if (bpPremiumBtn) {
-                const bought = this.store.buyPremiumBattlepass();
+                const bought = await this.store.buyPremiumBattlepass();
                 if (bought) {
+                    this.productAnalytics.track('battlepass_premium_unlocked', { source: 'soft_currency' });
                     this.ui.showMessage?.('Premium Battle Pass unlocked!');
                     this.ui.renderBattlepass(this.store);
                     this.refreshMetaStats();
                 } else {
-                    this.ui.showMessage?.('Not enough coins for Premium Battle Pass');
+                    this.ui.showMessage?.(this.store.lastBattlepassError || 'Not enough coins for Premium Battle Pass');
                 }
             }
             // Daily challenge claim
@@ -2991,12 +3161,21 @@ updateCSLobbyInfo();
             if (dailyClaim) {
                 // ponytail: store.claimDailyChallenge tek giris noktasi — coin + battlepass
                 // XP'yi birlikte verir, kendi icinde idempotent (Daily.claim bayragi guard).
-                const reward = this.store.claimDailyChallenge(dailyClaim.dataset.id);
+                // Remote accounts await the server receipt; only guest mode
+                // reaches Daily's persisted local idempotency guard.
+                const reward = await this.store.claimDailyChallenge(dailyClaim.dataset.id);
                 if (reward) {
-                    this.ui.showMessage?.(`Claimed: +${reward.coins} coins, +${reward.xpGranted} Battle Pass XP!`);
+                    if (this.store.remoteReady && reward.replayed !== true) {
+                        this.productAnalytics.track('daily_challenge_claimed', { itemId: dailyClaim.dataset.id, source: 'account_daily' });
+                    }
+                    this.ui.showMessage?.(reward.xpGranted > 0
+                        ? `Claimed: +${reward.coins} coins, +${reward.xpGranted} Battle Pass XP!`
+                        : `Claimed: +${reward.coins} coins.`);
                     this.ui.renderDaily(Daily, this.store);
                     this.ui.renderBattlepass?.(this.store);
                     this.refreshMetaStats();
+                } else {
+                    this.ui.showMessage?.(this.store.lastDailyChallengeError || 'Daily challenge is not ready to claim.');
                 }
                 return;
             }
@@ -3556,13 +3735,16 @@ updateCSLobbyInfo();
                 this._longJumpTrack = null;
             }
         }
+        const dashActive = this.player._justDashed || this.player.dashTimer > 0;
         const movementState = this.player.longJumpEvent || (this._longJumpTrack && !this.player.onGround)
             ? 'LONGJUMP'
-            : !this.player.onGround && speed > this.player.speed
-                ? 'BHOP'
-                : speed > this.player.speed * 1.08
-                    ? 'SPRINT'
-                    : 'MOVE';
+            : dashActive
+                ? 'DASH'
+                : !this.player.onGround && speed > this.player.speed
+                    ? 'BHOP'
+                    : speed > this.player.speed * 1.08
+                        ? 'SPRINT'
+                        : 'MOVE';
         this.ui.updateMovementHUD(speed, movementState, social);
         if (!social) {
             const dynamic = Math.min(1, Math.max(0, (speed - this.player.speed * 0.7) / Math.max(1, this.player.speed)));
@@ -4492,7 +4674,7 @@ updateCSLobbyInfo();
                 this._loadedMapIds.add(mapId);
                 overlay.classList.add('hidden');
                 overlay.classList.remove('active');
-                resolve();
+                resolve(Math.max(0, performance.now() - started));
             }, duration);
         });
     }
@@ -4823,6 +5005,7 @@ updateCarousel() {
         this.ui.hideAll();
         this.ui.hideHUD();
         document.getElementById('practice-lab-hud')?.classList.add('hidden');
+        document.body.classList.remove('practice-lab-active', 'guided-deflect-active');
         document.getElementById('cosmetic-practice-hud')?.classList.remove('hidden');
         document.body.classList.add('cosmetic-practice-active');
         this.player.setHandVisible(false);
@@ -4946,6 +5129,7 @@ updateCarousel() {
             && !this._practiceSessionRestore
             && !this.game.guidedDrill?.active
             && !this.game._guidedDrillResultOpen) {
+            document.body.classList.remove('practice-lab-active', 'guided-deflect-active');
             return false;
         }
         const restore = this._practiceSessionRestore;
@@ -4954,8 +5138,10 @@ updateCarousel() {
         this.game.affixes?.clearRound();
         this.game.chaosManager?.clear();
         this.game._practiceMode = false;
+        this.game._guidedDrillResultOpen = false;
         document.getElementById('guided-drill-result')?.classList.add('hidden');
         document.getElementById('practice-lab-hud')?.classList.add('hidden');
+        document.body.classList.remove('practice-lab-active', 'guided-deflect-active');
         document.querySelectorAll('#btn-add-bot-red, #btn-add-bot-blue').forEach(button => {
             button.disabled = false;
         });
@@ -4970,21 +5156,39 @@ updateCarousel() {
         return true;
     }
 
-    startGuidedDeflectDrill() {
-        this.productAnalytics.track('practice_start', { practiceType: 'guided_deflect' });
+    _startFirstBotMatchFromDrill() {
+        // The result overlay belongs to a local practice session. Never turn a
+        // connected lobby into an automatic multiplayer match from this CTA.
+        if (this.network?.connected) {
+            this.ui.showMessage?.('Leave the party before starting a bot match.', 2200);
+            return false;
+        }
+        this._exitPracticeSession();
+        this.game.startSolo();
+        this._armFirstMatchHints();
+        this.ui.showScreen('lobby');
+        document.getElementById('btn-start-game')?.click();
+        return true;
+    }
+
+    startGuidedDeflectDrill({ source = 'practice_menu' } = {}) {
+        const firstRun = source === 'ftue';
+        this.productAnalytics.track('practice_start', { practiceType: 'guided_deflect', source });
         this._capturePracticeSession();
         document.getElementById('guided-drill-result')?.classList.add('hidden');
         this.game.state = STATES.LOBBY;
         this.game.selectMode('classic');
         this.game.selectMap('esport_arena');
-        this.startPractice();
-        this.game.armGuidedDrill();
+        this.startPractice({ track: false });
+        this.game.armGuidedDrill({ profile: firstRun ? 'first_run' : 'full' });
+        this._ftueGuidedRun = firstRun;
+        document.body.classList.add('guided-deflect-active');
         this.game.startGame(true);
         this.player.lock();
     }
 
-    startPractice({ launch = false } = {}) {
-        this.productAnalytics.track('practice_start', { practiceType: launch ? 'free_play' : 'setup' });
+    startPractice({ launch = false, track = true } = {}) {
+        if (track) this.productAnalytics.track('practice_start', { practiceType: launch ? 'free_play' : 'setup' });
         this._capturePracticeSession();
         this.game.cancelGuidedDrill();
         this.game.clearPowerUps?.();
@@ -5002,6 +5206,8 @@ updateCarousel() {
         document.querySelectorAll('#btn-add-bot-red, #btn-add-bot-blue').forEach(button => {
             button.disabled = true;
         });
+        document.body.classList.add('practice-lab-active');
+        document.body.classList.remove('guided-deflect-active');
         this.game.practiceMetrics.reset();
         this._updatePracticeLab(this.game.practiceMetrics.summary());
         document.getElementById('practice-lab-hud')?.classList.remove('hidden');
@@ -5176,8 +5382,8 @@ updateCarousel() {
             'drill-stage': snapshot.phase === 'countdown'
                 ? 'READY'
                 : snapshot.phase === 'transition'
-                    ? `NEXT ${Math.min((snapshot.stageIndex || 0) + 2, 3)}/3`
-                    : `STAGE ${Math.min((snapshot.stageIndex || 0) + 1, 3)}/3`,
+                    ? `NEXT ${Math.min((snapshot.stageIndex || 0) + 2, snapshot.stageCount || 1)}/${snapshot.stageCount || 1}`
+                    : `STAGE ${Math.min((snapshot.stageIndex || 0) + 1, snapshot.stageCount || 1)}/${snapshot.stageCount || 1}`,
             'drill-timer': `00:${String(seconds).padStart(2, '0')}`,
             'drill-speed': `${Number(snapshot.speedMultiplier || 0).toFixed(2)}x`,
             'drill-hits': stats.hits || 0,
@@ -5202,11 +5408,18 @@ updateCarousel() {
         }
     }
 
-    _showGuidedDrillResult(result = {}) {
+    _showGuidedDrillResult(result = {}, { firstRun = false } = {}) {
         const overlay = document.getElementById('guided-drill-result');
         if (!overlay) return;
+        overlay.dataset.firstRun = firstRun ? 'true' : 'false';
+        const kicker = document.getElementById('drill-result-kicker');
+        const headline = document.getElementById('drill-result-headline');
+        if (kicker) kicker.textContent = firstRun ? 'FIRST DRILL COMPLETE' : 'SESSION COMPLETE';
+        if (headline) headline.textContent = firstRun ? 'YOU’RE READY FOR A MATCH' : 'DRILL RESULTS';
         const grade = document.getElementById('drill-result-grade');
         const score = document.getElementById('drill-result-score');
+        grade?.closest('.drill-grade')?.toggleAttribute('hidden', firstRun);
+        score?.closest('.drill-score')?.toggleAttribute('hidden', firstRun);
         if (grade) grade.textContent = result.grade || 'D';
         if (score) score.textContent = String(result.score || 0);
         const list = document.getElementById('drill-result-stages');
@@ -5216,13 +5429,28 @@ updateCarousel() {
                 const row = document.createElement('div');
                 const name = document.createElement('span');
                 const value = document.createElement('b');
-                name.textContent = stage.name;
-                value.textContent = `${stage.score} ${stage.passed ? 'PASS' : 'RETRY'}`;
-                row.dataset.passed = stage.passed ? '1' : '0';
+                if (firstRun) {
+                    const metric = stage.id === 'control'
+                        ? `${stage.hits || 0} contacts`
+                        : stage.id === 'direction'
+                            ? `${stage.directed || 0} on target`
+                            : `${stage.perfect || 0} perfect`;
+                    name.textContent = stage.name[0] + stage.name.slice(1).toLowerCase();
+                    value.textContent = metric;
+                    row.dataset.passed = '1';
+                } else {
+                    name.textContent = stage.name;
+                    value.textContent = `${stage.score} ${stage.passed ? 'PASS' : 'RETRY'}`;
+                    row.dataset.passed = stage.passed ? '1' : '0';
+                }
                 row.append(name, value);
                 list.append(row);
             }
         }
+        const retry = document.getElementById('btn-drill-retry');
+        const freeLab = document.getElementById('btn-drill-free-lab');
+        if (retry) retry.textContent = firstRun ? 'Practice Again' : 'Retry';
+        freeLab?.toggleAttribute('hidden', firstRun);
         overlay.classList.remove('hidden');
         this.game._guidedDrillResultOpen = true;
         this.player.unlock();
@@ -5289,7 +5517,11 @@ updateCarousel() {
         const name = document.getElementById('lobby-name-input')?.value || 'Lobby';
         this._lobbyName = name;
         this.network.broadcast({
-            type: 'lobbyState', players, lobbyName: name,
+            type: 'lobbyState',
+            players,
+            lobbyName: name,
+            mode: this.game.mode?.id,
+            map: this.arena?.mapId,
             settings: {
                 matchTime: parseInt(document.getElementById('setting-match-time')?.value || 300),
                 maxRounds: parseInt(document.getElementById('setting-max-rounds')?.value || 16),
@@ -5309,6 +5541,73 @@ updateCarousel() {
     }
 
     // Wire the client-side network callbacks (used by every join path).
+    _syncClientLobbyIdentity(code) {
+        const rawRoomCode = this.network?.hostRoomCode ?? code;
+        const trustedRoomCode = typeof rawRoomCode === 'string' ? rawRoomCode.trim() : '';
+        if (trustedRoomCode && trustedRoomCode.length <= 128) {
+            this._lobbyCode = trustedRoomCode;
+            this.ui.setRoomCode(trustedRoomCode);
+        }
+        this.game.onModeChange?.(this.game.mode?.id);
+    }
+
+    _applyClientLobbyStatePresentation(data) {
+        const lobbyMode = data?.mode;
+        if (typeof lobbyMode === 'string' && Object.hasOwn(GAME_MODES, lobbyMode)) {
+            this.game.applyModeChange({ modeId: lobbyMode });
+        }
+        const lobbyMap = data?.map;
+        if (typeof lobbyMap === 'string' && this.game.getSelectableMaps?.().includes(lobbyMap)) {
+            this.game.applyMapChange({ mapId: lobbyMap });
+        }
+        this.game.onModeChange?.(this.game.mode?.id);
+    }
+
+    _applyInitialLobbyWelcome(data) {
+        const welcomeState = data?.state || data?.snapshot?.state;
+        if (this.network?.isHost || data?.type !== 'welcome' || welcomeState === STATES.SOCIAL_HUB) return false;
+
+        // The transport owns this code from joinGame(); never take a room code
+        // from the welcome payload itself.
+        const knownRoomCode = typeof this.network?.hostRoomCode === 'string'
+            ? this.network.hostRoomCode.trim()
+            : '';
+        if (knownRoomCode && knownRoomCode.length <= 128) {
+            this._lobbyCode = knownRoomCode;
+            this.ui.setRoomCode(knownRoomCode);
+        }
+
+        const welcomeMode = data.mode ?? data.snapshot?.mode;
+        if (typeof welcomeMode === 'string' && Object.hasOwn(GAME_MODES, welcomeMode)) {
+            this.game.applyModeChange({ modeId: welcomeMode });
+        }
+        const welcomeMap = data.map ?? data.snapshot?.map;
+        if (typeof welcomeMap === 'string' && this.game.getSelectableMaps?.().includes(welcomeMap)) {
+            this.game.applyMapChange({ mapId: welcomeMap });
+        }
+
+        // selectMode/selectMap notify when they change; this also refreshes the
+        // client role controls for an idempotent repeated welcome.
+        this.game.onModeChange?.(this.game.mode?.id);
+        return true;
+    }
+
+    _finalizeClientLobbyJoin(code) {
+        const rawRoomCode = this.network?.hostRoomCode ?? code;
+        const trustedRoomCode = typeof rawRoomCode === 'string' ? rawRoomCode.trim() : '';
+        if (trustedRoomCode && trustedRoomCode.length <= 128) {
+            this._lobbyCode = trustedRoomCode;
+            this.ui.setRoomCode(trustedRoomCode);
+        }
+
+        const pendingWelcome = this._pendingInitialLobbyWelcome;
+        if (pendingWelcome) {
+            this._applyInitialLobbyWelcome(pendingWelcome);
+            this._pendingInitialLobbyWelcome = null;
+        }
+        this.game.onModeChange?.(this.game.mode?.id);
+    }
+
     _setupClientNetHandlers() {
         this._setupReconnectUI();
         this.network.onKicked = (reason) => {
@@ -5323,10 +5622,17 @@ updateCarousel() {
         // içindeki state PLAYING/COUNTDOWN ise client otomatik startGame tetikler.
         this.network.onGameState = (data) => {
             if (data?.type === 'lobbyState' || data?.type === 'welcome') {
+                if (data?.type === 'welcome') this._pendingInitialLobbyWelcome = data;
                 this.game.applyLobbyState(data);
-                if (data?.type === 'welcome' && data.state) {
-                    if (data.state === STATES.SOCIAL_HUB) this._enterSocialLobby();
-                    else {
+                if (data?.type === 'lobbyState' && !this.network.isHost) {
+                    this._applyClientLobbyStatePresentation(data);
+                    this._syncClientLobbyIdentity(this.network.hostRoomCode);
+                }
+                if (data?.type === 'welcome') {
+                    this._applyInitialLobbyWelcome(data);
+                    const welcomeState = data.state || data.snapshot?.state;
+                    if (welcomeState === STATES.SOCIAL_HUB) this._enterSocialLobby();
+                    else if (welcomeState) {
                         const result = this.game.handleLateJoin?.(data);
                         if (result?.queued) this._enterLateJoinSpectator(result);
                     }
@@ -5417,6 +5723,7 @@ updateCarousel() {
         this._stopBgLoop();
         this._cleanupListeners();
         if (this.network?.isHost && this._lobbyCode) this._unregisterLobby(this._lobbyCode);
+        else if (this._lobbyCode) this._lobbyApi(`/api/lobbies/${encodeURIComponent(this._lobbyCode)}/leave`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
         this._lobbyCode = null;
         this._exitPracticeSession();
         document.getElementById('practice-lab-hud')?.classList.add('hidden');
@@ -5435,6 +5742,7 @@ updateCarousel() {
         clearInterval(this._lobbyKeepAlive);
         this._stopBgLoop();
         this._cleanupListeners();
+        if (!this.network?.isHost && this._lobbyCode) this._lobbyApi(`/api/lobbies/${encodeURIComponent(this._lobbyCode)}/leave`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
         this._lobbyCode = null;
         this._exitPracticeSession();
         document.getElementById('practice-lab-hud')?.classList.add('hidden');
@@ -5482,7 +5790,7 @@ updateCarousel() {
 
     async _registerLobby(code, name, players, map, mode) {
         const ranked = this.game.mode?.id === 'competitive' || this._rankedHosting === true;
-        await this._lobbyApi('/api/lobbies', {
+        const result = await this._lobbyApi('/api/lobbies', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -5492,6 +5800,22 @@ updateCarousel() {
                 maxPlayers: 8
             })
         });
+        if (result?.__lobbyApiError || !result?.admissionToken) return false;
+        if (!this.network?.isHost || this.network.hostRoomCode !== code) return false;
+        this.network.setLobbyAdmissionToken(result.admissionToken);
+        return true;
+    }
+
+    async _confirmLobbyAdmission(code) {
+        const proof = await this.network.waitForLobbyAdmissionProof();
+        if (!proof) throw new Error('Lobby admission proof was not received. Please try again.');
+        const admitted = await this._lobbyApi(`/api/lobbies/${encodeURIComponent(code)}/join`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ admissionToken: proof })
+        });
+        if (!admitted?.ok) throw new Error('Lobby admission failed. Please try again.');
+        return true;
     }
 
     async _unregisterLobby(code) {
@@ -5626,10 +5950,13 @@ updateCarousel() {
         try {
             this._setupClientNetHandlers();
             await this.network.joinGame(code, name);
+            this._lobbyCode = code;
+            await this._confirmLobbyAdmission(code);
             this.game.playerName = name;
             // ponytail: bg loop runs client-side interpolation + state handling throughout the game
             this._startBgLoop();
             this.ui.showScreen('lobby');
+            this._finalizeClientLobbyJoin(code);
             this.ui.showMessage?.('🔗 Joined lobby!', 2000);
             this.productAnalytics.track('lobby_join', { networkRole: 'client' });
             this.productAnalytics.track('network_role', { networkRole: 'client' });
@@ -5660,6 +5987,7 @@ updateCarousel() {
             this.game.playerName = name;
             const code = await this.network.hostGame(name);
             if (this._localLobbyPassword) this.network.setLobbyPassword(this._localLobbyPassword);
+            this._lobbyName = 'Lobby';
             // ponytail: bg loop is the authoritative host sim — must run regardless of tab visibility
             this._startBgLoop();
             this.game.startSolo();
@@ -5670,7 +5998,6 @@ updateCarousel() {
             this.productAnalytics.track('network_role', { networkRole: 'host' });
             const nameInput = document.getElementById('lobby-name-input');
             if (nameInput) { nameInput.disabled = false; nameInput.value = 'Lobby'; }
-            this._lobbyName = 'Lobby';
             // Lobby name change handler
             const onLobbyNameChange = () => {
                 if (!this.network?.isHost) return;
@@ -5700,7 +6027,7 @@ updateCarousel() {
                 // Mesh: tell existing clients to P2P-connect to the new peer
                 this.network.broadcast({ type: 'newPeer', playerId, peerId, name: pName });
                 this.broadcastLobbyState();
-                this._registerLobby(code, this._lobbyName, this.network.connections.size + 1, this.arena.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
+                this._registerLobby(code, this._lobbyName, this.network.connections.size + 1, this.arena?.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
             };
             this.network.onPlayerLeave = (playerId, peerId) => {
                 this.game.removeRemotePlayer(playerId);
@@ -5735,7 +6062,17 @@ updateCarousel() {
             this.network.onGameState = (data) => {
                 if (data.type === 'welcome') this.game.applyLobbyState(data);
             };
-            this._registerLobby(code, this._lobbyName, 1, this.arena.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
+            const registered = await this._registerLobby(
+                code,
+                this._lobbyName,
+                1,
+                this.arena?.config?.name || 'Unknown',
+                this.game.mode?.name || 'Classic'
+            );
+            if (!registered) {
+                this.network.disconnect();
+                throw new Error('Lobby service registration failed. Please try again.');
+            }
             this.ui.showMessage?.(`🏠 Lobby created! Code: ${code}`, 3000);
             // Auto-re-register every 12s to keep lobby alive
             this._lobbyKeepAlive = setInterval(() => {
@@ -6246,8 +6583,10 @@ updateCarousel() {
             const botData = this.game.bots.map(b => ({
                 name: b.name, team: b.team,
                 x: b.position.x, y: b.position.y, z: b.position.z,
-                ry: b.rotation?.y || 0,
-                alive: b.alive, hp: b.hp, charId: b.charId
+                ry: b.group?.rotation.y ?? 0,
+                alive: b.alive, hp: b.hp, charId: b.charId,
+                intent: b._defenseIntent || 'none', strafe: b._defenseStrafe || 0,
+                attacking: !!b.attacking
             }));
             this.network.broadcast({ type: 'botSync', bots: botData });
         }
@@ -6685,8 +7024,10 @@ updateCarousel() {
                     const botData = this.game.bots.map(b => ({
                         name: b.name, team: b.team,
                         x: b.position.x, y: b.position.y, z: b.position.z,
-                        ry: b.rotation?.y || 0,
-                        alive: b.alive, hp: b.hp, charId: b.charId
+                        ry: b.group?.rotation.y ?? 0,
+                        alive: b.alive, hp: b.hp, charId: b.charId,
+                        intent: b._defenseIntent || 'none', strafe: b._defenseStrafe || 0,
+                        attacking: !!b.attacking
                     }));
                     this.network.broadcast({ type: 'botSync', bots: botData });
                 }

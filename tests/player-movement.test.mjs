@@ -12,6 +12,7 @@ const {
     applyGroundFriction,
     sourceAccelerate,
     moveHorizontalState,
+    consumeDashTime,
     isEditableTarget,
     resolveJump,
     resolveLongJump,
@@ -153,6 +154,58 @@ test('fixed horizontal substeps are stable across common frame rates', () => {
         closeTo(result.velocity.x, at120.velocity.x);
         closeTo(result.position.x, at120.position.x);
     }
+});
+
+test('dash consumes only remaining duration across common frame rates', () => {
+    const dashForce = 12;
+    const dashDuration = 0.12;
+    for (const fps of [20, 30, 60, 120, 144]) {
+        const dt = 1 / fps;
+        let remaining = dashDuration;
+        let distance = 0;
+        let ticks = 0;
+        while (remaining > 0) {
+            const dashDt = consumeDashTime(remaining, dt);
+            assert.ok(dashDt > 0, `dash must make progress at ${fps}fps`);
+            distance += dashForce * dashDt;
+            remaining = Math.max(0, remaining - dashDt);
+            ticks++;
+        }
+        closeTo(distance, dashForce * dashDuration, 0.01);
+        assert.equal(consumeDashTime(remaining, dt), 0, `dash must not take an extra tick at ${fps}fps`);
+        assert.ok(ticks >= 1);
+    }
+});
+
+test('dash update preserves direction, stamina cost, and cooldown trigger contracts', () => {
+    const updateStart = source.indexOf('    update(dt) {');
+    const updateEnd = source.indexOf('\n    // Apply damage through shield first.', updateStart);
+    assert.ok(updateStart >= 0 && updateEnd > updateStart);
+    const update = source.slice(updateStart, updateEnd);
+
+    assert.match(update, /this\.position\.addScaledVector\(this\.dashDir, this\.dashForce \* dashDt\);/);
+    assert.match(update, /this\.dashTimer = Math\.max\(0, this\.dashTimer - dashDt\);/);
+    assert.match(update, /this\.dashCooldown = 1\.0;\s*this\.dashTimer = this\.dashDuration;\s*this\.stamina -= this\.dashCost;/);
+    assert.match(update, /this\.dashDir\.copy\(moveDir\.length\(\) > 0 \? moveDir\.normalize\(\) : forward\);/);
+});
+
+test('accepted dash triggers one dedicated cue, while gated and active-dash frames cannot replay it', () => {
+    const updateStart = source.indexOf('    update(dt) {');
+    const updateEnd = source.indexOf('\n    // Apply damage through shield first.', updateStart);
+    assert.ok(updateStart >= 0 && updateEnd > updateStart);
+    const update = source.slice(updateStart, updateEnd);
+    const activeDashStart = update.indexOf('        if (wasDashing) {');
+    const triggerStart = update.indexOf('        if (ctrlDown && !this._dashWasDown && !longJump.triggered');
+    const triggerEnd = update.indexOf('        this._dashWasDown = ctrlDown;', triggerStart);
+    assert.ok(activeDashStart >= 0 && triggerStart > activeDashStart && triggerEnd > triggerStart);
+    const activeDash = update.slice(activeDashStart, triggerStart);
+    const trigger = update.slice(triggerStart, triggerEnd);
+
+    assert.doesNotMatch(activeDash, /playCue|playWhoosh/, 'the 120ms dash update loop must remain silent');
+    assert.match(trigger, /!longJump\.triggered\s*&& this\.dashCooldown <= 0 && this\.dashTimer <= 0 && this\.stamina >= this\.dashCost/);
+    assert.match(trigger, /this\.dashDir\.copy\([\s\S]*?\);\s*this\.audio\?\.playCue\?\.\('dash'\);\s*this\._justDashed = true;/);
+    assert.equal((trigger.match(/playCue/g) || []).length, 1, 'accepted dash has exactly one onset cue');
+    assert.doesNotMatch(trigger, /playWhoosh/, 'dash must not reuse the ball-throw whoosh');
 });
 
 test('editable targets are excluded from gameplay keydown', () => {

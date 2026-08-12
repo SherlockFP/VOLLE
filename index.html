@@ -291,23 +291,23 @@
             </header>
             <div class="ftue-tips">
                 <div class="ftue-tip">
-                    <span class="ftue-tip-icon" aria-hidden="true">🏃</span>
+                    <svg class="ui-icon ftue-tip-icon" aria-hidden="true"><use href="#i-arrow-right"></use></svg>
                     <b>Move</b>
                     <small>WASD to move, Space to jump, Ctrl to dash</small>
                 </div>
                 <div class="ftue-tip">
-                    <span class="ftue-tip-icon" aria-hidden="true">🏐</span>
+                    <svg class="ui-icon ftue-tip-icon" aria-hidden="true"><use href="#i-ball"></use></svg>
                     <b>Deflect &amp; Throw</b>
                     <small>Hold Left-Click near the ball to deflect it — flick up to lob, down to spike</small>
                 </div>
                 <div class="ftue-tip">
-                    <span class="ftue-tip-icon" aria-hidden="true">🔪</span>
+                    <svg class="ui-icon ftue-tip-icon" aria-hidden="true"><use href="#i-target"></use></svg>
                     <b>Melee</b>
                     <small>Right-Click to stab up close</small>
                 </div>
             </div>
-            <button id="ftue-welcome-start" type="button" class="btn btn-primary ftue-start">Let's go</button>
-            <button id="ftue-welcome-practice" type="button" class="ftue-practice-link">Try the practice drill first</button>
+            <button id="ftue-welcome-start" type="button" class="btn btn-primary ftue-start">Start Guided Drill</button>
+            <button id="ftue-welcome-practice" type="button" class="ftue-practice-link">Skip for now</button>
         </div>
     </div>
 
@@ -879,7 +879,7 @@
 
     <!-- ===== CHARACTER SELECT ===== -->
     <div id="character-screen" class="screen hidden">
-        <div class="panel wide-panel shell-panel hero-shell">
+        <div id="character-locker-content" class="panel wide-panel shell-panel hero-shell">
             <header class="shell-header">
                 <div class="shell-title"><span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-user"></use></svg></span><div><span class="shell-kicker">HERO BAY</span><h1>Heroes</h1><p>Build a readable role, ability, and rune package.</p></div></div>
                 <div class="hero-loadout-summary" aria-label="Current loadout">
@@ -896,12 +896,16 @@
                 <button id="btn-card-collection" class="btn btn-secondary" type="button">Card Collection</button>
                 <button id="btn-char-save" class="btn btn-primary">Save Loadout</button>
             </div>
-            <section id="card-collection-panel" class="card-collection-panel hidden" role="dialog" aria-modal="true" aria-labelledby="card-collection-title">
-                <header class="card-collection-header"><div><span class="shell-kicker">ARENA CACHE</span><h2 id="card-collection-title">Card Collection</h2><p id="card-collection-status" role="status" aria-live="polite"></p></div><button id="btn-card-collection-close" class="btn btn-secondary btn-small" type="button">Close</button></header>
-                <div id="card-collection-grid" class="card-collection-grid" aria-label="Collectible cards"></div>
-                <div class="card-tradeup"><div><span class="shell-kicker">TRADE-UP</span><h3>Trade 5 duplicate cards</h3><p>Roll one card from the next rarity. Legendary cards cannot be traded.</p></div><label for="card-tradeup-select">Duplicate stack</label><select id="card-tradeup-select"></select><button id="btn-card-tradeup" class="btn btn-primary btn-small" type="button">Trade Up</button></div>
-            </section>
         </div>
+        <section id="card-collection-panel" class="card-collection-panel hidden" role="dialog" aria-modal="true" aria-labelledby="card-collection-title">
+            <div class="card-collection-dialog" role="document" tabindex="-1">
+                <header class="card-collection-header"><div><span class="shell-kicker">ARENA CACHE</span><h2 id="card-collection-title">Card Collection</h2><p id="card-collection-status" role="status" aria-live="polite"></p></div><button id="btn-card-collection-close" class="btn btn-secondary btn-small" type="button" aria-label="Close Card Collection">Close</button></header>
+                <div class="card-collection-content">
+                    <div id="card-collection-grid" class="card-collection-grid" aria-label="Collectible cards"></div>
+                    <div class="card-tradeup"><div><span class="shell-kicker">TRADE-UP</span><h3>Trade 5 duplicate cards</h3><p>Roll one card from the next rarity. Legendary cards cannot be traded.</p></div><label for="card-tradeup-select">Duplicate stack</label><select id="card-tradeup-select"></select><button id="btn-card-tradeup" class="btn btn-primary btn-small" type="button">Trade Up</button></div>
+                </div>
+            </div>
+        </section>
     </div>
 
     <!-- ===== SHOP ===== -->
@@ -979,6 +983,19 @@
                 <div><span class="shell-kicker">CURRENT RUN</span><strong id="bp-next-reward">Next reward loading...</strong><p>Free track. No pay-to-win stats.</p></div>
                 <div class="progression-ring"><div class="progression-ring-inner"><span id="bp-progress-ring-icon" class="progression-ring-icon" aria-hidden="true">🪙</span><span id="bp-progress-ring" class="progression-ring-pct">0%</span></div></div>
             </div>
+            <section class="bp-season-value" aria-labelledby="bp-season-value-title">
+                <div class="bp-season-value-copy">
+                    <span class="shell-kicker" id="bp-season-value-title">SEASON VALUE</span>
+                    <strong id="bp-boost-status" role="status" aria-live="polite">Checking XP boosts...</strong>
+                    <p>XP boosts accelerate Battle Pass progress only. They never affect gameplay or Ranked.</p>
+                </div>
+                <dl class="bp-value-stats" aria-label="Battle Pass progress summary">
+                    <div><dt>Next tier</dt><dd id="bp-value-next">-- XP</dd></div>
+                    <div><dt>Ready</dt><dd id="bp-value-claims">0 rewards</dd></div>
+                    <div><dt>Boosts</dt><dd id="bp-value-boosts">0 owned</dd></div>
+                </dl>
+                <button id="bp-boost-action" type="button" class="btn btn-secondary btn-small bp-boost-activate" disabled>Activate boost</button>
+            </section>
             <div class="bp-track" id="bp-track"></div>
             <button id="btn-bp-back" class="btn btn-secondary shell-back"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back to menu</button>
         </div>
@@ -1112,10 +1129,10 @@
 
     <!-- ===== DAILY CHALLENGES ===== -->
     <div id="daily-screen" class="screen hidden">
-        <div class="panel wide-panel shell-panel progression-shell">
+        <div class="panel wide-panel shell-panel progression-shell daily-shell">
             <header class="shell-header">
                 <div class="shell-title"><span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-target"></use></svg></span><div><span class="shell-kicker">DAILY CONTRACTS</span><h1>Challenges</h1><p>Three focused goals. New set every 24 hours.</p></div></div>
-                <div class="challenge-summary"><span><strong id="challenge-complete-count">0</strong><small>complete</small></span><span><strong id="challenge-reward-total">0</strong><small>credits ready</small></span><span class="challenge-reset">LOCAL RESET</span></div>
+                <div class="challenge-summary"><span><strong id="challenge-complete-count">0</strong><small>complete</small></span><span><strong id="challenge-reward-total">0</strong><small>credits ready</small></span><span class="challenge-reset">UTC DAILY RESET</span></div>
             </header>
             <div class="daily-grid" id="daily-grid"></div>
             <button id="btn-daily-back" class="btn btn-secondary shell-back"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back to menu</button>
@@ -1645,8 +1662,8 @@
     <aside id="practice-lab-hud" class="practice-lab-hud hidden" aria-live="polite">
         <header><span>PRACTICE LAB</span><b id="practice-lab-mode">DEFLECT</b></header>
         <div class="guided-drill-head"><b id="drill-stage">FREE LAB</b><b id="drill-timer">--:--</b><b id="drill-speed">--</b></div>
-        <div><span>Accuracy <b id="practice-accuracy">0%</b></span><span>Perfect <b id="practice-perfects">0</b></span><span>Best Timing <b id="practice-best">--</b></span></div>
-        <div class="practice-lab-track"><i id="practice-lab-progress"></i></div>
+        <div class="practice-lab-summary"><span>Accuracy <b id="practice-accuracy">0%</b></span><span>Perfect <b id="practice-perfects">0</b></span><span>Best Timing <b id="practice-best">--</b></span></div>
+        <div class="practice-lab-track practice-lab-summary-track"><i id="practice-lab-progress"></i></div>
         <div class="guided-drill-metrics"><span>Hits <b id="drill-hits">0</b></span><span>Directed <b id="drill-directed">0</b></span><span>Perfect <b id="drill-perfect">0</b></span></div>
         <div class="practice-lab-track drill-stage-track"><i id="drill-stage-progress"></i></div>
         <small id="practice-hint">R spawn / F reposition / T reset metrics</small>
@@ -1654,12 +1671,14 @@
 
     <div id="guided-drill-result" class="guided-drill-result hidden">
         <div class="guided-drill-result-card">
-            <span class="shell-kicker">SESSION COMPLETE</span>
+            <span id="drill-result-kicker" class="shell-kicker">SESSION COMPLETE</span>
+            <h2 id="drill-result-headline" class="drill-result-headline">DRILL RESULTS</h2>
             <div class="drill-grade">GRADE <b id="drill-result-grade">D</b></div>
             <div class="drill-score"><b id="drill-result-score">0</b><span>SCORE</span></div>
             <div id="drill-result-stages" class="drill-result-stages"></div>
             <div class="drill-result-actions">
-                <button id="btn-drill-retry" class="btn btn-primary">Retry</button>
+                <button id="btn-drill-first-bot" class="btn btn-primary">Play First Bot Match</button>
+                <button id="btn-drill-retry" class="btn btn-secondary">Retry</button>
                 <button id="btn-drill-free-lab" class="btn btn-secondary">Free Lab</button>
                 <button id="btn-drill-menu" class="btn btn-secondary">Main Menu</button>
             </div>

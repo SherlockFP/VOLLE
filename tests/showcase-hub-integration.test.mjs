@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { once } from 'node:events';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
@@ -74,12 +77,19 @@ test('leaving the social hub restores its renderer overrides before clearing hub
 
 test('social hub API accepts each current map and rejects the retired map id', async t => {
     const port = 24000 + (process.pid % 10000);
+    const dataDir = mkdtempSync(path.join(tmpdir(), 'warrball-showcase-hub-'));
     const child = spawn(process.execPath, ['server.js'], {
         cwd: fileURLToPath(new URL('..', import.meta.url)),
-        env: { ...process.env, PORT: String(port) },
+        env: { ...process.env, PORT: String(port), DATA_DIR: dataDir },
         stdio: 'ignore'
     });
-    t.after(() => child.kill());
+    t.after(async () => {
+        if (child.exitCode === null) {
+            child.kill();
+            await once(child, 'exit');
+        }
+        rmSync(dataDir, { recursive: true, force: true });
+    });
     const endpoint = `http://127.0.0.1:${port}/api/social-hubs`;
     let ready = false;
     for (let attempt = 0; attempt < 40; attempt++) {

@@ -2,28 +2,56 @@
 // only allowlisted product behavior; no player names, chat, positions, inputs, or art.
 export const PRODUCT_EVENT_NAMES = Object.freeze([
     'session_start', 'session_end', 'session_heartbeat',
-    'ftue_view', 'ftue_complete', 'practice_start', 'practice_complete',
+    'ftue_view', 'ftue_exit', 'ftue_complete', 'practice_start', 'practice_complete',
     'screen_view', 'quick_play_click', 'quick_play_success', 'quick_play_failure',
     'lobby_host', 'lobby_join', 'match_start', 'match_complete',
     'rematch_click', 'rematch_start',
     'shop_inspect', 'shop_purchase_success', 'shop_purchase_failure', 'cosmetic_equip', 'cosmetic_match_use',
     'arena_cache_earned', 'arena_cache_opened', 'card_earned', 'card_equipped', 'card_trade_up',
     'earned_case_granted', 'earned_case_opened',
+    'battlepass_premium_unlocked', 'battlepass_reward_claimed', 'battlepass_boost_activated',
+    'daily_challenge_completed', 'daily_challenge_claimed',
     'network_role', 'network_reconnect', 'network_disconnect'
 ]);
 
 const EVENT_NAMES = new Set(PRODUCT_EVENT_NAMES);
 const ID_PATTERN = /^[A-Za-z0-9._:-]{8,96}$/;
 const SAFE_DIMENSION_VALUES = /^[a-zA-Z0-9._:-]{1,40}$/;
+export const MATCH_START_TIMING_MAX_MS = 60_000;
 const DIMENSIONS = new Set([
     'screen', 'shopTab', 'itemType', 'itemId', 'queue', 'mode', 'map',
-    'entry', 'result', 'networkRole', 'reason', 'latencyBucket', 'practiceType'
+    'entry', 'result', 'networkRole', 'reason', 'latencyBucket', 'practiceType',
+    'matchId', 'source'
 ]);
 const METRICS = Object.freeze({
     sessionDurationSec: 86400,
     matchDurationSec: 10800,
-    joinLatencyMs: 300000
+    postgameDelaySec: 300,
+    postgameToRematchSec: 3600,
+    joinLatencyMs: 300000,
+    matchLoadElapsedMs: MATCH_START_TIMING_MAX_MS,
+    matchSetupMs: MATCH_START_TIMING_MAX_MS,
+    clickToCountdownMs: MATCH_START_TIMING_MAX_MS
 });
+
+function boundedTiming(value) {
+    return Number.isFinite(value) && value >= 0 && value <= MATCH_START_TIMING_MAX_MS
+        ? Math.round(value * 100) / 100
+        : null;
+}
+
+// Converts short-lived local monotonic timestamps into bounded durations only.
+// Callers never transmit raw timestamps or any player-identifying state.
+export function matchStartTimingMetrics(timing = {}, now = performance.now()) {
+    const metrics = {};
+    const load = boundedTiming(timing.matchLoadElapsedMs);
+    const setup = boundedTiming(now - timing.setupStartedAt);
+    const total = boundedTiming(now - timing.requestedAt);
+    if (load !== null) metrics.matchLoadElapsedMs = load;
+    if (setup !== null) metrics.matchSetupMs = setup;
+    if (total !== null) metrics.clickToCountdownMs = total;
+    return metrics;
+}
 
 function makeId(prefix) {
     const random = globalThis.crypto?.randomUUID?.().replace(/-/g, '')
@@ -82,6 +110,7 @@ export class ProductAnalytics {
         this.now = now;
         this.queue = [];
         this.flushing = false;
+        this._flushPromise = null;
         this.startedAt = this.now();
         this.sessionId = this._sessionId();
         this._heartbeatTimer = null;
@@ -127,31 +156,55 @@ export class ProductAnalytics {
         return true;
     }
 
-    async flush() {
-        if (this.flushing || !this.queue.length || !this.store?.sessionToken || typeof this.fetchImpl !== 'function') return false;
-        this.flushing = true;
-        const batch = this.queue.splice(0, 20);
-        try {
-            const response = await this.fetchImpl(this.endpoint, {
-                method: 'POST',
-                headers: {
-                    'Authorization': 'Bearer ' + this.store.sessionToken,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ events: batch.map(item => item.event) }),
-                keepalive: true
-            });
-            if (!response?.ok) throw new Error('product analytics rejected');
-            return true;
-        } catch {
-            for (const item of batch) {
-                item.attempts += 1;
-                if (item.attempts < 3) this.queue.push(item);
+    _canFlush() {
+        return this.queue.length > 0 && !!this.store?.sessionToken && typeof this.fetchImpl === 'function';
+    }
+
+    async _drainQueue() {
+        let delivered = false;
+        while (this._canFlush()) {
+            const batch = this.queue.splice(0, 20);
+            try {
+                // Native browser fetch performs a receiver brand check. Calling
+                // the stored function as this.fetchImpl() uses ProductAnalytics
+                // as its receiver and can reject before any request is sent.
+                const response = await this.fetchImpl.call(globalThis, this.endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer ' + this.store.sessionToken,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ events: batch.map(item => item.event) }),
+                    keepalive: true
+                });
+                if (!response?.ok) throw new Error('product analytics rejected');
+                delivered = true;
+            } catch {
+                const retryable = [];
+                for (const item of batch) {
+                    item.attempts += 1;
+                    if (item.attempts < 3) retryable.push(item);
+                }
+                // Put the failed batch back ahead of arrivals so event order is kept.
+                this.queue.unshift(...retryable);
+                return delivered;
             }
-            return false;
-        } finally {
-            this.flushing = false;
         }
+        // Let a synchronous authentication or track() continuation join this flight
+        // before it resolves, rather than leaving an event behind after a valid send.
+        await Promise.resolve();
+        return this._canFlush() ? this._drainQueue() : delivered;
+    }
+
+    flush() {
+        if (this._flushPromise) return this._flushPromise;
+        if (!this._canFlush()) return Promise.resolve(false);
+        this.flushing = true;
+        this._flushPromise = this._drainQueue().finally(() => {
+            this.flushing = false;
+            this._flushPromise = null;
+        });
+        return this._flushPromise;
     }
 
     destroy() {

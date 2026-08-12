@@ -13,6 +13,23 @@ const {
     shouldAwardArenaCache,
     tradeUpCards
 } = require('./card-catalog');
+const {
+    MATCH_XP,
+    PREMIUM_PASS_PRICE,
+    addXp: addBattlepassXp,
+    claim: claimBattlepassReward,
+    createProgress: createBattlepassProgress,
+    normalizeProgress: normalizeBattlepassProgress,
+    rollover: rolloverBattlepassProgress
+} = require('./battlepass-service');
+const {
+    DAILY_CHALLENGE_XP,
+    DAILY_ALL_COMPLETE_BONUS_XP,
+    advanceDailyState,
+    createDailyState,
+    normalizeDailyState,
+    publicDailyState
+} = require('./daily-challenge-service');
 
 const CATALOG = {
     character: {
@@ -41,7 +58,8 @@ const CATALOG = {
         pet_slime: 260, pet_dragon: 520, pet_drone: 420, pet_snowman: 300, pet_bee: 340, pet_axolotl: 460,
         shoes_blaze: 240, shoes_ice: 240, shoes_lightning: 340, shoes_cloud: 300, shoes_magma: 420, shoes_pixel: 380,
         aura_flame: 320, aura_frost: 340, aura_void: 520, aura_hearts: 360, aura_music: 420, aura_toxic: 460,
-        impact_confetti: 220, impact_ice: 260, impact_fire: 320, impact_pixels: 360, impact_stars: 400, impact_glitch: 480
+        impact_confetti: 220, impact_ice: 260, impact_fire: 320, impact_pixels: 360, impact_stars: 400, impact_glitch: 480,
+        finisher_explosion: 620
     }
 };
 
@@ -83,9 +101,119 @@ const FIRST_MATCH_OF_DAY_BONUS = 80;
 const LOGIN_STREAK_DAILY_COINS = 20;
 const LOGIN_STREAK_DAY7_COINS = 150;
 const LOGIN_STREAK_CYCLE = 7;
+const ONBOARDING_FLAGS = Object.freeze(['ftueSeen', 'ftueCompleted', 'ftueMatchHintsSeen']);
+const ONBOARDING_FLAG_SET = new Set(ONBOARDING_FLAGS);
+const BATTLEPASS_BOOST_ID_PATTERN = /^[A-Za-z0-9._:-]{1,96}$/;
+const BATTLEPASS_BOOST_REQUEST_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
+const BATTLEPASS_BOOST_RECEIPT_LIMIT = 24;
+const BATTLEPASS_BOOST_MAX_DURATION_MS = 24 * 60 * 60 * 1000;
+const RANKED_BASE_ELO = 1000;
+const RANKED_MIN_ELO = 0;
+const RANKED_MAX_ELO = 5000;
+const RANKED_NORMAL_K = 32;
+const RANKED_PLACEMENT_K = 48;
+const RANKED_MAX_MATCHES = 100;
+
+function clampRankedElo(value) {
+    const numeric = Number(value);
+    const rounded = Number.isFinite(numeric) ? Math.round(numeric) : RANKED_BASE_ELO;
+    return Math.min(RANKED_MAX_ELO, Math.max(RANKED_MIN_ELO, rounded));
+}
+
+function createServerRankedState(elo = RANKED_BASE_ELO) {
+    const initial = clampRankedElo(elo);
+    return {
+        elo: initial,
+        currentSeason: {
+            id: 'season-1', startedAt: 0, startingElo: initial,
+            placements: { required: 5, completed: 0, placed: false },
+            record: { games: 0, wins: 0, losses: 0, draws: 0, highestElo: initial, lowestElo: initial },
+            matches: []
+        },
+        pastSeasons: []
+    };
+}
+
+function normalizeRankedState(input) {
+    const fallback = createServerRankedState(input?.elo);
+    const season = input?.currentSeason && typeof input.currentSeason === 'object' ? input.currentSeason : {};
+    const placements = season.placements && typeof season.placements === 'object' ? season.placements : {};
+    const record = season.record && typeof season.record === 'object' ? season.record : {};
+    const elo = clampRankedElo(input?.elo);
+    const required = Math.min(10, Math.max(0, Math.floor(Number(placements.required) || 5)));
+    const completed = Math.min(required, Math.max(0, Math.floor(Number(placements.completed) || 0)));
+    return {
+        ...fallback,
+        elo,
+        currentSeason: {
+            ...fallback.currentSeason,
+            id: /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$/.test(String(season.id || '')) ? season.id : 'season-1',
+            startedAt: Math.max(0, Math.floor(Number(season.startedAt) || 0)),
+            startingElo: clampRankedElo(season.startingElo ?? elo),
+            placements: { required, completed, placed: completed >= required },
+            record: {
+                games: Math.max(0, Math.floor(Number(record.games) || 0)),
+                wins: Math.max(0, Math.floor(Number(record.wins) || 0)),
+                losses: Math.max(0, Math.floor(Number(record.losses) || 0)),
+                draws: Math.max(0, Math.floor(Number(record.draws) || 0)),
+                highestElo: clampRankedElo(record.highestElo ?? elo),
+                lowestElo: clampRankedElo(record.lowestElo ?? elo)
+            },
+            matches: Array.isArray(season.matches) ? season.matches.slice(-RANKED_MAX_MATCHES) : []
+        },
+        pastSeasons: Array.isArray(input?.pastSeasons) ? input.pastSeasons.slice(-8) : []
+    };
+}
+
+function applyServerRankedResult(state, { matchId, opponentElo, opponentProfileId = '', result, playedAt }) {
+    const current = normalizeRankedState(state);
+    if (!['win', 'loss', 'draw'].includes(result)) throw new TypeError('invalid ranked result');
+    const season = current.currentSeason;
+    if (season.matches.some(match => match.id === matchId)) throw new Error('matchId already recorded');
+    const placement = !season.placements.placed;
+    const score = result === 'win' ? 1 : result === 'draw' ? 0.5 : 0;
+    const expected = 1 / (1 + Math.pow(10, (clampRankedElo(opponentElo) - current.elo) / 400));
+    const maxDelta = placement ? RANKED_PLACEMENT_K : RANKED_NORMAL_K;
+    const nextElo = clampRankedElo(current.elo + Math.max(-maxDelta, Math.min(maxDelta, Math.round(maxDelta * (score - expected)))));
+    const completed = Math.min(season.placements.required, season.placements.completed + (placement ? 1 : 0));
+    const nextRecord = {
+        games: season.record.games + 1,
+        wins: season.record.wins + (result === 'win' ? 1 : 0),
+        losses: season.record.losses + (result === 'loss' ? 1 : 0),
+        draws: season.record.draws + (result === 'draw' ? 1 : 0),
+        highestElo: Math.max(season.record.highestElo, nextElo),
+        lowestElo: Math.min(season.record.lowestElo, nextElo)
+    };
+    return {
+        ...current,
+        elo: nextElo,
+        currentSeason: {
+            ...season,
+            placements: { ...season.placements, completed, placed: completed >= season.placements.required },
+            record: nextRecord,
+            matches: [...season.matches, {
+                id: matchId, playedAt, opponentElo: clampRankedElo(opponentElo), opponentProfileId: String(opponentProfileId).slice(0, 64), result, placement,
+                eloBefore: current.elo, eloAfter: nextElo, delta: nextElo - current.elo
+            }].slice(-RANKED_MAX_MATCHES)
+        }
+    };
+}
 
 function utcDateKey(ts = Date.now()) {
     return new Date(ts).toISOString().slice(0, 10);
+}
+
+function normalizeBattlepassActiveBoost(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)
+        || typeof value.boostId !== 'string' || !BATTLEPASS_BOOST_ID_PATTERN.test(value.boostId)) return null;
+    const multiplier = Number(value.multiplier);
+    const activatedAt = Math.floor(Number(value.activatedAt));
+    const expiresAt = Math.floor(Number(value.expiresAt));
+    if (!Number.isFinite(multiplier) || multiplier < 1.01 || multiplier > 3
+        || !Number.isFinite(activatedAt) || activatedAt < 0
+        || !Number.isFinite(expiresAt) || expiresAt <= activatedAt
+        || expiresAt - activatedAt > BATTLEPASS_BOOST_MAX_DURATION_MS) return null;
+    return { boostId: value.boostId, multiplier, activatedAt, expiresAt };
 }
 
 function defaults(id, name) {
@@ -113,6 +241,13 @@ function defaults(id, name) {
         cardCollection: { ...DEFAULT_CARD_COLLECTION },
         equippedCards: { ...DEFAULT_CARD_LOADOUT },
         arenaCache: { earned: 0, opened: 0, lastMatchId: '' },
+        battlepass: createBattlepassProgress(),
+        battlepassBoosts: {},
+        battlepassActiveBoost: null,
+        battlepassBoostReceipts: [],
+        dailyChallenges: createDailyState(),
+        rankedState: createServerRankedState(),
+        soloRewards: { day: '', count: 0, matchIds: [] },
         cardRewardReceipts: [],
         cardTradeReceipts: [],
         rewardedMatches: [],
@@ -121,6 +256,7 @@ function defaults(id, name) {
         adRewards: { day: '', count: 0, lastAt: 0, receipts: [] },
         lastFirstMatchDay: '',
         dailyStreak: { count: 0, lastClaimDay: '', receipts: [] },
+        onboarding: { ftueSeen: false, ftueCompleted: false, ftueMatchHintsSeen: false },
         economyRevision: 0,
         createdAt: Date.now(),
         updatedAt: Date.now()
@@ -178,6 +314,32 @@ class ProfileStore {
                 lastMatchId: typeof record.arenaCache.lastMatchId === 'string' ? record.arenaCache.lastMatchId.slice(0, 64) : ''
             }
             : { earned: 0, opened: 0, lastMatchId: '' };
+        normalized.battlepass = normalizeBattlepassProgress(record.battlepass);
+        normalized.dailyChallenges = normalizeDailyState(record.dailyChallenges);
+        normalized.battlepassBoosts = record.battlepassBoosts && typeof record.battlepassBoosts === 'object' && !Array.isArray(record.battlepassBoosts)
+            ? Object.fromEntries(Object.entries(record.battlepassBoosts)
+                .filter(([id, boost]) => /^[A-Za-z0-9._:-]{1,96}$/.test(id) && boost && typeof boost === 'object')
+                .map(([id, boost]) => [id, {
+                    boostId: id,
+                    quantity: Math.max(0, Math.min(99, Math.floor(Number(boost.quantity) || 0))),
+                    multiplier: Math.min(3, Math.max(1.01, Number(boost.multiplier) || 1.25)),
+                    durationMs: Math.max(1, Math.min(24 * 60 * 60 * 1000, Math.floor(Number(boost.durationMs) || 20 * 60 * 1000)))
+                }])
+                .filter(([, boost]) => boost.quantity > 0))
+            : {};
+        normalized.battlepassActiveBoost = normalizeBattlepassActiveBoost(record.battlepassActiveBoost);
+        normalized.battlepassBoostReceipts = Array.isArray(record.battlepassBoostReceipts)
+            ? record.battlepassBoostReceipts.filter(receipt => receipt && typeof receipt === 'object'
+                && typeof receipt.requestId === 'string' && BATTLEPASS_BOOST_REQUEST_ID_PATTERN.test(receipt.requestId)
+                && typeof receipt.boostId === 'string' && BATTLEPASS_BOOST_ID_PATTERN.test(receipt.boostId)
+                && normalizeBattlepassActiveBoost(receipt.activeBoost)?.boostId === receipt.boostId)
+                .map(receipt => ({
+                    requestId: receipt.requestId,
+                    boostId: receipt.boostId,
+                    activeBoost: normalizeBattlepassActiveBoost(receipt.activeBoost)
+                }))
+                .slice(-BATTLEPASS_BOOST_RECEIPT_LIMIT)
+            : [];
         normalized.cardRewardReceipts = Array.isArray(record.cardRewardReceipts)
             ? record.cardRewardReceipts.filter(item => item && typeof item.matchId === 'string').slice(-50)
             : [];
@@ -200,6 +362,16 @@ class ProfileStore {
                 receipts: Array.isArray(normalized.dailyStreak.receipts) ? normalized.dailyStreak.receipts.slice(-20) : []
             }
             : { count: 0, lastClaimDay: '', receipts: [] };
+        const savedOnboarding = record.onboarding && typeof record.onboarding === 'object' && !Array.isArray(record.onboarding)
+            ? record.onboarding : {};
+        normalized.onboarding = Object.fromEntries(ONBOARDING_FLAGS.map(flag => [flag,
+            savedOnboarding[flag] === true || record[flag] === true
+        ]));
+        for (const flag of ONBOARDING_FLAGS) delete normalized[flag];
+        normalized.rankedState = normalizeRankedState(record.rankedState);
+        normalized.soloRewards = record.soloRewards && typeof record.soloRewards === 'object'
+            ? { day: typeof record.soloRewards.day === 'string' ? record.soloRewards.day : '', count: Math.max(0, Math.min(3, Math.floor(Number(record.soloRewards.count) || 0))), matchIds: Array.isArray(record.soloRewards.matchIds) ? record.soloRewards.matchIds.filter(id => typeof id === 'string').slice(-3) : [] }
+            : { day: '', count: 0, matchIds: [] };
         normalized.equippedWearables = normalizeEquippedCosmetics(
             normalized.equippedWearables,
             normalized.ownedCosmetics,
@@ -230,9 +402,237 @@ class ProfileStore {
             : 0;
         return { remaining: Math.max(0, AD_REWARD_DAILY_CAP - count), cap: AD_REWARD_DAILY_CAP, cooldownRemainingMs };
     }
-    _public(record) {
-        const { tokenHash, rewardedMatches, purchaseReceipts, premiumTransactions, caseReceipts, cardRewardReceipts, cardTradeReceipts, adRewards, dailyStreak, ...profile } = record;
-        return { ...profile, adRewards: this._adRewardStatus(record), dailyStreak: this._dailyStreakStatus(record) };
+    _public(record, now = Date.now()) {
+        if (this._rolloverBattlepass(record, now)) this._save();
+        if (this._ensureDailyChallenges(record, now)) this._save();
+        const { tokenHash, rewardedMatches, purchaseReceipts, premiumTransactions, caseReceipts, cardRewardReceipts, cardTradeReceipts, battlepassBoostReceipts, adRewards, dailyStreak, soloRewards, dailyChallenges, ...profile } = record;
+        const activeBoost = normalizeBattlepassActiveBoost(record.battlepassActiveBoost);
+        return {
+            ...profile,
+            battlepassActiveBoost: activeBoost && activeBoost.expiresAt > now ? activeBoost : null,
+            dailyChallenges: publicDailyState(record.dailyChallenges),
+            adRewards: this._adRewardStatus(record, now),
+            dailyStreak: this._dailyStreakStatus(record, now)
+        };
+    }
+
+    _ensureDailyChallenges(record, now = Date.now()) {
+        const next = normalizeDailyState(record.dailyChallenges, now);
+        const changed = JSON.stringify(record.dailyChallenges) !== JSON.stringify(next);
+        if (changed) record.dailyChallenges = next;
+        return changed;
+    }
+
+    _advanceDailyChallenges(record, match, now = Date.now()) {
+        this._ensureDailyChallenges(record, now);
+        const result = advanceDailyState(record.dailyChallenges, { won: match?.won === true });
+        record.dailyChallenges = result.state;
+        return result;
+    }
+
+    claimDailyChallenge(record, challengeId, requestId, now = Date.now()) {
+        if (!record || typeof challengeId !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(challengeId)
+            || typeof requestId !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/.test(requestId)) {
+            return { status: 400, error: 'invalid daily challenge claim' };
+        }
+        const rolled = this._ensureDailyChallenges(record, now);
+        const state = record.dailyChallenges;
+        const requestReceipt = state.claimReceipts.find(item => item.requestId === requestId);
+        if (requestReceipt) {
+            if (requestReceipt.challengeId !== challengeId) {
+                if (rolled) { record.updatedAt = now; this._save(); }
+                return { status: 409, error: 'idempotency key already used for another daily challenge' };
+            }
+            if (rolled) { record.updatedAt = now; this._save(); }
+            return { status: 200, replayed: true, coins: requestReceipt.coins, xpGranted: requestReceipt.xpGranted, profile: this._public(record) };
+        }
+        const challengeReceipt = state.claimReceipts.find(item => item.challengeId === challengeId);
+        if (challengeReceipt) {
+            if (rolled) { record.updatedAt = now; this._save(); }
+            return { status: 200, replayed: true, coins: challengeReceipt.coins, xpGranted: challengeReceipt.xpGranted, profile: this._public(record) };
+        }
+        const challenge = state.challenges.find(item => item.id === challengeId);
+        if (!challenge) {
+            if (rolled) { record.updatedAt = now; this._save(); }
+            return { status: 404, error: 'daily challenge unavailable' };
+        }
+        if (challenge.progress < challenge.target) {
+            if (rolled) { record.updatedAt = now; this._save(); }
+            return { status: 409, error: 'daily challenge not complete' };
+        }
+        if (challenge.claimed) {
+            if (rolled) { record.updatedAt = now; this._save(); }
+            return { status: 409, error: 'daily challenge already claimed' };
+        }
+        const challenges = state.challenges.map(item => item.id === challengeId ? { ...item, claimed: true } : item);
+        const allClaimed = challenges.length > 0 && challenges.every(item => item.claimed);
+        const completionBonus = allClaimed && state.bonusGranted !== true;
+        const xpGranted = DAILY_CHALLENGE_XP + (completionBonus ? DAILY_ALL_COMPLETE_BONUS_XP : 0);
+        const currentCurrency = Math.min(10000, Math.max(0, Number(record.currency) || 0));
+        const coins = Math.min(challenge.reward, Math.max(0, 10000 - currentCurrency));
+        record.currency = currentCurrency + coins;
+        this._rolloverBattlepass(record, now);
+        record.battlepass = addBattlepassXp(record.battlepass, xpGranted);
+        record.dailyChallenges = {
+            ...state,
+            challenges,
+            bonusGranted: state.bonusGranted === true || completionBonus,
+            claimReceipts: [...state.claimReceipts, { requestId, challengeId, coins, xpGranted }].slice(-24)
+        };
+        record.economyRevision = Math.max(0, Number(record.economyRevision) || 0) + 1;
+        record.updatedAt = now;
+        this._save();
+        return { status: 200, replayed: false, coins, xpGranted, profile: this._public(record) };
+    }
+
+    // Server time, never browser time, defines the season boundary. This is
+    // intentionally called before every public read/mutation so an account
+    // cannot keep a past season alive by changing localStorage or its clock.
+    _rolloverBattlepass(record, now = Date.now()) {
+        const normalized = normalizeBattlepassProgress(record.battlepass, now);
+        const { progress, changed } = rolloverBattlepassProgress(normalized, now);
+        const differs = JSON.stringify(record.battlepass) !== JSON.stringify(progress);
+        if (differs) record.battlepass = progress;
+        return changed || differs;
+    }
+
+    _grantBattlepassReward(record, reward) {
+        if (!reward || typeof reward !== 'object') return false;
+        if (reward.kind === 'currency' && Number.isFinite(reward.amount) && reward.amount > 0) {
+            record.currency = Math.min(10000, Math.max(0, Number(record.currency) || 0) + Math.floor(reward.amount));
+            return true;
+        }
+        if (reward.kind === 'ball' && typeof reward.id === 'string' && CATALOG.ball[reward.id] !== undefined) {
+            if (!record.ownedBalls.includes(reward.id)) record.ownedBalls.push(reward.id);
+            return true;
+        }
+        if (reward.kind === 'cosmetic' && typeof reward.id === 'string' && CATALOG.cosmetic[reward.id] !== undefined) {
+            if (!record.ownedCosmetics.includes(reward.id)) record.ownedCosmetics.push(reward.id);
+            return true;
+        }
+        if (reward.kind === 'xpboost' && Number.isFinite(reward.multiplier) && Number.isFinite(reward.durationMs)) {
+            const boostId = `bp-${record.battlepass.seasonId}-${reward.tier}`;
+            const existing = record.battlepassBoosts?.[boostId];
+            record.battlepassBoosts = {
+                ...(record.battlepassBoosts || {}),
+                [boostId]: {
+                    boostId,
+                    quantity: Math.min(99, Math.max(0, Number(existing?.quantity) || 0) + 1),
+                    multiplier: reward.multiplier,
+                    durationMs: reward.durationMs
+                }
+            };
+            return true;
+        }
+        return false;
+    }
+
+    claimBattlepass(record, tier, track, now = Date.now()) {
+        const rolled = this._rolloverBattlepass(record, now);
+        const result = claimBattlepassReward(record.battlepass, Number(tier), track, CATALOG);
+        if (result.error) {
+            if (rolled) { record.updatedAt = now; this._save(); }
+            return { status: 409, error: result.error };
+        }
+        if (result.replayed) return { status: 200, replayed: true, reward: result.reward, profile: this._public(record) };
+        if (!this._grantBattlepassReward(record, result.reward)) return { status: 409, error: 'battle pass reward unavailable' };
+        record.battlepass = result.progress;
+        record.economyRevision = Math.max(0, Number(record.economyRevision) || 0) + 1;
+        record.updatedAt = now;
+        this._save();
+        return { status: 200, replayed: false, reward: result.reward, profile: this._public(record) };
+    }
+
+    activateBattlepassBoost(record, boostId, requestId, now = Date.now()) {
+        if (!record || typeof boostId !== 'string' || !BATTLEPASS_BOOST_ID_PATTERN.test(boostId)
+            || typeof requestId !== 'string' || !BATTLEPASS_BOOST_REQUEST_ID_PATTERN.test(requestId)) {
+            return { status: 400, error: 'invalid battle pass boost activation' };
+        }
+        const serverNow = Number.isFinite(Number(now)) ? Math.max(0, Math.floor(Number(now))) : Date.now();
+        record.battlepassBoostReceipts = Array.isArray(record.battlepassBoostReceipts)
+            ? record.battlepassBoostReceipts : [];
+        const prior = record.battlepassBoostReceipts.find(receipt => receipt.requestId === requestId);
+        if (prior) {
+            if (prior.boostId !== boostId) return { status: 409, error: 'idempotency key already used' };
+            return {
+                status: 200,
+                replayed: true,
+                activeBoost: normalizeBattlepassActiveBoost(prior.activeBoost),
+                profile: this._public(record, serverNow)
+            };
+        }
+
+        const currentActive = normalizeBattlepassActiveBoost(record.battlepassActiveBoost);
+        if (currentActive && currentActive.expiresAt > serverNow) {
+            return { status: 409, error: 'a battle pass XP boost is already active' };
+        }
+        if (record.battlepassActiveBoost) record.battlepassActiveBoost = null;
+
+        const inventoryBoost = record.battlepassBoosts?.[boostId];
+        const quantity = Math.max(0, Math.min(99, Math.floor(Number(inventoryBoost?.quantity) || 0)));
+        const multiplier = Number(inventoryBoost?.multiplier);
+        const durationMs = Math.floor(Number(inventoryBoost?.durationMs));
+        if (!inventoryBoost || quantity < 1 || !Number.isFinite(multiplier) || multiplier < 1.01 || multiplier > 3
+            || !Number.isFinite(durationMs) || durationMs < 1 || durationMs > BATTLEPASS_BOOST_MAX_DURATION_MS) {
+            return { status: 409, error: 'battle pass boost unavailable' };
+        }
+
+        const activeBoost = {
+            boostId,
+            multiplier,
+            activatedAt: serverNow,
+            expiresAt: serverNow + durationMs
+        };
+        const nextInventory = { ...(record.battlepassBoosts || {}) };
+        if (quantity === 1) delete nextInventory[boostId];
+        else nextInventory[boostId] = { ...inventoryBoost, boostId, quantity: quantity - 1, multiplier, durationMs };
+        record.battlepassBoosts = nextInventory;
+        record.battlepassActiveBoost = activeBoost;
+        record.battlepassBoostReceipts.push({ requestId, boostId, activeBoost: { ...activeBoost } });
+        record.battlepassBoostReceipts = record.battlepassBoostReceipts.slice(-BATTLEPASS_BOOST_RECEIPT_LIMIT);
+        record.economyRevision = Math.max(0, Number(record.economyRevision) || 0) + 1;
+        record.updatedAt = serverNow;
+        this._save();
+        return { status: 200, replayed: false, activeBoost, profile: this._public(record, serverNow) };
+    }
+
+    unlockPremiumBattlepass(record, now = Date.now()) {
+        const rolled = this._rolloverBattlepass(record, now);
+        if (record.battlepass.premium) return { status: 200, replayed: true, profile: this._public(record) };
+        if (Math.max(0, Number(record.currency) || 0) < PREMIUM_PASS_PRICE) {
+            if (rolled) { record.updatedAt = now; this._save(); }
+            return { status: 409, error: 'not enough coins for premium battle pass' };
+        }
+        record.currency -= PREMIUM_PASS_PRICE;
+        record.battlepass = { ...record.battlepass, premium: true };
+        record.economyRevision = Math.max(0, Number(record.economyRevision) || 0) + 1;
+        record.updatedAt = now;
+        this._save();
+        return { status: 200, replayed: false, profile: this._public(record) };
+    }
+
+    advanceOnboarding(record, input) {
+        if (!record || !input || typeof input !== 'object' || Array.isArray(input)) {
+            return { status: 400, error: 'invalid onboarding update' };
+        }
+        const entries = Object.entries(input);
+        if (!entries.length || entries.some(([flag, value]) => !ONBOARDING_FLAG_SET.has(flag) || value !== true)) {
+            return { status: 400, error: 'invalid onboarding update' };
+        }
+        record.onboarding = record.onboarding && typeof record.onboarding === 'object'
+            ? record.onboarding : { ftueSeen: false, ftueCompleted: false, ftueMatchHintsSeen: false };
+        let updated = false;
+        for (const [flag] of entries) {
+            if (record.onboarding[flag] !== true) {
+                record.onboarding[flag] = true;
+                updated = true;
+            }
+        }
+        if (updated) {
+            record.updatedAt = Date.now();
+            this._save();
+        }
+        return { status: 200, updated, onboarding: { ...record.onboarding }, profile: this._public(record) };
     }
 
     // Fresh public view of the login streak — drops the idempotency receipts
@@ -379,6 +779,54 @@ class ProfileStore {
         return { status: 200, profile: this._public(record), result, replayed: false };
     }
 
+    // Both rank states are calculated before either record is assigned, then
+    // persisted in one write. Only MatchAuthority may call this method; it
+    // deliberately receives no browser-supplied opponent rating.
+    finalizeRankedMatch(first, second, { matchId, firstResult, secondResult, playedAt = Date.now() } = {}) {
+        if (!first || !second || first.id === second.id) throw new TypeError('two distinct profiles required');
+        if (typeof matchId !== 'string' || !/^[A-Za-z0-9_-]{22,128}$/.test(matchId)) throw new TypeError('invalid ranked matchId');
+        const firstNext = applyServerRankedResult(first.rankedState, {
+            matchId, opponentElo: second.rankedState?.elo, opponentProfileId: second.id, result: firstResult, playedAt
+        });
+        const secondNext = applyServerRankedResult(second.rankedState, {
+            matchId, opponentElo: first.rankedState?.elo, opponentProfileId: first.id, result: secondResult, playedAt
+        });
+        first.rankedState = firstNext;
+        second.rankedState = secondNext;
+        first.updatedAt = playedAt;
+        second.updatedAt = playedAt;
+        this._save();
+        return { [first.id]: firstNext, [second.id]: secondNext };
+    }
+
+    canRewardSolo(record, now = Date.now()) {
+        const state = record?.soloRewards || {};
+        return state.day !== utcDateKey(now) || Math.max(0, Number(state.count) || 0) < 3;
+    }
+
+    hasRewardedMatch(record, matchId) { return Array.isArray(record?.rewardedMatches) && record.rewardedMatches.includes(matchId); }
+
+    claimSoloReward(record, matchId, now = Date.now()) {
+        const day = utcDateKey(now);
+        const state = record.soloRewards && typeof record.soloRewards === 'object' ? record.soloRewards : { day: '', count: 0, matchIds: [] };
+        if (state.day === day && Array.isArray(state.matchIds) && state.matchIds.includes(matchId)) return true;
+        const count = state.day === day ? Math.max(0, Number(state.count) || 0) : 0;
+        if (count >= 3) return false;
+        record.soloRewards = { day, count: count + 1, matchIds: [...(state.day === day && Array.isArray(state.matchIds) ? state.matchIds : []), matchId].slice(-3) };
+        this._save();
+        return true;
+    }
+
+    canStartRankedPair(profileIds, now = Date.now()) {
+        if (!Array.isArray(profileIds) || profileIds.length !== 2 || profileIds[0] === profileIds[1]) return false;
+        const dayStart = new Date(utcDateKey(now)).getTime();
+        return profileIds.every((id, index) => {
+            const record = this.getById(id);
+            const opponentProfileId = profileIds[1 - index];
+            return (record?.rankedState?.currentSeason?.matches || []).filter(match => match?.opponentProfileId === opponentProfileId && Number(match.playedAt) >= dayStart).length < 3;
+        });
+    }
+
     reward(record, match, now = Date.now()) {
         const matchId = typeof match?.matchId === 'string' ? match.matchId.slice(0, 64) : '';
         if (!matchId) return { status: 400, error: 'matchId required' };
@@ -392,6 +840,9 @@ class ProfileStore {
                 base: 0,
                 bonus: 0,
                 firstOfDay: 0,
+                battlepassXp: 0,
+                battlepassBoostMultiplier: 1,
+                dailyProgress: null,
                 cardReward: previousCardReward?.reward || null,
                 earnedCase: previousCardReward?.earnedCase || null,
                 earnedCaseSource: previousCardReward?.earnedCaseSource || null,
@@ -410,6 +861,18 @@ class ProfileStore {
         const firstOfDayBonus = firstOfDay ? FIRST_MATCH_OF_DAY_BONUS : 0;
         if (firstOfDay) record.lastFirstMatchDay = today;
         record.currency += coins + firstOfDayBonus;
+        // MatchAuthority only reaches here after a bounded, coherent result.
+        // Do not use browser score/deflect input for Battle Pass XP.
+        this._rolloverBattlepass(record, now);
+        const baseBattlepassXp = match.won === true ? MATCH_XP.win : MATCH_XP.loss;
+        const activeBoost = normalizeBattlepassActiveBoost(record.battlepassActiveBoost);
+        const battlepassBoostMultiplier = activeBoost && activeBoost.expiresAt > now ? activeBoost.multiplier : 1;
+        if (record.battlepassActiveBoost && battlepassBoostMultiplier === 1) record.battlepassActiveBoost = null;
+        const battlepassXp = Math.floor(baseBattlepassXp * battlepassBoostMultiplier);
+        record.battlepass = addBattlepassXp(record.battlepass, battlepassXp);
+        // Daily tasks only consume MatchAuthority-settled result facts. The
+        // replay guard above makes this exactly-once even when clients retry.
+        const dailyProgress = this._advanceDailyChallenges(record, { won: match.won === true }, now);
         record.economyRevision = Math.max(0, Number(record.economyRevision) || 0) + 1;
         record.rewardedMatches.push(matchId);
         record.rewardedMatches = record.rewardedMatches.slice(-50);
@@ -440,7 +903,7 @@ class ProfileStore {
         record.cardRewardReceipts = record.cardRewardReceipts.slice(-50);
         record.updatedAt = now;
         this._save();
-        return { status: 200, replayed: false, coins, base, bonus, firstOfDay: firstOfDayBonus, cardReward, earnedCase, earnedCaseSource, profile: this._public(record) };
+        return { status: 200, replayed: false, coins, base, bonus, firstOfDay: firstOfDayBonus, battlepassXp, battlepassBoostMultiplier, dailyProgress, cardReward, earnedCase, earnedCaseSource, profile: this._public(record, now) };
     }
 
     equipCard(record, cardId, slot) {
@@ -619,4 +1082,4 @@ class ProfileStore {
     }
 }
 
-module.exports = { CATALOG, ProfileStore };
+module.exports = { CATALOG, ONBOARDING_FLAGS, ProfileStore };

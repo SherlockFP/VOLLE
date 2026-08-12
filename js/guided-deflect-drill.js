@@ -1,6 +1,7 @@
 export const GUIDED_DRILL_COUNTDOWN_MS = 3000;
 export const GUIDED_DRILL_TRANSITION_MS = 2000;
 export const GUIDED_DRILL_TOTAL_MS = 73000;
+export const GUIDED_DRILL_FIRST_RUN_TOTAL_MS = 40000;
 export const GUIDED_DRILL_LANES = Object.freeze([0, -1, 1, 1, -1, 0]);
 
 export const GUIDED_DRILL_STAGES = Object.freeze([
@@ -10,7 +11,8 @@ export const GUIDED_DRILL_STAGES = Object.freeze([
         durationMs: 20000,
         speedStart: 0.7,
         speedEnd: 0.9,
-        instruction: 'Read the serve and make clean contact.'
+        instruction: 'Read the serve and make clean contact.',
+        pass: Object.freeze({ minHits: 5, minHitRate: 0.65 })
     }),
     Object.freeze({
         id: 'direction',
@@ -18,7 +20,8 @@ export const GUIDED_DRILL_STAGES = Object.freeze([
         durationMs: 22000,
         speedStart: 0.9,
         speedEnd: 1.1,
-        instruction: 'Aim the return through the marked gate.'
+        instruction: 'Aim the return through the marked gate.',
+        pass: Object.freeze({ minDirected: 4 })
     }),
     Object.freeze({
         id: 'timing',
@@ -26,9 +29,49 @@ export const GUIDED_DRILL_STAGES = Object.freeze([
         durationMs: 24000,
         speedStart: 1.1,
         speedEnd: 1.3,
-        instruction: 'Contact inside the perfect timing window.'
+        instruction: 'Contact inside the perfect timing window.',
+        pass: Object.freeze({ minPerfect: 3 })
     })
 ]);
+
+const FIRST_RUN_DRILL_STAGES = Object.freeze([
+    Object.freeze({
+        ...GUIDED_DRILL_STAGES[0],
+        durationMs: 11000,
+        pass: Object.freeze({ minHits: 3, minHitRate: 0.6 })
+    }),
+    Object.freeze({
+        ...GUIDED_DRILL_STAGES[1],
+        durationMs: 12000,
+        pass: Object.freeze({ minDirected: 2 })
+    }),
+    Object.freeze({
+        ...GUIDED_DRILL_STAGES[2],
+        durationMs: 13000,
+        pass: Object.freeze({ minPerfect: 2 })
+    })
+]);
+
+export const GUIDED_DRILL_PROFILES = Object.freeze({
+    full: Object.freeze({
+        id: 'full',
+        countdownMs: GUIDED_DRILL_COUNTDOWN_MS,
+        transitionMs: GUIDED_DRILL_TRANSITION_MS,
+        totalMs: GUIDED_DRILL_TOTAL_MS,
+        stages: GUIDED_DRILL_STAGES
+    }),
+    first_run: Object.freeze({
+        id: 'first_run',
+        countdownMs: 2000,
+        transitionMs: 1000,
+        totalMs: GUIDED_DRILL_FIRST_RUN_TOTAL_MS,
+        stages: FIRST_RUN_DRILL_STAGES
+    })
+});
+
+function resolveProfile(profileId) {
+    return GUIDED_DRILL_PROFILES[profileId] || GUIDED_DRILL_PROFILES.full;
+}
 
 const TIER_POINTS = Object.freeze({
     perfect: 1,
@@ -63,6 +106,7 @@ function freezeSnapshot(value) {
 
 export class GuidedDeflectDrill {
     constructor() {
+        this.profile = GUIDED_DRILL_PROFILES.full;
         this.reset();
     }
 
@@ -81,10 +125,11 @@ export class GuidedDeflectDrill {
         this.nextServeInMs = 0;
         this.currentLane = 0;
         this.laneIndex = 0;
-        this.stages = GUIDED_DRILL_STAGES.map(freshStats);
+        this.stages = this.profile.stages.map(freshStats);
     }
 
-    arm() {
+    arm({ profile = 'full' } = {}) {
+        this.profile = resolveProfile(profile);
         this.reset();
         this.phase = 'armed';
         return this.snapshot();
@@ -180,9 +225,9 @@ export class GuidedDeflectDrill {
     }
 
     _phaseDuration() {
-        if (this.phase === 'countdown') return GUIDED_DRILL_COUNTDOWN_MS;
-        if (this.phase === 'transition') return GUIDED_DRILL_TRANSITION_MS;
-        if (this.phase === 'stage') return GUIDED_DRILL_STAGES[this.stageIndex].durationMs;
+        if (this.phase === 'countdown') return this.profile.countdownMs;
+        if (this.phase === 'transition') return this.profile.transitionMs;
+        if (this.phase === 'stage') return this.profile.stages[this.stageIndex].durationMs;
         return 0;
     }
 
@@ -200,7 +245,7 @@ export class GuidedDeflectDrill {
         if (this.phase === 'stage') {
             if (this.openAttemptId !== null) this._recordAttempt(false, 'miss', null);
             this.phaseElapsedMs = 0;
-            if (this.stageIndex === GUIDED_DRILL_STAGES.length - 1) {
+            if (this.stageIndex === this.profile.stages.length - 1) {
                 this.phase = 'complete';
             } else {
                 this.phase = 'transition';
@@ -232,17 +277,18 @@ export class GuidedDeflectDrill {
         this.nextServeInMs = 600;
     }
 
-    _stageResult(stats) {
+    _stageResult(stats, stageIndex = this.stages.indexOf(stats)) {
         const attempts = Math.max(1, stats.attempts);
         const hitRate = stats.hits / attempts;
         let score = hitRate * 100;
-        let passed = stats.hits >= 5 && hitRate >= 0.65;
+        const pass = this.profile.stages[stageIndex]?.pass || {};
+        let passed = stats.hits >= (pass.minHits || 0) && hitRate >= (pass.minHitRate || 0);
         if (stats.id === 'direction') {
             score = hitRate * 40 + stats.directed / attempts * 60;
-            passed = stats.directed >= 4;
+            passed = stats.directed >= (pass.minDirected || 0);
         } else if (stats.id === 'timing') {
             score = stats.timingPoints / attempts * 100;
-            passed = stats.perfect >= 3;
+            passed = stats.perfect >= (pass.minPerfect || 0);
         }
         return Object.freeze({
             ...stats,
@@ -252,7 +298,7 @@ export class GuidedDeflectDrill {
     }
 
     result() {
-        const stages = this.stages.map(stats => this._stageResult(stats));
+        const stages = this.stages.map((stats, index) => this._stageResult(stats, index));
         const score = Math.round(
             stages[0].score * 0.3
             + stages[1].score * 0.35
@@ -272,9 +318,9 @@ export class GuidedDeflectDrill {
     }
 
     snapshot() {
-        const stage = GUIDED_DRILL_STAGES[this.stageIndex] || GUIDED_DRILL_STAGES.at(-1);
+        const stage = this.profile.stages[this.stageIndex] || this.profile.stages.at(-1);
         const nextStage = this.phase === 'transition'
-            ? GUIDED_DRILL_STAGES[this.stageIndex + 1] || null
+            ? this.profile.stages[this.stageIndex + 1] || null
             : null;
         const progress = this.phase === 'stage'
             ? clamp(this.phaseElapsedMs / stage.durationMs, 0, 1)
@@ -287,14 +333,16 @@ export class GuidedDeflectDrill {
             phase: this.phase,
             active: this.active,
             complete: this.phase === 'complete',
+            profileId: this.profile.id,
             stageIndex: this.stageIndex,
-            stageCount: GUIDED_DRILL_STAGES.length,
+            stageCount: this.profile.stages.length,
             stage: Object.freeze({ ...stage }),
             nextStage: nextStage ? Object.freeze({ ...nextStage }) : null,
             phaseElapsedMs: this.phaseElapsedMs,
             phaseRemainingMs: Math.max(0, this._phaseDuration() - this.phaseElapsedMs),
             runElapsedMs: this.runElapsedMs,
-            totalRemainingMs: Math.max(0, GUIDED_DRILL_TOTAL_MS - this.runElapsedMs),
+            totalMs: this.profile.totalMs,
+            totalRemainingMs: Math.max(0, this.profile.totalMs - this.runElapsedMs),
             speedMultiplier,
             openAttemptId: this.openAttemptId,
             needsServe: this.phase === 'stage'

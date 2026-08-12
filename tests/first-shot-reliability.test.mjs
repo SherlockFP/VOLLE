@@ -37,15 +37,11 @@ test('a bot that has chosen its deflect holds position through the telegraph', (
     assert.equal(shouldHoldDeflectPosition(false, false), false);
 });
 
-test('the bot movement path gates dodge, intercept, drift, and strafe with the hold invariant', () => {
-    const guardedMoves = [
-        /!holdingDeflectPosition && isTargeted && speed > 8/,
-        /!holdingDeflectPosition && isTargeted && interceptDist > 2\.5/,
-        /!holdingDeflectPosition && !isTargeted && ballDist < 8/,
-        /!holdingDeflectPosition && ballDist > 1\.5/
-    ];
-    for (const pattern of guardedMoves) assert.match(botSource, pattern);
-    assert.match(botSource, /const holdingDeflectPosition = isTargeted && shouldHoldDeflectPosition/);
+test('the bot movement path gives active defense intent one exclusive branch', () => {
+    assert.match(botSource, /if \(defenseIntent === 'dodge-left' \|\| defenseIntent === 'dodge-right'\) \{/);
+    assert.match(botSource, /\} else if \(defenseIntent !== 'deflect'\) \{/);
+    assert.match(botSource, /this\._defenseIntent = 'deflect';/);
+    assert.match(botSource, /this\._defenseIntent = this\._defenseDodgeSign < 0 \? 'dodge-left' : 'dodge-right';/);
 });
 
 test('the bot commits before reaction timing so the hold spans reaction and wind-up', () => {

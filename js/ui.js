@@ -71,6 +71,7 @@ export class UI {
             hud: document.getElementById('hud'),
             scoreboardOverlay: document.getElementById('scoreboard-overlay'),
             gameOver: document.getElementById('game-over-screen'),
+            postGame: document.getElementById('post-game-screen'),
             joinMenu: document.getElementById('join-menu'),
             multiplayerMenu: document.getElementById('multiplayer-menu'),
             practiceMenu: document.getElementById('practice-menu-screen'),
@@ -293,9 +294,10 @@ export class UI {
         value.textContent = Math.round(safeSpeed);
         label.textContent = state;
         root.classList.toggle('hidden', safeSpeed < 4 && state === 'MOVE');
-        root.classList.toggle('boost', safeSpeed >= 11 || state === 'BHOP');
+        root.classList.toggle('boost', safeSpeed >= 11 || state === 'BHOP' || state === 'DASH');
         root.classList.toggle('bhop', state === 'BHOP');
         root.classList.toggle('longjump', state === 'LONGJUMP');
+        root.classList.toggle('dash', state === 'DASH');
     }
 
     updateMovementTrialHUD(state) {
@@ -531,14 +533,21 @@ export class UI {
             if (num > 1) {
                 this.showCountdown(num - 1, callback, token);
             } else {
-                el.textContent = 'GO!';
-                setTimeout(() => {
-                    if (token !== this._countdownToken) return;
-                    el.classList.add('hidden');
-                    if (callback) callback();
-                }, 500);
+                // Gameplay starts on GO; the short visual hold remains presentation-only.
+                if (callback) callback();
+                this.showCountdownGo(token);
             }
         }, 1000);
+    }
+
+    showCountdownGo(token = ++this._countdownToken) {
+        const el = document.getElementById('countdown');
+        if (!el || token !== this._countdownToken) return;
+        el.classList.remove('hidden', 'countdown-anim');
+        el.textContent = 'GO!';
+        setTimeout(() => {
+            if (token === this._countdownToken) el.classList.add('hidden');
+        }, 500);
     }
 
     cancelCountdown() {
@@ -563,13 +572,22 @@ export class UI {
         const mapEl = document.getElementById('mi-map-name');
         const modeEl = document.getElementById('mi-mode-name');
         if (mapEl) mapEl.textContent = mapName;
-        if (modeEl) modeEl.textContent = modeName;
+        // This card is only shown while the non-lethal countdown ball is active.
+        // Name that state explicitly so a targeted warmup ball is never read as a
+        // live round threat.
+        if (modeEl) modeEl.textContent = `WARMUP · ${modeName || 'Classic'}`;
         el.classList.remove('hidden');
         el.style.animation = 'none';
         void el.offsetHeight;
         el.style.animation = '';
     }
+    scheduleMatchIntroHide(durationMs) {
+        clearTimeout(this._matchIntroHideTimer);
+        this._matchIntroHideTimer = setTimeout(() => this.hideMatchIntro(), durationMs);
+    }
     hideMatchIntro() {
+        clearTimeout(this._matchIntroHideTimer);
+        this._matchIntroHideTimer = null;
         const el = document.getElementById('match-intro');
         if (el) el.classList.add('hidden');
     }
@@ -656,6 +674,7 @@ export class UI {
             el.classList.add('hidden');
             window._postGameAction?.('main_menu');
         };
+        playAgain?.focus?.({ preventScroll: true });
     }
 
     // Post-match "next reward" hook (NEXT_SESSION_PLAN.md #4.5): honest battlepass
@@ -2190,7 +2209,9 @@ export class UI {
     updateContractTracker(daily, store) {
         const tracker = document.getElementById('contract-tracker');
         if (!tracker) return;
-        const dailies = daily?.getChallenges?.() || [];
+        // Authenticated objectives must mirror the server-owned UTC catalog;
+        // guests retain the existing deterministic local Daily fallback.
+        const dailies = store?.getDailyChallenges?.() || daily?.getChallenges?.() || [];
         const contracts = store?.getSeasonContracts?.() || [];
         const items = [
             ...dailies.filter(item => !item.claimed).slice(0, 2).map(item => ({ ...item, tag: 'DAILY' })),
@@ -2477,6 +2498,54 @@ export class UI {
         }
     }
 
+    _renderBattlepassSeasonValue(store, bp, free, premium, xpNeeded) {
+        const nextEl = document.getElementById('bp-value-next');
+        const claimsEl = document.getElementById('bp-value-claims');
+        const boostsEl = document.getElementById('bp-value-boosts');
+        const statusEl = document.getElementById('bp-boost-status');
+        const action = document.getElementById('bp-boost-action');
+        const claimedFree = new Set(Array.isArray(bp.claimedFree) ? bp.claimedFree : []);
+        const claimedPremium = new Set(Array.isArray(bp.claimedPremium) ? bp.claimedPremium : []);
+        const readyClaims = free.filter(reward => reward.tier <= bp.tier && !claimedFree.has(reward.tier)).length
+            + (bp.premium === true
+                ? premium.filter(reward => reward.tier <= bp.tier && !claimedPremium.has(reward.tier)).length
+                : 0);
+        const remainingXp = xpNeeded ? Math.max(0, xpNeeded - Math.max(0, Number(bp.xp) || 0)) : 0;
+        const boostState = store.getBattlepassBoostState?.() || { active: null, ownedCount: 0, strongestAvailable: null };
+        if (nextEl) nextEl.textContent = xpNeeded ? `${remainingXp} XP` : 'Complete';
+        if (claimsEl) claimsEl.textContent = `${readyClaims} ${readyClaims === 1 ? 'reward' : 'rewards'}`;
+        if (boostsEl) boostsEl.textContent = `${boostState.ownedCount} owned`;
+        if (!statusEl || !action) return;
+
+        action.disabled = true;
+        delete action.dataset.boostId;
+        if (boostState.active) {
+            const multiplier = Number(boostState.active.multiplier).toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+            const remainingSeconds = Math.max(0, Math.ceil(Number(boostState.active.remainingMs) / 1000));
+            const minutes = Math.floor(remainingSeconds / 60);
+            const seconds = remainingSeconds % 60;
+            const expiry = new Date(Number(boostState.active.expiresAt)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            statusEl.textContent = `${multiplier}x XP active | ${minutes}m ${seconds}s left | ends ${expiry}`;
+            action.textContent = 'Boost active';
+            action.setAttribute('aria-label', `${multiplier} times Battle Pass XP boost active`);
+            return;
+        }
+        const strongest = boostState.strongestAvailable;
+        if (strongest) {
+            const multiplier = Number(strongest.multiplier).toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+            const durationMinutes = Math.max(1, Math.round(Number(strongest.durationMs) / 60000));
+            statusEl.textContent = `${multiplier}x XP boost ready for ${durationMinutes} minutes`;
+            action.textContent = `Activate ${multiplier}x | ${durationMinutes} min`;
+            action.dataset.boostId = strongest.boostId;
+            action.disabled = false;
+            action.setAttribute('aria-label', `Activate ${multiplier} times Battle Pass XP boost for ${durationMinutes} minutes`);
+            return;
+        }
+        statusEl.textContent = 'No XP boost active | earn boosts on the season track';
+        action.textContent = 'No boost available';
+        action.setAttribute('aria-label', 'No Battle Pass XP boost available');
+    }
+
     renderBattlepass(store) {
         const trackEl = document.getElementById('bp-track');
         const tierEl = document.getElementById('bp-tier');
@@ -2493,9 +2562,10 @@ export class UI {
         const seasonLabel = document.querySelector('#battlepass-screen .shell-header .shell-kicker');
         if (seasonLabel) seasonLabel.textContent = `SEASON ${String(bp.seasonId).padStart(2, '0')}`;
         this._ensureBpPremiumToggle(store);
+        const { free, premium } = store.getBattlepassRewards();
+        this._renderBattlepassSeasonValue(store, bp, free, premium, xpNeeded);
         if (!trackEl) return;
         trackEl.innerHTML = '';
-        const { free, premium } = store.getBattlepassRewards();
         const nextFree = free.find(reward => reward.tier > bp.tier);
         const nextEl = document.getElementById('bp-next-reward');
         const ringIconEl = document.getElementById('bp-progress-ring-icon');
@@ -2533,11 +2603,18 @@ export class UI {
         if (currentCell) {
             const reducedMotion = this._isReducedMotion();
             requestAnimationFrame(() => {
-                currentCell.scrollIntoView({
-                    behavior: reducedMotion ? 'auto' : 'smooth',
-                    inline: 'center',
-                    block: 'nearest'
-                });
+                const maxLeft = Math.max(0, trackEl.scrollWidth - trackEl.clientWidth);
+                const centeredLeft = currentCell.offsetLeft - (trackEl.clientWidth - currentCell.offsetWidth) / 2;
+                const targetLeft = Math.max(0, Math.min(maxLeft, centeredLeft));
+                if (typeof trackEl.scrollTo === 'function') {
+                    trackEl.scrollTo({
+                        left: targetLeft,
+                        top: trackEl.scrollTop,
+                        behavior: reducedMotion ? 'auto' : 'smooth'
+                    });
+                } else {
+                    trackEl.scrollLeft = targetLeft;
+                }
             });
         }
     }
@@ -2607,7 +2684,7 @@ export class UI {
                 </button>`;
             grid.appendChild(freeCase);
         }
-        const challenges = daily.getChallenges();
+        const challenges = store?.getDailyChallenges?.() || daily.getChallenges();
         const completed = challenges.filter(c => c.progress >= c.target).length;
         const readyRewards = challenges.filter(c => c.progress >= c.target && !c.claimed).reduce((total, c) => total + (Number(c.reward) || 0), 0);
         const completeCount = document.getElementById('challenge-complete-count');

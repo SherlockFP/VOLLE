@@ -48,6 +48,16 @@ test('payment ledger grants premium currency exactly once', t => {
     assert.equal(profiles.getById(profile.id).gems, 100);
 });
 
+test('refunds are acknowledged without a grant and invalid webhook signatures cannot verify', t => {
+    const { dir, profiles, session, ledger } = fixture();
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const profile = profiles.getById(session.profile.id);
+    const refund = ledger.apply(profiles, event(profile.id, { status: 'refunded' }));
+    assert.deepEqual(refund, { status: 202, accepted: false });
+    assert.equal(profiles.getById(profile.id).gems, 0);
+    assert.equal(verifyPaymentEvent('s'.repeat(32), event(profile.id), '0'.repeat(64)), null);
+});
+
 test('payment ledger rejects mismatched catalog price and cross-event reuse', t => {
     const { dir, profiles, session, ledger } = fixture();
     t.after(() => fs.rmSync(dir, { recursive: true, force: true }));

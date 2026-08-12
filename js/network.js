@@ -46,6 +46,7 @@ const RESUME_TOKEN_MAX_BYTES = 256;
 const RESUME_CHALLENGE_TTL_MS = 10_000;
 const RESUME_PROOF_PATTERN = /^[a-f0-9]{64}$/;
 const RESUME_NONCE_PATTERN = /^[a-f0-9]{64}$/;
+const LOBBY_ADMISSION_TOKEN_PATTERN = /^[A-Za-z0-9_-]{32,64}$/;
 const SHA256_K = Uint32Array.of(
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
     0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
@@ -509,6 +510,9 @@ export class Network {
         this._positionSeq = 0;
         this._lastPositionSeq = new Map();
         this.hostRoomCode = '';
+        this.lobbyAdmissionToken = '';
+        this._lobbyAdmissionProof = '';
+        this._lobbyAdmissionWaiters = [];
         this.joinPassword = '';
         this.onReconnectState = null;
         this.onRematchReady = null;
@@ -592,6 +596,7 @@ export class Network {
     }
 
     async hostGame(playerName) {
+        this._resetLobbyAdmissionProof();
         this.playerName = playerName;
         this.isHost = true;
         try {
@@ -630,6 +635,7 @@ export class Network {
     }
 
     async _joinGame(roomCode, playerName, password = '') {
+        this._resetLobbyAdmissionProof();
         this.playerName = playerName;
         this.isHost = false;
         this.hostRoomCode = roomCode;
@@ -875,6 +881,7 @@ export class Network {
         }
         conn._sendWelcome = () => conn.send({
             type: 'welcome',
+            ...(this.lobbyAdmissionToken ? { admissionToken: this.lobbyAdmissionToken } : {}),
             players: this.game.getPlayerList(),
             state: this.game.state,
             mode: this.game.mode?.id,
@@ -1102,14 +1109,15 @@ export class Network {
             admission.buffering = false;
             admission.earlyJoin = null;
             if (earlyJoin?.resumeAdmission) {
+                this._sendLobbyAdmissionProof(conn);
+                const joinArgs = [name, playerId, earlyJoin.avatar, conn.peer];
+                if (earlyJoin.avatarModel === 'slim') joinArgs.push('slim');
                 try {
-                    const joinArgs = [name, playerId, earlyJoin.avatar, conn.peer];
-                    if (earlyJoin.avatarModel === 'slim') joinArgs.push('slim');
                     this.onPlayerJoin?.(...joinArgs);
-                    conn._sendWelcome?.();
                 } catch (_) {
-                    // Gameplay callbacks must not invalidate transport admission.
+                    // Gameplay/UI callbacks must not invalidate transport admission.
                 }
+                try { conn._sendWelcome?.(); } catch (_) {}
             } else if (earlyJoin) {
                 this.handleMessage(earlyJoin, conn.peer);
             }
@@ -2108,6 +2116,9 @@ export class Network {
                 return typeof data.name === 'string'
                     && data.name.length <= 32
                     && typeof data.ready === 'boolean';
+            case 'lobbyAdmissionProof':
+                return typeof data.admissionToken === 'string'
+                    && LOBBY_ADMISSION_TOKEN_PATTERN.test(data.admissionToken);
             case 'hostCheckpoint':
                 return Array.isArray(data.roster)
                     && data.roster.length <= 64
@@ -2228,12 +2239,15 @@ export class Network {
                             team: 'red'
                         }
                     ]);
+                    this._sendLobbyAdmissionProof(conn);
                     if (this.onPlayerJoin) {
                         const joinArgs = [conn._playerName, playerId, data.avatar, peerId];
                         if (data.avatarModel === 'slim') joinArgs.push('slim');
-                        this.onPlayerJoin(...joinArgs);
+                        try { this.onPlayerJoin(...joinArgs); } catch (_) {
+                            // Gameplay/UI callbacks must not block the transport welcome.
+                        }
                     }
-                    conn._sendWelcome?.();
+                    try { conn._sendWelcome?.(); } catch (_) {}
                 }
                 break;
             case 'position':
@@ -2332,7 +2346,10 @@ export class Network {
             case 'lobbyState':
                 if (!this.isHost && peerId === this.hostConn?.peer) {
                     this._updateMigrationRoster(data.players);
-                    this.game.applyLobbyState(data);
+                    // App owns client lobby presentation (mode/map/role UI).
+                    // Preserve the direct game fallback for transport-only users.
+                    if (this.onGameState) this.onGameState(data);
+                    else this.game.applyLobbyState(data);
                 }
                 break;
             case 'hostCheckpoint':
@@ -2447,8 +2464,14 @@ export class Network {
                     this.game.applyRoundEnd?.(data);
                 }
                 break;
+            case 'lobbyAdmissionProof':
+                if (!this.isHost && peerId === this.hostConn?.peer) {
+                    this._acceptLobbyAdmissionProof(data.admissionToken);
+                }
+                break;
             case 'welcome':
                 if (this.isHost || peerId !== this.hostConn?.peer) break;
+                this._acceptLobbyAdmissionProof(data.admissionToken);
                 if (Array.isArray(data.players)) {
                     this._updateMigrationRoster(
                         Array.isArray(data.migrationRoster)
@@ -2559,10 +2582,10 @@ case 'modeChange':
                 }
                 break;
             case 'celebrationStart':
-                if (!this.isHost) this.game.applyCelebrationStart(data);
+                if (!this.isHost && peerId === this.hostConn?.peer) this.game.applyCelebrationStart(data);
                 break;
             case 'gameOver':
-                if (!this.isHost) this.game.applyGameOver(data);
+                if (!this.isHost && peerId === this.hostConn?.peer) this.game.applyGameOver(data);
                 break;
             case 'mapVoteOptions':
                 if (!this.isHost && this.game.applyMapVoteOptions) this.game.applyMapVoteOptions(data);
@@ -2889,7 +2912,56 @@ case 'modeChange':
         return this.connections.size;
     }
 
+    _resetLobbyAdmissionProof() {
+        this.lobbyAdmissionToken = '';
+        this._lobbyAdmissionProof = '';
+        this._lobbyAdmissionWaiters.splice(0).forEach(resolve => resolve(''));
+    }
+
+    _sendLobbyAdmissionProof(conn) {
+        const token = String(this.lobbyAdmissionToken || '');
+        if (!this.isHost || !conn?.open || conn._admitted !== true
+            || !LOBBY_ADMISSION_TOKEN_PATTERN.test(token)) return false;
+        try {
+            conn.send({ type: 'lobbyAdmissionProof', admissionToken: token });
+            return true;
+        } catch (_) {
+            return false;
+        }
+    }
+
+    setLobbyAdmissionToken(token) {
+        const next = LOBBY_ADMISSION_TOKEN_PATTERN.test(String(token || '')) ? String(token) : '';
+        const changed = next !== this.lobbyAdmissionToken;
+        this.lobbyAdmissionToken = next;
+        if (!changed || !next || !this.isHost) return;
+        for (const conn of this.playerConnections.values()) {
+            this._sendLobbyAdmissionProof(conn);
+        }
+    }
+
+    _acceptLobbyAdmissionProof(token) {
+        if (!LOBBY_ADMISSION_TOKEN_PATTERN.test(String(token || ''))) return false;
+        this._lobbyAdmissionProof = String(token);
+        this._lobbyAdmissionWaiters.splice(0).forEach(resolve => resolve(this._lobbyAdmissionProof));
+        return true;
+    }
+
+    waitForLobbyAdmissionProof(timeoutMs = 5000) {
+        if (this._lobbyAdmissionProof) return Promise.resolve(this._lobbyAdmissionProof);
+        return new Promise(resolve => {
+            const finish = token => { clearTimeout(timer); resolve(token || ''); };
+            const timer = setTimeout(() => {
+                const index = this._lobbyAdmissionWaiters.indexOf(finish);
+                if (index >= 0) this._lobbyAdmissionWaiters.splice(index, 1);
+                finish('');
+            }, Math.max(250, Math.min(10000, Number(timeoutMs) || 5000)));
+            this._lobbyAdmissionWaiters.push(finish);
+        });
+    }
+
     disconnect() {
+        this._resetLobbyAdmissionProof();
         this._ensureIdentityMaps();
         this._manualDisconnect = true;
         if (this._signalReconnectTimer) {

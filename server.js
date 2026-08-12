@@ -7,13 +7,14 @@ const { CATALOG, ProfileStore } = require('./server/profile-store');
 const { AccountStore } = require('./server/account-store');
 const { SocialStore } = require('./server/social-store');
 const { PresenceStore } = require('./server/presence-store');
-const { verifyMatchReceipt, normalizeMatchReceipt } = require('./server/match-receipt');
+const { verifyMatchReceipt } = require('./server/match-receipt');
 const { CreatorMapStore } = require('./server/creator-map-store');
 const { RequestLimiter } = require('./server/request-limiter');
 const { buildRtcConfig } = require('./server/rtc-config');
 const { PaymentLedger, verifyPaymentEvent } = require('./server/payment-ledger');
 const { TelemetryStore } = require('./server/telemetry');
 const { ProductAnalyticsStore } = require('./server/product-analytics');
+const { MatchAuthority } = require('./server/match-authority');
 const { createLiveMarket, findLiveOffer } = require('./server/live-market');
 const {
     normalizeEquippedCosmetics,
@@ -42,6 +43,7 @@ const PRODUCT_ANALYTICS_SECRET = process.env.PRODUCT_ANALYTICS_SECRET
 const productAnalytics = new ProductAnalyticsStore(path.join(DATA_DIR, 'product-analytics.json'), {
     secret: PRODUCT_ANALYTICS_SECRET
 });
+let matchAuthority;
 const MATCH_REWARD_SECRET = process.env.MATCH_REWARD_SECRET || '';
 const CREATOR_MODERATION_KEY = process.env.CREATOR_MODERATION_KEY || '';
 const PAYMENT_WEBHOOK_SECRET = process.env.PAYMENT_WEBHOOK_SECRET || '';
@@ -51,6 +53,9 @@ const RATE_LIMITS = {
     session: [10, 60000],
     purchase: [20, 60000],
     reward: [30, 60000],
+    matchAuthority: [60, 60000],
+    onboarding: [30, 60000],
+    dailyChallenge: [20, 60000],
     adReward: [10, 60000],
     streak: [10, 60000],
     mapRead: [90, 60000],
@@ -102,6 +107,7 @@ const socialHubs = new Map(); // code -> { code, mapId, mapName, hostName, playe
 const SOCIAL_HUB_MAP_NAMES = Object.freeze({
     plaza: 'Aurora Grand Plaza'
 });
+matchAuthority = new MatchAuthority(profiles, { getLobby: code => lobbies.get(code) || null });
 // 90s stale prune. The host keep-alive is a 12s setInterval, but Chrome's intensive
 // throttling clamps timers in a hidden tab to ONE tick per minute — the previous 45s
 // TTL sat below that floor, so a host's lobby silently expired off the browser the
@@ -169,7 +175,7 @@ function requireAuth(req, res, body = null) {
 
 function publicLobby(record) {
     if (!record) return null;
-    const { ownerAccountId, ...visible } = record;
+    const { ownerAccountId, memberProfileIds, admissionToken, ...visible } = record;
     return visible;
 }
 
@@ -359,6 +365,19 @@ const server = http.createServer(async (req, res) => {
         if (auth) sendJson(res, { profile: profiles._public(auth.profile), account: auth.account });
         return;
     }
+    if (urlPath === '/api/profile/onboarding' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'onboarding')) return;
+        const body = await readBody(req, 512);
+        const profile = requireAuth(req, res, body)?.profile;
+        if (!profile) return;
+        const result = profiles.advanceOnboarding(profile, body.onboarding);
+        sendJson(res, result.error ? { error: result.error } : {
+            onboarding: result.onboarding,
+            profile: result.profile,
+            updated: result.updated
+        }, result.status);
+        return;
+    }
     if (urlPath === '/api/live-market' && req.method === 'GET') {
         sendJson(res, createLiveMarket(CATALOG));
         return;
@@ -391,35 +410,101 @@ const server = http.createServer(async (req, res) => {
         }, result.status);
         return;
     }
+    if (urlPath === '/api/matches/start' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'matchAuthority')) return;
+        const b = await readBody(req, 2048);
+        const profile = requireAuth(req, res, b)?.profile;
+        if (!profile) return;
+        const result = matchAuthority.start(profile, { matchId: b.matchId, mode: b.mode, lobbyCode: b.lobbyCode });
+        sendJson(res, result.error ? { error: result.error } : result, result.httpStatus);
+        return;
+    }
+    if (urlPath === '/api/profile/battlepass/claim' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'purchase')) return;
+        const body = await readBody(req, 1024);
+        const profile = requireAuth(req, res, body)?.profile;
+        if (!profile) return;
+        const result = profiles.claimBattlepass(profile, body.tier, body.track);
+        sendJson(res, result.error ? { error: result.error } : {
+            reward: result.reward,
+            replayed: result.replayed === true,
+            profile: result.profile
+        }, result.status);
+        return;
+    }
+    if (urlPath === '/api/profile/battlepass/premium' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'purchase')) return;
+        const body = await readBody(req, 512);
+        const profile = requireAuth(req, res, body)?.profile;
+        if (!profile) return;
+        const result = profiles.unlockPremiumBattlepass(profile);
+        sendJson(res, result.error ? { error: result.error } : {
+            replayed: result.replayed === true,
+            profile: result.profile
+        }, result.status);
+        return;
+    }
+    if (urlPath === '/api/profile/battlepass/boost/activate' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'purchase')) return;
+        const body = await readBody(req, 1024);
+        const profile = requireAuth(req, res, body)?.profile;
+        if (!profile) return;
+        const requestId = req.headers['idempotency-key'] || body.requestId;
+        const result = profiles.activateBattlepassBoost(profile, body.boostId, requestId);
+        sendJson(res, result.error ? { error: result.error } : {
+            activeBoost: result.activeBoost,
+            replayed: result.replayed === true,
+            profile: result.profile
+        }, result.status);
+        return;
+    }
+    if (urlPath === '/api/profile/daily-challenges/claim' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'dailyChallenge')) return;
+        const body = await readBody(req, 1024);
+        const profile = requireAuth(req, res, body)?.profile;
+        if (!profile) return;
+        const requestId = req.headers['idempotency-key'] || body.requestId;
+        const result = profiles.claimDailyChallenge(profile, body.challengeId, requestId);
+        sendJson(res, result.error ? { error: result.error } : {
+            coins: result.coins,
+            xpGranted: result.xpGranted,
+            replayed: result.replayed === true,
+            profile: result.profile
+        }, result.status);
+        return;
+    }
+    if (urlPath === '/api/matches/complete' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'matchAuthority')) return;
+        const b = await readBody(req, 4096);
+        const profile = requireAuth(req, res, b)?.profile;
+        if (!profile) return;
+        const result = matchAuthority.complete(profile, {
+            matchId: b.matchId, mode: b.mode, result: b.result, lobbyCode: b.lobbyCode
+        });
+        sendJson(res, result.error ? { error: result.error } : result, result.httpStatus);
+        return;
+    }
+    if (urlPath.startsWith('/api/matches/') && req.method === 'GET') {
+        if (!allowRequest(req, res, 'matchAuthority')) return;
+        const profile = requireAuth(req, res)?.profile;
+        if (!profile) return;
+        const result = matchAuthority.status(profile, decodeURIComponent(urlPath.slice('/api/matches/'.length)));
+        sendJson(res, result.error ? { error: result.error } : result, result.httpStatus);
+        return;
+    }
     if (urlPath === '/api/profile/reward' && req.method === 'POST') {
         if (!allowRequest(req, res, 'reward')) return;
         const b = await readBody(req);
         const profile = requireAuth(req, res, b)?.profile;
         if (!profile) return;
         const signature = req.headers['x-match-signature'] || b.signature;
-        // Two receipt sources: (a) a pre-signed receipt verified against
-        // MATCH_REWARD_SECRET (host-authoritative flow, unchanged, still
-        // requires the secret) or (b) a self-issued receipt the server builds
-        // from the authenticated bearer identity when no signature is sent —
-        // the client never held the secret, so bearer auth was always the
-        // real trust boundary here, same as purchase/openCase below.
-        let receipt = null;
-        if (signature) {
-            if (MATCH_REWARD_SECRET.length < 32) {
-                sendJson(res, { error: 'reward service unavailable' }, 503);
-                return;
-            }
-            receipt = verifyMatchReceipt(MATCH_REWARD_SECRET, b.receipt, signature);
-        } else {
-            receipt = normalizeMatchReceipt({
-                profileId: profile.id,
-                matchId: b.matchId,
-                mode: b.mode,
-                won: b.won === true,
-                issuedAt: Date.now(),
-                expiresAt: Date.now() + 5000
-            });
+        // Browser rewards use MatchAuthority. This legacy endpoint accepts
+        // only a pre-signed receipt from a server-held secret.
+        if (!signature || MATCH_REWARD_SECRET.length < 32) {
+            sendJson(res, { error: 'signed legacy receipt required' }, 403);
+            return;
         }
+        const receipt = verifyMatchReceipt(MATCH_REWARD_SECRET, b.receipt, signature);
         if (!receipt || receipt.profileId !== profile.id) {
             sendJson(res, { error: 'invalid match receipt' }, 403);
             return;
@@ -427,8 +512,8 @@ const server = http.createServer(async (req, res) => {
         const result = profiles.reward(profile, {
             matchId: receipt.matchId,
             won: receipt.won,
-            score: b.score,
-            deflections: b.deflections
+            score: 0,
+            deflections: 0
         });
         sendJson(res, result.error ? { error: result.error } : {
             coins: result.coins,
@@ -551,6 +636,9 @@ const server = http.createServer(async (req, res) => {
         );
         if (!event) { sendJson(res, { error: 'invalid payment signature' }, 403); return; }
         const result = paymentLedger.apply(profiles, event);
+        // Only a newly applied, signed paid receipt is revenue evidence. Replays,
+        // refunds, rejected prices and browser requests never reach this sink.
+        if (event.status === 'paid' && (result.applied === true || result.replayed === true)) productAnalytics.recordPaymentCompleted(event.profileId, event);
         sendJson(res, result.error ? { error: result.error } : result, result.status);
         return;
     }
@@ -675,11 +763,16 @@ const server = http.createServer(async (req, res) => {
         if (!b.code) { sendJson(res, { error: 'code required' }, 400); return; }
         const prior = lobbies.get(b.code);
         if (prior && prior.ownerAccountId !== auth.account.id) { sendJson(res, { error: 'lobby unavailable' }, 404); return; }
+        const memberProfileIds = prior?.memberProfileIds instanceof Set ? new Set(prior.memberProfileIds) : new Set();
+        memberProfileIds.add(auth.profile.id);
+        const admissionToken = typeof prior?.admissionToken === 'string' ? prior.admissionToken : crypto.randomBytes(32).toString('base64url');
         lobbies.set(b.code, normalizeLobbyRecord({
             code: b.code,
             name: b.name || 'Lobby',
             hostName: auth.account.username,
             ownerAccountId: auth.account.id,
+            memberProfileIds,
+            admissionToken,
             players: b.players || 1,
             map: b.map || 'Unknown',
             mode: b.mode || 'Classic',
@@ -687,8 +780,34 @@ const server = http.createServer(async (req, res) => {
             averageElo: Math.max(0, Math.min(5000, Number(b.averageElo) || 1000)),
             maxPlayers: Math.max(2, Math.min(16, Number(b.maxPlayers) || 8))
         }, Date.now()));
+        sendJson(res, { ok: true, admissionToken });
+        return;
+    }
+    if (urlPath.startsWith('/api/lobbies/') && urlPath.endsWith('/join') && req.method === 'POST') {
+        if (!allowRequest(req, res, 'lobbyWrite')) return;
+        const b = await readBody(req, 1024);
+        const auth = requireAuth(req, res, b);
+        if (!auth) return;
+        const code = decodeURIComponent(urlPath.slice('/api/lobbies/'.length, -'/join'.length));
+        const lobby = lobbies.get(code);
+        if (!lobby) { sendJson(res, { error: 'lobby unavailable' }, 404); return; }
+        const proof = Buffer.from(String(b.admissionToken || ''));
+        const expected = Buffer.from(String(lobby.admissionToken || ''));
+        if (!expected.length || expected.length !== proof.length || !crypto.timingSafeEqual(expected, proof)) { sendJson(res, { error: 'invalid lobby admission proof' }, 403); return; }
+        lobby.memberProfileIds = lobby.memberProfileIds instanceof Set ? lobby.memberProfileIds : new Set([lobby.ownerProfileId].filter(Boolean));
+        if (!lobby.memberProfileIds.has(auth.profile.id) && lobby.memberProfileIds.size >= lobby.maxPlayers) { sendJson(res, { error: 'lobby full' }, 409); return; }
+        lobby.memberProfileIds.add(auth.profile.id);
+        lobby.lastSeen = Date.now();
         sendJson(res, { ok: true });
         return;
+    }
+    if (urlPath.startsWith('/api/lobbies/') && urlPath.endsWith('/leave') && req.method === 'POST') {
+        if (!allowRequest(req, res, 'lobbyWrite')) return;
+        const b = await readBody(req, 1024); const auth = requireAuth(req, res, b); if (!auth) return;
+        const code = decodeURIComponent(urlPath.slice('/api/lobbies/'.length, -'/leave'.length)); const lobby = lobbies.get(code);
+        if (!lobby) { sendJson(res, { error: 'lobby unavailable' }, 404); return; }
+        if (lobby.ownerAccountId === auth.account.id) { sendJson(res, { error: 'host must close lobby' }, 403); return; }
+        lobby.memberProfileIds?.delete(auth.profile.id); lobby.lastSeen = Date.now(); sendJson(res, { ok: true }); return;
     }
     if (urlPath.startsWith('/api/lobbies/') && (req.method === 'DELETE' || req.method === 'POST')) {
         if (!allowRequest(req, res, 'lobbyWrite')) return;

@@ -6,10 +6,15 @@ Before working on this project, ALWAYS read `MIMO.md` — it contains the curren
 ## Quick Reference
 - **Game**: 2BALL — 3D First-Person Dodgeball (Three.js, vanilla JS)
 - **Server**: `node server.js` on port 8000
-- **Current State**: `MIMO.md` (updated 2026-07-11)
+- **Current State**: `MIMO.md` (updated 2026-08-12)
 - **Dev Log**: `docs/wiki/2BALL_Development_Log.md`
 - **Plan**: `PLAN.md` (19 tasks, 4 phases)
 - **Graphify**: Run `/graphify` to update code analysis
+- **Graft**: Run `npm run graft:check`; if stale, `npm run graft:build`.
+  Use `npm run graft:map` or pinned `npx --yes @nanonets/graft@0.9.1 ask
+  "<question>"` before broad cross-file work. `graft/` is a local ignored
+  cache, not a runtime dependency; do not run machine-global `graft init` or a
+  paid/deep build without explicit approval.
 
 ## Key Files
 - `js/ball.js` — Ball physics, homing, momentum, skins

@@ -86,6 +86,16 @@ const POWERUP_FIRST_VARIANCE = 20;
 const POWERUP_RESPAWN = 45;
 const POWERUP_RESPAWN_VARIANCE = 15;
 const POWERUP_LIFETIME = 30;
+const PLAYER_THREAT_SAMPLE_INTERVAL = 0.05;
+const OPENING_WARMUP_VISIBLE_MS = 1500;
+const OPENING_LOCAL_MIN_ETA_SECONDS = 1;
+
+export function openingServeSpeed(distance, currentSpeed, minimumEtaSeconds = OPENING_LOCAL_MIN_ETA_SECONDS) {
+    const safeDistance = Math.max(0, Number(distance) || 0);
+    const safeSpeed = Math.max(0, Number(currentSpeed) || 0);
+    const safeEta = Math.max(0.01, Number(minimumEtaSeconds) || OPENING_LOCAL_MIN_ETA_SECONDS);
+    return Math.min(safeSpeed, safeDistance / safeEta);
+}
 
 export const STATES = {
     MENU: 'MENU', LOBBY: 'LOBBY', COUNTDOWN: 'COUNTDOWN',
@@ -93,6 +103,8 @@ export const STATES = {
     CELEBRATION: 'CELEBRATION', PAUSED: 'PAUSED', SOCIAL_HUB: 'SOCIAL_HUB',
     COSMETIC_PRACTICE: 'COSMETIC_PRACTICE'
 };
+
+export const CELEBRATION_DURATION_SECONDS = 8;
 
 // Combat Feedback: Combo streak display
 window.comboStreakDisplay = (() => {
@@ -134,6 +146,7 @@ export class Game {
 
         this.state = STATES.MENU;
         this.matchId = null;
+        this._gameplayEndNotified = false;
         this.experimentalNetcode = normalizeNetcode();
         this.perfectDeflectChain = { count: 0, lastPerfectAt: null };
         this._remotePerfectChains = new Map();
@@ -151,6 +164,9 @@ export class Game {
         this.ball = new Ball(renderer, arena);
         this.scoreboard = new Scoreboard();
         this.bots = [];
+        this._firstSoloBotDeflectGuardArmed = false;
+        this._firstSoloAimFeedbackArmed = false;
+        this._firstSoloAimFeedbackPending = false;
         this.remotePlayers = new Map();
         this.localCosmeticEntity = { group: new THREE.Group() };
         this.localCosmeticEntity.group.name = 'local-cosmetics';
@@ -166,7 +182,7 @@ export class Game {
 
         this.roundRestartDelay = 4.0;
         this.roundRestartTimer = 0;
-        this.preGameDuration = 10;       // saniye, host console'dan degistirebilir
+        this.preGameDuration = 3;        // saniye, host console'dan degistirebilir
         this.preGameTimer = 0;
         this.lastDeflector = null;
         this.lastDeflectorTeam = null;
@@ -180,6 +196,8 @@ export class Game {
         });
         this.syncTimer = 0;
         this.syncRate = 0.05;
+        this._playerThreatSampleTimer = 0;
+        this._playerThreatActive = false;
 
         this.playerName = 'Player';
         this.botCounter = 0;
@@ -382,7 +400,10 @@ export class Game {
         const prev = this.state;
         RuntimeLog.auditTransition(prev, s);
         this.state = s;
-        if (s !== STATES.PLAYING) this.audio?.resetThreatAudio?.();
+        // Countdown keeps only its compact identity chip on screen; the persistent
+        // controls hint and red threat frame return once the round is actually live.
+        if (typeof document !== 'undefined') document.body?.classList.toggle('countdown-ui', s === STATES.COUNTDOWN);
+        if (s !== STATES.PLAYING && s !== STATES.COUNTDOWN) this._clearPlayerThreat(true);
         if (s === STATES.ROUND_END && prev !== STATES.ROUND_END) {
             this.onRoundEnd?.();
             // Valorant-style round-end flourish keyed off the winning side's ball skin.
@@ -421,6 +442,11 @@ export class Game {
         this.setState(STATES.LOBBY);
         this._startMusic();
         this.updateLobbyUI();
+    }
+
+    armFirstSoloBotDeflectGuard() {
+        this._firstSoloBotDeflectGuardArmed = true;
+        this._firstSoloAimFeedbackArmed = true;
     }
 
 addBot(team, { name: preferredName = null } = {}) {
@@ -719,12 +745,14 @@ _prepareRallyDuel() {
 
 startGame(skipPreGame = false, matchId = null) {
     if (this._rallyDuel && !this._prepareRallyDuel()) return false;
+    this._firstSoloAimFeedbackPending = false;
     this.matchId = typeof matchId === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(matchId)
             ? matchId
             : globalThis.crypto?.randomUUID?.()
                 || `match-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
         this.cancelPreGame();
         this._rewardsClaimed = false;
+        this._gameplayEndNotified = false;
         this.perfectDeflectChain = { count: 0, lastPerfectAt: null };
         this._remotePerfectChains.clear();
         this.practiceMetrics.reset();
@@ -775,6 +803,17 @@ startGame(skipPreGame = false, matchId = null) {
         this.ui.showHUD();
         this.player.respawn();
         this.bots.forEach(b => b.respawn());
+        // The first local bot match after FTUE gets one narrow safety net: only
+        // the first opposing bot can retry a declined opening deflect chance.
+        // Connected/P2P matches, later matches and all normal bot parameters are
+        // deliberately outside this path.
+        if (!this.network?.connected && this._firstSoloBotDeflectGuardArmed) {
+            const opponent = this.bots.find(bot => bot.team !== this.player.team);
+            opponent?.armFirstSoloDeflectGuard?.();
+            this._firstSoloAimFeedbackPending = this._firstSoloAimFeedbackArmed;
+            this._firstSoloBotDeflectGuardArmed = false;
+            this._firstSoloAimFeedbackArmed = false;
+        }
         this.audio.init();
         this.audio.preloadSfx('sfx/');
         this.initMinimap();
@@ -786,6 +825,36 @@ startGame(skipPreGame = false, matchId = null) {
             this._cancelCountdown = () => {};
             this._preGameActive = false;
             this.startRound();
+            this._notifyCountdownReady();
+            return;
+        }
+        const waitForHostRoundStart = this._awaitHostRoundStart === true
+            && this.network?.connected
+            && !this.network?.isHost;
+        this._awaitHostRoundStart = false;
+        if (waitForHostRoundStart) {
+            const receivedSeconds = Number(this._receivedCountdownSeconds);
+            const displaySeconds = Number.isFinite(receivedSeconds)
+                ? Math.max(1, Math.ceil(receivedSeconds))
+                : Math.max(1, Math.ceil(this.preGameDuration));
+            this._receivedCountdownSeconds = null;
+            this.preGameTimer = displaySeconds;
+            this._preGameActive = true;
+            this.ui.showMatchIntro(this.arena.config?.name || 'Arena', this.mode?.name || 'Classic');
+            this.ui.scheduleMatchIntroHide?.(OPENING_WARMUP_VISIBLE_MS);
+            let cancelled = false;
+            this._cancelCountdown = () => {
+                cancelled = true;
+                this._preGameActive = false;
+                this.ui.hideMessage?.();
+            };
+            this.ui.showCountdown(displaySeconds, () => {
+                if (!cancelled) {
+                    this._preGameActive = false;
+                    this.ui.hideMatchIntro();
+                }
+            });
+            this._notifyCountdownReady();
             return;
         }
 
@@ -794,7 +863,7 @@ startGame(skipPreGame = false, matchId = null) {
         this._preGameActive = true;
         // Show match intro overlay
         this.ui.showMatchIntro(this.arena.config?.name || 'Arena', this.mode?.name || 'Classic');
-        setTimeout(() => this.ui.hideMatchIntro(), 3500);
+        this.ui.scheduleMatchIntroHide?.(OPENING_WARMUP_VISIBLE_MS);
         // Warmup: spawn ball early so players practice deflecting during countdown
         if (!skipPreGame && !this._skipPreGame) {
             this.ball.spawn();
@@ -805,13 +874,22 @@ startGame(skipPreGame = false, matchId = null) {
         const wrap = (fn) => () => { if (!cancelled) fn(); };
         this.ui.showCountdown(this.preGameDuration, wrap(() => {
             this._preGameActive = false;
-            this.ui.showCountdown(3, wrap(() => {
-                this.audio.playGo();
-                this.startRound();
-            }));
-            [3, 2, 1].forEach((n, i) => setTimeout(() => { if (!cancelled) this.audio.playBeep(440); }, i * 1000));
+            this.audio.playGo();
+            this.startRound();
         }));
+        const beepCount = Math.max(1, Math.ceil(this.preGameDuration));
+        for (let i = 0; i < beepCount; i++) {
+            setTimeout(() => { if (!cancelled) this.audio.playBeep(440); }, i * 1000);
+        }
         this._cancelCountdown = () => { cancelled = true; this._preGameActive = false; this.ui.hideMessage?.(); };
+        this._notifyCountdownReady();
+    }
+
+    _notifyCountdownReady() {
+        if (this._countdownReadyMatchId === this.matchId) return false;
+        this._countdownReadyMatchId = this.matchId;
+        this.onCountdownReady?.();
+        return true;
     }
 
     cancelPreGame() {
@@ -838,7 +916,7 @@ startGame(skipPreGame = false, matchId = null) {
         this._clearAllPowerUps();
     }
 
-    armGuidedDrill() {
+    armGuidedDrill({ profile = 'full' } = {}) {
         this.cancelGuidedDrill();
         this._guidedDrillRestore = {
             timeScale: this._timeScale,
@@ -855,7 +933,7 @@ startGame(skipPreGame = false, matchId = null) {
         this._guidedDrillArmed = true;
         this._guidedDrillCompleted = false;
         this._guidedDrillResultOpen = false;
-        this.guidedDrill.arm();
+        this.guidedDrill.arm({ profile });
     }
 
     cancelGuidedDrill() {
@@ -938,8 +1016,11 @@ startGame(skipPreGame = false, matchId = null) {
             this.ball.deactivate();
             return false;
         }
+        // Keep the compact first-run gate readable inside a portrait mobile safe
+        // zone. The full drill retains its established wide ±10 lane geometry.
+        const targetLaneScale = snapshot.profileId === 'first_run' ? 6 : 10;
         this._guidedDrillTargetPosition.set(
-            attempt.lane * 10,
+            attempt.lane * targetLaneScale,
             4,
             this.player.team === 'red' ? 14 : -14
         );
@@ -1000,7 +1081,8 @@ startGame(skipPreGame = false, matchId = null) {
         return cut;
     }
 
-    startRound() {
+    startRound({ fromNetwork = false } = {}) {
+        this.ui.hideMatchIntro();
         this.clearBlackHoles();
         this.clearSplitBalls();
         this._clearRockets();
@@ -1027,8 +1109,8 @@ startGame(skipPreGame = false, matchId = null) {
         if (!this._guidedDrillArmed && this._chaosModeIds.has(this.mode?.id)) this.chaosManager.startRound();
         if (this.ball._warmup) { this.ball.deactivate(); this.ball._warmup = false; }
         if (this._guidedDrillArmed) this._beginGuidedDrill();
-        else this.ball.spawn();
-        if (this._ffaOpeningDouble && !this._guidedDrillArmed) this.spawnSplitBall(this.ball, 18);
+        else if (!fromNetwork) this.ball.spawn();
+        if (this._ffaOpeningDouble && !this._guidedDrillArmed && !fromNetwork) this.spawnSplitBall(this.ball, 18);
         this.ball._pinballBounce = !!this.arena.config?.isPinball || !!this.mode?.mutators?.pinballBounce;
         if (!this._guidedDrillArmed) this._applyBallAffix();
         this.lastDeflector = null;
@@ -1071,7 +1153,7 @@ startGame(skipPreGame = false, matchId = null) {
 
         // First target
         const targets = this.guidedDrill.active ? [] : this.getAllTargets();
-        if (targets.length) {
+        if (targets.length && !fromNetwork) {
             const first = targets[Math.floor(Math.random() * targets.length)];
             setTimeout(() => {
         // Host-authoritative hit detection when actually networked (client plays effects
@@ -1081,6 +1163,13 @@ startGame(skipPreGame = false, matchId = null) {
         // !connected||isHost convention already used elsewhere in this file
         // (updatePowerUps, split-ball hit detection, rocket movement, map hazards).
         if (this.ball.active && (!this.network?.connected || this.network?.isHost)) {
+                    const targetPosition = first.position?.distanceTo
+                        ? first.position
+                        : first.getPosition?.();
+                    if (targetPosition?.distanceTo) {
+                        const distance = this.ball.position.distanceTo(targetPosition);
+                        this.ball.currentSpeed = openingServeSpeed(distance, this.ball.currentSpeed);
+                    }
                     this.ball.setTarget(first);
                     this.ball.state = 'homing';
                 }
@@ -1361,6 +1450,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             // never sent over the network. Reused object — 0 alloc/frame.
             _animFalling: false,
             _animFacts: { speed: 0, grounded: true, verticalSpeed: 0, alive: true, aim: 0, strafe: 0 },
+            _defenseIntent: 'none', _defenseStrafe: 0, _botSyncAttacking: false, _botSyncTelegraphed: false,
             getPosition() { return this.position.clone(); },
             getAimDirection() { return this.aimDir.clone(); },
             isAttacking() { return this.attacking; },
@@ -1787,6 +1877,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 && typeof document !== 'undefined'
                 && document.hidden;
             if (!hiddenDrill && !this._guidedDrillResultOpen) this.updatePlaying(dt);
+            this.updatePlayerThreat(dt);
             this._checkGoalRushScore();
         } else if (this.state === STATES.COUNTDOWN && this.ball._warmup) {
             if (!this.network?.connected || this.network?.isHost) {
@@ -1794,6 +1885,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             } else {
                 this.ball._clientVisualUpdate(dt);
             }
+            this.updatePlayerThreat(dt);
             if (this.player.alive && this.player.isAttacking()) {
                 const dist = this.ball.position.distanceTo(this.player.getPosition());
                 if (dist < this.ball.attackRange) this.handlePlayerDeflection();
@@ -1964,6 +2056,54 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         }
     }
 
+    _clearPlayerThreat(resetAudio = false) {
+        this._playerThreatSampleTimer = 0;
+        if (!this._playerThreatActive) {
+            if (resetAudio) this.audio?.resetThreatAudio?.();
+            return;
+        }
+        this._playerThreatActive = false;
+        this.ui?.setPlayerTarget?.(false);
+        if (resetAudio) this.audio?.resetThreatAudio?.();
+        else this.audio?.updateThreatAudio?.({ active: false, speed: 0, distance: Infinity });
+    }
+
+    updatePlayerThreat(dt) {
+        const isWarmup = this.state === STATES.COUNTDOWN && this.ball?._warmup;
+        const ball = this.ball;
+        const active = (this.state === STATES.PLAYING || isWarmup)
+            && !!ball?.active
+            && this.player?.alive !== false
+            && ball.targetPlayer === this.player;
+        if (!active) {
+            this._clearPlayerThreat();
+            return;
+        }
+
+        this._playerThreatSampleTimer = Math.min(
+            PLAYER_THREAT_SAMPLE_INTERVAL,
+            this._playerThreatSampleTimer + Math.max(0, dt || 0)
+        );
+        if (this._playerThreatSampleTimer < PLAYER_THREAT_SAMPLE_INTERVAL) return;
+        this._playerThreatSampleTimer = 0;
+
+        const playerPosition = this.player.position?.distanceTo
+            ? this.player.position
+            : this.player.getPosition?.();
+        if (!playerPosition || !ball.position?.distanceTo) {
+            this._clearPlayerThreat();
+            return;
+        }
+        const measuredSpeed = ball.getSpeed?.();
+        const speed = Number.isFinite(measuredSpeed)
+            ? measuredSpeed
+            : Math.max(0, Number(ball.currentSpeed) || 0);
+        const distance = ball.position.distanceTo(playerPosition);
+        this._playerThreatActive = true;
+        this.ui?.setPlayerTarget?.(true, speed, distance);
+        this.audio?.updateThreatAudio?.({ active: true, speed, distance });
+    }
+
     updatePlaying(dt) {
         this.scoreboard.updateTimer(dt);
         if ((!this.network?.connected || this.network?.isHost) && this._updateHotPotato(dt)) return;
@@ -1999,13 +2139,14 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 this.ball.velocity.multiplyScalar(100); // yeniden başlat
             } else {
                 // donmuşken pozisyon güncellenmesin
-                this.bots.forEach(bot => bot.update(dt, this.ball));
+                this.bots.forEach(bot => {
+                    bot.observeDefenseIntent(this.ball);
+                    bot.update(dt, this.ball);
+                });
                 this.updateMinimap();
                 return;
             }
         }
-
-
 
         // Map affixes — damage zones, etc
         if (this.affixes) {
@@ -2080,6 +2221,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         // Bot AI only on host — client lerps bots from network
         if (!this.network?.connected || this.network?.isHost) {
             this.bots.forEach(bot => {
+                bot.observeDefenseIntent(this.ball);
                 bot.update(dt, this.ball);
                 if (bot._pendingBlackHole) {
                     bot._pendingBlackHole = false;
@@ -2189,6 +2331,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         // ponytail: bot AI/deflection runs on host only; client renders from botSync
         if (!this.network?.connected || this.network?.isHost) {
             this.bots.forEach(bot => {
+                if (this.ball.active) bot.observeDefenseIntent(this.ball);
                 if (this.ball.active && bot.tryDeflect(this.ball, dt)) {
                     this.handleBotDeflection(bot);
                 }
@@ -2436,12 +2579,21 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         const pos = this.player.getPosition();
         const aimDir = this.player.getAimDirection();
         const team = this.player.team;
+        const isClientCP = this.network?.connected && !this.network?.isHost;
 
         // Skill check: must be roughly looking at the ball (~100° cone).
         // Client-side prediction skips this so the hit ALWAYS feels connected
         // (host is authoritative and still enforces it via remoteAttack).
         const ballDir = new THREE.Vector3().subVectors(this.ball.position, pos).normalize();
-        if (!skipAimCheck && aimDir.dot(ballDir) < -0.2) return;
+        if (!skipAimCheck && aimDir.dot(ballDir) < -0.2) {
+            if (!isClientCP && this._firstSoloAimFeedbackPending) {
+                this._firstSoloAimFeedbackPending = false;
+                this.player.attacking = false;
+                this.ui.showMessage?.('BALL BEHIND — TURN TO FACE IT', 900);
+                this.audio.playCue?.('deflect-reject');
+            }
+            return;
+        }
         this._cancelPendingLethalHit(this.player);
 
         // Charge consume — power/spread apply to *this* deflect if the button
@@ -2455,7 +2607,6 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
 
         // ponytail: client-side prediction. Deflect locally for instant feedback,
         // send intent to host. Host broadcasts authoritative state to correct if needed.
-        const isClientCP = this.network?.connected && !this.network?.isHost;
         if (isClientCP) {
             this.player.attacking = false;
             this.player._p2pAttackQueued = false;
@@ -2504,6 +2655,8 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             this.ui.showMessage('🏐 Deflect!', 600);
             return;
         }
+
+        if (!this.network?.connected) this._firstSoloAimFeedbackPending = false;
 
         // Goal Rush: the objective is the goal, not a player, so a deflect flies where you
         // aim instead of homing onto an enemy. ball.js physics is untouched (AGENTS.md rule 7)
@@ -3004,14 +3157,19 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         this.juice.hitStop(isLethal ? 150 : 35);
         this.juice.flash(isLethal ? 0.55 : 0.22);
 
-        // Death explosion + audio
-        this.spawnDeathExplosion(hitPos, hitTarget.team);
-        this.audio.playSfx('tf2_explosion', 0.5);
-        window.addKillFeed?.(scorerName, name, '⚔');
-        this.audio.playExplosion();
-        if (hitTarget === this.player) {
-            this.audio.playSfx('tf2_you_are_dead', 0.5);
-            this.audio.playSfx('tf2_scout_scream', 0.45);
+        // The local victim's damage grunt is shared by normal and lethal hits.
+        if (hitTarget === this.player) this.audio.playSfx('tf2_scout_scream', 0.45);
+
+        // Elimination-only presentation. Normal hits retain their hit burst,
+        // shockwave, hit-stop, flash, damage number and playHit below.
+        if (isLethal) {
+            this.spawnDeathExplosion(hitPos, hitTarget.team);
+            this.audio.playSfx('tf2_explosion', 0.5);
+            window.addKillFeed?.(scorerName, name, '⚔');
+            this.audio.playExplosion();
+            if (hitTarget === this.player) {
+                this.audio.playSfx('tf2_you_are_dead', 0.5);
+            }
         }
         this.audio.playHit();
 
@@ -3216,7 +3374,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             const p = this.deathParticles[i];
             p.life -= dt;
             p.vel.y += (p.gravity || -15) * dt;
-            p.mesh.position.add(p.vel.clone().multiplyScalar(dt));
+            p.mesh.position.addScaledVector(p.vel, dt);
             p.mesh.material.opacity = Math.max(0, p.life);
             if (p.scaleRate) {
                 p.mesh.scale.addScalar(p.scaleRate * dt);
@@ -3740,12 +3898,20 @@ spawnPowerUp() {
         }
     }
 
+    _notifyGameplayEnded() {
+        if (this._gameplayEndNotified) return false;
+        this._gameplayEndNotified = true;
+        this.onMatchEnded?.();
+        return true;
+    }
+
     endGame() {
         const stats = this.scoreboard.getPlayerStats();
         const rankedFfa = [...stats].sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
         const winner = this._ffa && rankedFfa[0] && rankedFfa[0].score !== rankedFfa[1]?.score
             ? rankedFfa[0].name
             : this.scoreboard.getWinner();
+        this._notifyGameplayEnded();
         this.clearBlackHoles();
         this.clearSplitBalls();
         this._clearRockets();
@@ -3755,9 +3921,9 @@ spawnPowerUp() {
         this.audio.playSfx('tf2_domination', 0.55);
         this.audio.playScore();
 
-        // 30 second celebration — winners punch losers, no menu
+        // Eight-second victory lap — winners can still use the celebration loadout.
         this.setState(STATES.CELEBRATION);
-        this._celebrationTimer = 30;
+        this._celebrationTimer = CELEBRATION_DURATION_SECONDS;
         this._winningTeam = winner === 'RED' ? 'red' : winner === 'BLUE' ? 'blue' : null;
         this._won = this._ffa ? winner === this.playerName : this._winningTeam !== null && this.player.team === this._winningTeam;
 
@@ -3809,7 +3975,7 @@ spawnPowerUp() {
             this.network.broadcast({
                 type: 'celebrationStart',
                 winner: this._winningTeam,
-                duration: 30,
+                duration: CELEBRATION_DURATION_SECONDS,
                 message: `${winner} TEAM WINS!`
             });
         }
@@ -4405,7 +4571,7 @@ spawnPowerUp() {
         facts.verticalSpeed = verticalSpeed;
         facts.alive = p.alive !== false;
         facts.aim = p.aimDir ? p.aimDir.y : 0;
-        facts.strafe = 0;
+        facts.strafe = p.isBotEntity ? (p._defenseStrafe || 0) : 0;
         p.animator.update(dt, facts);
     }
 
@@ -4791,7 +4957,12 @@ spawnPowerUp() {
             this.arena.rebuild(data.map);
         }
         // ponytail: client skips warmup/countdown — host already playing
-        this._skipPreGame = true;
+        // gameStart is sent while the host is counting down. The client prepares
+        // its countdown UI, then waits for the authoritative roundStart packet.
+        this._receivedCountdownSeconds = Number.isFinite(data.preGameRemaining)
+            ? data.preGameRemaining
+            : this.preGameDuration;
+        this._awaitHostRoundStart = data.state === STATES.COUNTDOWN;
         const started = this.startGame(false, data.matchId);
         if (started !== false) this._applyOvertimeSnapshot(data);
     }
@@ -4820,9 +4991,11 @@ spawnPowerUp() {
                 this.ui.showHitMarker(data.hitZoneId === 'head');
             }
 
-            // Explosion at hit position (visible to everyone)
-            this.spawnDeathExplosion(hitPos, data.victimTeam);
-            this.audio.playSfx('tf2_explosion', 0.5);
+            // Elimination effects are reserved for an authoritative lethal hit.
+            if (isLethal) {
+                this.spawnDeathExplosion(hitPos, data.victimTeam);
+                this.audio.playSfx('tf2_explosion', 0.5);
+            }
             if (isLethal) {
                 this.juice.killBurst(hitPos);
                 this.juice.sparks(hitPos.clone().add(new THREE.Vector3(0, 0.3, 0)), 0xffffff, 8);
@@ -4833,6 +5006,7 @@ spawnPowerUp() {
             this.juice.shake(isLethal ? 0.6 : 0.25);
             this.juice.hitStop(isLethal ? 100 : 50);
             this.juice.flash(isLethal ? 0.4 : 0.2);
+            this.audio.playHit();
 
             // Kill feed
             const tag = (data.missTag || '') + (data.perfectTag || '');
@@ -4851,7 +5025,6 @@ spawnPowerUp() {
                         df.classList.add('fade');
                     }));
                 }
-                this.audio.playSfx('tf2_scout_scream', 0.45);
                 // Directional damage indicator
                 if (data.attackerName && data.attackerName !== this.playerName) {
                     const attacker = this.getAllTargets().find(t => t.name === data.attackerName);
@@ -4866,6 +5039,7 @@ spawnPowerUp() {
                         this.ui.showDamageDirection(screenAngle);
                     }
                 }
+                this.audio.playSfx('tf2_scout_scream', 0.45);
                 if (isLethal) {
                     // Only play death effects if not already dead (prediction may have handled it)
                     if (this.player.alive) {
@@ -5073,6 +5247,9 @@ spawnPowerUp() {
             matchId: this.matchId,
             players: this.getPlayerList(),
             state: this.state,
+            preGameRemaining: this.state === 'COUNTDOWN' && this._preGameActive
+                ? this.preGameDuration
+                : 0,
             mode: this.mode?.id,
             map: this.arena?.mapId,
             maxRounds: this.scoreboard.maxRounds,
@@ -5106,7 +5283,11 @@ spawnPowerUp() {
             ball: b ? {
                 x: b.position.x, y: b.position.y, z: b.position.z,
                 vx: b.velocity.x, vy: b.velocity.y, vz: b.velocity.z,
-                speed: b.currentSpeed, active: b.active
+                speed: b.currentSpeed, active: b.active,
+                state: b.state,
+                targetName: b.targetPlayer?.name || null,
+                targetPlayerId: b.targetPlayer === this.player ? this.network?.playerId || null : null,
+                targetPeerId: b.targetPlayer === this.player ? this.network?.peer?.id || null : null
             } : null
         };
     }
@@ -5654,6 +5835,11 @@ spawnPowerUp() {
     }
     startRoundFromNetwork(data = {}) {
         if (this.network?.isHost) return;
+        const roundKey = typeof data.matchId === 'string' && Number.isSafeInteger(data.round)
+            ? `${data.matchId}:${data.round}`
+            : null;
+        if (roundKey && this._lastNetworkRoundStartKey === roundKey) return;
+        if (roundKey) this._lastNetworkRoundStartKey = roundKey;
         const wasQueued = !!this.player.queuedForNextRound;
         if (Array.isArray(data.players)) this.applyLobbyState(data);
         const own = data.players?.find(pl =>
@@ -5665,7 +5851,14 @@ spawnPowerUp() {
             activateQueuedEntity(this.player);
             this.player.setTeam(own.team);
         }
-        this.startRound();
+        this.cancelPreGame();
+        this.startRound({ fromNetwork: true });
+        this.ui.showCountdownGo?.();
+        if (data.ball && Number.isFinite(data.ball.x) && Number.isFinite(data.ball.y)
+            && Number.isFinite(data.ball.z) && Number.isFinite(data.ball.vx)
+            && Number.isFinite(data.ball.vy) && Number.isFinite(data.ball.vz)) {
+            this.updateBallFromNetwork(data.ball);
+        }
         this._applyOvertimeSnapshot(data);
         if (wasQueued && !this.player.queuedForNextRound) {
             this.onLateJoinActivated?.(this.player.team);
@@ -5719,10 +5912,25 @@ spawnPowerUp() {
             }
                 this._pushPosBuffer(p, bd.x, bd.y, bd.z, performance.now());
             p.team = bd.team || p.team;
-            p.group.rotation.y = bd.ry || 0;
+            p.group.rotation.y = Number.isFinite(bd.ry) ? bd.ry : 0;
             p.alive = bd.alive !== false;
             p.group.visible = p.alive;
             p.hp = bd.hp ?? p.hp;
+            const previousIntent = p._defenseIntent;
+            p._defenseIntent = typeof bd.intent === 'string' ? bd.intent : 'none';
+            p._defenseStrafe = Number.isFinite(bd.strafe) ? Math.max(-1, Math.min(1, bd.strafe)) : 0;
+            if (p._defenseIntent === 'deflect' && previousIntent !== 'deflect') {
+                p._botSyncTelegraphed = true;
+                p.animator?.play('deflect');
+            }
+            const attacking = bd.attacking === true;
+            if (attacking && !p._botSyncAttacking && !p._botSyncTelegraphed) {
+                p.attackTimer = 0.3;
+                p.animator?.play('deflect');
+            }
+            p._botSyncAttacking = attacking;
+            p.attacking = attacking;
+            if (!attacking && p._defenseIntent !== 'deflect') p._botSyncTelegraphed = false;
             if (bd.charId && bd.charId !== p.charId) {
                 p.charId = bd.charId;
                 p.rig?.setCharacter(bd.charId);
@@ -5734,7 +5942,10 @@ spawnPowerUp() {
         if (!data || this.network?.isHost) return;
         const playerId = data.playerId || data.peerId;
         const isLocal = data.playerId ? data.playerId === this.network?.playerId : data.peerId === this.network?.peer?.id;
-        const p = isLocal ? this.player : this.remotePlayers.get(playerId);
+        // The local client already predicted this deflect. Its authoritative ballState
+        // reconciles the ball; replaying the animation packet would re-arm gameplay input.
+        if (isLocal) return;
+        const p = this.remotePlayers.get(playerId);
         if (!p) return;
         p.attacking = true;
         p.attackType = data.action === 'stab' ? 'stab' : 'slash';
@@ -5899,9 +6110,12 @@ applyPowerUpState(data) {
 
     applyCelebrationStart(data) {
         if (!data || this.network?.isHost) return;
+        this._notifyGameplayEnded();
         // Client celebration state'ine gir — winner/loser UI'ı göster
         this.setState(STATES.CELEBRATION);
-        this._celebrationTimer = data.duration || 30;
+        this._celebrationTimer = Number.isFinite(data.duration) && data.duration > 0
+            ? data.duration
+            : CELEBRATION_DURATION_SECONDS;
         this._winningTeam = data.winner || null;
         this._won = this._winningTeam !== null && this.player.team === this._winningTeam;
         this.ball.deactivate();

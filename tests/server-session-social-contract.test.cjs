@@ -48,9 +48,52 @@ test('card APIs are authenticated earn-only collection endpoints, not paid power
     assert.doesNotMatch(profileSource, /rune:\s*\{[\s\S]*?hp_bonus:\s*80/);
 });
 
-test('card reward is derived only inside the existing authenticated match-claim boundary', () => {
+test('match rewards require server authority or a signed legacy receipt', () => {
     const rewardBlock = source.slice(source.indexOf("if (urlPath === '/api/profile/reward'"), source.indexOf("if (urlPath === '/api/profile/cards/equip'"));
-    assert.match(rewardBlock, /profileId: profile\.id/);
+    assert.match(source, /urlPath === '\/api\/matches\/start' && req\.method === 'POST'/);
+    assert.match(source, /urlPath === '\/api\/matches\/complete' && req\.method === 'POST'/);
+    assert.match(source, /matchAuthority\.start\(profile/);
+    assert.match(source, /matchAuthority\.complete\(profile/);
+    assert.match(rewardBlock, /signed legacy receipt required/);
+    assert.doesNotMatch(rewardBlock, /normalizeMatchReceipt/);
     assert.match(rewardBlock, /profiles\.reward\(profile, \{[\s\S]*?matchId: receipt\.matchId,[\s\S]*?won: receipt\.won/);
     assert.doesNotMatch(rewardBlock, /b\.(?:cardCollection|cardReward|equippedCards)/);
+    assert.match(rewardBlock, /score: 0,[\s\S]*?deflections: 0/);
+});
+
+test('first ranked reporter awaits a bounded authenticated status path and consumes its final completion', () => {
+    const store = fs.readFileSync(path.join(__dirname, '..', 'js', 'store.js'), 'utf8');
+    assert.match(store, /async getMatchRemoteStatus\(matchId\)/);
+    assert.match(store, /async pollMatchRemote\(matchId/);
+    assert.match(store, /Math\.min\(12/);
+    assert.match(store, /status\.status === 'finalized' && status\.completion/);
+    assert.match(store, /const settled = await this\.pollMatchRemote\(matchId\)/);
+    assert.match(store, /dailyProgress: completion\.dailyProgress \|\| null/);
+    assert.match(store, /this\.data\.stats\.rankedElo = this\.data\.elo/);
+});
+
+test('match status route passes the authenticated profile into authority', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+    assert.match(source, /urlPath\.startsWith\('\/api\/matches\/'\)[\s\S]*?const profile = requireAuth\(req, res\)\?\.profile;[\s\S]*?matchAuthority\.status\(profile,/);
+});
+
+test('lobby admission keeps private member identities out of public lobby records', () => {
+    assert.match(source, /memberProfileIds\.add\(auth\.profile\.id\)/);
+    assert.match(source, /\/api\/lobbies\/.*\/join/);
+    assert.match(source, /const \{ ownerAccountId, memberProfileIds, admissionToken, \.\.\.visible \} = record/);
+    assert.match(source, /result\.httpStatus/);
+});
+
+test('admission proof is host-welcome-only and client join waits for it', () => {
+    const network = fs.readFileSync(path.join(__dirname, '..', 'js', 'network.js'), 'utf8');
+    const main = fs.readFileSync(path.join(__dirname, '..', 'js', 'main.js'), 'utf8');
+    assert.match(source, /crypto\.randomBytes\(32\)\.toString\('base64url'\)/);
+    assert.match(source, /crypto\.timingSafeEqual\(expected, proof\)/);
+    assert.match(network, /type: 'welcome',[\s\S]*?admissionToken/);
+    assert.match(network, /waitForLobbyAdmissionProof/);
+    assert.match(network, /_resetLobbyAdmissionProof\(\)/);
+    assert.match(network, /async _joinGame[\s\S]*?_resetLobbyAdmissionProof\(\)/);
+    assert.match(network, /disconnect\(\) \{\s*this\._resetLobbyAdmissionProof\(\)/);
+    assert.match(main, /await this\.network\.waitForLobbyAdmissionProof\(\)/);
+    assert.doesNotMatch(network, /broadcast\(\{[\s\S]{0,160}admissionToken/);
 });

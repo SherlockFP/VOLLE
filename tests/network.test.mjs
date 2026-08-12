@@ -379,6 +379,65 @@ test('playerId persists in session storage and constructor tolerates no storage'
     assert.ok(new Network({}).playerId);
 });
 
+test('starting a new host session clears stale lobby admission state', async () => {
+    const network = new Network({ player: {} });
+    network.lobbyAdmissionToken = 'stale-token-that-must-not-reach-next-lobby';
+    network._lobbyAdmissionProof = 'stale-proof-that-must-not-reach-next-lobby';
+    network.initPeer = async () => {
+        network.roomCode = 'fresh-host-room';
+        network.peer = { id: 'fresh-host-room' };
+    };
+    network._reservePlayerIdentity = async () => null;
+    network._updateMigrationRoster = () => {};
+
+    await network.hostGame('Host');
+
+    assert.equal(network.lobbyAdmissionToken, '');
+    assert.equal(network._lobbyAdmissionProof, '');
+    assert.equal(network.hostRoomCode, 'fresh-host-room');
+});
+
+test('late host admission token uses a private proof packet and resolves the real client waiter', async () => {
+    const token = 'A'.repeat(43);
+    const host = new Network({});
+    const clientConn = fakeConn('client-peer');
+    const unadmittedConn = fakeConn('unadmitted-peer');
+    const closedConn = fakeConn('closed-peer');
+    clientConn._admitted = true;
+    closedConn._admitted = true;
+    closedConn.open = false;
+    host.isHost = true;
+    host.playerConnections.set('client-player', clientConn);
+    host.playerConnections.set('unadmitted-player', unadmittedConn);
+    host.playerConnections.set('closed-player', closedConn);
+
+    host.setLobbyAdmissionToken(token);
+
+    assert.deepEqual(clientConn.sent, [{ type: 'lobbyAdmissionProof', admissionToken: token }]);
+    assert.deepEqual(unadmittedConn.sent, []);
+    assert.deepEqual(closedConn.sent, []);
+    assert.equal(clientConn.sent.some(packet => packet.type === 'welcome'), false);
+
+    const client = new Network({});
+    client.hostConn = { peer: 'host-peer' };
+    const pending = client.waitForLobbyAdmissionProof(1000);
+    client.handleMessage(clientConn.sent[0], 'host-peer');
+    assert.equal(await pending, token);
+});
+
+test('lobby admission proof rejects malformed and forged mesh packets', () => {
+    const token = 'B'.repeat(43);
+    const client = new Network({});
+    client.hostConn = { peer: 'host-peer' };
+
+    assert.equal(client._validateMsg({ type: 'lobbyAdmissionProof', admissionToken: 'short' }), false);
+    client.handleMessage({ type: 'lobbyAdmissionProof', admissionToken: token }, 'mesh-peer');
+    assert.equal(client._lobbyAdmissionProof, '');
+
+    client.handleMessage({ type: 'lobbyAdmissionProof', admissionToken: token }, 'host-peer');
+    assert.equal(client._lobbyAdmissionProof, token);
+});
+
 function fakeConn(peer, metadata = {}) {
     const conn = new EventEmitter();
     const transportMetadata = { ...metadata };
@@ -563,6 +622,98 @@ test('host admits each connection once while preserving join avatar', async () =
         positionV2: true,
         migrationVotes: true
     });
+});
+
+test('resume admission sends welcome proof even when gameplay join callback throws', async () => {
+    const admissionToken = 'A'.repeat(43);
+    const network = new Network({
+        getPlayerList: () => [],
+        state: 'lobby',
+        scoreboard: {}
+    });
+    network.isHost = true;
+    network.lobbyAdmissionToken = admissionToken;
+    network.onPlayerJoin = () => { throw new Error('gameplay callback failed'); };
+    const conn = fakeConn('peer-a', {
+        name: 'A',
+        playerId: 'player-a',
+        resumeToken: 'resume-a'
+    });
+
+    await completeIdentityAdmission(network, conn);
+
+    assert.equal(network.playerConnections.get('player-a'), conn);
+    const proofIndex = conn.sent.findIndex(packet => packet.type === 'lobbyAdmissionProof');
+    const welcomeIndex = conn.sent.findIndex(packet => packet.type === 'welcome');
+    assert.equal(
+        conn.sent[proofIndex]?.admissionToken,
+        admissionToken
+    );
+    assert.ok(proofIndex < welcomeIndex, 'the independent proof must precede the full welcome');
+});
+
+test('legacy join sends welcome proof even when gameplay join callback throws', () => {
+    const admissionToken = 'B'.repeat(43);
+    const network = new Network({
+        getPlayerList: () => [],
+        state: 'lobby',
+        scoreboard: {}
+    });
+    network.isHost = true;
+    network.lobbyAdmissionToken = admissionToken;
+    network.onPlayerJoin = () => { throw new Error('gameplay callback failed'); };
+    const conn = fakeConn('peer-a', { name: 'A', playerId: 'player-a' });
+    network._bindConnectionIdentity(conn, 'player-a', 'A');
+    network.connections.set('peer-a', conn);
+    conn._sendWelcome = () => conn.send({
+        type: 'welcome',
+        admissionToken: network.lobbyAdmissionToken
+    });
+
+    assert.doesNotThrow(() => network.handleMessage({
+        type: 'join',
+        name: 'A',
+        playerId: 'player-a'
+    }, 'peer-a'));
+
+    assert.equal(conn._admitted, true);
+    const proofIndex = conn.sent.findIndex(packet => packet.type === 'lobbyAdmissionProof');
+    const welcomeIndex = conn.sent.findIndex(packet => packet.type === 'welcome');
+    assert.equal(
+        conn.sent[proofIndex]?.admissionToken,
+        admissionToken
+    );
+    assert.ok(proofIndex < welcomeIndex, 'the independent proof must precede the full welcome');
+});
+
+test('resume admission proof resolves even when full welcome construction throws', async () => {
+    const admissionToken = 'C'.repeat(43);
+    const network = new Network({
+        getPlayerList: () => [],
+        state: 'lobby',
+        scoreboard: {},
+        snapshotState: () => { throw new Error('snapshot failed'); }
+    });
+    network.isHost = true;
+    network.lobbyAdmissionToken = admissionToken;
+    const conn = fakeConn('peer-a', {
+        name: 'A',
+        playerId: 'player-a',
+        resumeToken: 'resume-a'
+    });
+
+    await completeIdentityAdmission(network, conn);
+
+    const proof = conn.sent.find(packet => packet.type === 'lobbyAdmissionProof');
+    assert.deepEqual(proof, { type: 'lobbyAdmissionProof', admissionToken });
+    assert.equal(conn.sent.some(packet => packet.type === 'welcome'), false);
+    assert.equal(network.playerConnections.get('player-a'), conn);
+
+    const client = new Network({});
+    client.hostConn = { peer: 'host-peer' };
+    const pending = client.waitForLobbyAdmissionProof(1000);
+    client.handleMessage(proof, 'host-peer');
+    assert.equal(await pending, admissionToken);
 });
 
 test('active connection rejects replacement and closed identity resumes with its token', async () => {
@@ -1053,7 +1204,7 @@ test('system chat is accepted only from the host transport', () => {
     assert.deepEqual(messages, [['SERVER', 'trusted']]);
 });
 
-test('round and lobby state are accepted only from the host transport', () => {
+test('round state remains host-gated and lobby state uses direct fallback without callback', () => {
     let rounds = 0;
     let lobbies = 0;
     const network = new Network({
@@ -1069,6 +1220,29 @@ test('round and lobby state are accepted only from the host transport', () => {
 
     assert.equal(rounds, 1);
     assert.equal(lobbies, 1);
+});
+
+test('trusted client lobby state updates migration roster then dispatches App callback exactly once', () => {
+    let directApply = 0;
+    const callbacks = [];
+    const network = new Network({ applyLobbyState: () => directApply++ });
+    network.hostConn = { peer: 'host-peer' };
+    network.onGameState = packet => callbacks.push(packet);
+    const packet = {
+        type: 'lobbyState',
+        players: [{ playerId: 'player-host', peerId: 'host-peer', name: 'Host', team: 'red' }],
+        mode: 'classic',
+        map: 'beach'
+    };
+
+    network.handleMessage(packet, 'host-peer');
+    assert.deepEqual(callbacks, [packet]);
+    assert.equal(directApply, 0, 'callback path must not apply lobby state twice');
+    assert.equal(network.migrationRoster.get('player-host')?.peerId, 'host-peer');
+
+    network.handleMessage(packet, 'mesh-peer');
+    assert.equal(callbacks.length, 1, 'non-host peers cannot dispatch lobby state');
+    assert.equal(directApply, 0);
 });
 
 test('mode and map changes are accepted only from the host transport', () => {
@@ -1105,6 +1279,29 @@ test('skill and power-up presentation state is accepted only from the host trans
     assert.equal(skills, 1);
     assert.equal(states, 1);
     assert.equal(grants, 1);
+});
+
+test('celebration and game-over state are accepted only from the host transport', () => {
+    let celebrations = 0;
+    let gameOvers = 0;
+    const network = new Network({
+        applyCelebrationStart: () => celebrations++,
+        applyGameOver: () => gameOvers++
+    });
+    network.hostConn = { peer: 'host-peer' };
+
+    network.handleMessage({ type: 'celebrationStart' }, 'mesh-peer');
+    network.handleMessage({ type: 'gameOver' }, 'mesh-peer');
+    assert.deepEqual([celebrations, gameOvers], [0, 0], 'mesh peers cannot spoof terminal state');
+
+    network.handleMessage({ type: 'celebrationStart' }, 'host-peer');
+    network.handleMessage({ type: 'gameOver' }, 'host-peer');
+    assert.deepEqual([celebrations, gameOvers], [1, 1], 'the current host transport remains authoritative');
+
+    network.isHost = true;
+    network.handleMessage({ type: 'celebrationStart' }, 'host-peer');
+    network.handleMessage({ type: 'gameOver' }, 'host-peer');
+    assert.deepEqual([celebrations, gameOvers], [1, 1], 'hosts ignore inbound terminal-state packets');
 });
 
 test('host rejects client-authored mode and map changes', () => {

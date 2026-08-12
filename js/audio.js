@@ -65,6 +65,7 @@ export class Audio {
         'deflect-lob': { fn: 'playDeflect', args: ['lob'] },
         'deflect-flat': { fn: 'playDeflect', args: ['flat'] },
         'whoosh': { fn: 'playWhoosh' },
+        'dash': { fn: 'playDash', retriggerMs: 250 },
         'dinging': { fn: 'playDing' },
         'jump': { fn: 'playJump' },
         'land': { fn: 'playLand' },
@@ -93,6 +94,7 @@ export class Audio {
         'equip-change': { fn: 'playEquipChange' },
         'settings-apply': { fn: 'playSettingsApply' },
         'kill-confirm': { fn: 'playKillConfirm', retriggerMs: 400 },
+        'deflect-reject': { fn: 'playDeflectReject', retriggerMs: 250 },
     };
 
     _cueCooldowns = {};
@@ -104,16 +106,19 @@ export class Audio {
         if (this.soundVolume <= 0) return false;
         const now = performance.now?.() || Date.now?.() || 0;
         const minGap = cue.retriggerMs ?? 50;
-        const lastPlay = this._cueCooldowns[cueName] || 0;
-        if (now - lastPlay < minGap) return false;
-        this._cueCooldowns[cueName] = now;
         const fn = this[cue.fn];
         if (!fn || typeof fn !== 'function') return false;
+        const hasPlayed = Object.prototype.hasOwnProperty.call(this._cueCooldowns, cueName);
+        const previousPlay = this._cueCooldowns[cueName];
+        if (hasPlayed && now - previousPlay < minGap) return false;
         try {
+            this._cueCooldowns[cueName] = now;
             if (cue.args) fn.apply(this, cue.args);
             else fn.call(this);
             return true;
         } catch (_e) {
+            if (hasPlayed) this._cueCooldowns[cueName] = previousPlay;
+            else delete this._cueCooldowns[cueName];
             return false;
         }
     }
@@ -415,6 +420,50 @@ export class Audio {
         src.start(t);
     }
 
+    // A dash is a compact movement confirmation, not a ball throw: a low body
+    // with a small rising air tick. It uses no noise buffer and stays beneath
+    // the 0.11 throw-whoosh peak so deflect/throw feedback remains dominant.
+    playDash() {
+        if (!this.ctx || !this.masterGain || this.soundVolume <= 0) return false;
+        if (this.ctx.state === 'suspended') {
+            this._resumeAudioContext().then(running => {
+                if (running && this.masterGain && this.soundVolume > 0) this._playDashNow();
+            });
+            return false;
+        }
+        this._playDashNow();
+        return true;
+    }
+
+    _playDashNow() {
+        const t = this.ctx.currentTime;
+        const body = this.ctx.createOscillator();
+        const bodyGain = this.ctx.createGain();
+        body.type = 'triangle';
+        body.frequency.setValueAtTime(330, t);
+        body.frequency.exponentialRampToValueAtTime(225, t + 0.11);
+        bodyGain.gain.setValueAtTime(0.0001, t);
+        bodyGain.gain.exponentialRampToValueAtTime(0.075, t + 0.006);
+        bodyGain.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+        body.connect(bodyGain);
+        bodyGain.connect(this.masterGain);
+        body.start(t);
+        body.stop(t + 0.13);
+
+        const air = this.ctx.createOscillator();
+        const airGain = this.ctx.createGain();
+        air.type = 'sine';
+        air.frequency.setValueAtTime(980, t);
+        air.frequency.exponentialRampToValueAtTime(1480, t + 0.075);
+        airGain.gain.setValueAtTime(0.0001, t);
+        airGain.gain.exponentialRampToValueAtTime(0.018, t + 0.006);
+        airGain.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+        air.connect(airGain);
+        airGain.connect(this.masterGain);
+        air.start(t);
+        air.stop(t + 0.1);
+    }
+
     // Clean musical "ding" — for XP bar, level-up, etc.
     playDing(freq = 880, vol = 0.15) {
         if (!this.ctx) return;
@@ -455,6 +504,13 @@ export class Audio {
         if (!this.ctx) return;
         this._osc('sine', pitch, 0.15, 0.2);
         this._osc('sine', pitch * 2, 0.1, 0.05);
+    }
+
+    // Quiet low warning for the one-time first-match aim correction.
+    playDeflectReject() {
+        if (!this.ctx) return;
+        this._osc('triangle', 240, 0.07, 0.04);
+        this._osc('sine', 160, 0.05, 0.025);
     }
 
     // Happy GO chord

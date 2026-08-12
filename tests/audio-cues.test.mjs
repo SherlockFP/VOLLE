@@ -149,17 +149,17 @@ test('volume normalization: masterGain stays in 0..1 range', () => {
     assert.equal(audio.masterGain.gain.value, 0.5 * 0.4);
 });
 
-test('cue table exists and contains all 34 expected cue names', () => {
+test('cue table exists and contains all expected cue names', () => {
     const expectedCues = [
         'ui-click', 'ui-hover', 'deflect-spike', 'deflect-lob', 'deflect-flat',
-        'whoosh', 'dinging', 'jump', 'land', 'bounce',
+        'whoosh', 'dash', 'dinging', 'jump', 'land', 'bounce',
         'threat-1', 'threat-2', 'threat-3',
         'knife-inspect', 'knife-slash', 'knife-stab',
         'voice-ping-incoming', 'voice-ping-help', 'voice-ping-save',
         'beep', 'go', 'speed-warning', 'score', 'chat',
         'hit-tf2', 'crit-tf2', 'frying-pan',
         'match-win', 'match-loss', 'match-end',
-        'respawn', 'equip-change', 'settings-apply', 'kill-confirm'
+        'respawn', 'equip-change', 'settings-apply', 'kill-confirm', 'deflect-reject'
     ];
     
     assert.equal(Object.keys(Audio.CUES).length, expectedCues.length, `cue table must have exactly ${expectedCues.length} cues`);
@@ -169,6 +169,16 @@ test('cue table exists and contains all 34 expected cue names', () => {
         const cue = Audio.CUES[cueName];
         assert.equal(typeof cue.fn, 'string', `cue ${cueName} must have a fn property`);
     }
+});
+
+test('deflect reject cue is retrigger guarded and muted-safe', () => {
+    assert.deepEqual(Audio.CUES['deflect-reject'], { fn: 'playDeflectReject', retriggerMs: 250 });
+    const { audio } = createAudioHarness();
+    audio.soundVolume = 0.5;
+    assert.equal(audio.playCue('deflect-reject'), true);
+    assert.equal(audio.playCue('deflect-reject'), false, 'rapid duplicate is blocked');
+    audio.soundVolume = 0;
+    assert.equal(audio.playCue('deflect-reject'), false, 'muted audio never invokes the cue');
 });
 
 test('playCue returns boolean result consistently', () => {

@@ -20,7 +20,9 @@ export function extractGameMethod(name) {
     assert.ok(match, `Game.${name} method not found`);
 
     const start = match.index;
-    const bodyStart = gameSource.indexOf('{', start);
+    // Use the final brace captured by the signature (`) {`). Default parameters can
+    // contain earlier braces, e.g. `remoteAttack(playerId, data = {}) {`.
+    const bodyStart = start + match[0].lastIndexOf('{');
     let depth = 0;
     let quote = null;
     let escaped = false;

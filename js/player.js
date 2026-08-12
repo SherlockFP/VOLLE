@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { applyCharacter } from './characters.js';
 import { applyRunes, tickSkillCooldowns, useSkill, DEFAULT_LOADOUT, ULTIMATES } from './skills.js';
 import { createKnifeModel, createRocketLauncherModel, disposeObject3D } from './weapon-models.js';
-import { createKnifeAnimationState, resolveKnifePose, startKnifeAnimation, stepKnifeAnimation, viewmodelFrame } from './knife-animation.js';
+import { advanceViewmodelGait, advanceViewmodelLanding, createKnifeAnimationState, resolveKnifePose, startKnifeAnimation, stepKnifeAnimation, triggerViewmodelLanding, viewmodelFrame } from './knife-animation.js';
 
 const STAMINA_PER_DEFLECT = 7;
 const RAPID_DEFLECT_COST_STEP = 2;
@@ -29,6 +29,12 @@ export const LONG_JUMP_MAX_SPEED = 16;
 export const LONG_JUMP_VERTICAL_BOOST = 5.5;
 export const LONG_JUMP_COOLDOWN = 1;
 export const LONG_JUMP_STAMINA_COST = 30;
+
+// Three.js cameras look down local -Z. Red spawns begin south of center and
+// therefore need to face north (+Z); blue begins north and faces south (-Z).
+export function spawnYawForTeam(team) {
+    return team === 'red' ? Math.PI : 0;
+}
 
 export function applyGroundFriction(velocity, friction, stopSpeed, dt) {
     const speed = Math.hypot(velocity.x, velocity.z);
@@ -93,6 +99,12 @@ export function moveHorizontalState(velocity, wishDir, wishSpeed, dt, onGround, 
     }
 
     return { velocity: horizontal, displacement };
+}
+
+// Consume only the dash time that remains this frame. This keeps dash reach
+// invariant across render frame rates without changing its input gates.
+export function consumeDashTime(remaining, dt) {
+    return Math.min(Math.max(0, Number(remaining) || 0), Math.max(0, Number(dt) || 0));
 }
 
 export function isEditableTarget(target) {
@@ -375,7 +387,12 @@ export class Player {
         this.knifeAttackType = 'slash';
         this._viewSwayX = 0;
         this._viewSwayY = 0;
-        this._viewTime = 0;
+        this._viewGait = { phase: 0, weight: 0, speed: 0 };
+        this._viewLanding = { active: false, elapsed: 0, offset: 0, depth: 0 };
+        this._viewmodelPoseContext = { gaitPhase: 0, gaitWeight: 0, gaitSpeed: 0, landingElapsed: 0, landingDepth: 0, reduceMotion: false, swayX: 0, swayY: 0 };
+        this._reducedMotionMedia = typeof window !== 'undefined'
+            ? window.matchMedia?.('(prefers-reduced-motion: reduce)') || null
+            : null;
         this.rocketCooldown = 0;
         this._rocketQueued = false;
         this.stamina = 100;          // ponytail: stamina gate blocks mouse-1 spam
@@ -638,12 +655,16 @@ export class Player {
 
     _updateKnifeViewmodel(dt) {
         stepKnifeAnimation(this.knifeAnimation, dt);
-        const pose = resolveKnifePose(this.knifeAnimation, {
-            time: this._viewTime,
-            speed: this.horizontalSpeed,
-            swayX: this._viewSwayX,
-            swayY: this._viewSwayY
-        });
+        const context = this._viewmodelPoseContext;
+        context.gaitPhase = this._viewGait.phase;
+        context.gaitWeight = this._viewGait.weight;
+        context.gaitSpeed = this._viewGait.speed;
+        context.landingElapsed = this._viewLanding.elapsed;
+        context.landingDepth = this._viewLanding.depth;
+        context.reduceMotion = this._prefersReducedMotion();
+        context.swayX = this._viewSwayX;
+        context.swayY = this._viewSwayY;
+        const pose = resolveKnifePose(this.knifeAnimation, context);
         this.armGroup.position.set(...pose.armPosition);
         this.armGroup.rotation.set(...pose.armRotation);
         this.knifeGroup.position.set(...pose.knifePosition);
@@ -661,6 +682,25 @@ export class Player {
         this.fingerGroup?.children.forEach((finger, index) => {
             finger.rotation.z = -0.22 - grip * (0.18 + index * 0.015);
         });
+    }
+
+    _prefersReducedMotion() {
+        const bodyReduced = typeof document !== 'undefined'
+            && document.body?.classList?.contains('reduced-motion');
+        const osReduced = this._reducedMotionMedia?.matches === true;
+        return bodyReduced || osReduced;
+    }
+
+    _onViewmodelLanding(impactSpeed, visualScale = 1) {
+        this.audio?.playLand?.();
+        return triggerViewmodelLanding(this._viewLanding, impactSpeed, visualScale);
+    }
+
+    _resetViewmodelLanding() {
+        this._viewLanding.active = false;
+        this._viewLanding.elapsed = 0;
+        this._viewLanding.offset = 0;
+        this._viewLanding.depth = 0;
     }
 
     cleanupInput() {
@@ -814,7 +854,6 @@ export class Player {
         const swayDecay = Math.exp(-9 * dt);
         this._viewSwayX *= swayDecay;
         this._viewSwayY *= swayDecay;
-        this._viewTime += Math.min(0.1, Math.max(0, dt));
 
         // Attack cooldown
         this.rocketCooldown = Math.max(0, this.rocketCooldown - dt);
@@ -824,13 +863,6 @@ export class Player {
                 this.attacking = false;
                 this.canAttack = true;
             }
-        }
-
-        if (this.knifeGroup?.userData.weaponType === 'knife') {
-            this._updateKnifeViewmodel(dt);
-        } else {
-            this.armGroup.position.set(0.25, -0.3, -0.3);
-            this.armGroup.rotation.set(0, 0, 0);
         }
 
         // Movement (chill yavaşlatması uygulanır)
@@ -937,8 +969,9 @@ export class Player {
         const wasDashing = this.dashTimer > 0;
         if (wasDashing) {
             // Dashing: move at burst speed
-            this.position.add(this.dashDir.clone().multiplyScalar(this.dashForce * dt));
-            this.dashTimer -= dt;
+            const dashDt = consumeDashTime(this.dashTimer, dt);
+            this.position.addScaledVector(this.dashDir, this.dashForce * dashDt);
+            this.dashTimer = Math.max(0, this.dashTimer - dashDt);
         } else {
             // Sprint — hold Shift for speed boost, drains stamina
             const sprinting = moveDir.lengthSq() > 0 && holdingShift && this.onGround && this.stamina > 0;
@@ -955,6 +988,7 @@ export class Player {
             this.stamina -= this.dashCost;
             // Dash in movement direction, or forward if no input
             this.dashDir.copy(moveDir.length() > 0 ? moveDir.normalize() : forward);
+            this.audio?.playCue?.('dash');
             this._justDashed = true; // ponytail: dash trail için flag
         }
         this._dashWasDown = ctrlDown;
@@ -991,6 +1025,9 @@ export class Player {
 
         const standingHazard = this.arena.getHazardAt?.(this.position);
         if (standingHazard?.kind === 'void') this.onGround = false;
+        const wasAirborneBeforeLanding = !this.onGround;
+        const landingImpactSpeed = Math.max(0, -this.verticalVel);
+        let pendingLanding = false;
         if (this.verticalVel <= 0) {
             const platform = this.arena.platforms?.find(entry => {
                 const landingY = entry.y + this.height;
@@ -1004,12 +1041,13 @@ export class Player {
                 this.verticalVel = 0;
                 this.onGround = true;
                 this.jumpsRemaining = 2;
+                pendingLanding = wasAirborneBeforeLanding;
             }
         }
         if (!swimming && this.position.y <= this.height && standingHazard?.kind !== 'void') {
             if (!this.onGround) {
                 this.jumpsRemaining = 2;
-                if (this.audio) this.audio.playLand();
+                pendingLanding = true;
             }
             this.position.y = this.height;
             this.verticalVel = 0;
@@ -1029,6 +1067,10 @@ export class Player {
                 this._jumpPadCooldown = 0.45;
                 this.audio?.playJump();
             }
+        }
+        if (pendingLanding && !swimming && this.onGround) {
+            const landingScale = this.bhopEnabled && this.keys['Space'] ? 0.4 : 1;
+            this._onViewmodelLanding(landingImpactSpeed, landingScale);
         }
 
         // Bounds
@@ -1105,6 +1147,15 @@ export class Player {
         this.horizontalSpeed = Math.hypot(this._frameVel.x, this._frameVel.z);
         if (this.longJumpEvent) {
             this.longJumpEvent.horizontalSpeed = this.horizontalSpeed;
+        }
+
+        advanceViewmodelGait(this._viewGait, dt, this.horizontalSpeed, this.onGround && !this._viewLanding.active, wasDashing);
+        advanceViewmodelLanding(this._viewLanding, dt, this._prefersReducedMotion());
+        if (this.knifeGroup?.userData.weaponType === 'knife') {
+            this._updateKnifeViewmodel(dt);
+        } else {
+            this.armGroup.position.set(0.25, -0.3 + this._viewLanding.offset, -0.3);
+            this.armGroup.rotation.set(0, 0, 0);
         }
 
         if (!this.killcamLock) {
@@ -1197,6 +1248,7 @@ export class Player {
         this.hp = 0;
         this.velocity.set(0, 0, 0);
         this.verticalVel = 0;
+        this._resetViewmodelLanding();
         this._clearInputState();
         this.setHandVisible(false); // ponytail: ölünce hand gizle — spectate temiz
     }
@@ -1280,7 +1332,8 @@ export class Player {
         this.velocity.set(0, 0, 0);
         this.verticalVel = 0;
         this.onGround = true;
-        this.euler.set(0, this.team === 'red' ? 0 : Math.PI, 0, 'YXZ');
+        this._resetViewmodelLanding();
+        this.euler.set(0, spawnYawForTeam(this.team), 0, 'YXZ');
         this.camera.quaternion.setFromEuler(this.euler);
         this.alive = true;
         this.hp = this.maxHp;

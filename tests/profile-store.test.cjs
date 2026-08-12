@@ -42,7 +42,7 @@ test('ball catalog contains the new cosmetic skin collection', () => {
 test('wearable catalog is server-priced and migrated through its own ownership field', t => {
     const { dir, store } = tempStore();
     t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-    assert.equal(Object.keys(CATALOG.cosmetic).length, 30);
+    assert.equal(Object.keys(CATALOG.cosmetic).length, 31);
     const session = store.session('', 'Player', {
         currency: 1000,
         ownedCosmetics: ['cape_ember', 'unknown_cosmetic']
@@ -115,6 +115,41 @@ test('match rewards are bounded and idempotent', t => {
     assert.equal(replay.replayed, true);
     const lossReward = store.reward(profile, { matchId: 'match-2', won: false, deflections: 0, score: 0 });
     assert.equal(lossReward.coins, 40);
+});
+
+test('onboarding is profile-scoped, monotonic, idempotent, and persisted', t => {
+    const { dir, store } = tempStore();
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const accountA = store.session('', 'AccountA');
+    const accountB = store.session('', 'AccountB');
+    const profileA = store.authenticate(accountA.token);
+    const profileB = store.authenticate(accountB.token);
+    assert.deepEqual(accountA.profile.onboarding, { ftueSeen: false, ftueCompleted: false, ftueMatchHintsSeen: false });
+    const first = store.advanceOnboarding(profileA, { ftueSeen: true, ftueCompleted: true });
+    assert.equal(first.updated, true);
+    assert.deepEqual(first.onboarding, { ftueSeen: true, ftueCompleted: true, ftueMatchHintsSeen: false });
+    assert.deepEqual(store._public(profileB).onboarding, { ftueSeen: false, ftueCompleted: false, ftueMatchHintsSeen: false }, 'another account cannot inherit FTUE state');
+    assert.equal(store.advanceOnboarding(profileA, { ftueSeen: true }).updated, false, 'repeat update is idempotent');
+    assert.equal(store.advanceOnboarding(profileA, { ftueSeen: false }).status, 400, 'flags cannot reset');
+    assert.equal(store.advanceOnboarding(profileA, { unknown: true }).status, 400);
+    const restored = new ProfileStore(path.join(dir, 'profiles.json'));
+    assert.deepEqual(restored._public(restored.authenticate(accountA.token)).onboarding, first.onboarding);
+});
+
+test('onboarding endpoint is authenticated and client maps/syncs the server profile flags', () => {
+    const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+    const clientStore = fs.readFileSync(path.join(__dirname, '..', 'js', 'store.js'), 'utf8');
+    const main = fs.readFileSync(path.join(__dirname, '..', 'js', 'main.js'), 'utf8');
+    assert.match(server, /urlPath === '\/api\/profile\/onboarding' && req\.method === 'POST'/);
+    assert.match(server, /allowRequest\(req, res, 'onboarding'\)/);
+    assert.match(server, /requireAuth\(req, res, body\)\?\.profile/);
+    assert.match(server, /profiles\.advanceOnboarding\(profile, body\.onboarding\)/);
+    assert.match(clientStore, /async syncOnboarding\(onboarding\)/);
+    assert.match(clientStore, /fetch\('\/api\/profile\/onboarding'/);
+    assert.match(clientStore, /this\.data\[flag\] = profile\.onboarding\[flag\]/);
+    assert.match(main, /syncOnboarding\(\{ ftueSeen: true \}\)/);
+    assert.match(main, /syncOnboarding\(\{ ftueCompleted: true \}\)/);
+    assert.match(main, /syncOnboarding\(\{ ftueMatchHintsSeen: true \}\)/);
 });
 
 test('earned case entitlement is match-idempotent, drought-bounded, and opens before credits', t => {

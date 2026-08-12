@@ -6,7 +6,10 @@
   "scripts": {
     "start": "node server.js",
     "test": "node --test",
-    "check": "node scripts/check-js.js"
+    "check": "node scripts/check-js.js",
+    "graft:build": "npx --yes @nanonets/graft@0.9.1 build .",
+    "graft:check": "npx --yes @nanonets/graft@0.9.1 check .",
+    "graft:map": "npx --yes @nanonets/graft@0.9.1 map ."
   },
   "engines": {
     "node": ">=22.13"

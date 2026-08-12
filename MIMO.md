@@ -1,6 +1,6 @@
 # MIMO.md — 2BALL Project Current State
 
-> **Last updated:** 2026-08-11
+> **Last updated:** 2026-08-12
 > **Status:** Active development. Account system complete; Phase 1-3 done; V4 immersive/economy/combat pass complete (see below); Phase 4 backlog pending.
 > **Tech Stack:** Three.js + PeerJS + vanilla JS (ES modules), browser-based 3D dodgeball.
 
@@ -8,6 +8,14 @@
 
 ## 2026-08-11 Quality-First Product Cycles
 
+- **Graft code context:** NanoNets Graft 0.9.1 is pinned as repo-local
+  development tooling through `npm run graft:build`, `graft:check`, and
+  `graft:map`; it is not a game/server runtime dependency. The structural graph
+  is a regenerable ignored cache (`graft/`), while `.ignore` keeps its cards
+  searchable. The first build indexed 264 JavaScript files into 3,180 nodes and
+  7,950 edges without telemetry or an LLM/API key; the latest clean rebuild
+  covers 280 files / 3,311 nodes / 8,237 edges and `graft:check` reports the
+  graph in sync.
 - **Core-fun reliability:** countdown warm-up balls now accept the first primary
   attack; bot deflect decisions begin early enough to cover reaction + wind-up
   and hold position through commitment. Regression coverage lives in
@@ -15,12 +23,129 @@
   Ordinary deflects outside the perfect window no longer throw on Ball's valid
   `Infinity` sentinel. Automated pointer-lock still limits a real two-deflect
   browser check.
+- **Hit-feedback semantics and cost:** Classic/local-host and P2P client paths
+  no longer invoke elimination shaders, explosion audio, death particles or the
+  external elimination feed for ordinary nonlethal hits. Normal damage still
+  keeps its hit burst, shockwave, hit-stop, flash, impact sound and local victim
+  grunt; lethal hits retain the stronger kill burst, sparks, death explosion,
+  death cue and killcam. This removes 28 per-event mesh/geometry/material
+  allocations from every nonlethal hit without changing damage, authority or
+  `playerHit` packets. A compiled shipped-method harness passed local, host and
+  P2P lethal/nonlethal traces; transient particle/audio A/B remains unverified.
+- **Death-particle frame cost:** the active death-particle update no longer
+  clones a `Vector3` for every particle on every frame; it integrates velocity
+  with in-place `addScaledVector`. Numeric harness QA matched the prior position
+  delta and preserved gravity, life, opacity, scale, spin, bounce, scene removal
+  and GPU resource disposal. This is an allocation reduction, not a measured FPS
+  claim.
+- **Live assigned-ball threat:** the previously dormant incoming UI and urgency
+  audio scheduler now receive the local assigned target at a bounded 20 Hz
+  after local/host and P2P-client ball updates. Target loss, ball deactivation,
+  player death and state exit clear once without changing trajectory, damage or
+  packets. In a real Classic desktop match `INCOMING 1.0S` appeared before a
+  100-to-62 HP hit, reached critical at impact, then hid. A measured 375px score
+  collision was moved to a dedicated 84px mobile lane with 12px text; active
+  mobile recapture and a real two-peer listening soak remain WARN.
+- **Mobile lobby access:** at 375x720 the center column no longer collapses to
+  zero or paints beneath the team cards. The body is the single top-aligned
+  scroll owner; map, mode, settings, chat, both teams and Start are reachable.
+  Runtime QA changed Classic with a real 94x44 click, sent chat and changed map
+  and teams. The responsive header is 375/375px client/scroll width, bounds the
+  room UUID, and ellipsizes mode/map with an 8px gap before REGION.
+- **Initial P2P lobby-state sync:** the reliable host `lobbyState` now carries
+  mode/map and reaches the App presentation callback exactly once, while the
+  direct Game fallback remains available for transport-only consumers. A fresh
+  two-account Card Join rendered the host's preselected Speedball + Factory on
+  the first captured client state without a corrective host action. A later
+  Low G + Space Station change synchronized within 900 ms; room UUID,
+  `lobby-client` role, disabled/hidden host controls, team/chat sync and client
+  Start denial also passed with an empty browser-error log.
+- **Frame-rate-independent dash:** dash displacement now consumes only the
+  remaining burst duration instead of a full render-frame step. The previous
+  path travelled 1.80u at 20 FPS and 1.50u at 144 FPS for a nominal 1.44u
+  burst; the executable 20/30/60/120/144 FPS matrix now lands at 1.44u within
+  0.01u with no terminal extra step. Direction, 25 stamina cost, 1s cooldown,
+  collision clipping and reported momentum remain covered. Runtime visual QA
+  found no teleport/final lurch; automated pointer-lock input remains a QA
+  harness limitation rather than a claimed player defect.
+- **Dash state readability:** the existing `_justDashed`/`dashTimer` signal now
+  drives a mutually exclusive `DASH` movement-HUD state with priority below
+  longjump and above bhop/sprint. The restrained accent has a static
+  reduced-motion fallback and does not touch physics, audio or networking.
+  Actual UI/source gates and the full suite pass; browser automation could not
+  generate a held-key pointer-lock burst, so active-frame visual readability
+  remains WARN rather than a scored improvement.
+- **Dash onset audio:** an accepted dash now invokes one dedicated named cue
+  after cooldown/stamina/longjump gates pass; active frames and rejected inputs
+  remain silent. A 130ms triangle body (330->225Hz) plus 100ms rising sine air
+  layer (980->1480Hz) is quieter and structurally distinct from the 160ms
+  descending filtered-noise throw whoosh, while both retain the existing
+  master/tone/limiter chain. The cue registry's first-call-at-time-zero bug was
+  fixed, and failed/missing cue functions no longer poison retry cooldowns. No
+  asset, physics or network path changed. Routing/envelope QA and the full suite
+  pass; browser pointer-lock and audible headphone mix remain WARN.
+- **Authoritative three-second match start:** the duplicated default 10s + 3s
+  countdown is now one `3 → 2 → 1 → GO` phase. `GO` crosses the gameplay
+  boundary immediately and remains a shared 500ms presentation on host/client.
+  A connected client prepares in COUNTDOWN on `gameStart` and can enter PLAYING
+  only from the host's `roundStart`; it does not spawn/target a local ball or
+  create an FFA split, and applies the host ball snapshot once. Before the fix,
+  a real client moved the ball 13.381s before its host; after the fix neither
+  timer nor ball moved early, first-ball skew was 125ms and GO-hide skew was
+  125ms. A follow-up foreground solo trace separated 2.896s of browser-tool
+  delivery overhead from the product: click-return to COUNTDOWN was 0.974s and
+  click-return to first live ball was 4.684s, so the product clears the `<5s`
+  local time-to-action gate. A real `match_start` event reported 961.3ms loader,
+  23.8ms setup and 993.6ms click-to-countdown, matching the independently polled
+  DOM within 12-20ms. Cohort pacing remains NOT MEASURED.
+- **Readable opening warmup:** the former z9999, 92-98% opaque intro no longer
+  hides the arena or the first countdown frames. Arena/mode identity is a
+  compact `WARMUP` chip below the score, the countdown owns a separate y128+
+  lane, and controls/threat presentation stays hidden until GO. Host/solo
+  authority caps only an unusually short opening serve so every initially
+  assigned target has a deterministic >=1.0s ETA without delaying GO or
+  changing client authority. Independent desktop/mobile visual QA found no
+  score/intro/countdown/control intersection; a fresh solo run reached live in
+  4.657s after click return. Exact first-assignment ETA was not captured in that
+  runtime sample and remains source/test verified rather than visually timed.
+- **First-solo response guard:** a deterministic 240-opportunity audit found
+  240/240 ball launches and zero timing/range failures after a bot committed;
+  solo play never traverses P2P. The reported "first two shots" feel came from
+  consecutive difficulty chance-roll declines (22/40 seeded Easy pairs and
+  5/40 Medium pairs). Only the first offline bot match now guarantees the
+  second opportunity after an opening decline, while preserving reaction,
+  wind-up, mishit, later-round and multiplayer behavior.
 - **P2P startup reliability:** `gameStart` is retained and retried across brief
   signaling loss, duplicate starts are idempotent, and existing WebRTC data
   channels survive a broker disconnect where PeerJS permits it. Fresh host and
   client browsers held for 8.5+ seconds at roughly 20-28 ms / 0% observed loss;
   both entered the match within five seconds. Production TURN/signaling and a
   longer multi-peer soak remain launch requirements.
+- **P2P deflect/admission hardening:** a client's host echo of its predicted
+  deflect no longer re-arms local attack state or replays audio/FX; remote
+  deflect presentation remains intact. Host acceptance is locked by shipped-
+  method tests at the speed-scaled dedup boundary, including unique, duplicate,
+  queued and late-deflect cases. Lobby creation now awaits its private server
+  admission token, clears stale host state, forwards a late token only to
+  admitted/open clients through a host-only `lobbyAdmissionProof` packet, and
+  refuses an empty proof before calling `/join`. The small proof packet is sent
+  before gameplay callbacks and the full lobby snapshot, so either presentation
+  path can fail without invalidating transport admission. Deterministic tests
+  and the full 1,392-test suite pass. A fresh two-account browser gate then
+  completed host creation, private proof, authenticated `/join` (HTTP 200),
+  reciprocal roster and host start into both matches; the observed high-latency
+  local run reported 306-330 ms and 0% loss. Five controlled consecutive
+  deflects remain WARN because browser automation could not reacquire pointer
+  lock reliably.
+- **P2P progression authority:** arbitrary client match IDs can no longer mint
+  currency or ranked ELO. The host receives a private lobby admission proof,
+  sends it only after the existing P2P identity/password handshake, and the
+  server freezes the authenticated starters before accepting coherent results.
+  Real isolated two-account HTTP QA passed proof privacy, capacity, early-result
+  rejection, reciprocal settlement, finalized polling and persisted 1024/976
+  ELO. Solo rewards are server-capped at three per UTC day and ranked repeats at
+  three matches per opponent/day. P2P collusion and pending-match recovery after
+  a server restart still require authoritative simulation/persistence work.
 - **Full-body player identity:** the custom 64x64 Minecraft-style atlas now maps
   head, torso, both arms, and both legs on the shared character rig. Classic and
   slim models propagate through menu, Shop, Character Studio, cosmetic practice,
@@ -38,14 +163,62 @@
   populated post-game report puts Rematch in the first desktop/mobile viewport,
   moves the detailed report below it, keeps mobile XP on one line, and inserts
   reward flow under the correct nested report parent.
+- **Match pacing + rematch repair:** the host-authoritative victory lap is now
+  8 seconds instead of 30; the visible post-game Rematch action accepts the
+  real `GAME_OVER` state, starts a fresh match, and clears the report overlay.
+  Match duration now ends at gameplay end while post-game delay and
+  post-game-to-rematch decision time are measured separately. Runtime solo
+  flow, focused tests, syntax, and full regression pass; player rematch and
+  retention outcomes remain **NOT MEASURED** until real cohort events exist.
 - **Product/network measurement:** `js/product-analytics.js` and
   `server/product-analytics.js` provide authenticated, allowlisted,
   HMAC-pseudonymous, 90-day product events. Run
   `node scripts/product-kpi-report.js`; formulas and score rules are in
   `docs/PRODUCT_SCORECARD.md`. The current development-local store is not a
   cohort, so D1/D7/D30, conversion, rematch, and P2P KPI values remain
-  **NOT MEASURED**. Paid payer/ARPPU/ARPDAU/Battle Pass conversion remains
-  **NOT INSTRUMENTED YET** rather than inferred from soft-currency purchases.
+  **NOT MEASURED**. Server-confirmed payments now make payer conversion,
+  currency-separated ARPPU and ARPDAU measurement-ready, while the inspected
+  store still contains zero live events. Paid Battle Pass conversion is
+  explicitly unavailable because no paid-pass SKU exists; soft unlock/claim
+  activity is tracked only as engagement.
+- **Match-start decomposition:** authenticated `match_start` events now carry
+  only bounded monotonic durations (`matchLoadElapsedMs`, `matchSetupMs`,
+  `clickToCountdownMs`, each 0-60000ms); no raw timestamps, name, position or
+  input leaves the client. The KPI report averages observed samples only. A
+  fresh solo run produced exactly one lifecycle event for its match ID and the
+  sink retained only a pseudonymous profile key.
+- **Analytics runtime delivery:** the authenticated browser initially queued
+  events but made no network request because the stored native `fetch` was
+  invoked with the analytics instance as its receiver; in-flight events could
+  also remain stranded after one batch. Delivery now binds the global receiver,
+  drains 20-event batches through one shared flight, preserves failed-batch
+  order, and caps attempts at three. Fresh isolated browser QA wrote exactly
+  `session_start`, `screen_view`, `ftue_view`, and `ftue_exit` with one 40-char
+  pseudonymous key and no username/raw profile ID. This proves collection
+  readiness, not D1/D7/D30 or conversion outcomes.
+- **First-session path:** fresh accounts now receive an account-scoped welcome
+  with a one-click Guided Drill, truthful completion/exit events, and a direct
+  first bot-match handoff. The reversed team spawn yaw was corrected so the
+  first serve is centered and visible instead of spawning the player toward
+  the stands/sky. The account-first drill is now a deterministic 40 seconds
+  with reachable 3/2/2 stage thresholds; Help/Practice and retry runs retain
+  the full 73-second drill and original 5/4/3 bar. The first result is a positive
+  match handoff instead of a low grade, and exactly one `practice_start` reaches
+  the real analytics sink. Cache-fresh 375x812 runtime QA passed a readable
+  instruction, fully visible compact side gate, zero HUD-region overlap, and no
+  page overflow. Result completion/CTA behavior is source/test verified but its
+  final browser frame remains unobserved because background RAF automation was
+  severely throttled. Merely closing the overlay still does not count as
+  completion.
+- **Responsive match HUD:** cache-fresh normal-match QA at 375x812, 720x720
+  and 1440x900 now reports zero sibling-region intersections and zero page
+  overflow. Vitals, ultimate, minimap, ball speed and network diagnostics occupy
+  explicit mobile/desktop lanes; the exact 720px breakpoint contains the
+  controls strip. Guided Practice keeps its separate compact layout with a
+  190px vitals lane and no ultimate collision. First-match hints now wrap inside
+  a 16px mobile safe area with vertical-only motion; a live 375px capture
+  measured zero internal/viewport overflow and no score or reticle intersection.
+  Reduced-motion behavior remains static and readable.
 - **Account + social foundation:** playing now requires registration or sign-in.
   Embedded SQLite stores scrypt password hashes, revocable hashed sessions,
   stable `Name#CODE` friend identities, friendships, requests, direct messages,
@@ -57,15 +230,42 @@
   Arena Card collection and five-card same-rarity trade-up. Skills and runes can
   no longer be purchased; competitive/ranked resolves the same neutral card
   effects. Completed matches can grant cosmetic cases with a five-match drought
-  guarantee, and earned cases open before credits are charged.
+  guarantee, and earned cases open before credits are charged. The Card
+  Collection is now a keyboard-safe fixed inspector with responsive rarity,
+  ownership, equip and trade-up states; last verified visual scores are 8.1
+  desktop and 7.6 mobile.
+- **Account-authoritative Battle Pass:** authenticated tier/XP, claims, premium
+  ownership and track boosts now persist in the server profile instead of
+  trusting `localStorage`. MatchAuthority settlements grant a fixed 100 XP for
+  a win and 80 XP for a loss/draw; replayed settlement grants zero. Claim and
+  950-coin premium unlock routes are authenticated, rate-limited, balance-checked
+  and idempotent. An isolated browser account retained tier 1 / 60 XP, its tier-1
+  claim and 403 coins across reload; reduced-motion success/error messages remain
+  visible until their JavaScript timeout. Authenticated Daily Challenges now use
+  a server-clock UTC catalog with two play tasks plus one explicitly multiplayer
+  win task; MatchAuthority advances them exactly once, claim receipts persist
+  truthful capped coins plus 50/50/150 BP XP, and menu/HUD consume one server
+  profile. Earned XP boosts now have server-owned, idempotent activation,
+  server-clock expiry and authoritative match settlement; they affect only
+  Battle Pass XP, never coins, ELO or gameplay power. The Season Value panel
+  exposes exact XP-to-tier, ready claims, owned/active boost state and an
+  ethical secondary CTA; successful non-replayed activation is instrumented.
+  Completion/claim telemetry is emitted only after non-replayed server success.
+  The account-relative 56-day season and catch-up/claim-all design remain
+  follow-up.
 - **Case + hub presentation:** the case inspector shows contents, verified odds,
   pity and earned inventory; normal, skip and reduced-motion reveals share one
   once-only settled callback so rewards are announced after the reel locks. The
   single Aurora Grand Plaza hub has corrected renderer restoration, improved
   lighting, pools/statues and a walk-through Grand Pavilion focal space.
 - **Current verified readiness:** `docs/PRODUCT_SCORECARD.md` records an
-  **OVERALL PRODUCT READINESS SCORE of 7.4/10** from independent runtime,
-  visual, P2P, and 1,340-test gates. Player-outcome KPIs remain NOT MEASURED;
+  **OVERALL PRODUCT READINESS SCORE of 8.6/10** from independent runtime,
+  visual, P2P, and 1,491-test gates. Bot defense now chooses one readable
+  intent before movement, holds a declined dodge direction for 250ms, caps
+  only the bot's combined defensive footwork at 10u/s, and synchronizes yaw,
+  intent, strafe and a single deflect telegraph to P2P clients. Ball rally
+  acceleration is unchanged: each deflection still increases speed by 30%
+  of base up to the existing 3x cap. Player-outcome KPIs remain NOT MEASURED;
   the readiness score is not a retention or revenue claim.
 
 ---
@@ -159,8 +359,8 @@ P2P, while identity, social relationships and economy/profile persistence use
 the Node server. P2P host authority is not sufficient proof for trusted ranked
 or paid-economy results; production still needs authoritative validation.
 
-**Verified:** full regression `1340/1340`; syntax `96` files; focused final
-acceptance `121/121`. Fresh isolated-data HTTP/browser QA passed mandatory auth,
+**Verified:** full regression `1365/1365`; syntax `96` files; focused
+authority/network acceptance `97/97`. Fresh isolated-data HTTP/browser QA passed mandatory auth,
 two-account friendship/chat/invite, idempotent reward, earned-case opening,
 card equip, purchase rejection and logout revocation.
 

@@ -55,6 +55,9 @@ test('terminal state gates rewards and rematch requests', () => {
     assert.equal(isTerminalRematchState('playing'), false);
     assert.equal(isTerminalRematchState('countdown'), false);
     assert.equal(isTerminalRematchState('celebration'), true);
+    assert.equal(isTerminalRematchState('CELEBRATION'), true);
+    assert.equal(isTerminalRematchState('GAME_OVER'), true);
+    assert.equal(isTerminalRematchState('game_over'), true);
 });
 
 test('participant snapshot excludes queued and post-match joins', () => {

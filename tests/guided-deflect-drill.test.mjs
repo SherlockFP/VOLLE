@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+    GUIDED_DRILL_FIRST_RUN_TOTAL_MS,
     GUIDED_DRILL_TOTAL_MS,
     GuidedDeflectDrill
 } from '../js/guided-deflect-drill.js';
@@ -34,6 +35,38 @@ test('guided drill follows the deterministic 73 second phase order', () => {
     const final = advanceRuntime(drill, 24000);
     assert.equal(final.complete, true);
     assert.equal(final.runElapsedMs, GUIDED_DRILL_TOTAL_MS);
+});
+
+test('first-run profile follows the deterministic 40 second phase order', () => {
+    const drill = new GuidedDeflectDrill();
+    drill.arm({ profile: 'first_run' });
+    drill.start();
+    assert.equal(drill.snapshot().profileId, 'first_run');
+    assert.equal(drill.snapshot().totalMs, GUIDED_DRILL_FIRST_RUN_TOTAL_MS);
+    assert.equal(drill.advance(1999).snapshot.phase, 'countdown');
+    assert.equal(drill.advance(1).snapshot.stage.id, 'control');
+    assert.equal(advanceRuntime(drill, 11000).phase, 'transition');
+    assert.equal(drill.advance(1000).snapshot.stage.id, 'direction');
+    assert.equal(advanceRuntime(drill, 12000).phase, 'transition');
+    assert.equal(drill.advance(1000).snapshot.stage.id, 'timing');
+    const final = advanceRuntime(drill, 13000);
+    assert.equal(final.complete, true);
+    assert.equal(final.runElapsedMs, GUIDED_DRILL_FIRST_RUN_TOTAL_MS);
+});
+
+test('first-run profile uses reachable 3/2/2 pass thresholds and unknown profiles fail safe', () => {
+    const drill = new GuidedDeflectDrill();
+    drill.arm({ profile: 'unknown-profile' });
+    assert.equal(drill.snapshot().profileId, 'full');
+
+    drill.arm({ profile: 'first_run' });
+    Object.assign(drill.stages[0], { attempts: 5, hits: 3 });
+    assert.equal(drill._stageResult(drill.stages[0]).passed, true);
+    Object.assign(drill.stages[1], { attempts: 4, hits: 2, directed: 2 });
+    assert.equal(drill._stageResult(drill.stages[1]).passed, true);
+    Object.assign(drill.stages[2], { attempts: 4, perfect: 2, timingPoints: 2 });
+    assert.equal(drill._stageResult(drill.stages[2]).passed, true);
+    assert.equal(drill.result().allPassed, true, 'result must preserve each stage threshold after the final stage');
 });
 
 test('speed increases monotonically within a stage', () => {

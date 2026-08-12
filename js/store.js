@@ -140,6 +140,8 @@ const DEFAULTS = {
     ownedBalls: ['classic'],
     loadout: { ...DEFAULT_LOADOUT },
     battlepass: normalizeBattlepassProgress(),
+    battlepassBoosts: {},
+    battlepassActiveBoost: null,
     customAvatar: null,
     ownedAvatarSkins: ['default'],
     equippedAvatarSkin: 'default',
@@ -166,6 +168,7 @@ const DEFAULTS = {
     dailyRewards: { lastLoginClaim: '', loginStreak: 0, lastFreeCase: '' },
     lastFirstMatchDay: '',
     dailyStreak: { count: 0, lastClaimDay: '' },
+    dailyChallenges: null,
     casePity: {},
     earnedCases: {},
     caseDropDrought: 0,
@@ -202,6 +205,7 @@ const DEFAULTS = {
     playerName: 'Player',
     onboardingSeen: false,
     ftueSeen: false,
+    ftueCompleted: false,
     ftueMatchHintsSeen: false
 };
 
@@ -340,8 +344,8 @@ class StoreClass {
         const fields = [
             'currency', 'gems', 'ownedBalls',
             'ownedSkills', 'ownedItems', 'ownedAvatarSkins', 'ownedKnives',
-            'ownedCosmetics', 'casePity', 'earnedCases', 'caseDropDrought', 'equippedWearables', 'economyRevision', 'adRewards', 'dailyStreak',
-            'cardCollection', 'equippedCards', 'arenaCache'
+            'ownedCosmetics', 'casePity', 'earnedCases', 'caseDropDrought', 'equippedWearables', 'economyRevision', 'adRewards', 'dailyStreak', 'dailyChallenges',
+            'cardCollection', 'equippedCards', 'arenaCache', 'rankedState', 'battlepass', 'battlepassBoosts', 'battlepassActiveBoost'
         ];
         fields.forEach(field => {
             if (profile[field] !== undefined) this.data[field] = profile[field];
@@ -356,8 +360,57 @@ class StoreClass {
             ...DEFAULTS.arenaCache,
             ...(this.data.arenaCache && typeof this.data.arenaCache === 'object' ? this.data.arenaCache : {})
         };
+        this.data.battlepass = normalizeBattlepassProgress(this.data.battlepass);
+        if (profile.battlepassBoosts && typeof profile.battlepassBoosts === 'object' && !Array.isArray(profile.battlepassBoosts)) {
+            const userId = this._socialUserId();
+            const current = this.data.socialState?.xpBoosts?.[userId] || { active: null };
+            this.data.socialState = {
+                ...this.data.socialState,
+                xpBoosts: {
+                    ...(this.data.socialState?.xpBoosts || {}),
+                    [userId]: { active: current.active || null, inventory: { ...profile.battlepassBoosts } }
+                }
+            };
+        }
+        if (profile.rankedState && typeof profile.rankedState === 'object') {
+            const elo = Number(profile.rankedState.elo);
+            if (Number.isFinite(elo)) {
+                this.data.elo = Math.round(elo);
+                this.data.stats = this.data.stats || {};
+                this.data.stats.rankedElo = this.data.elo;
+                this.data.stats.rankedGames = Math.max(0, Math.floor(Number(profile.rankedState.currentSeason?.record?.games) || 0));
+            }
+        }
         this.data.earnedCases = this.data.earnedCases && typeof this.data.earnedCases === 'object' ? this.data.earnedCases : {};
+        if (profile.onboarding && typeof profile.onboarding === 'object' && !Array.isArray(profile.onboarding)) {
+            for (const flag of ['ftueSeen', 'ftueCompleted', 'ftueMatchHintsSeen']) {
+                if (typeof profile.onboarding[flag] === 'boolean') this.data[flag] = profile.onboarding[flag];
+            }
+        }
         this.save();
+    }
+
+    async syncOnboarding(onboarding) {
+        const updates = Object.fromEntries(Object.entries(onboarding || {})
+            .filter(([flag, value]) => ['ftueSeen', 'ftueCompleted', 'ftueMatchHintsSeen'].includes(flag) && value === true));
+        if (!Object.keys(updates).length) return false;
+        if (!this.remoteReady && !await this.connectRemote(this.get('playerName'))) return false;
+        try {
+            const response = await fetch('/api/profile/onboarding', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${this.sessionToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ onboarding: updates })
+            });
+            if (!response.ok) return false;
+            const result = await response.json();
+            if (result.profile) this._applyRemoteProfile(result.profile);
+            return true;
+        } catch {
+            return false;
+        }
     }
 
     async syncCosmeticLoadout(playerId) {
@@ -437,14 +490,60 @@ class StoreClass {
         return true;
     }
 
-    // Server self-issues the receipt from the authenticated bearer token, so
-    // the client only needs to send the claim — see server.js /api/profile/reward.
+    async beginMatchRemote(match) {
+        if (!this.remoteReady) return false;
+        const matchId = typeof match?.matchId === 'string' ? match.matchId : '';
+        if (!matchId) return false;
+        try {
+            const response = await fetch('/api/matches/start', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${this.sessionToken}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ matchId, mode: ['ranked', 'casual', 'solo'].includes(match.mode) ? match.mode : 'casual', lobbyCode: match.lobbyCode || '' })
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) return false;
+            if (result.profile) this._applyRemoteProfile(result.profile);
+            return { ok: true, ...result };
+        } catch {
+            return false;
+        }
+    }
+
+    async getMatchRemoteStatus(matchId) {
+        if (!this.remoteReady || typeof matchId !== 'string' || !matchId) return false;
+        try {
+            const response = await fetch(`/api/matches/${encodeURIComponent(matchId)}`, {
+                headers: { 'Authorization': `Bearer ${this.sessionToken}` }
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) return false;
+            if (result.profile) this._applyRemoteProfile(result.profile);
+            return { ok: true, ...result };
+        } catch {
+            return false;
+        }
+    }
+
+    async pollMatchRemote(matchId, { attempts = 6, delayMs = 1000 } = {}) {
+        const total = Math.max(1, Math.min(12, Math.floor(Number(attempts) || 1)));
+        for (let attempt = 0; attempt < total; attempt += 1) {
+            const status = await this.getMatchRemoteStatus(matchId);
+            if (!status) return { ok: false, pending: true };
+            if (status.status === 'finalized' && status.completion) return { ok: true, pending: false, ...status };
+            if (attempt + 1 < total) await new Promise(resolve => setTimeout(resolve, Math.max(250, Math.min(5000, Number(delayMs) || 1000))));
+        }
+        return { ok: true, pending: true };
+    }
+
+    // Match rewards are authorized only after an authenticated start record.
+    // Ranked results remain pending until the other authenticated participant
+    // submits the reciprocal result.
     async grantMatchRemote(match) {
         if (!this.remoteReady) return false;
         const matchId = typeof match?.matchId === 'string' ? match.matchId : '';
         if (!matchId) return false;
         try {
-            const response = await fetch('/api/profile/reward', {
+            const response = await fetch('/api/matches/complete', {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${this.sessionToken}`,
@@ -452,16 +551,41 @@ class StoreClass {
                 },
                 body: JSON.stringify({
                     matchId,
-                    mode: match.mode === 'ranked' ? 'ranked' : 'casual',
+                    mode: ['ranked', 'casual', 'solo'].includes(match.mode) ? match.mode : 'casual',
+                    lobbyCode: match.lobbyCode || '',
+                    result: match.result,
                     won: match.won === true,
                     score: match.score,
                     deflections: match.deflections
                 })
             });
+            const result = await response.json().catch(() => ({}));
+            if (response.status === 202) {
+                // The first reciprocal reporter receives 202 while the other
+                // participant is still settling. Wait on the bounded poll so
+                // this client also receives the authoritative completion
+                // delta (Daily telemetry/rewards), instead of silently losing
+                // it in a detached promise.
+                const settled = await this.pollMatchRemote(matchId);
+                if (settled?.pending === false && settled.completion) {
+                    const completion = settled.completion;
+                    return {
+                        ok: true,
+                        pending: false,
+                        cardReward: completion.cardReward || null,
+                        earnedCase: completion.earnedCase || null,
+                        earnedCaseSource: completion.earnedCaseSource || null,
+                        dailyProgress: completion.dailyProgress || null,
+                        replayed: settled.replayed === true,
+                        rankedState: completion.rankedState || settled.profile?.rankedState || null
+                    };
+                }
+                return { ok: true, pending: true, ...result };
+            }
             if (!response.ok) return false;
-            const result = await response.json();
-            this._applyRemoteProfile(result.profile);
-            return { ok: true, cardReward: result.cardReward || null, earnedCase: result.earnedCase || null, earnedCaseSource: result.earnedCaseSource || null, replayed: result.replayed === true };
+            if (result.profile) this._applyRemoteProfile(result.profile);
+            const completion = result.completion || result;
+            return { ok: true, pending: false, cardReward: completion.cardReward || null, earnedCase: completion.earnedCase || null, earnedCaseSource: completion.earnedCaseSource || null, dailyProgress: completion.dailyProgress || null, replayed: result.replayed === true, rankedState: completion.rankedState || result.profile?.rankedState || null };
         } catch {
             return false;
         }
@@ -671,9 +795,13 @@ class StoreClass {
         this.data.level = account.level;
         this.data.xp = account.xp;
         this.data.prestige = account.prestige;
-        this._rolloverBattlepassSeason();
-        const { state } = addBattlepassXp(this.data.battlepass, xp);
-        this.data.battlepass = state;
+        // Account battle-pass state is server-owned. Do not show optimistic
+        // local progress that the authoritative profile can later revoke.
+        if (!this.remoteReady) {
+            this._rolloverBattlepassSeason();
+            const { state } = addBattlepassXp(this.data.battlepass, xp);
+            this.data.battlepass = state;
+        }
         this.save();
         return {
             leveledUp: account.leveledUp,
@@ -1127,14 +1255,56 @@ class StoreClass {
     // or re-rendering the UI can never double-grant. Rollover runs before addXp,
     // same as every other battlepass entry point, so a grant that lands exactly on
     // a season boundary always applies to the post-rollover (fresh) progress.
+    getDailyChallenges() {
+        const remote = this.data.dailyChallenges;
+        return this.remoteReady && remote && Array.isArray(remote.challenges)
+            ? remote.challenges
+            : Daily.getChallenges();
+    }
+
+    async _claimDailyChallengeRemote(challengeId) {
+        const requestId = `daily:${String(challengeId || '').slice(0, 64)}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+        this.lastDailyChallengeError = '';
+        try {
+            const response = await fetch('/api/profile/daily-challenges/claim', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${this.sessionToken}`,
+                    'Idempotency-Key': requestId,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ challengeId, requestId })
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                this.lastDailyChallengeError = result.error || 'Daily challenge claim unavailable';
+                return null;
+            }
+            if (result.profile) this._applyRemoteProfile(result.profile);
+            return { coins: result.coins, xpGranted: result.xpGranted, replayed: result.replayed === true };
+        } catch {
+            this.lastDailyChallengeError = 'Network error. Daily challenge progress is still on your account.';
+            return null;
+        }
+    }
+
     claimDailyChallenge(challengeId) {
+        // Account claims are server-authoritative: never call Daily.claim(),
+        // mutate currency or add Battle Pass XP optimistically in this path.
+        if (this.remoteReady) return this._claimDailyChallengeRemote(challengeId);
         const coins = Daily.claim(challengeId);
         if (!coins) return null;
         this.grant({ currency: coins });
-        this._rolloverBattlepassSeason();
-        const xpGranted = dailyXpAward(1, Daily.claimCompletionBonus());
-        const { state } = addBattlepassXp(this.data.battlepass, xpGranted);
-        this.data.battlepass = state;
+        const completionBonus = Daily.claimCompletionBonus();
+        // Daily claims predate account-authoritative Battle Pass progression.
+        // Guests retain the existing bridge; authenticated accounts must not
+        // receive a transient local grant that server sync will overwrite.
+        const xpGranted = this.remoteReady ? 0 : dailyXpAward(1, completionBonus);
+        if (!this.remoteReady) {
+            this._rolloverBattlepassSeason();
+            const { state } = addBattlepassXp(this.data.battlepass, xpGranted);
+            this.data.battlepass = state;
+        }
         this.save();
         return { coins, xpGranted };
     }
@@ -1210,6 +1380,7 @@ class StoreClass {
     // an out-of-range tier, or a locked premium tier all return null with no side
     // effects. `track` is 'free' (default) or 'premium'.
     claimBattlepassReward(tier, track = 'free') {
+        if (this.remoteReady) return this._claimBattlepassRewardRemote(tier, track);
         this._rolloverBattlepassSeason();
         const hasPremium = this.data.battlepass.premium === true;
         const result = claimBattlepassRewardPure(this.data.battlepass, Number(tier), track, { hasPremium });
@@ -1220,8 +1391,27 @@ class StoreClass {
         return result.reward;
     }
 
+    async _claimBattlepassRewardRemote(tier, track) {
+        this.lastBattlepassError = '';
+        try {
+            const response = await fetch('/api/profile/battlepass/claim', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${this.sessionToken}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tier: Number(tier), track: track === 'premium' ? 'premium' : 'free' })
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) { this.lastBattlepassError = result.error || 'Battle Pass reward unavailable'; return null; }
+            if (result.profile) this._applyRemoteProfile(result.profile);
+            return result.reward || null;
+        } catch {
+            this.lastBattlepassError = 'Battle Pass service unavailable';
+            return null;
+        }
+    }
+
     // One-time purchase that unlocks the premium track for the current season.
     buyPremiumBattlepass() {
+        if (this.remoteReady) return this._buyPremiumBattlepassRemote();
         if (this.data.battlepass.premium) return false;
         if (this.data.currency < PREMIUM_PASS_PRICE) return false;
         this.data.currency -= PREMIUM_PASS_PRICE;
@@ -1229,6 +1419,89 @@ class StoreClass {
         this.data.battlepass = { ...this.data.battlepass, premium: true };
         this.save();
         return true;
+    }
+
+    async _buyPremiumBattlepassRemote() {
+        this.lastBattlepassError = '';
+        try {
+            const response = await fetch('/api/profile/battlepass/premium', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${this.sessionToken}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({})
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) { this.lastBattlepassError = result.error || 'Premium Battle Pass unavailable'; return false; }
+            if (result.profile) this._applyRemoteProfile(result.profile);
+            return true;
+        } catch {
+            this.lastBattlepassError = 'Battle Pass service unavailable';
+            return false;
+        }
+    }
+
+    async activateBattlepassBoost(boostId) {
+        this.lastBattlepassError = '';
+        if (!this.remoteReady || !this.sessionToken) {
+            this.lastBattlepassError = 'Sign in to activate a Battle Pass boost';
+            return { ok: false, replayed: false, error: this.lastBattlepassError };
+        }
+        const cleanBoostId = typeof boostId === 'string' && /^[A-Za-z0-9._:-]{1,96}$/.test(boostId) ? boostId : '';
+        if (!cleanBoostId) {
+            this.lastBattlepassError = 'Battle Pass boost unavailable';
+            return { ok: false, replayed: false, error: this.lastBattlepassError };
+        }
+        const nonce = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const requestId = `bp-boost:${nonce}`.slice(0, 128);
+        try {
+            const response = await fetch('/api/profile/battlepass/boost/activate', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${this.sessionToken}`,
+                    'Content-Type': 'application/json',
+                    'Idempotency-Key': requestId
+                },
+                body: JSON.stringify({ boostId: cleanBoostId, requestId })
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                this.lastBattlepassError = result.error || 'Battle Pass boost unavailable';
+                return { ok: false, replayed: false, error: this.lastBattlepassError };
+            }
+            if (result.profile) this._applyRemoteProfile(result.profile);
+            return {
+                ok: true,
+                replayed: result.replayed === true,
+                activeBoost: result.activeBoost || this.data.battlepassActiveBoost || null
+            };
+        } catch {
+            this.lastBattlepassError = 'Battle Pass service unavailable';
+            return { ok: false, replayed: false, error: this.lastBattlepassError };
+        }
+    }
+
+    getBattlepassBoostState(now = Date.now()) {
+        const inventory = this.data.battlepassBoosts && typeof this.data.battlepassBoosts === 'object'
+            && !Array.isArray(this.data.battlepassBoosts) ? this.data.battlepassBoosts : {};
+        const available = Object.values(inventory)
+            .filter(boost => boost && typeof boost.boostId === 'string' && Number(boost.quantity) > 0
+                && Number(boost.multiplier) > 1 && Number(boost.durationMs) > 0)
+            .map(boost => ({
+                boostId: boost.boostId,
+                quantity: Math.max(0, Math.floor(Number(boost.quantity) || 0)),
+                multiplier: Number(boost.multiplier),
+                durationMs: Math.max(1, Math.floor(Number(boost.durationMs) || 0))
+            }))
+            .sort((a, b) => b.multiplier - a.multiplier || b.durationMs - a.durationMs || a.boostId.localeCompare(b.boostId));
+        const candidate = this.data.battlepassActiveBoost;
+        const active = candidate && typeof candidate === 'object' && Number(candidate.expiresAt) > now
+            ? { ...candidate, remainingMs: Math.max(0, Number(candidate.expiresAt) - now) }
+            : null;
+        return {
+            inventory: available,
+            active,
+            ownedCount: available.reduce((total, boost) => total + boost.quantity, 0),
+            strongestAvailable: available[0] || null
+        };
     }
 
     getBattlepassRewards() { return { free: BATTLEPASS_FREE_TRACK, premium: BATTLEPASS_PREMIUM_TRACK }; }

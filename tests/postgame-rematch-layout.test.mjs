@@ -45,3 +45,28 @@ test('post-game status and XP label remain readable in the compact mobile card',
     assert.match(css, /\.pg-rematch-hero \.rematch-status\s*\{[\s\S]*?color:\s*var\(--screen-ink\);[\s\S]*?background:\s*var\(--shell-ink\);/);
     assert.match(css, /\.pg-xp-text\s*\{[\s\S]*?width:\s*100%;[\s\S]*?white-space:\s*nowrap;[\s\S]*?line-height:\s*28px;/);
 });
+
+test('starting a rematch hides the registered post-game screen with every other screen', () => {
+    const screensStart = ui.indexOf('this.screens = {');
+    const screensEnd = ui.indexOf('};', screensStart);
+    const hideAllStart = ui.indexOf('hideAll() {');
+    const hideAllEnd = ui.indexOf('\n    }', hideAllStart);
+    const screens = ui.slice(screensStart, screensEnd);
+    const hideAll = ui.slice(hideAllStart, hideAllEnd);
+
+    assert.match(screens, /postGame:\s*document\.getElementById\('post-game-screen'\)/);
+    assert.match(hideAll, /Object\.values\(this\.screens\)\.forEach\(s => \{ if \(s\) s\.classList\.add\('hidden'\); \}\);/);
+});
+
+test('post-game gives keyboard focus to Rematch without scrolling the report', () => {
+    const showPostGameStart = ui.indexOf('showPostGame(');
+    const showPostGameEnd = ui.indexOf('\n    // Post-match', showPostGameStart);
+    const showPostGame = ui.slice(showPostGameStart, showPostGameEnd);
+
+    assert.match(showPostGame, /const playAgain = document\.getElementById\('pg-play-again'\);/);
+    assert.match(showPostGame, /playAgain\?\.focus\?\.\(\{ preventScroll: true \}\);/);
+    assert.ok(
+        showPostGame.indexOf("window._postGameAction?.('main_menu')") < showPostGame.indexOf('playAgain?.focus?.'),
+        'focus happens after post-game actions are wired'
+    );
+});

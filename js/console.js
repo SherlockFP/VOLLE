@@ -285,7 +285,7 @@ export const COMMANDS = {
         }
     },
     endgame_1: {
-        desc: 'Force end game — RED wins (30s celebration)',
+        desc: 'Force end game — RED wins (8s celebration)',
         hostOnly: true,
         run: (game, args, log) => {
             game.scoreboard.redScore = 999;
@@ -296,7 +296,7 @@ export const COMMANDS = {
         }
     },
     endgame_2: {
-        desc: 'Force end game — BLUE wins (30s celebration)',
+        desc: 'Force end game — BLUE wins (8s celebration)',
         hostOnly: true,
         run: (game, args, log) => {
             game.scoreboard.redScore = 0;

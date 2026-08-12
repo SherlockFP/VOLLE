@@ -10,6 +10,7 @@ export const KNIFE_ACTION_DURATIONS = Object.freeze({
 });
 
 const clamp01 = value => Math.max(0, Math.min(1, Number(value) || 0));
+const clamp = (value, min, max) => Math.max(min, Math.min(max, Number(value) || 0));
 const smooth = value => {
     const t = clamp01(value);
     return t * t * (3 - 2 * t);
@@ -17,6 +18,83 @@ const smooth = value => {
 const pulse = value => Math.sin(clamp01(value) * Math.PI);
 const lerp = (a, b, t) => a + (b - a) * t;
 const lerpDelta = (a, b, t) => ({ x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t), z: lerp(a.z, b.z, t) });
+
+const GAIT_START_RESPONSE = 14;
+const GAIT_STOP_RESPONSE = 8;
+const GAIT_SPEED_RESPONSE = 10;
+const GAIT_PHASE_BASE_RATE = 5;
+const GAIT_PHASE_SPEED_RATE = 0.35;
+export const VIEWMODEL_LANDING_IMPACT_SPEED = 4;
+export const VIEWMODEL_LANDING_DURATION = 0.18;
+const VIEWMODEL_LANDING_MIN_DEPTH = 0.002;
+const VIEWMODEL_LANDING_MID_DEPTH = 0.004;
+const VIEWMODEL_LANDING_MAX_DEPTH = 0.006;
+
+// Mutates a persistent gait state so Player.update does not allocate on the render path.
+// The phase is deliberately integrated (rather than derived from wall-clock time): changing
+// speed never resets or reverses the cycle, and exponential smoothing is frame-rate stable.
+export function advanceViewmodelGait(gait, dt, speed = 0, onGround = false, dashActive = false) {
+    if (!gait || typeof gait !== 'object') return gait;
+    const step = clamp(dt, 0, 0.1);
+    const safeSpeed = clamp(speed, 0, 16);
+    const moving = onGround && !dashActive && safeSpeed > 0.2;
+    const gaitSpeed = dashActive ? 0 : safeSpeed;
+    const targetWeight = moving ? 1 : 0;
+    const response = targetWeight > (Number(gait.weight) || 0) ? GAIT_START_RESPONSE : GAIT_STOP_RESPONSE;
+    const alpha = 1 - Math.exp(-response * step);
+    gait.weight = clamp01((Number(gait.weight) || 0) + (targetWeight - (Number(gait.weight) || 0)) * alpha);
+    const speedAlpha = 1 - Math.exp(-GAIT_SPEED_RESPONSE * step);
+    gait.speed = clamp((Number(gait.speed) || 0) + (gaitSpeed - (Number(gait.speed) || 0)) * speedAlpha, 0, 16);
+    gait.phase = (Number.isFinite(gait.phase) ? gait.phase : 0)
+        + (GAIT_PHASE_BASE_RATE + gaitSpeed * GAIT_PHASE_SPEED_RATE) * step;
+    return gait;
+}
+
+export function resolveViewmodelGaitBob(phase = 0, weight = 0, speed = 0, reduceMotion = false) {
+    const gaitPhase = Number(phase);
+    if (!Number.isFinite(gaitPhase)) return 0;
+    const gaitWeight = clamp01(weight);
+    const gaitSpeed = clamp(speed, 0, 16);
+    const amplitude = gaitSpeed <= 10
+        ? 0.006 + gaitSpeed * 0.0004
+        : 0.01 + (gaitSpeed - 10) * (0.004 / 3);
+    const motionScale = reduceMotion ? 0.25 : 1;
+    return Math.sin(gaitPhase) * Math.min(0.014, amplitude) * gaitWeight * motionScale;
+}
+
+export function triggerViewmodelLanding(landing, impactSpeed = 0, scale = 1) {
+    if (!landing || landing.active || Number(impactSpeed) < VIEWMODEL_LANDING_IMPACT_SPEED) return false;
+    const impact = clamp(impactSpeed, VIEWMODEL_LANDING_IMPACT_SPEED, 12);
+    const depth = impact <= 8
+        ? VIEWMODEL_LANDING_MIN_DEPTH + (impact - VIEWMODEL_LANDING_IMPACT_SPEED) * 0.0005
+        : VIEWMODEL_LANDING_MID_DEPTH + (impact - 8) * 0.0005;
+    landing.active = true;
+    landing.elapsed = 0;
+    landing.offset = 0;
+    landing.depth = Math.min(VIEWMODEL_LANDING_MAX_DEPTH, depth) * clamp01(scale);
+    return true;
+}
+
+export function resolveViewmodelLandingOffset(elapsed = 0, depth = 0, reduceMotion = false) {
+    const time = clamp(elapsed, 0, VIEWMODEL_LANDING_DURATION);
+    if (time === 0 || time >= VIEWMODEL_LANDING_DURATION) return 0;
+    return -clamp(depth, 0, VIEWMODEL_LANDING_MAX_DEPTH)
+        * Math.sin(Math.PI * time / VIEWMODEL_LANDING_DURATION)
+        * (reduceMotion ? 0.25 : 1);
+}
+
+export function advanceViewmodelLanding(landing, dt, reduceMotion = false) {
+    if (!landing?.active) return 0;
+    landing.elapsed = Math.min(VIEWMODEL_LANDING_DURATION, (Number(landing.elapsed) || 0) + clamp(dt, 0, 0.1));
+    landing.offset = resolveViewmodelLandingOffset(landing.elapsed, landing.depth, reduceMotion);
+    if (landing.elapsed >= VIEWMODEL_LANDING_DURATION) {
+        landing.active = false;
+        landing.elapsed = 0;
+        landing.offset = 0;
+        landing.depth = 0;
+    }
+    return landing.offset;
+}
 
 // Quick rise to `1` by `riseEnd`, holds until `fallStart`, eases back to `0` by progress 1.
 // Used to make karambit deployment read as a sharp snap rather than butterfly's slow unfold.
@@ -120,16 +198,23 @@ export function resolveKnifePose(state, context = {}) {
     const action = ACTIONS.includes(state?.action) ? state.action : 'idle';
     const duration = Number.isFinite(state?.duration) && state.duration > 0 ? state.duration : 1;
     const progress = clamp01((Number(state?.elapsed) || 0) / duration);
-    const time = Number(context.time) || 0;
-    const speed = Math.max(0, Math.min(1, (Number(context.speed) || 0) / 12));
     const swayX = Math.max(-1, Math.min(1, Number(context.swayX) || 0));
     const swayY = Math.max(-1, Math.min(1, Number(context.swayY) || 0));
-    const bobRaw = Math.sin(time * (7 + speed * 5)) * (0.006 + speed * 0.016);
-    const bob = Number.isFinite(bobRaw) ? bobRaw : 0; // hostile-input guard: extreme time can overflow the product to Infinity/NaN
+    const bob = resolveViewmodelGaitBob(
+        context.gaitPhase,
+        context.gaitWeight,
+        context.gaitSpeed,
+        context.reduceMotion === true
+    );
+    const landingOffset = resolveViewmodelLandingOffset(
+        context.landingElapsed,
+        context.landingDepth,
+        context.reduceMotion === true
+    );
     const model = state?.model;
     const frame = viewmodelFrame(model);
     const pose = {
-        armPosition: [0.25 + swayX * 0.025, -0.3 + bob - swayY * 0.018, -0.3],
+        armPosition: [0.25 + swayX * 0.025, -0.3 + bob + landingOffset - swayY * 0.018, -0.3],
         armRotation: [-swayY * 0.035, -swayX * 0.05, swayX * 0.025],
         knifePosition: frame.position,
         knifeRotation: frame.rotation,

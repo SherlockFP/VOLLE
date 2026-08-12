@@ -12,6 +12,8 @@ import { createCharacterAnimator } from './character-anim.js';
 const DISABLE_SPRITES = false;
 
 const BOT_HIT_DAMAGE = 22;
+const MAX_DEFENSE_SPEED = 10;
+const DEFENSE_DODGE_LATCH_SECONDS = 0.25;
 
 // Difficulty base stats, hoisted so the tendency helpers below can read the same
 // canonical table the constructor uses (was previously a constructor-local literal).
@@ -119,6 +121,25 @@ export class Bot {
         this.strafeDir = Math.random() > 0.5 ? 1 : -1;
         this.strafeTimer = 0;
         this.reactionTimer = 0;
+        this._defenseIntent = 'none';
+        this._defenseDodgeSign = 0;
+        this._defenseDodgeLatch = 0;
+        this._defenseStrafe = 0;
+        this._defenseDistance = Infinity;
+        this._defenseBracePlayed = false;
+        // Persistent scratch vectors keep bot movement allocation-free per frame.
+        this._toBall = new THREE.Vector3();
+        this._ballDir = new THREE.Vector3();
+        this._predOffset = new THREE.Vector3();
+        this._interceptTarget = new THREE.Vector3();
+        this._toIntercept = new THREE.Vector3();
+        this._dodgeDir = new THREE.Vector3();
+        this._perpDir = new THREE.Vector3();
+        // First-session safety net. It is armed by Game for one opposing solo
+        // bot only, and changes at most one declined chance roll into the next
+        // readable deflect opportunity; difficulty, wind-up and mishit remain
+        // otherwise untouched.
+        this._firstSoloDeflectGuard = null;
         this.score = 0;
         this.deflectionCount = 0;
         this.spawnAnim = 0; // 0..1 grow-in on respawn
@@ -350,6 +371,9 @@ export class Bot {
 
     update(dt, ball) {
         const moveSpeed = this.moveSpeed * (this._hazardMoveMul || 1);
+        if (this._defenseDodgeLatch > 0) {
+            this._defenseDodgeLatch = Math.max(0, this._defenseDodgeLatch - Math.max(0, dt));
+        }
         // Spawn grow-in animation (bouncy ease-out)
         if (this.spawnAnim < 1) {
             this.spawnAnim = Math.min(1, this.spawnAnim + dt * 3.5);
@@ -389,7 +413,7 @@ export class Bot {
 
         // Ball-aware movement — intercept, dodge, position
         if (ball && ball.active) {
-            const toBall = new THREE.Vector3().subVectors(ball.position, this.position);
+            const toBall = this._toBall.subVectors(ball.position, this.position);
             const ballDist = toBall.length();
             toBall.y = 0;
 
@@ -400,39 +424,45 @@ export class Bot {
 
             const speed = ball.velocity.length();
             const isTargeted = ball.targetPlayer === this;
-            const holdingDeflectPosition = isTargeted && shouldHoldDeflectPosition(this._deflectDecided, this._willDeflect);
+            const defenseIntent = isTargeted ? this._defenseIntent : 'none';
+            this._defenseStrafe = 0;
 
-            // Predict ball position (where it's heading)
-            const ballDir = ball.velocity.clone().normalize();
-            const predOffset = ballDir.clone().multiplyScalar(Math.min(ballDist * 0.3, 3));
-            const interceptTarget = ball.position.clone().add(predOffset);
-            const toIntercept = new THREE.Vector3().subVectors(interceptTarget, this.position);
-            toIntercept.y = 0;
-            const interceptDist = toIntercept.length();
+            // An active incoming intent owns one movement branch. Deflects brace;
+            // declines keep a stable side-step, never additive dodge/intercept/strafe.
+            if (defenseIntent === 'dodge-left' || defenseIntent === 'dodge-right') {
+                const planarLength = Math.hypot(toBall.x, toBall.z);
+                if (planarLength > 1e-4) {
+                    const sign = this._defenseDodgeSign;
+                    const step = Math.min(MAX_DEFENSE_SPEED, moveSpeed * 1.8) * Math.max(0, dt);
+                    this._dodgeDir.set(-toBall.z / planarLength * sign, 0, toBall.x / planarLength * sign);
+                    this.position.addScaledVector(this._dodgeDir, step);
+                    this._defenseStrafe = sign;
+                }
+            } else if (defenseIntent !== 'deflect') {
+                // Predict ball position using persistent scratch vectors.
+                this._ballDir.copy(ball.velocity).normalize();
+                this._predOffset.copy(this._ballDir).multiplyScalar(Math.min(ballDist * 0.3, 3));
+                this._interceptTarget.copy(ball.position).add(this._predOffset);
+                const toIntercept = this._toIntercept.subVectors(this._interceptTarget, this.position);
+                toIntercept.y = 0;
+                const interceptDist = toIntercept.length();
 
-            // Dodge: sidestep perpendicular to ball when it's coming fast and close
-            if (!holdingDeflectPosition && isTargeted && speed > 8 && ballDist < 5 && Math.random() < 0.6) {
-                const dodgeDir = new THREE.Vector3(-toBall.z, 0, toBall.x).normalize();
-                // Randomize dodge direction slightly
-                if (Math.random() > 0.5) dodgeDir.negate();
-                this.position.add(dodgeDir.multiplyScalar(moveSpeed * 1.8 * dt));
-            }
-
-            // Move toward ball's predicted path to intercept
-            if (!holdingDeflectPosition && isTargeted && interceptDist > 2.5) {
-                const moveDir = toIntercept.normalize().multiplyScalar(moveSpeed * 0.85 * this._tendencyApproachMul * dt);
-                this.position.add(moveDir);
-            } else if (!holdingDeflectPosition && !isTargeted && ballDist < 8 && Math.random() < 0.3) {
-                // Even when not targeted, drift toward ball if close
-                const moveDir = toBall.clone().normalize().multiplyScalar(moveSpeed * 0.3 * dt);
-                this.position.add(moveDir);
-            }
-
-            // Perpendicular strafe relative to ball direction
-            if (!holdingDeflectPosition && ballDist > 1.5) {
-                const perpDir = new THREE.Vector3(-toBall.z, 0, toBall.x).normalize();
-                const strafeAmount = moveSpeed * 0.4 * dt * this.strafeDir * this._tendencyLateralMul;
-                this.position.add(perpDir.multiplyScalar(strafeAmount));
+                if (isTargeted && speed > 8 && ballDist < 5 && Math.random() < 0.6) {
+                    this._dodgeDir.set(-toBall.z, 0, toBall.x).normalize();
+                    if (Math.random() > 0.5) this._dodgeDir.negate();
+                    this.position.addScaledVector(this._dodgeDir, moveSpeed * 1.8 * dt);
+                }
+                if (isTargeted && interceptDist > 2.5) {
+                    this.position.addScaledVector(toIntercept.normalize(), moveSpeed * 0.85 * this._tendencyApproachMul * dt);
+                } else if (!isTargeted && ballDist < 8 && Math.random() < 0.3) {
+                    this.position.addScaledVector(toBall.normalize(), moveSpeed * 0.3 * dt);
+                }
+                if (ballDist > 1.5) {
+                    this._perpDir.set(-toBall.z, 0, toBall.x).normalize();
+                    const strafeAmount = moveSpeed * 0.4 * dt * this.strafeDir * this._tendencyLateralMul;
+                    this.position.addScaledVector(this._perpDir, strafeAmount);
+                    this._defenseStrafe = this.strafeDir;
+                }
             }
         } else {
             // No ball — wander with random strafe
@@ -441,8 +471,7 @@ export class Bot {
                 this.strafeDir *= -1;
                 this.strafeTimer = 1.5 + Math.random() * 2.5;
             }
-            const wanderVel = new THREE.Vector3(this.strafeDir * moveSpeed * 0.3 * dt, 0, 0);
-            this.position.add(wanderVel);
+            this.position.x += this.strafeDir * moveSpeed * 0.3 * dt;
         }
 
         // Bounds
@@ -486,14 +515,80 @@ export class Bot {
             facts.verticalSpeed = 0;
             facts.alive = this.alive;
             facts.aim = 0;
-            facts.strafe = 0;
+            facts.strafe = this._defenseStrafe;
             this.animator.update(dt, facts);
         }
     }
 
+    armFirstSoloDeflectGuard() {
+        this._firstSoloDeflectGuard = { forceNextOpportunity: false };
+    }
+
+    _resetDefenseIntent() {
+        this.reactionTimer = 0;
+        this.windUpTimer = 0;
+        this.windUpCommitted = false;
+        this._deflectDecided = false;
+        this._willDeflect = false;
+        this._defenseIntent = 'none';
+        this._defenseDodgeSign = 0;
+        this._defenseDodgeLatch = 0;
+        this._defenseStrafe = 0;
+        this._defenseDistance = Infinity;
+        this._defenseBracePlayed = false;
+    }
+
+    // Called before update() so movement can react to a stable defense decision
+    // on the very first alert frame. It is also safe to call from tryDeflect().
+    observeDefenseIntent(ball, rng = Math.random) {
+        if (!this.alive || this.attacking || this.attackTimer > 0 || !ball?.active || ball.targetPlayer !== this) {
+            this._resetDefenseIntent();
+            return 'none';
+        }
+        const dx = ball.position.x - this.position.x;
+        const dy = ball.position.y - (this.position.y + 1.2);
+        const dz = ball.position.z - this.position.z;
+        const dist = Math.hypot(dx, dy, dz);
+        const alertRange = ball.currentSpeed * (this.reactionTime + this.windUpTime) + ball.attackRange;
+        if (dist > alertRange) {
+            if ((this._defenseIntent === 'dodge-left' || this._defenseIntent === 'dodge-right')
+                && this._defenseDodgeLatch > 0) {
+                this._defenseDistance = dist;
+                return this._defenseIntent;
+            }
+            this._resetDefenseIntent();
+            return 'none';
+        }
+        this._defenseDistance = dist;
+        if (!this._deflectDecided) {
+            this._deflectDecided = true;
+            const rolledWillDeflect = rng() < this.deflectChance;
+            const guard = this._firstSoloDeflectGuard;
+            if (guard?.forceNextOpportunity) {
+                this._willDeflect = true;
+                this._firstSoloDeflectGuard = null;
+            } else {
+                this._willDeflect = rolledWillDeflect;
+                if (guard) this._firstSoloDeflectGuard = rolledWillDeflect ? null : { forceNextOpportunity: true };
+            }
+            if (this._willDeflect) {
+                this._defenseIntent = 'deflect';
+                if (!this._defenseBracePlayed) {
+                    this._defenseBracePlayed = true;
+                    this.animator?.play('deflect');
+                }
+            } else {
+                this._defenseDodgeSign = rng() < 0.5 ? -1 : 1;
+                this._defenseDodgeLatch = DEFENSE_DODGE_LATCH_SECONDS;
+                this._defenseIntent = this._defenseDodgeSign < 0 ? 'dodge-left' : 'dodge-right';
+            }
+        }
+        return this._defenseIntent;
+    }
+
     tryDeflect(ball, dt = 0.016) {
-        if (!this.alive || this.attacking || this.attackTimer > 0) return false;
-        const dist = ball.distanceTo(this.getPosition());
+        if (this.observeDefenseIntent(ball) !== 'deflect') return false;
+        const dist = this._defenseDistance;
 
         // Alert range must cover the FULL commit budget — reaction time AND the
         // wind-up telegraph that follows it, not just reaction time. Wind-up was
@@ -503,25 +598,6 @@ export class Bot {
         // deflect at all. Scales with the ball's actual current speed so slow
         // and fast throws both leave a fair window.
         // ponytail: alert range ~ ballSpeed * (reactionTime + windUpTime) + attackRange
-        const alertRange = ball.currentSpeed * (this.reactionTime + this.windUpTime) + ball.attackRange;
-        if (dist > alertRange) {
-            this.reactionTimer = 0;
-            this._deflectDecided = false;
-            this._willDeflect = false;
-            this.windUpTimer = 0;
-            this.windUpCommitted = false;
-            return false;
-        }
-
-        // Choose once at the beginning of the readable reaction window. A bot that
-        // will deflect can now hold its position through reaction + wind-up instead
-        // of repeatedly dodging itself out of range; failures retain their normal AI.
-        if (!this._deflectDecided) {
-            this._deflectDecided = true;
-            this._willDeflect = Math.random() < this.deflectChance;
-        }
-        if (!this._willDeflect) return false;
-
         this.reactionTimer += dt;
         if (this.reactionTimer < this.reactionTime) return false;
 
@@ -542,10 +618,7 @@ export class Bot {
             this.attacking = true;
             this.attackTimer = 0.3;
             this.deflectionCount++;
-            this._deflectDecided = false;
-            this.windUpTimer = 0;
-            this.windUpCommitted = false;
-            this.animator?.play('deflect');
+            this._resetDefenseIntent();
             this._mishit = true;  // flag for game.js to apply angle deviation
             return true;  // attack animation plays, but ball goes off-target
         }
@@ -553,10 +626,7 @@ export class Bot {
         this.attacking = true;
         this.attackTimer = 0.3;
         this.deflectionCount++;
-        this._deflectDecided = false;
-        this.windUpTimer = 0;
-        this.windUpCommitted = false;
-        this.animator?.play('deflect');
+        this._resetDefenseIntent();
         this._mishit = false;
         return true;
     }
@@ -602,8 +672,7 @@ export class Bot {
         this._burnTimer = 0;
         this._chillTimer = 0;
         this.skillCooldowns = {};
-        this._deflectDecided = false;
-        this._willDeflect = false;
+        this._resetDefenseIntent();
         this.alive = true;
         this.drawHpBar();
         this.group.position.copy(this.position);

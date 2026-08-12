@@ -28,6 +28,24 @@ test('celebration respawns players and shows one local Victory or Lose banner', 
     assert.match(source, /if \(subEl\) subEl\.textContent = '';/);
 });
 
+test('match end uses one eight-second host-authoritative celebration boundary', async () => {
+    const game = await readFile(new URL('../js/game.js', import.meta.url), 'utf8');
+    const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
+
+    assert.match(game, /export const CELEBRATION_DURATION_SECONDS = 8;/);
+    assert.match(game, /_notifyGameplayEnded\(\) \{\s*if \(this\._gameplayEndNotified\) return false;[\s\S]*?this\.onMatchEnded\?\.\(\);/);
+    assert.match(game, /endGame\(\) \{[\s\S]*?this\._notifyGameplayEnded\(\);[\s\S]*?this\._celebrationTimer = CELEBRATION_DURATION_SECONDS;/);
+    assert.match(game, /type: 'celebrationStart',[\s\S]*?duration: CELEBRATION_DURATION_SECONDS/);
+    assert.match(game, /applyCelebrationStart\(data\) \{[\s\S]*?this\._notifyGameplayEnded\(\);[\s\S]*?: CELEBRATION_DURATION_SECONDS;/);
+    assert.match(game, /if \(!isClient && this\._celebrationTimer <= 0\) this\._onCelebrationEnd\(\);/);
+    assert.match(main, /this\.game\.onMatchEnded = \(\) => \{\s*if \(!Number\.isFinite\(this\._analyticsGameplayEndedAt\)\)/);
+    assert.match(main, /matchDurationSec: this\._analyticsMatchStartedAt \? Math\.max\(0, \(gameplayEndedAt - this\._analyticsMatchStartedAt\)/);
+    assert.match(main, /postgameDelaySec: Math\.max\(0, \(postgameReadyAt - gameplayEndedAt\)/);
+    assert.match(main, /postgameToRematchSec: Math\.max\(0, \(Date\.now\(\) - this\._analyticsPostgameReadyAt\)/);
+    assert.match(main, /_receiveRematchReady[\s\S]*?if \(!isTerminalRematchState\(this\.game\.state\)\) return;/);
+    assert.match(main, /if \(this\.game\._rewardsClaimed\) return;\s*this\.game\._rewardsClaimed = true;/);
+});
+
 test('celebration movement remains in the P2P position sync state set', async () => {
     const source = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
     const positionSync = source.slice(source.indexOf('// P2P: adaptive rate position send'), source.indexOf('// Attack intent:'));
@@ -95,11 +113,27 @@ test('match completion awards a win/loss base plus capped performance bonus', as
     assert.match(store, /const base = won === true \? 120 : 40;/);
 });
 
-test('every non-practice match records an ELO result', async () => {
+test('ranked ELO is server-authoritative while offline fallback remains playable', async () => {
     const source = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
+    const store = await readFile(new URL('../js/store.js', import.meta.url), 'utf8');
 
-    assert.match(source, /awardMatchRewards\(\) \{[\s\S]*?const ranked = this\.store\.recordRankedMatch\(/);
-    assert.doesNotMatch(source, /awardMatchRewards\(\) \{[\s\S]*?if \(this\._rankedMatch\) \{/);
+    assert.match(source, /async awardMatchRewards\(\)/);
+    assert.match(source, /!this\.store\.remoteReady && isRanked[\s\S]*?this\.store\.recordRankedMatch/);
+    assert.match(source, /await this\._matchAuthorityReady/);
+    assert.match(source, /result: matchResult/);
+    assert.match(store, /fetch\('\/api\/matches\/complete'/);
+    assert.match(store, /async beginMatchRemote\(match\)/);
+});
+
+test('compact guided drill keeps direction gates inside portrait safe space without changing full lanes', async () => {
+    const game = await readFile(new URL('../js/game.js', import.meta.url), 'utf8');
+    assert.match(game, /const targetLaneScale = snapshot\.profileId === 'first_run' \? 6 : 10;/);
+    assert.match(game, /attempt\.lane \* targetLaneScale/);
+});
+
+test('mobile guided practice removes the off-canvas controls hint', async () => {
+    const css = await readFile(new URL('../css/polish.css', import.meta.url), 'utf8');
+    assert.match(css, /@media \(max-width: 700px\)[\s\S]*?body\.guided-deflect-active #controls-hint\s*\{\s*display:\s*none;/);
 });
 
 test('lethal remote players hide their character model before spectators cycle', async () => {
