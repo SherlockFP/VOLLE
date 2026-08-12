@@ -81,7 +81,7 @@ test('connected matches never use first-solo aim feedback', () => {
     assert.deepEqual(state, { pending: true, attacking: true });
 });
 
-test('guard is explicitly scoped to the first offline opposing bot after FTUE hint arming', async () => {
+test('guard is explicitly scoped to the first offline opposing bot without automatic FTUE hints', async () => {
     const [bot, game, main] = await Promise.all([
         readFile(new URL('../js/bot.js', import.meta.url), 'utf8'),
         readFile(new URL('../js/game.js', import.meta.url), 'utf8'),
@@ -96,6 +96,7 @@ test('guard is explicitly scoped to the first offline opposing bot after FTUE hi
     assert.match(game, /if \(!this\.network\?\.connected && this\._firstSoloBotDeflectGuardArmed\) \{[\s\S]*?this\.bots\.find\(bot => bot\.team !== this\.player\.team\)[\s\S]*?this\._firstSoloAimFeedbackPending = this\._firstSoloAimFeedbackArmed;[\s\S]*?this\._firstSoloBotDeflectGuardArmed = false;/);
     assert.match(game, /if \(!skipAimCheck && aimDir\.dot\(ballDir\) < -0\.2\) \{[\s\S]*?this\.player\.attacking = false;[\s\S]*?this\.ui\.showMessage\?\.\('BALL BEHIND — TURN TO FACE IT', 900\);[\s\S]*?this\.audio\.playCue\?\.\('deflect-reject'\);/);
     assert.match(game, /if \(!this\.network\?\.connected\) this\._firstSoloAimFeedbackPending = false;/);
-    const hintFn = main.slice(main.indexOf('_armFirstMatchHints()'), main.indexOf('_runFirstMatchHints()'));
-    assert.match(hintFn, /this\.game\.armFirstSoloBotDeflectGuard\(\);/);
+    const guardFn = main.slice(main.indexOf('_armFirstSoloBotGuard()'), main.indexOf('setupMenuHandlers()', main.indexOf('_armFirstSoloBotGuard()')));
+    assert.match(guardFn, /this\.game\.armFirstSoloBotDeflectGuard\(\);/);
+    assert.doesNotMatch(main, /_pendingFirstMatchHints|_runFirstMatchHints/);
 });

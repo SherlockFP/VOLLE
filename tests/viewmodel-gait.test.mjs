@@ -113,14 +113,18 @@ test('gait phase only advances through speed changes and reduced motion preserve
     state.elapsed = state.duration * 0.5;
     const activeGait = { phase: Math.PI / 2, weight: 1, speed: 13 };
     const regular = poseFor(state, activeGait);
+    const regularSnapshot = {
+        armY: regular.armPosition[1], armZ: regular.armPosition[2],
+        knifeZ: regular.knifeRotation[2], progress: regular.progress
+    };
     const reduced = poseFor(state, activeGait, true);
-    const regularBob = Math.abs(regular.armPosition[1] - (-0.3));
+    const regularBob = Math.abs(regularSnapshot.armY - (-0.3));
     const reducedBob = Math.abs(reduced.armPosition[1] - (-0.3));
     assert.ok(reducedBob <= regularBob * 0.25 + 1e-9);
     assert.equal(reduced.action, 'slash');
-    assert.equal(reduced.progress, regular.progress);
-    assert.equal(reduced.armPosition[2], regular.armPosition[2]);
-    assert.equal(reduced.knifeRotation[2], regular.knifeRotation[2]);
+    assert.equal(reduced.progress, regularSnapshot.progress);
+    assert.equal(reduced.armPosition[2], regularSnapshot.armZ);
+    assert.equal(reduced.knifeRotation[2], regularSnapshot.knifeZ);
 });
 
 test('landing is a thresholded, impact-scaled sine pulse with no restart or plateau', () => {
@@ -218,11 +222,12 @@ test('reduced motion scales the landing-only viewmodel offset without suppressin
     state.elapsed = state.duration * 0.5;
     const context = { landingElapsed: 0.05, landingDepth: 0.006, gaitPhase: 0, gaitWeight: 0, gaitSpeed: 0 };
     const regular = resolveKnifePose(state, context);
+    const regularSnapshot = { armY: regular.armPosition[1], armZ: regular.armPosition[2], progress: regular.progress };
     const reduced = resolveKnifePose(state, { ...context, reduceMotion: true });
     assert.equal(reduced.action, 'slash');
-    assert.equal(reduced.progress, regular.progress);
-    assert.equal(reduced.armPosition[2], regular.armPosition[2]);
-    assert.ok(Math.abs(reduced.armPosition[1] + 0.3) <= Math.abs(regular.armPosition[1] + 0.3) * 0.25 + 1e-9);
+    assert.equal(reduced.progress, regularSnapshot.progress);
+    assert.equal(reduced.armPosition[2], regularSnapshot.armZ);
+    assert.ok(Math.abs(reduced.armPosition[1] + 0.3) <= Math.abs(regularSnapshot.armY + 0.3) * 0.25 + 1e-9);
 });
 
 test('bhop-scale landing pulse stays at forty percent of the full visual cap', () => {

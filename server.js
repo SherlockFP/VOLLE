@@ -107,7 +107,7 @@ const MIME = {
 const lobbies = new Map(); // code -> { code, name, players, map, mode, hostName, updatedAt }
 const socialHubs = new Map(); // code -> { code, mapId, mapName, hostName, players, updatedAt }
 const SOCIAL_HUB_MAP_NAMES = Object.freeze({
-    plaza: 'Aurora Grand Plaza'
+    plaza: 'Neon Clubhouse'
 });
 matchAuthority = new MatchAuthority(profiles, { getLobby: code => lobbies.get(code) || null });
 const partyStore = new PartyStore({

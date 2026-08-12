@@ -58,9 +58,13 @@ test('the background loop remains the connected-host driver (the other half of t
     const source = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
     const startIdx = source.indexOf('_startBgLoop() {');
     assert.ok(startIdx >= 0, 'expected the _startBgLoop() definition in main.js');
-    assert.match(source.slice(startIdx, startIdx + 1600), /if \(!this\.network\?\.connected\) return;/);
+    assert.match(
+        source.slice(startIdx, startIdx + 1800),
+        /if \(!this\.network\?\.connected && !this\.game\.hasPendingIncomingSettlement\?\.\(\)\)/,
+        'the background driver may run offline only to settle one incoming paused ball'
+    );
 
     const tickIdx = source.indexOf('_bgTick(dt) {');
     assert.ok(tickIdx >= 0, 'expected the _bgTick(dt) definition in main.js');
-    assert.match(source.slice(tickIdx, tickIdx + 1600), /if \(this\.network\?\.isHost\) \{[\s\S]{0,80}?this\.game\.update\(dt\);/);
+    assert.match(source.slice(tickIdx, tickIdx + 2000), /else if \(this\.network\?\.isHost\) \{[\s\S]{0,80}?this\.game\.update\(dt\);/);
 });

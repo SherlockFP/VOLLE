@@ -40,7 +40,9 @@ export const NETWORK_SPEED_BOUND = 512;
 // generous wire guard so legitimate long rallies pass while absurd/hostile
 // Float32 payloads are still rejected.
 export const NETWORK_BALL_SPEED_BOUND = 16384;
+export const BALL_SKIN_ID_MAX_BYTES = 64;
 const TARGET_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
+const BALL_SKIN_ID_PATTERN = /^[a-z0-9][a-z0-9_-]*$/;
 const UTF8_ENCODER = new TextEncoder();
 const UTF8_DECODER = new TextDecoder('utf-8', { fatal: true });
 const PLAYER_HIT_DAMAGE_MAX = 1000;
@@ -90,6 +92,12 @@ export function isSafeTargetId(value) {
         && UTF8_ENCODER.encode(value).byteLength <= TARGET_ID_MAX_BYTES;
 }
 
+export function isSafeBallSkinId(value) {
+    return typeof value === 'string'
+        && BALL_SKIN_ID_PATTERN.test(value)
+        && UTF8_ENCODER.encode(value).byteLength <= BALL_SKIN_ID_MAX_BYTES;
+}
+
 function isBoundedFinite(value, bound) {
     return Number.isFinite(value) && Math.abs(value) <= bound;
 }
@@ -110,7 +118,8 @@ function isValidBallPacket(data) {
             .every(value => isBoundedFinite(value, NETWORK_BALL_SPEED_BOUND))
         && Number.isFinite(data.speed)
         && data.speed >= 0
-        && data.speed <= NETWORK_BALL_SPEED_BOUND;
+        && data.speed <= NETWORK_BALL_SPEED_BOUND
+        && (data.skinId === undefined || isSafeBallSkinId(data.skinId));
 }
 
 function normalizePlayerHitPacket(data) {
@@ -894,7 +903,7 @@ export class Network {
             red: this.game.scoreboard?.redScore,
             blue: this.game.scoreboard?.blueScore,
             time: this.game.scoreboard?.timeRemaining,
-            snapshot: this.game.snapshotState?.() || {},
+            snapshot: this._withBallAppearance(this.game.snapshotState?.() || {}),
             migrationRoster: [...this.migrationRoster.values()],
             migrationEpoch: this.migrationEpoch,
             checkpoint: this.latestHostCheckpoint
@@ -1854,6 +1863,15 @@ export class Network {
             off = segment.next;
             msg.targetPeerId = segment.value || null;
         }
+        if (flags & 64) {
+            const segment = readBinaryText(dv, off, {
+                maxBytes: BALL_SKIN_ID_MAX_BYTES,
+                validate: isSafeBallSkinId
+            });
+            if (!segment) return null;
+            off = segment.next;
+            msg.skinId = segment.value;
+        }
         return off === dv.byteLength && isValidBallPacket(msg) ? msg : null;
     }
 
@@ -1911,9 +1929,10 @@ export class Network {
         const affixRequested = !!b.affix;
         const targetPlayerIdRequested = Object.prototype.hasOwnProperty.call(b, 'targetPlayerId');
         const targetPeerIdRequested = Object.prototype.hasOwnProperty.call(b, 'targetPeerId');
+        const skinRequested = Object.prototype.hasOwnProperty.call(b, 'skinId');
         let size = 32;
         let stateCode = 1, targetBytes = null, affixBytes = null;
-        let targetPlayerIdBytes = null, targetPeerIdBytes = null;
+        let targetPlayerIdBytes = null, targetPeerIdBytes = null, skinBytes = null;
         if (hasState) { size += 1; stateCode = { idle: 0, hold: 2, warmup: 3, rally: 1, other: 4 }[b.state] ?? 4; }
         if (targetRequested) targetBytes = encodeBinaryText(b.targetName);
         if (affixRequested) affixBytes = encodeBinaryText(b.affix.id || b.affix.name);
@@ -1931,14 +1950,23 @@ export class Network {
                 coerce: false
             });
         }
+        if (skinRequested) {
+            skinBytes = encodeBinaryText(b.skinId, {
+                maxBytes: BALL_SKIN_ID_MAX_BYTES,
+                validate: isSafeBallSkinId,
+                coerce: false
+            });
+        }
         const hasTarget = targetRequested && targetBytes !== null;
         const hasAffix = affixRequested && affixBytes !== null;
         const hasTargetPlayerId = targetPlayerIdRequested && targetPlayerIdBytes !== null;
         const hasTargetPeerId = targetPeerIdRequested && targetPeerIdBytes !== null;
+        const hasSkin = skinRequested && skinBytes !== null;
         if (hasTarget) size += 1 + targetBytes.length;
         if (hasAffix) size += 1 + affixBytes.length + 4;
         if (hasTargetPlayerId) size += 1 + targetPlayerIdBytes.length;
         if (hasTargetPeerId) size += 1 + targetPeerIdBytes.length;
+        if (hasSkin) size += 1 + skinBytes.length;
         const buf = new ArrayBuffer(size);
         const dv = new DataView(buf);
         const u8 = new Uint8Array(buf);
@@ -1953,6 +1981,7 @@ export class Network {
         if (hasAffix) { flags |= 8; dv.setUint8(off, affixBytes.length); off += 1; u8.set(affixBytes, off); off += affixBytes.length; dv.setUint32(off, b.affix.color || 0); off += 4; }
         if (hasTargetPlayerId) { flags |= 16; dv.setUint8(off, targetPlayerIdBytes.length); off += 1; u8.set(targetPlayerIdBytes, off); off += targetPlayerIdBytes.length; }
         if (hasTargetPeerId) { flags |= 32; dv.setUint8(off, targetPeerIdBytes.length); off += 1; u8.set(targetPeerIdBytes, off); off += targetPeerIdBytes.length; }
+        if (hasSkin) { flags |= 64; dv.setUint8(off, skinBytes.length); off += 1; u8.set(skinBytes, off); off += skinBytes.length; }
         dv.setUint8(31, flags);
         return u8;
     }
@@ -2422,6 +2451,7 @@ export class Network {
             case 'gameStart':
                 if (!this.isHost && peerId === this.hostConn?.peer) {
                     if (data.matchId && this.game.matchId === data.matchId) break;
+                    this._applyBallAppearance(data);
                     this.game.startGameFromNetwork(data);
                 }
                 break;
@@ -2450,6 +2480,7 @@ export class Network {
                 break;
             case 'ballState':
                 if (!this.isHost && peerId === this.hostConn?.peer) {
+                    this._applyBallAppearance(data);
                     this.game.updateBallFromNetwork(data);
                 }
                 break;
@@ -2460,6 +2491,7 @@ export class Network {
                 break;
             case 'roundStart':
                 if (!this.isHost && peerId === this.hostConn?.peer) {
+                    this._applyBallAppearance(data);
                     this.game.startRoundFromNetwork(data);
                 }
                 break;
@@ -2475,6 +2507,7 @@ export class Network {
                 break;
             case 'welcome':
                 if (this.isHost || peerId !== this.hostConn?.peer) break;
+                this._applyBallAppearance(data);
                 this._acceptLobbyAdmissionProof(data.admissionToken);
                 if (Array.isArray(data.players)) {
                     this._updateMigrationRoster(
@@ -2710,7 +2743,7 @@ case 'modeChange':
     // existing ordered DataChannel so a client cannot be stranded in lobby.
     broadcastGameStart(snapshot = {}) {
         if (!this.isHost) return;
-        const packet = Object.freeze({ type: 'gameStart', ...snapshot });
+        const packet = Object.freeze({ type: 'gameStart', ...this._withBallAppearance(snapshot) });
         this._latestGameStart = packet;
         this.broadcast(packet);
         this._gameStartRetryTimers.forEach(timer => clearTimeout(timer));
@@ -2855,8 +2888,23 @@ case 'modeChange':
             targetName: target?.name || null,
             targetPlayerId,
             targetPeerId: target === this.game?.player ? this.peer?.id || null : target?.peerId || null,
-            affix: ball.affix ? { id: ball.affix.id || ball.affix.name, color: ball.affix.color } : null
+            affix: ball.affix ? { id: ball.affix.id || ball.affix.name, color: ball.affix.color } : null,
+            skinId: ball.skinId || 'classic'
         }));
+    }
+
+    _withBallAppearance(snapshot = {}) {
+        const skinId = this.game?.ball?.skinId;
+        if (!snapshot?.ball || !isSafeBallSkinId(skinId)) return snapshot;
+        return { ...snapshot, ball: { ...snapshot.ball, skinId } };
+    }
+
+    _applyBallAppearance(packet = {}) {
+        const skinId = packet.skinId ?? packet.ball?.skinId ?? packet.snapshot?.ball?.skinId;
+        const ball = this.game?.ball;
+        if (!ball || !isSafeBallSkinId(skinId) || ball.skinId === skinId) return false;
+        ball.setSkin?.(skinId);
+        return true;
     }
 
     broadcastScores(scoreboard) {
@@ -2875,7 +2923,7 @@ case 'modeChange':
         if (!this.isHost) return;
         this.broadcast({
             type: 'roundStart',
-            ...snapshot,
+            ...this._withBallAppearance(snapshot),
             overtimeExtends: Number.isSafeInteger(snapshot.overtimeExtends)
                 ? Math.min(8, Math.max(0, snapshot.overtimeExtends))
                 : 0,

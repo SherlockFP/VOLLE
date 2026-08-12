@@ -65,7 +65,11 @@ test('an action invalidates a pre-action party refresh before fetching authorita
 test('menu social DOM keeps exact eight navigation items and accessible invite controls', () => {
     const menu = html.slice(html.indexOf('<div id="main-menu"'), html.indexOf('<!-- ===== MODE SELECT ====='));
     assert.equal((menu.match(/data-menu-route=/g) || []).length, 8);
-    for (const id of ['friends-sidebar', 'fbar-sheet-handle', 'fbar-directory', 'fbar-discoverable', 'fbar-region', 'fbar-party-members', 'party-invite-dialog', 'party-invite-accept', 'party-invite-decline']) assert.match(menu, new RegExp(`id="${id}"`));
+    for (const id of ['friends-sidebar', 'fbar-sheet-handle', 'fbar-directory', 'fbar-discoverable', 'fbar-party-members', 'party-invite-dialog', 'party-invite-accept', 'party-invite-decline']) assert.match(menu, new RegExp(`id="${id}"`));
+    assert.doesNotMatch(menu, /id="fbar-region"/);
+    assert.match(menu, /Worldwide P2P/);
+    assert.match(main, /_saveSocialDiscoveryPreferences\(discoverable\?\.checked !== false, 'global'\)/);
+    assert.doesNotMatch(main, /region\?\.value/);
     assert.match(menu, /role="alertdialog"/);
     assert.match(menu, /aria-modal="true"/);
     assert.match(menu, /data-fbar-tab="friends"[\s\S]*data-fbar-tab="online"[\s\S]*data-fbar-tab="nearby"/);
@@ -95,10 +99,29 @@ test('desktop and mobile layout gates are explicit and keep actions touch-safe',
     assert.match(css, /\.fbar-tabs button,[\s\S]*min-height: 44px/);
     assert.match(css, /\.party-invite-card button \{ min-height: 48px/);
     assert.match(css, /\.fbar-toggle-btn \{ width: 44px; min-width: 44px; height: 44px/);
-    assert.match(css, /\.fbar-presence-controls select \{ min-height: 44px/);
+    assert.match(css, /\.fbar-worldwide \{ min-height: 44px/);
     assert.match(css, /@media \(max-width: 760px\)[\s\S]*\.ow-topbar \{ order: 0; max-height: none;[\s\S]*overflow: visible[\s\S]*\.ow-tabs[\s\S]*justify-content: flex-start[\s\S]*overflow-x: auto[\s\S]*\.ow-showcase \{ order: 1; min-height: 300px; height: 300px; max-height: 330px[\s\S]*\.ow-action-heading \{ display: none[\s\S]*\.ow-play \{ min-height: 64px/);
     assert.match(css, /\.ow-menu \{ height: auto; min-height: calc\(100dvh - 70px\)[^}]*overflow: visible/);
     assert.match(css, /friends-sidebar:not\(\.mobile-open\) \.friends-sidebar-body \{ visibility: hidden; pointer-events: none/);
+});
+
+test('collapsed desktop social rail keeps its reopen control inside the visible edge', () => {
+    assert.match(css, /\.friends-sidebar\.collapsed \.friends-sidebar-header \{[\s\S]*?padding: 8px 0;[\s\S]*?justify-content: flex-start;/);
+    assert.match(main, /desktopToggle\.setAttribute\('aria-label', expanded \? 'Collapse social panel' : 'Open social panel'\)/);
+    assert.match(main, /desktopToggle\.querySelector\('use'\)\?\.setAttribute\('href', expanded \? '#i-arrow-left' : '#i-arrow-right'\)/);
+});
+
+test('social rail exposes professional async, empty and friend-request states', () => {
+    for (const id of ['fbar-sync-state', 'fbar-directory-title', 'fbar-own-tag-code', 'fbar-add-toggle', 'fbar-add-form', 'fbar-add-submit', 'fbar-add-status']) {
+        assert.match(html, new RegExp(`id="${id}"`));
+    }
+    assert.match(main, /this\._socialRailSyncing = true;[\s\S]*this\._socialRailError = results\.find/);
+    assert.match(main, /className = 'fbar-empty-state'/);
+    assert.match(main, /title\.textContent = 'Social is offline'/);
+    assert.match(main, /submit\.disabled = true; submit\.textContent = 'Sending'/);
+    assert.match(css, /\.fbar-empty-state \{/);
+    assert.match(css, /\.fbar-skeleton \{/);
+    assert.match(css, /\.fbar-actions button \{[\s\S]*min-width: 44px;[\s\S]*height: 44px;/);
 });
 
 test('closed mobile social sheet is inert and restores deterministic focus', () => {

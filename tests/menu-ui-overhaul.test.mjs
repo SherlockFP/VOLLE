@@ -30,7 +30,7 @@ test('the current patch entry names this wave in player-facing wording', () => {
         'ball freezing',           // solo/host sim-loop stall
         'QUICK PLAY',              // multiplayer hub reroute
         'Aquarium', 'Grand Museum', 'Neon Casino', 'Metro Interchange',
-        'Aurora Grand Plaza',
+        'Neon Clubhouse',
         'Iron Shuriken', 'Sandlot Slugger', 'Blockball', 'Dark Eater',
         'Silver Stiletto', 'Scrap Cleaver',
         'welcome guide',
@@ -84,13 +84,34 @@ test('ball cards expose the BALL_SKINS shape and flag model skins', () => {
 
 test('ball inspect renders real geometry for shape skins and clones the shared cache', () => {
     assert.match(main, /import \{ BALL_SKINS, ballShapeParts \} from '\.\/ball\.js';/);
-    assert.match(main, /_renderCosmeticPreview\(container, style, build = null\)/);
+    assert.match(main, /_renderCosmeticPreview\(container, style, build = null, autoDispose = true\)/);
     assert.match(main, /const model = build \? build\(\) : createKnifeModel\(style\);/);
     assert.match(main, /_buildBallPreviewModel\(skin\)/);
     assert.match(main, /part\.geo\.clone\(\)/,
         'shape geometry is shared across every ball in the session — the preview must clone, never dispose the cache');
     assert.match(main, /if \(skin\?\.shape && stage\)/);
     assert.match(main, /_disposeCosmeticPreview\(stage\)/);
+});
+
+test('selected ball drives the persistent live showcase with real model geometry', () => {
+    assert.match(ui, /type: 'ball', id: item\.id, ball: item, source: 'shop'/);
+    assert.match(main, /detail\?\.type === 'ball' && BALL_SKINS\[detail\.id\]/);
+    assert.match(main, /_renderCosmeticPreview\(visual, skin, \(\) => this\._buildBallPreviewModel\(skin\), false\)/);
+    assert.match(main, /skin\.shape\s*\? ballShapeParts\(skin\.shape, \.45, THREE\)/);
+    assert.match(main, /skin\.shape === 'shuriken'\)[\s\S]{0,80}content\.rotation\.x = Math\.PI \/ 2/,
+        'gameplay shuriken lies edge-on to the showcase camera unless its inner model is faced forward');
+    assert.match(main, /group\.userData\.previewSpinAxis = 'z'/,
+        'flat shuriken previews must spin in their face plane instead of turning edge-on every half rotation');
+    assert.match(main, /model\.rotation\[previewSpinAxis\] \+= \.012/,
+        'preview renderer must respect the model-specific turntable axis');
+    assert.match(main, /if \(!ballInspect\.closest\('#shop-grid'\)\)/,
+        'shop selection uses its status region instead of a toast over the catalog heading');
+    assert.match(ui, /visual\.setAttribute\('role', 'img'\)/);
+    assert.match(ui, /visual\.setAttribute\('aria-label', `\$\{item\.name\} 3D preview`\)/);
+    assert.match(ui, /visual\.setAttribute\('aria-hidden', 'false'\)/);
+    assert.doesNotMatch(ui, /innerHTML\s*\+?=.*\$\{item\.name\} 3D preview/,
+        'accessible preview name must stay metadata, never visible heading text');
+    assert.match(polish, /\.shop-selected-product-visual\.actual-preview canvas \{[\s\S]*?width: 100% !important/);
 });
 
 test('each shape gets a 2D differentiator so the grid reads without WebGL', () => {

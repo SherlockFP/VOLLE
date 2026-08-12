@@ -14,5 +14,6 @@ test('FFA supports spectator targets and FFA-only round modifiers', async () => 
     assert.match(game, /this\.spawnSplitBall\(this\.ball, 18\)/);
     assert.match(game, /this\._ffa\s*\? this\.getAllTargets\(\)\.filter\(p => p !== this\.player && p\.alive\)/);
     assert.match(ball, /\(this\._ffaSpeedMultiplier \|\| 1\)/);
-    assert.match(main, /this\.game\._ffa\s*\? `FFA \$\{view\.distance <= 1 \? 'POV' : 'TPS'\}/);
+    assert.match(main, /context: this\.game\._ffa \? 'ffa' : 'team'/);
+    assert.match(main, /mode: view\.distance <= 1 \? CAMERA_MODES\.FIRST_PERSON : CAMERA_MODES\.CHASE/);
 });

@@ -42,7 +42,7 @@ test('ball catalog contains the new cosmetic skin collection', () => {
 test('wearable catalog is server-priced and migrated through its own ownership field', t => {
     const { dir, store } = tempStore();
     t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-    assert.equal(Object.keys(CATALOG.cosmetic).length, 73);
+    assert.equal(Object.keys(CATALOG.cosmetic).length, 76);
     const session = store.session('', 'Player', {
         currency: 1000,
         ownedCosmetics: ['cape_ember', 'unknown_cosmetic']
@@ -147,9 +147,9 @@ test('onboarding endpoint is authenticated and client maps/syncs the server prof
     assert.match(clientStore, /async syncOnboarding\(onboarding\)/);
     assert.match(clientStore, /fetch\('\/api\/profile\/onboarding'/);
     assert.match(clientStore, /this\.data\[flag\] = profile\.onboarding\[flag\]/);
-    assert.match(main, /syncOnboarding\(\{ ftueSeen: true \}\)/);
     assert.match(main, /syncOnboarding\(\{ ftueCompleted: true \}\)/);
-    assert.match(main, /syncOnboarding\(\{ ftueMatchHintsSeen: true \}\)/);
+    assert.doesNotMatch(main, /syncOnboarding\(\{ ftueSeen: true \}\)|syncOnboarding\(\{ ftueMatchHintsSeen: true \}\)/,
+        'automatic first-entry and timed match-hint onboarding stay removed');
 });
 
 test('earned case entitlement is match-idempotent, drought-bounded, and opens before credits', t => {

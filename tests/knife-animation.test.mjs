@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
     KNIFE_ACTION_DURATIONS,
     createKnifeAnimationState,
+    knifeAnimationActionForAttack,
     resolveKnifePose,
     startKnifeAnimation,
     stepKnifeAnimation
@@ -29,6 +30,33 @@ test('stab moves forward while slash rotates across the view', () => {
     slash.elapsed = slash.duration * 0.55;
     const slashPose = resolveKnifePose(slash);
     assert.ok(slashPose.knifeRotation[2] > 0.4);
+});
+
+test('combat input maps primary to slash and secondary stab intent to a heavier presentation', () => {
+    assert.equal(knifeAnimationActionForAttack('slash'), 'slash');
+    assert.equal(knifeAnimationActionForAttack('stab'), 'heavy');
+    assert.equal(knifeAnimationActionForAttack('heavy'), 'heavy');
+    const heavy = createKnifeAnimationState('bayonet');
+    startKnifeAnimation(heavy, 'heavy');
+    heavy.elapsed = heavy.duration * 0.42;
+    assert.equal(heavy.duration, KNIFE_ACTION_DURATIONS.heavy);
+    assert.ok(resolveKnifePose(heavy).armPosition[2] < -0.7);
+});
+
+test('pose resolution reuses its vectors and part records in the frame loop', () => {
+    for (const model of ['classic', 'bayonet', 'karambit', 'butterfly']) {
+        const state = createKnifeAnimationState(model);
+        const pose = resolveKnifePose(state);
+        const armPosition = pose.armPosition;
+        const knifeRotation = pose.knifeRotation;
+        const parts = pose.parts;
+        const firstPart = parts[0];
+        assert.equal(resolveKnifePose(state), pose, `${model} pose object allocated again`);
+        assert.equal(pose.armPosition, armPosition, `${model} arm vector allocated again`);
+        assert.equal(pose.knifeRotation, knifeRotation, `${model} knife vector allocated again`);
+        assert.equal(pose.parts, parts, `${model} parts allocated again`);
+        assert.equal(pose.parts[0], firstPart, `${model} part record allocated again`);
+    }
 });
 
 test('rare butterfly inspect is deterministic and articulates both handles', () => {
@@ -103,7 +131,7 @@ test('classic and bayonet poses stay 3-element numeric arrays and unaffected by 
 
 test('every pose field stays finite for every action/model/progress combination', () => {
     const models = ['classic', 'bayonet', 'karambit', 'butterfly'];
-    const actions = ['idle', 'draw', 'slash', 'stab', 'inspect'];
+    const actions = ['idle', 'draw', 'slash', 'stab', 'heavy', 'inspect'];
     const progresses = [0, 0.001, 0.25, 0.5, 0.75, 0.999, 1];
     for (const model of models) {
         for (const action of actions) {

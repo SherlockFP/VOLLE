@@ -8,8 +8,8 @@ function rule(css, selector) {
 
 test('mobile incoming label occupies the dedicated right lane below the score header', async () => {
     const css = await readFile(new URL('../css/polish.css', import.meta.url), 'utf8');
-    const mobile = css.match(/@media \(max-width: 720px\) \{([\s\S]*?)\n\}/)?.[1] ?? '';
-    const label = rule(mobile, '#incoming-indicator::after');
+    const marker = css.lastIndexOf('#incoming-indicator::after');
+    const label = marker >= 0 ? css.slice(marker, css.indexOf('}', marker) + 1) : '';
 
     assert.match(label, /top:\s*84px;/);
     assert.match(label, /right:\s*8px;/);

@@ -2,45 +2,38 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 
-// Aurora Grand Plaza — the single Warrball social hub. One flagship city:
-// an arrival concourse in the south, a canal-flanked causeway, the Aurora Spire
-// over a swimmable fountain court, an amphitheatre, the Skyward Terraces parkour
-// tower in the west, the Lantern Bazaar in the east, and the Observatory Rise
-// closing the north axis.
+// Neon Clubhouse — the single compact Warrball social hub: open lounge,
+// conversation pods, pool, creator stage and garden, all visible from spawn.
 export const SOCIAL_HUB_MAP_ID = 'plaza';
 
-const PLAZA_BOUNDS = Object.freeze({ minX: -250, maxX: 250, minY: -14, maxY: 110, minZ: -230, maxZ: 230 });
+const PLAZA_BOUNDS = Object.freeze({ minX: -76, maxX: 76, minY: -8, maxY: 32, minZ: -68, maxZ: 68 });
 const PLAZA_GROUND_Y = 0;
-const POSE_AREA = Object.freeze({ x: 0, z: 56, radius: 11 });
+const POSE_AREA = Object.freeze({ x: 0, z: -25, radius: 7.5 });
 // The pavilion sits on the south-to-court route. Its open southern portico is
 // deliberate: it reads as a mansion-scale focal point without interrupting the
 // plaza's main walking line or requiring a larger social map.
-const PLAZA_PAVILION = Object.freeze({ x: 0, z: 108, halfWidth: 18, halfDepth: 17, roofY: 12.6 });
+const PLAZA_PAVILION = Object.freeze({ x: 0, z: 15, halfWidth: 27, halfDepth: 22, roofY: 8.2 });
 
 // Swim volumes. surfaceY sits above the 1.7 eye height so Player.getWaterAt
 // actually flips into swim mode (surfaceY + .25 >= standing eye height).
 const PLAZA_POOLS = Object.freeze([
-    Object.freeze({ minX: -29, maxX: 29, minZ: -21, maxZ: 37, surfaceY: 1.75, floorY: -3.4, kind: 'fountain' }),
-    Object.freeze({ minX: -96, maxX: -70, minZ: 62, maxZ: 146, surfaceY: 1.6, floorY: -3.8, kind: 'canal' }),
-    Object.freeze({ minX: 70, maxX: 96, minZ: 62, maxZ: 146, surfaceY: 1.6, floorY: -3.8, kind: 'canal' }),
-    Object.freeze({ minX: -90, maxX: -30, minZ: -140, maxZ: -104, surfaceY: 1.55, floorY: -2.6, kind: 'pool' }),
-    Object.freeze({ minX: 30, maxX: 90, minZ: -140, maxZ: -104, surfaceY: 1.55, floorY: -2.6, kind: 'pool' })
+    Object.freeze({ minX: -59, maxX: -27, minZ: -50, maxZ: -26, surfaceY: 1.55, floorY: -2.8, kind: 'pool' })
 ]);
 
 export const SOCIAL_HUB_MAPS = Object.freeze({
     plaza: Object.freeze({
         id: SOCIAL_HUB_MAP_ID,
-        name: 'Aurora Grand Plaza',
+        name: 'Neon Clubhouse',
         bounds: PLAZA_BOUNDS,
-        spawn: Object.freeze({ x: 0, y: 2, z: 196 }),
+        spawn: Object.freeze({ x: 0, y: 2, z: 56 }),
         poseArea: POSE_AREA,
         zones: Object.freeze([
-            Object.freeze({ id: 'lobby', name: 'Arrival Concourse', x: 0, z: 190 }),
-            Object.freeze({ id: 'social', name: 'Aurora Court', x: 0, z: 50 }),
-            Object.freeze({ id: 'activity', name: 'Skyward Terraces', x: -170, z: -10 }),
-            Object.freeze({ id: 'shop', name: 'Lantern Bazaar', x: 160, z: -10 })
+            Object.freeze({ id: 'lobby', name: 'Welcome Deck', x: 0, z: 54 }),
+            Object.freeze({ id: 'social', name: 'Club Lounge', x: 0, z: 15 }),
+            Object.freeze({ id: 'pool', name: 'Pool Terrace', x: -43, z: -38 }),
+            Object.freeze({ id: 'stage', name: 'Creator Stage', x: 23, z: -30 })
         ]),
-        credit: 'Original Warrball procedural megahub'
+        credit: 'Original Warrball layout with Kenney Furniture Kit CC0 props'
     })
 });
 
@@ -49,59 +42,18 @@ export const SOCIAL_HUB_MAPS = Object.freeze({
 // the same table drives collision, the walkable rooftops, and the mesh pass.
 function buildPlazaBlocks() {
     const blocks = [
-        // --- Arrival Concourse (lobby) -----------------------------------
-        [0, 224, 104, 3, 20, 'lobby'],
-        [-104, 194, 3, 33, 20, 'lobby'], [104, 194, 3, 33, 20, 'lobby'],
-        [-46, 160, 12, 7, 30, 'lobby'], [46, 160, 12, 7, 30, 'lobby'],
-        [-88, 160, 12, 4, 16, 'lobby'], [88, 160, 12, 4, 16, 'lobby'],
-        // --- Grand Pavilion (walk-through social focal point) ------------
+        // Open-front clubhouse: floor, glass-ready side walls and rear wall.
         [PLAZA_PAVILION.x, PLAZA_PAVILION.z, PLAZA_PAVILION.halfWidth, PLAZA_PAVILION.halfDepth, .35, 'pavilion'],
-        [-19, 108, 2, 17, 12, 'pavilion'], [19, 108, 2, 17, 12, 'pavilion'],
-        [0, 91, 19, 2, 12, 'pavilion'],
-        [-12, 125, 7, 2, 12, 'pavilion'], [12, 125, 7, 2, 12, 'pavilion'],
-        // --- Aurora Court (social) ---------------------------------------
-        [0, 8, 11, 11, 62, 'social'],                                   // Aurora Spire core
-        [-32, 8, 3, 32, 1.2, 'social'], [32, 8, 3, 32, 1.2, 'social'],  // fountain rim
-        [0, -24, 35, 3, 1.2, 'social'], [0, 40, 35, 3, 1.2, 'social'],
-        [-96, 20, 16, 40, 1.4, 'social'], [96, 20, 16, 40, 1.4, 'social'],
-        [-124, 20, 12, 34, 2.8, 'social'], [124, 20, 12, 34, 2.8, 'social'],
-        // --- Aurora Stage + amphitheatre (social) ------------------------
-        [0, -52, 34, 6, 1.5, 'social'],
-        [0, -42, 30, 2, 14, 'social'],
-        [0, -108, 62, 4, 25.6, 'social'],
-        [-62, -84, 4, 28, 25.6, 'social'], [62, -84, 4, 28, 25.6, 'social'],
-        // --- Skyward Terraces (activity) ---------------------------------
-        [-172, -40, 11, 11, 13.6, 'activity'],
-        [-196, -52, 11, 11, 16, 'activity'],
-        [-196, -76, 11, 11, 18.4, 'activity'],
-        [-176, -106, 11, 11, 20.8, 'activity'],
-        [-148, -108, 11, 11, 23.2, 'activity'],
-        [-160, -74, 20, 18, 25.6, 'activity'],                          // sky deck
-        [-103, -74, 37, 4, 25.6, 'activity'],                           // sky bridge to the rim
-        // --- Lantern Bazaar (shop) ---------------------------------------
-        [160, -84, 34, 4, 18, 'shop'],
-        [126, -56, 4, 32, 18, 'shop'], [194, -56, 4, 32, 18, 'shop'],
-        [160, -58, 28, 20, 4.2, 'shop'],                                // bazaar deck
-        [136, -58, 5, 5, 11, 'shop'], [184, -58, 5, 5, 11, 'shop'],     // stall canopies
-        [160, 6, 24, 4, 12, 'shop'],
-        // --- Observatory Rise (north landmark) ---------------------------
-        [0, -188, 66, 30, 6, 'observatory'],                            // podium
-        [0, -216, 66, 4, 34, 'observatory'],
-        [-66, -188, 4, 30, 34, 'observatory'], [66, -188, 4, 30, 34, 'observatory']
+        [-27, 15, 1, 22, 8, 'pavilion'], [27, 15, 1, 22, 8, 'pavilion'],
+        [0, 37, 27, 1, 8, 'pavilion'],
+        // Conversation islands, photo stage, pool coping and garden.
+        [-14, 13, 9, 7, .58, 'social'], [14, 13, 9, 7, .58, 'social'],
+        [23, -30, 13, 7, 1.15, 'stage'], [23, -37, 13, 1, 7.5, 'stage'],
+        [-43, -52, 18, 1, .75, 'pool'], [-43, -24, 18, 1, .75, 'pool'],
+        [-61, -38, 1, 13, .75, 'pool'], [-25, -38, 1, 13, .75, 'pool'],
+        [49, 15, 15, 18, .7, 'garden'],
+        [0, 62, 18, 1.2, 5.5, 'lobby']
     ];
-    // Amphitheatre seating: four contiguous 1.5-rise tiers (single-jump reach).
-    for (let i = 0; i < 4; i++) blocks.push([0, -66 - i * 10, 58 - i * 4, 5, 1.5 * (i + 1), 'social']);
-    // Terrace stair run: eight 1.4-rise steps feeding the parkour ledges.
-    for (let i = 0; i < 8; i++) blocks.push([-118 - i * 5, -30, 2.5, 11, 1.4 * (i + 1), 'activity']);
-    // Bazaar stair: three 1.4-rise steps up to the market deck.
-    for (let i = 0; i < 3; i++) blocks.push([160, -24 - i * 5, 10, 2.5, 1.4 * (i + 1), 'shop']);
-    // Observatory stair: four 1.5-rise steps up to the podium.
-    for (let i = 0; i < 4; i++) blocks.push([0, -140 - i * 5, 20, 2.5, 1.5 * (i + 1), 'observatory']);
-    for (const side of [-1, 1]) {
-        for (const z of [82, 118, 154]) blocks.push([side * 116, z, 14, 3, 5, 'garden']);
-        blocks.push([side * 232, 40, 4, 90, 12, 'perimeter']);
-        blocks.push([side * 232, -120, 4, 70, 12, 'perimeter']);
-    }
     return Object.freeze(blocks.map(entry => Object.freeze(entry)));
 }
 
@@ -111,20 +63,28 @@ const PLAZA_LAYOUT = Object.freeze({
     blocks: PLAZA_BLOCKS,
     pools: PLAZA_POOLS,
     groundY: PLAZA_GROUND_Y,
-    platform: Object.freeze({ x: 0, z: 0, y: PLAZA_GROUND_Y, halfWidth: 244, halfDepth: 224 })
+    platform: Object.freeze({ x: 0, z: 0, y: PLAZA_GROUND_Y, halfWidth: 74, halfDepth: 66 })
 });
 
 const CHARACTER_ASSETS = ['a', 'f', 'k', 'r'].map(
     id => `assets/cc0/kenney/blocky-characters/character-${id}.glb`
 );
 const PROP_ASSETS = Object.freeze([
-    ['assets/cc0/kenney/mini-arena/statue.glb', [-48, 1.4, 62], 1.6, .3, 2.3],
-    ['assets/cc0/kenney/mini-arena/statue.glb', [48, 1.4, 62], 1.6, -.3, 2.3],
-    ['assets/cc0/kenney/mini-arena/trophy.glb', [0, 2.85, -52], 1.5, 0, 1.8],
-    ['assets/cc0/kenney/mini-arena/banner.glb', [-24, 0, 152], 2.3, 0, 1.2],
-    ['assets/cc0/kenney/mini-arena/banner.glb', [24, 0, 152], 2.3, Math.PI, 1.2],
-    ['assets/cc0/kenney/mini-arena/tree.glb', [-206, 0, 122], 3.2, .4, 2.6],
-    ['assets/cc0/kenney/mini-arena/tree.glb', [206, 0, 122], 3.2, -.4, 2.6]
+    ['assets/cc0/kenney/furniture-kit/loungeSofa.glb', [-15, .6, 16], 2.2, Math.PI, 2.2],
+    ['assets/cc0/kenney/furniture-kit/loungeSofa.glb', [15, .6, 16], 2.2, Math.PI, 2.2],
+    ['assets/cc0/kenney/furniture-kit/loungeChair.glb', [-10, .6, 8], 2.1, -.35, 1.6],
+    ['assets/cc0/kenney/furniture-kit/loungeChair.glb', [10, .6, 8], 2.1, .35, 1.6],
+    ['assets/cc0/kenney/furniture-kit/tableCoffee.glb', [-15, .6, 12], 2.1, 0, 1.3],
+    ['assets/cc0/kenney/furniture-kit/tableCoffee.glb', [15, .6, 12], 2.1, 0, 1.3],
+    ['assets/cc0/kenney/furniture-kit/rugRound.glb', [0, .36, 22], 4.8, 0, 2.8],
+    ['assets/cc0/kenney/furniture-kit/bookcaseOpen.glb', [-23.5, .35, 30], 2.2, Math.PI / 2, 1.8],
+    ['assets/cc0/kenney/furniture-kit/speaker.glb', [-6, .35, 34], 2.6, Math.PI, 1.4],
+    ['assets/cc0/kenney/furniture-kit/speaker.glb', [6, .35, 34], 2.6, Math.PI, 1.4],
+    ['assets/cc0/kenney/furniture-kit/pottedPlant.glb', [-23, .35, 3], 2.7, 0, 1.4],
+    ['assets/cc0/kenney/furniture-kit/pottedPlant.glb', [23, .35, 3], 2.7, 0, 1.4],
+    ['assets/cc0/kenney/mini-arena/statue.glb', [23, 2.1, -30], 1.7, 0, 2.2],
+    ['assets/cc0/kenney/mini-arena/tree.glb', [52, .7, 20], 2.5, .4, 2.2],
+    ['assets/cc0/kenney/mini-arena/tree.glb', [44, .7, 4], 2.2, -.5, 2.0]
 ]);
 
 export const SOCIAL_LOBBY_PROP_COLLIDERS = Object.freeze(PROP_ASSETS.map(([url, position, , , radius]) => Object.freeze({
@@ -332,6 +292,8 @@ function createPlazaMaterials(renderer) {
 const ZONE_MATERIAL = Object.freeze({
     lobby: 'stucco',
     social: 'marble',
+    pool: 'stone',
+    stage: 'wood',
     activity: 'stone',
     shop: 'wood',
     observatory: 'stucco',
@@ -376,30 +338,6 @@ function addLamp(group, materials, x, z, height = 7, material = materials.lanter
     return bulb;
 }
 
-function addAuroraSpire(group, materials) {
-    addCylinder(group, 17, 2.4, [0, 1.2, 8], materials.marble, 40);
-    const tiers = [[11, 16, 10], [9, 14, 25], [7, 12, 38], [5, 10, 49]];
-    for (const [radius, height, baseY] of tiers) {
-        addCylinder(group, radius, height, [0, baseY + height / 2, 8], materials.marble, 28);
-        addCylinder(group, radius + 1, .8, [0, baseY + height, 8], materials.metal, 28);
-        for (let i = 0; i < 4; i++) {
-            const angle = i * Math.PI / 2 + .4;
-            addBox(group, [.7, height * .82, .7], [Math.cos(angle) * (radius + .3), baseY + height / 2, 8 + Math.sin(angle) * (radius + .3)], materials.accent, { castShadow: false });
-        }
-    }
-    const crown = new THREE.Mesh(new THREE.OctahedronGeometry(4.6, 0), materials.aurora);
-    crown.position.set(0, 66, 8);
-    group.add(crown);
-    const halo = new THREE.Mesh(new THREE.TorusGeometry(9, .55, 10, 40), materials.accent);
-    halo.rotation.x = Math.PI / 2;
-    halo.position.set(0, 60, 8);
-    group.add(halo);
-    const beacon = new THREE.PointLight(0x8ae7ff, 6, 150);
-    beacon.position.set(0, 66, 8);
-    group.add(beacon);
-    return { crown, halo };
-}
-
 function addWaterPlanes(group, materials, sink) {
     for (const pool of PLAZA_POOLS) {
         const water = new THREE.Mesh(new THREE.PlaneGeometry(pool.maxX - pool.minX, pool.maxZ - pool.minZ), materials.water);
@@ -412,105 +350,39 @@ function addWaterPlanes(group, materials, sink) {
     }
 }
 
-function addObservatoryDome(group, materials) {
-    const dome = new THREE.Mesh(new THREE.SphereGeometry(34, 32, 18, 0, Math.PI * 2, 0, Math.PI / 2), materials.roof);
-    dome.position.set(0, 34, -188);
-    dome.castShadow = true;
-    group.add(dome);
-    const lens = new THREE.Mesh(new THREE.SphereGeometry(6.5, 18, 12), materials.aurora);
-    lens.position.set(0, 66, -188);
-    group.add(lens);
-    for (let i = 0; i < 10; i++) {
-        const angle = i * Math.PI / 5;
-        addCylinder(group, 2.2, 28, [Math.cos(angle) * 46, 20, -188 + Math.sin(angle) * 22], materials.marble, 16);
-    }
-}
-
-function addBazaarRoofs(group, materials) {
-    for (const [x, z, radius] of [[136, -58, 9], [184, -58, 9], [160, -84, 14]]) {
-        const roof = new THREE.Mesh(new THREE.ConeGeometry(radius, 8, 4), materials.roof);
-        roof.position.set(x, z === -84 ? 22 : 15, z);
-        roof.rotation.y = Math.PI / 4;
-        roof.castShadow = true;
-        group.add(roof);
-    }
-    for (const z of [-96, -76, -40, -20]) {
-        addLamp(group, materials, 118, z, 8);
-        addLamp(group, materials, 202, z, 8);
-    }
-    for (let i = 0; i < 6; i++) {
-        addBox(group, [7, .4, 7], [140 + (i % 3) * 20, 4.6, -70 + Math.floor(i / 3) * 22], materials.stucco, { castShadow: false });
-        addBox(group, [8, .35, 8], [140 + (i % 3) * 20, 8.4, -70 + Math.floor(i / 3) * 22], materials.aurora, { castShadow: false });
-    }
-}
-
-function addGateAndBanners(group, materials) {
-    addBox(group, [116, 4.5, 9], [0, 32, 160], materials.trim);
-    addBox(group, [104, 1.6, 6], [0, 27.5, 160], materials.accent, { castShadow: false });
-    for (const side of [-1, 1]) {
-        addBox(group, [7, 22, 1.2], [side * 30, 18, 154], materials.aurora, { castShadow: false });
-        for (const z of [186, 206]) addLamp(group, materials, side * 74, z, 9);
-    }
-}
-
 function addGrandPavilion(group, materials) {
     const { x, z, halfWidth, halfDepth, roofY } = PLAZA_PAVILION;
-    // A layered gable roof and a deep portico make this legible at a distance while
-    // the collision blocks above keep the interior genuinely walk-through.
-    addBox(group, [halfWidth * 2 + 3, .42, halfDepth * 2 + 2.6], [x, roofY - .9, z], materials.trim, { castShadow: false });
-    // The outer edges sit above the wall cap and each plane rises toward the
-    // centre ridge: left +Z rotation, right -Z rotation. Thin slabs keep the
-    // open lounge ceiling clear instead of hanging into the eye line.
-    const leftRoof = addBox(group, [halfWidth + 4, .24, halfDepth * 2 + 4.2], [x - (halfWidth + 2) / 2, roofY + 2.3, z], materials.pavilionRoof);
-    const rightRoof = addBox(group, [halfWidth + 4, .24, halfDepth * 2 + 4.2], [x + (halfWidth + 2) / 2, roofY + 2.3, z], materials.pavilionRoof);
-    leftRoof.rotation.z = .16;
-    rightRoof.rotation.z = -.16;
-    addBox(group, [1.25, .54, halfDepth * 2 + 4.3], [x, roofY + 4.05, z], materials.metal, { castShadow: false });
-    addBox(group, [halfWidth * 2 - 1, .55, 3.2], [x, roofY + .72, z - halfDepth + 2.2], materials.aurora, { castShadow: false });
+    addBox(group, [halfWidth * 2 + 2, .36, halfDepth * 2 + 2], [x, roofY, z], materials.pavilionRoof);
+    addBox(group, [halfWidth * 2 - 2, .42, 2.2], [x, roofY - .5, z - halfDepth + 2], materials.aurora, { castShadow: false });
     for (const side of [-1, 1]) {
-        for (const offset of [-12, 0, 12]) {
-            addCylinder(group, 1.05, 11.6, [x + side * (halfWidth + .15), 5.8, z + offset], materials.marble, 16);
+        for (const offset of [-14, 0, 14]) {
+            addCylinder(group, .75, roofY, [x + side * (halfWidth - .5), roofY / 2, z + offset], materials.marble, 14);
         }
-        addBox(group, [.32, 5.8, 8.5], [x + side * (halfWidth - .15), 6.2, z], materials.glass, { castShadow: false });
+        addBox(group, [.28, roofY - 1.2, 9], [x + side * (halfWidth - .8), roofY / 2, z], materials.glass, { castShadow: false });
     }
-    for (const px of [-12, 12]) {
-        addCylinder(group, 1.15, 11.8, [x + px, 5.9, z + halfDepth + .25], materials.marble, 16);
-        addBox(group, [4.6, .42, 1.1], [x + px, 10.8, z + halfDepth + .15], materials.metal, { castShadow: false });
+    for (const px of [-18, 18]) {
+        addCylinder(group, .82, roofY, [x + px, roofY / 2, z - halfDepth + .4], materials.marble, 14);
     }
-    addBox(group, [halfWidth * 2 - 4, .45, 2.3], [x, .55, z + halfDepth + 2.3], materials.marble, { castShadow: false });
-    addBox(group, [18, .55, 2.5], [x, .3, z + halfDepth + 4.5], materials.stone, { castShadow: false });
+    addBox(group, [18, .4, 2.5], [x, .3, z - halfDepth - 1.2], materials.stone, { castShadow: false });
     addPavilionLounge(group, materials);
 }
 
 function addPavilionLounge(group, materials) {
     const lounge = new THREE.Group();
-    lounge.name = 'grand-pavilion-lounge';
+    lounge.name = 'neon-clubhouse-lounge';
     group.add(lounge);
-    // Side seating deliberately leaves a clear centre aisle from the portico to
-    // the rear sculpture. These are static authored meshes, never updated per frame.
-    for (const side of [-1, 1]) {
-        const seatX = side * 11.5;
-        for (const seatZ of [102, 114]) {
-            const bench = addBox(lounge, [7.4, 1.05, 2.4], [seatX, 1.15, seatZ], materials.wood);
-            bench.name = 'pavilion-lounge-bench';
-            addBox(lounge, [7.4, 2.2, .34], [seatX, 2.25, seatZ + (seatZ < 108 ? -1.03 : 1.03)], materials.stucco, { castShadow: false });
-            addBox(lounge, [7.7, .18, 2.7], [seatX, .66, seatZ], materials.trim, { castShadow: false });
-        }
-        addCylinder(lounge, 1.5, 1.7, [side * 6.7, .85, 108], materials.metal, 16);
-        addBox(lounge, [4.3, .32, 4.3], [side * 6.7, 1.78, 108], materials.marble, { castShadow: false });
-    }
-    addBox(lounge, [9, 2.2, 1.2], [0, 2, 94.1], materials.stone);
-    addBox(lounge, [7.2, 1.25, .34], [0, 3.05, 93.42], materials.aurora, { castShadow: false });
-    const sculpture = new THREE.Mesh(new THREE.OctahedronGeometry(2.25, 1), materials.aurora);
+    addBox(lounge, [8, 2, 1], [0, 1.6, 34], materials.stone);
+    addBox(lounge, [6.8, 1.1, .3], [0, 2.7, 33.45], materials.aurora, { castShadow: false });
+    const sculpture = new THREE.Mesh(new THREE.OctahedronGeometry(1.8, 1), materials.aurora);
     sculpture.name = 'pavilion-aurora-sculpture';
-    sculpture.position.set(0, 5.1, 95.2);
+    sculpture.position.set(0, 4.6, 33.2);
     sculpture.castShadow = true;
     sculpture.receiveShadow = true;
     lounge.add(sculpture);
     for (const side of [-1, 1]) {
         const light = new THREE.PointLight(0xffb86a, 1.45, 25, 2);
         light.name = 'pavilion-warm-lounge-light';
-        light.position.set(side * 10, 7.3, 110);
+        light.position.set(side * 14, 6.5, 16);
         lounge.add(light);
     }
 }
@@ -592,49 +464,37 @@ export class SocialLobby {
 
     _buildPlazaWorld() {
         const world = new THREE.Group();
-        world.name = 'warrball-aurora-grand-plaza';
+        world.name = 'warrball-neon-clubhouse';
         world.visible = true;
         const materials = createPlazaMaterials(this.renderer?.renderer);
         this._hubMaterials = materials;
 
-        addBox(world, [520, 2, 480], [0, -1, 0], materials.lawn, { castShadow: false });
-        addBox(world, [150, .3, 300], [0, .15, 60], materials.marble, { castShadow: false });   // causeway
-        addBox(world, [300, .3, 60], [0, .16, 30], materials.marble, { castShadow: false });    // court cross-axis
-        addBox(world, [90, .3, 190], [0, .17, -130], materials.marble, { castShadow: false });  // observatory approach
-        addBox(world, [130, .3, 150], [-160, .17, -70], materials.stone, { castShadow: false });
-        addBox(world, [130, .3, 150], [160, .17, -50], materials.stone, { castShadow: false });
-        const court = new THREE.Mesh(new THREE.CircleGeometry(74, 56), materials.marble);
+        addBox(world, [152, 2, 136], [0, -1, 0], materials.lawn, { castShadow: false });
+        addBox(world, [58, .32, 118], [0, .16, 7], materials.marble, { castShadow: false });
+        const court = new THREE.Mesh(new THREE.CircleGeometry(30, 40), materials.marble);
         court.rotation.x = -Math.PI / 2;
-        court.position.set(0, .2, 12);
+        court.position.set(0, .22, -25);
         court.receiveShadow = true;
         world.add(court);
 
         addBlockMeshes(world, materials);
         addWaterPlanes(world, materials, this._waterMeshes);
-        this._spire = addAuroraSpire(world, materials);
-        addObservatoryDome(world, materials);
-        addBazaarRoofs(world, materials);
-        addGateAndBanners(world, materials);
         addGrandPavilion(world, materials);
 
         const posePad = addCylinder(world, POSE_AREA.radius, .42, [POSE_AREA.x, .3, POSE_AREA.z], materials.accent, 40);
         posePad.userData.poseArea = true;
-
-        for (const side of [-1, 1]) {
-            for (const z of [70, 96, 122, 148]) addLamp(world, materials, side * 60, z, 9);
-            for (const z of [-20, 10, 40]) addLamp(world, materials, side * 108, z, 8, materials.accent);
-            for (let i = 0; i < 7; i++) addCylinder(world, 2.6, 14, [side * 232, 7, -180 + i * 60], materials.marble, 14);
-            for (const [x, z] of [[side * 200, 40], [side * 214, -20], [side * 190, 96], [side * 224, 150]]) {
-                addCylinder(world, 1.5, 9, [x, 4.5, z], materials.wood, 10);
-                const canopy = new THREE.Mesh(new THREE.SphereGeometry(7.5, 12, 9), materials.hedge);
-                canopy.position.set(x, 13, z);
-                canopy.castShadow = true;
-                world.add(canopy);
-            }
+        for (const [x, z] of [[-25, 42], [25, 42], [-68, 0], [68, 0], [-20, -58], [20, -58]]) {
+            addLamp(world, materials, x, z, 7.5, materials.aurora);
         }
-        for (let i = 0; i < 5; i++) addLamp(world, materials, -160 + i * 80, -152, 10, materials.aurora);
+        for (const [x, z] of [[-43, -58], [-64, -18], [47, 42], [61, 26], [55, 0]]) {
+            addCylinder(world, 1.1, 6, [x, 3, z], materials.wood, 10);
+            const canopy = new THREE.Mesh(new THREE.SphereGeometry(4.8, 12, 9), materials.hedge);
+            canopy.position.set(x, 8, z);
+            canopy.castShadow = true;
+            world.add(canopy);
+        }
 
-        const sky = new THREE.Mesh(new THREE.SphereGeometry(620, 32, 24), new THREE.ShaderMaterial({
+        const sky = new THREE.Mesh(new THREE.SphereGeometry(210, 32, 24), new THREE.ShaderMaterial({
             side: THREE.BackSide,
             depthWrite: false,
             uniforms: { sunDirection: { value: new THREE.Vector3(-.42, .68, -.6).normalize() } },
@@ -645,8 +505,8 @@ export class SocialLobby {
         // The main renderer already contributes sun + ambient bounce. Keep
         // hub-local lights deliberately low so the two rigs do not wash the
         // marble and foliage into one flat highlight when shadows are off.
-        const sun = new THREE.DirectionalLight(0xffeccd, 0.58);
-        sun.position.set(-130, 190, -120);
+        const sun = new THREE.DirectionalLight(0xffeccd, 0.7);
+        sun.position.set(-45, 80, -38);
         sun.castShadow = true;
         world.add(sun, new THREE.HemisphereLight(0xbfeeff, 0x3f5a48, 0.32));
         this.root.add(world);

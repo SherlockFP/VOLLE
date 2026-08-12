@@ -11,8 +11,10 @@ function publicAccount(value) {
     };
 }
 
-class Account {
-    constructor() {
+export class Account {
+    constructor({ storage = globalThis.localStorage, fetchImpl = globalThis.fetch?.bind(globalThis) } = {}) {
+        this.storage = storage;
+        this.fetchImpl = fetchImpl;
         this.sessionToken = '';
         this.public = null;
         this._loadLocal();
@@ -20,7 +22,7 @@ class Account {
 
     _loadLocal() {
         try {
-            const saved = JSON.parse(localStorage.getItem(ACCOUNT_KEY) || 'null');
+            const saved = JSON.parse(this.storage?.getItem(ACCOUNT_KEY) || 'null');
             this.sessionToken = typeof saved?.sessionToken === 'string' ? saved.sessionToken : '';
             this.public = publicAccount(saved?.account);
             if (!this.sessionToken || !this.public) this.clear();
@@ -29,7 +31,9 @@ class Account {
 
     _saveLocal() {
         if (!this.sessionToken || !this.public) return this.clear();
-        localStorage.setItem(ACCOUNT_KEY, JSON.stringify({ sessionToken: this.sessionToken, account: this.public }));
+        try {
+            this.storage?.setItem(ACCOUNT_KEY, JSON.stringify({ sessionToken: this.sessionToken, account: this.public }));
+        } catch {}
     }
 
     _accept(data) {
@@ -52,7 +56,7 @@ class Account {
     async _submit(path, body, label) {
         if (!String(body.username || '').trim() || !String(body.password || '')) return { error: 'Username and password are required.' };
         try {
-            const response = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+            const response = await this.fetchImpl(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
             const data = await response.json().catch(() => ({}));
             if (!response.ok) return { error: data.error || `Unable to ${label}.` };
             return this._accept(data);
@@ -62,7 +66,7 @@ class Account {
     async restore() {
         if (!this.sessionToken) return { error: 'No saved session.' };
         try {
-            const response = await fetch('/api/account/me', { headers: { Authorization: `Bearer ${this.sessionToken}` } });
+            const response = await this.fetchImpl('/api/account/me', { headers: { Authorization: `Bearer ${this.sessionToken}` } });
             const data = await response.json().catch(() => ({}));
             if (!response.ok) {
                 if (response.status === 401) this.clear();
@@ -79,13 +83,13 @@ class Account {
         const token = this.sessionToken;
         this.clear();
         if (!token) return;
-        try { await fetch('/api/account/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` } }); } catch {}
+        try { await this.fetchImpl('/api/account/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` } }); } catch {}
     }
 
     clear() {
         this.sessionToken = '';
         this.public = null;
-        try { localStorage.removeItem(ACCOUNT_KEY); } catch {}
+        try { this.storage?.removeItem(ACCOUNT_KEY); } catch {}
     }
 
     isLoggedIn() { return Boolean(this.sessionToken && this.public); }

@@ -33,7 +33,10 @@ const MODEL_SKINS = {
 const NEW_KNIVES = {
     dark_eater: { model: 'tanto', rarity: 'legendary' },
     cleaver: { model: 'cleaver', rarity: 'epic' },
-    stiletto: { model: 'dagger', rarity: 'rare' }
+    stiletto: { model: 'dagger', rarity: 'rare' },
+    courtline: { model: 'bayonet', rarity: 'rare' },
+    pulsewing: { model: 'butterfly', rarity: 'epic' },
+    rift_hook: { model: 'karambit', rarity: 'legendary' }
 };
 
 test('every model skin exists with a real shape, rarity and matching shop price', () => {
@@ -150,4 +153,26 @@ test('the Dark Eater set is registered across ball, knife, wearables and charact
     }
     assert.ok(SKIN_PRESETS.dark_eater, 'character accent preset missing');
     assert.equal(SKIN_PRESETS.dark_eater.theme, 'themed');
+});
+
+test('player input keeps ball combat semantics while gating F inspect from practice and spectator flows', async () => {
+    const playerSource = await readFile(new URL('../js/player.js', import.meta.url), 'utf8');
+    assert.match(playerSource, /e\.button === 0[\s\S]*this\.tryAttack\('slash'\)[\s\S]*this\._deflectHeld = true/);
+    assert.match(playerSource, /e\.button === 2[\s\S]*this\.tryAttack\('stab'\)/);
+    assert.match(playerSource, /e\.code === 'KeyF' \|\| e\.code === 'KeyI'/);
+    assert.match(playerSource, /this\.game\?\._practiceMode[\s\S]*!this\.game\?\._cosmeticPractice/);
+    assert.match(playerSource, /!this\.game\?\.ui\?\.spectating/);
+    assert.match(playerSource, /knifeAnimationActionForAttack\(this\.knifeAttackType\)/);
+});
+
+test('premium gloves have authored first-person accents and two complete rig attachments', async () => {
+    const playerSource = await readFile(new URL('../js/player.js', import.meta.url), 'utf8');
+    const modelSource = await readFile(new URL('../js/cosmetic-models.js', import.meta.url), 'utf8');
+    for (const id of ['gloves_kinetic', 'gloves_prism', 'gloves_crown']) {
+        assert.equal(COSMETICS[id]?.type, 'gloves', `${id} missing from wearable catalog`);
+    }
+    assert.match(playerSource, /resolveEquippedGlove\(loadout\)/);
+    assert.match(playerSource, /gloveCuff[\s\S]*glovePalm[\s\S]*gloveKnuckles/);
+    assert.match(modelSource, /const rightClone = model\.clone\(true\)/);
+    assert.match(modelSource, /handL\.add\(leftClone\)[\s\S]*handR\.add\(rightClone\)/);
 });

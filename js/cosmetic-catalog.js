@@ -14,7 +14,8 @@ export const COSMETIC_TYPES = Object.freeze({
     backpack: 'Backpacks',
     banner: 'Banners',
     trail: 'Trails',
-    finisher: 'Finishers'
+    finisher: 'Finishers',
+    gloves: 'Gloves'
 });
 
 export const COSMETICS = Object.freeze({
@@ -94,6 +95,10 @@ export const COSMETICS = Object.freeze({
     trail_glitch: item('trail_glitch', 'trail', 'Glitch Trail', 480, 'legendary', ['#ff35d3', '#25f4e8'], 'glitch', 'Torn scanlines flicker behind your run.'),
     trail_rainbow: item('trail_rainbow', 'trail', 'Rainbow Trail', 520, 'legendary', ['#ff5c9e', '#52f7ff'], 'rainbow', 'A shifting rainbow streak marks your path.'),
 
+    gloves_kinetic: item('gloves_kinetic', 'gloves', 'Kinetic Grips', 260, 'rare', ['#203249', '#62dfff'], 'kinetic', 'Court gloves with breathable palms and cyan impact guards.'),
+    gloves_prism: item('gloves_prism', 'gloves', 'Prism Weave', 420, 'epic', ['#42266f', '#e279ff'], 'prism', 'Iridescent weave flashes through every deflect motion.'),
+    gloves_crown: item('gloves_crown', 'gloves', 'Crownline Gauntlets', 620, 'legendary', ['#30204f', '#ffd66b'], 'royal', 'Champion gauntlets with articulated gold knuckle plates.'),
+
     finisher_confetti: item('finisher_confetti', 'finisher', 'Victory Confetti', 260, 'rare', ['#ffe14a', '#ff4d8f'], 'confetti', 'Eliminations burst into golden confetti.'),
     finisher_shatter: item('finisher_shatter', 'finisher', 'Shatter Point', 300, 'rare', ['#e8ffff', '#48a9ff'], 'shatter', 'Opponents crack apart like frozen glass.'),
     finisher_lightning: item('finisher_lightning', 'finisher', 'Thunderstrike', 400, 'epic', ['#fff257', '#3570ff'], 'lightning', 'A bolt seals the elimination in light.'),
@@ -126,4 +131,9 @@ export function normalizeWearableLoadout(value = {}, ownership = null) {
 
 export function cosmeticsByType(type) {
     return Object.values(COSMETICS).filter(entry => entry.type === type);
+}
+
+export function resolveEquippedGlove(loadout = {}) {
+    const item = COSMETICS[loadout?.gloves];
+    return item?.type === 'gloves' ? item : null;
 }

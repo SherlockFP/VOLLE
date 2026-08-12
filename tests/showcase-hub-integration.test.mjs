@@ -54,7 +54,7 @@ test('social runtimes use local allowlisted maps and obsolete assets stay remove
     const paths = ['js/main.js', 'js/social-lobby.js', 'server.js', 'index.html', 'css/polish.css'];
     const runtime = paths.map(read).join('\n');
     assert.doesNotMatch(runtime, /\bisland\b/i);
-    assert.match(read('server.js'), /plaza: 'Aurora Grand Plaza'/);
+    assert.match(read('server.js'), /plaza: 'Neon Clubhouse'/);
     for (const retired of ['estate', 'skyline', 'harbor']) {
         assert.doesNotMatch(read('server.js'), new RegExp(`\\b${retired}\\b`), `retired hub map "${retired}" still allowlisted`);
     }
@@ -125,7 +125,7 @@ test('social hub API accepts each current map and rejects the retired map id', a
     }
     const rooms = await (await fetch(endpoint)).json();
     assert.deepEqual(rooms.filter(room => room.code.startsWith(`QA${process.pid}`)).map(room => [room.mapId, room.mapName]), [
-        ['plaza', 'Aurora Grand Plaza']
+        ['plaza', 'Neon Clubhouse']
     ]);
     for (const retired of ['island', 'estate', 'skyline', 'harbor']) {
         assert.equal((await post(retired)).status, 400, `retired map id "${retired}" must be rejected`);

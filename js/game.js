@@ -104,6 +104,11 @@ export const STATES = {
     COSMETIC_PRACTICE: 'COSMETIC_PRACTICE'
 };
 
+export function incomingSettlementSeconds(distance, speed) {
+    if (!Number.isFinite(distance) || distance < 0 || !Number.isFinite(speed) || speed <= 0) return 0;
+    return Math.min(2, Math.max(0.12, distance / speed + 0.12));
+}
+
 export const CELEBRATION_DURATION_SECONDS = 8;
 
 // Combat Feedback: Combo streak display
@@ -174,6 +179,7 @@ export class Game {
         applyEntityCosmetics(this.localCosmeticEntity, null);
         this._pendingLethalHit = null;
         this._pendingLethalVictim = null;
+        this._incomingSettlementTimer = 0;
         this._predictedLocalDeath = false;
         this.rockets = [];
         this._remoteRocketCooldowns = new Map();
@@ -398,6 +404,8 @@ export class Game {
 
     setState(s) {
         const prev = this.state;
+        if (s === STATES.PAUSED && prev === STATES.PLAYING) this.armIncomingSettlement();
+        if (s === STATES.PLAYING && prev === STATES.PAUSED) this.cancelIncomingSettlement();
         RuntimeLog.auditTransition(prev, s);
         this.state = s;
         // Countdown keeps only its compact identity chip on screen; the persistent
@@ -442,6 +450,82 @@ export class Game {
         this.setState(STATES.LOBBY);
         this._startMusic();
         this.updateLobbyUI();
+    }
+
+    armIncomingSettlement() {
+        const isClient = this.network?.connected && !this.network?.isHost;
+        const target = this.ball?.targetPlayer;
+        if (isClient || !this.ball?.active || !target || target.alive === false) return false;
+        const targetPos = target.getPosition?.();
+        if (!targetPos) return false;
+        const distance = this.ball.position.distanceTo(targetPos);
+        const noHitDelay = Number.isFinite(this.ball._noHitTimer)
+            ? Math.max(0, this.ball._noHitTimer)
+            : 0;
+        const duration = Math.min(
+            2,
+            incomingSettlementSeconds(distance, this.ball.currentSpeed) + noHitDelay
+        );
+        if (duration <= 0) return false;
+        this._incomingSettlementTimer = duration;
+        return true;
+    }
+
+    cancelIncomingSettlement() {
+        this._incomingSettlementTimer = 0;
+    }
+
+    hasPendingIncomingSettlement() {
+        return this._incomingSettlementTimer > 0
+            && this.ball?.active
+            && this.ball.targetPlayer?.alive !== false;
+    }
+
+    updateIncomingSettlement(dt) {
+        if (!this.hasPendingIncomingSettlement()) return false;
+        const isClient = this.network?.connected && !this.network?.isHost;
+        if (isClient || !Number.isFinite(dt) || dt <= 0) return false;
+        const step = Math.min(dt, this._incomingSettlementTimer, 0.05);
+        this._incomingSettlementTimer = Math.max(0, this._incomingSettlementTimer - step);
+        const target = this.ball.targetPlayer;
+        this.ball.update(step);
+        if (!this.ball.active || target.alive === false || this.ball._noHitTimer > 0) return true;
+
+        const targetPos = target.getPosition();
+        const hitBonus = this.ball.effectiveHitRange
+            ? this.ball.effectiveHitRange - this.ball.hitRange
+            : 0;
+        const sizeScale = target._sizeScale || 1;
+        const capsuleRadius = (0.4 + hitBonus) * sizeScale;
+        let collided = this.capsuleHitTest(
+            this.ball.position,
+            targetPos,
+            1.7 * sizeScale,
+            capsuleRadius
+        );
+        const travelled = this.ball._prevPosition
+            ? this.ball._prevPosition.distanceTo(this.ball.position)
+            : 0;
+        if (!collided && travelled > 0) {
+            const steps = sweptHitStepCount(travelled, this.ball.radius + capsuleRadius);
+            this._sweptInterp ??= new THREE.Vector3();
+            for (let sample = 1; sample <= steps; sample++) {
+                this._sweptInterp.lerpVectors(
+                    this.ball._prevPosition,
+                    this.ball.position,
+                    sample / (steps + 1)
+                );
+                if (this.capsuleHitTest(this._sweptInterp, targetPos, 1.7 * sizeScale, capsuleRadius)) {
+                    collided = true;
+                    break;
+                }
+            }
+        }
+        if (collided || this.ball._forceHit) {
+            this._incomingSettlementTimer = 0;
+            this.handleHit(target);
+        }
+        return true;
     }
 
     armFirstSoloBotDeflectGuard() {
@@ -2956,7 +3040,11 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             // is always lethal; otherwise conservative worst-case estimate.
             const conservativeHp = this._oneHitKill ? 0 : (hitTarget.hp <= BASE_HIT_DAMAGE ? hitTarget.hp - 1 : 0);
             if (this._oneHitKill || conservativeHp <= 0) {
-                clearTimeout(this._pendingLethalHit);
+                // Collision can remain true for several frames while the ball is
+                // inside the capsule. Re-arming this grace timer every frame made
+                // an Insta/1v1 hit wait forever and left the round unresolved.
+                if (this._pendingLethalHit && this._pendingLethalVictim === hitTarget) return;
+                if (this._pendingLethalHit) clearTimeout(this._pendingLethalHit);
                 this._pendingLethalVictim = hitTarget;
                 const graceMs = scaleLethalGraceMs(80, hitTarget._lastPing);
                 this._pendingLethalHit = setTimeout(() => {

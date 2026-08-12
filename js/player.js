@@ -4,7 +4,8 @@ import * as THREE from 'three';
 import { applyCharacter } from './characters.js';
 import { applyRunes, tickSkillCooldowns, useSkill, DEFAULT_LOADOUT, ULTIMATES } from './skills.js';
 import { createKnifeModel, createRocketLauncherModel, disposeObject3D } from './weapon-models.js';
-import { advanceViewmodelGait, advanceViewmodelLanding, createKnifeAnimationState, resolveKnifePose, startKnifeAnimation, stepKnifeAnimation, triggerViewmodelLanding, viewmodelFrame } from './knife-animation.js';
+import { advanceViewmodelGait, advanceViewmodelLanding, createKnifeAnimationState, knifeAnimationActionForAttack, resolveKnifePose, startKnifeAnimation, stepKnifeAnimation, triggerViewmodelLanding, viewmodelFrame } from './knife-animation.js';
+import { resolveEquippedGlove } from './cosmetic-catalog.js';
 
 const STAMINA_PER_DEFLECT = 7;
 const RAPID_DEFLECT_COST_STEP = 2;
@@ -34,6 +35,11 @@ export const LONG_JUMP_STAMINA_COST = 30;
 // therefore need to face north (+Z); blue begins north and faces south (-Z).
 export function spawnYawForTeam(team) {
     return team === 'red' ? Math.PI : 0;
+}
+
+function setViewmodelMaterialColor(material, color) {
+    const target = material?.uniforms?.uColor?.value || material?.color;
+    target?.set?.(color);
 }
 
 export function applyGroundFriction(velocity, friction, stopSpeed, dt) {
@@ -483,28 +489,45 @@ export class Player {
         this.armGroup = new THREE.Group();
         this.armGroup.position.set(0.25, -0.2, -0.1);
 
-        // Roblox-style blocky mitt: sleeve -> team cuff -> one solid fist block + a thumb.
+        // Premium blocky mitt: team sleeve -> cosmetic cuff/knuckle shell -> compact fist.
         // The four capsule "fingers" and the capsule glove that used to sit at z -0.36/-0.40
         // are gone: they straddled the exact span the knife handle occupies, so every held
         // item speared straight through them. The fist is now one closed box and the item's
         // GRIP (not its pommel) is what lands inside it — see knife-animation.js
         // VIEWMODEL_BASE_POSITION and the per-model z offsets that keep that true.
-        const armGeo = new THREE.BoxGeometry(0.115, 0.105, 0.38);
+        const armGeo = new THREE.BoxGeometry(0.13, 0.115, 0.42);
         this.armMat = this.renderer.createToonMaterial(
             this.team === 'red' ? 0xee5555 : 0x5577dd,
         );
         this.armMesh = new THREE.Mesh(armGeo, this.armMat);
-        this.armMesh.position.set(0, 0.015, -0.11);
+        this.armMesh.position.set(0, 0.018, -0.10);
         this.armGroup.add(this.armMesh);
 
         this.gloveMat = this.renderer.createToonMaterial(
             this.team === 'red' ? 0xee5555 : 0x5577dd,
         );
-        this.gloveMesh = new THREE.Mesh(new THREE.BoxGeometry(0.135, 0.125, 0.06), this.gloveMat);
-        this.gloveMesh.position.set(0, -0.01, -0.285);
+        this.gloveMesh = new THREE.Mesh(new THREE.BoxGeometry(0.155, 0.135, 0.085), this.gloveMat);
+        this.gloveMesh.position.set(0, -0.018, -0.294);
         this.armGroup.add(this.gloveMesh);
 
-        const handGeo = new THREE.BoxGeometry(0.155, 0.15, 0.2);
+        this.gloveAccentMat = this.renderer.createToonMaterial(0x9bdcff);
+        this.glovePalmMat = this.renderer.createToonMaterial(0x1a2635);
+        this.gloveCuff = new THREE.Mesh(new THREE.BoxGeometry(0.165, 0.145, 0.055), this.gloveAccentMat);
+        this.gloveCuff.position.set(0, -0.018, -0.265);
+        this.armGroup.add(this.gloveCuff);
+        this.glovePalm = new THREE.Mesh(new THREE.BoxGeometry(0.115, 0.085, 0.025), this.glovePalmMat);
+        this.glovePalm.position.set(0, -0.105, -0.39);
+        this.armGroup.add(this.glovePalm);
+        this.gloveKnuckles = new THREE.Group();
+        for (let index = 0; index < 3; index++) {
+            const plate = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.024, 0.03), this.gloveAccentMat);
+            plate.position.set((index - 1) * 0.043, 0, 0);
+            this.gloveKnuckles.add(plate);
+        }
+        this.gloveKnuckles.position.set(0, -0.035, -0.49);
+        this.armGroup.add(this.gloveKnuckles);
+
+        const handGeo = new THREE.BoxGeometry(0.145, 0.14, 0.19);
         const handMat = this.renderer.createToonMaterial(0xf5c6a0);
         this.handMesh = new THREE.Mesh(handGeo, handMat);
         this.handMesh.position.set(0.005, -0.07, -0.385);
@@ -517,6 +540,9 @@ export class Player {
         thumb.position.set(-0.067, 0.058, -0.03);
         this.fingerGroup.add(thumb);
         this.handMesh.add(this.fingerGroup);
+
+        this._viewmodelGloveId = null;
+        this._syncViewmodelGlove();
 
         this.knifeStyle = { id: 'training', model: 'classic', finish: 'satin', color: '#d7f3ff', accent: '#4e7d99' };
         this.knifeGroup = createKnifeModel(this.knifeStyle);
@@ -531,6 +557,7 @@ export class Player {
 
     setHandVisible(on) {
         const wasVisible = this.armGroup.visible;
+        if (on) this._syncViewmodelGlove();
         this.armGroup.visible = on;
         if (on && !wasVisible && this.knifeGroup?.userData.weaponType === 'knife') {
             startKnifeAnimation(this.knifeAnimation, 'draw');
@@ -635,7 +662,15 @@ export class Player {
             if (e.code === 'KeyQ' && this.alive && this.game?.state === 'PLAYING') {
                 this._skillQueued = true;
             }
-            if (e.code === 'KeyI' && this.alive && this.game?.state === 'PLAYING') this.inspectKnife();
+            const isInspectKey = e.code === 'KeyF' || e.code === 'KeyI';
+            const practiceOwnsF = e.code === 'KeyF'
+                && this.game?._practiceMode
+                && !this.game?._cosmeticPractice;
+            if (isInspectKey && !e.repeat && !practiceOwnsF
+                && this.alive && this.game?.state === 'PLAYING'
+                && !this.game?.ui?.spectating) {
+                this.inspectKnife();
+            }
         }, { signal });
         document.addEventListener('pointerlockchange', () => {
             this.locked = document.pointerLockElement === this.renderer.domElement;
@@ -669,19 +704,43 @@ export class Player {
         this.armGroup.rotation.set(...pose.armRotation);
         this.knifeGroup.position.set(...pose.knifePosition);
         this.knifeGroup.rotation.set(...pose.knifeRotation);
-        (this.knifeGroup.userData.inspectParts || []).forEach((part, index) => {
-            const base = part.userData.inspectBase || { x: 0, y: 0, z: 0 };
+        const inspectParts = this.knifeGroup.userData.inspectParts;
+        for (let index = 0; index < (inspectParts?.length || 0); index++) {
+            const part = inspectParts[index];
+            const base = part.userData.inspectBase;
             const delta = pose.parts[index] || 0;
             if (typeof delta === 'number') {
-                part.rotation.set(base.x, base.y, base.z + delta);
+                part.rotation.set(base?.x || 0, base?.y || 0, (base?.z || 0) + delta);
             } else {
-                part.rotation.set(base.x + (delta.x || 0), base.y + (delta.y || 0), base.z + (delta.z || 0));
+                part.rotation.set((base?.x || 0) + (delta.x || 0), (base?.y || 0) + (delta.y || 0), (base?.z || 0) + (delta.z || 0));
             }
-        });
-        const grip = pose.action === 'stab' || pose.action === 'slash' ? Math.sin(pose.progress * Math.PI) : 0;
-        this.fingerGroup?.children.forEach((finger, index) => {
+        }
+        const grip = pose.action === 'heavy' || pose.action === 'stab' || pose.action === 'slash'
+            ? Math.sin(pose.progress * Math.PI)
+            : 0;
+        const fingers = this.fingerGroup?.children;
+        for (let index = 0; index < (fingers?.length || 0); index++) {
+            const finger = fingers[index];
             finger.rotation.z = -0.22 - grip * (0.18 + index * 0.015);
-        });
+        }
+    }
+
+    _syncViewmodelGlove() {
+        const loadout = typeof window !== 'undefined'
+            ? window.__store?.get?.('equippedWearables')
+            : null;
+        const glove = resolveEquippedGlove(loadout);
+        const id = glove?.id || 'team-default';
+        if (this._viewmodelGloveId === id) return;
+        this._viewmodelGloveId = id;
+        const teamColor = this.team === 'red' ? 0xee5555 : 0x5577dd;
+        setViewmodelMaterialColor(this.gloveMat, glove?.colors?.[0] || teamColor);
+        setViewmodelMaterialColor(this.gloveAccentMat, glove?.colors?.[1] || 0x9bdcff);
+        setViewmodelMaterialColor(this.glovePalmMat, glove ? 0x111923 : 0x27313b);
+        const premium = Boolean(glove);
+        this.glovePalm.visible = premium;
+        this.gloveKnuckles.visible = premium;
+        this.gloveCuff.scale.set(premium ? 1.04 : .86, premium ? 1.04 : .86, 1);
     }
 
     _prefersReducedMotion() {
@@ -719,7 +778,9 @@ export class Player {
         this._deflectHeld = false;
     }
 
-    lock() { try { this.renderer.domElement.requestPointerLock(); } catch (_) {} }
+    lock() {
+        try { this.renderer.domElement.requestPointerLock()?.catch?.(() => {}); } catch (_) {}
+    }
     unlock() { if (document.pointerLockElement) document.exitPointerLock(); }
 
     tryAttack(action = 'slash') {
@@ -745,7 +806,7 @@ export class Player {
         this.canAttack = false;
         this.knifeAttackType = action === 'stab' ? 'stab' : 'slash';
         if (this.knifeGroup?.userData.weaponType === 'knife') {
-            startKnifeAnimation(this.knifeAnimation, this.knifeAttackType);
+            startKnifeAnimation(this.knifeAnimation, knifeAnimationActionForAttack(this.knifeAttackType));
             this.game?.audio?.playKnife?.(this.knifeAttackType);
         }
         this._p2pAttackQueued = true; // main.js P2P attack intent yollar
@@ -1322,7 +1383,8 @@ export class Player {
         this.team = team;
         const c = team === 'red' ? 0xee5555 : 0x5577dd;
         if (this.armMat) this.armMat.uniforms.uColor.value.set(c);
-        if (this.gloveMat) this.gloveMat.uniforms.uColor.value.set(c);
+        this._viewmodelGloveId = null;
+        this._syncViewmodelGlove();
     }
 
     respawn() {

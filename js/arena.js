@@ -9,6 +9,8 @@ import { loadSkyboxTexture, resolveFogColor } from './skybox-loader.js';
 
 export const ARENA_PRESENTATION_PROFILES = Object.freeze({
     default: Object.freeze({ exposure: 1.10, sun: 1.80, bloomRadius: 0.22, bloomThreshold: 0.78 }),
+    beach_open: Object.freeze({ exposure: 1.18, sun: 2.05, bloomRadius: 0.20, bloomThreshold: 0.80 }),
+    industrial: Object.freeze({ exposure: 1.16, sun: 2.10, bloomRadius: 0.18, bloomThreshold: 0.76 }),
     neon: Object.freeze({ exposure: 1.06, sun: 1.65, bloomRadius: 0.18, bloomThreshold: 0.72 }),
     grand_stadium: Object.freeze({ exposure: 1.12, sun: 1.90, bloomRadius: 0.18, bloomThreshold: 0.82 })
 });
@@ -28,9 +30,10 @@ export const MAPS = {
     },
     beach_open: {
         name: 'Beach Volleyball',
-        courtWidth: 52, courtLength: 68, wallHeight: 9, ceilingHeight: 0,
-        floorRed: 0xe8a050, floorBlue: 0xd0a860, wallColor: 0xf0d090,
-        skyTop: 0x3aa5ff, skyBottom: 0xcfeeff, fogColor: 0xcfeeff,
+        courtWidth: 58, courtLength: 75, wallHeight: 9, ceilingHeight: 0,
+        floorRed: 0xf29a54, floorBlue: 0x55c4df, wallColor: 0xffd780,
+        skyTop: 0x249cff, skyBottom: 0xdff7ff, fogColor: 0xdff7ff,
+        floorMaterial: { roughness: 0.82, metalness: 0, emissiveIntensity: 0.07 },
         hasOcean: true, hasGlass: false, openAir: true, isBeachOpen: true, size: 'small', weather: 'clear', noSides: true,
         spectator: {
             bounds: { minX: -46, maxX: 46, minY: 0, maxY: 18, minZ: -50, maxZ: 50 },
@@ -51,9 +54,10 @@ export const MAPS = {
     },
     industrial: {
         name: '🏭 Factory',
-        courtWidth: 101, courtLength: 112, wallHeight: 21, ceilingHeight: 28,
-        floorRed: 0xd85c5c, floorBlue: 0x5c7fe0, wallColor: 0xaac0d8,
-        skyTop: 0x6a90c8, skyBottom: 0xe6eefc, fogColor: 0xdde6f5,
+        courtWidth: 111, courtLength: 123, wallHeight: 21, ceilingHeight: 28,
+        floorRed: 0xe65350, floorBlue: 0x4379ed, wallColor: 0xb8cde2,
+        skyTop: 0x5f94dc, skyBottom: 0xf0f6ff, fogColor: 0xe6eefb,
+        floorMaterial: { roughness: 0.50, metalness: 0.18, emissiveIntensity: 0.09 },
         hasOcean: false, hasGlass: true, size: 'medium', weather: 'clear'
     },
     space: {
@@ -2043,13 +2047,17 @@ export class Arena {
         const halfW = this.courtWidth / 2;
         const halfL = this.courtLength / 2;
         const c = this.config;
+        const floorMaterial = c.floorMaterial || {};
+        const floorRoughness = Number.isFinite(floorMaterial.roughness) ? floorMaterial.roughness : 0.7;
+        const floorMetalness = Number.isFinite(floorMaterial.metalness) ? floorMaterial.metalness : 0.1;
+        const floorEmissive = Number.isFinite(floorMaterial.emissiveIntensity) ? floorMaterial.emissiveIntensity : 0.05;
 
         // Red half
         const rGeo = new THREE.PlaneGeometry(this.courtWidth, halfL);
         const rTex = this._buildFloorTexture(c.floorRed);
         const rMat = new THREE.MeshStandardMaterial({
-            map: rTex, roughness: 0.7, metalness: 0.1,
-            emissive: new THREE.Color(c.floorRed), emissiveIntensity: 0.05
+            map: rTex, roughness: floorRoughness, metalness: floorMetalness,
+            emissive: new THREE.Color(c.floorRed), emissiveIntensity: floorEmissive
         });
         const rFloor = new THREE.Mesh(rGeo, rMat);
         rFloor.rotation.x = -Math.PI / 2;
@@ -2061,8 +2069,8 @@ export class Arena {
         const bGeo = new THREE.PlaneGeometry(this.courtWidth, halfL);
         const bTex = this._buildFloorTexture(c.floorBlue);
         const bMat = new THREE.MeshStandardMaterial({
-            map: bTex, roughness: 0.7, metalness: 0.1,
-            emissive: new THREE.Color(c.floorBlue), emissiveIntensity: 0.05
+            map: bTex, roughness: floorRoughness, metalness: floorMetalness,
+            emissive: new THREE.Color(c.floorBlue), emissiveIntensity: floorEmissive
         });
         const bFloor = new THREE.Mesh(bGeo, bMat);
         bFloor.rotation.x = -Math.PI / 2;

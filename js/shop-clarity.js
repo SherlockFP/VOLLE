@@ -6,6 +6,9 @@ export const SHOP_FILTERS = Object.freeze([
     { id: 'all', label: 'All' },
     { id: 'ball', label: 'Balls' },
     { id: 'cosmetic', label: 'Cosmetics' },
+    { id: 'hat', label: 'Hats' },
+    { id: 'shoes', label: 'Shoes' },
+    { id: 'cape', label: 'Capes' },
     { id: 'knife', label: 'Knives' },
     { id: 'owned', label: 'Owned' },
     { id: 'affordable', label: 'Affordable' }
@@ -29,6 +32,7 @@ export function matchesShopFilter(filterId, card = {}) {
         case 'all': return true;
         case 'owned': return !!card.owned;
         case 'affordable': return isShopItemAffordable(card.price, card.currency);
+        case 'cosmetic': return !['ball', 'knife', 'character', 'avatar', 'case', 'boost'].includes(card.category);
         default: return card.category === filterId;
     }
 }

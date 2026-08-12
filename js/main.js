@@ -17,7 +17,7 @@ import { Audio } from './audio.js';
 import { UI } from './ui.js';
 import { Network } from './network.js';
 import { VoiceChat } from './voice.js';
-import { Store, shouldArmFirstMatchHints, shouldShowFtueWelcome } from './store.js';
+import { Store } from './store.js';
 import { DEFAULT_LOADOUT } from './skills.js';
 import { ARENA_CARDS, CARD_RARITIES } from './cards.js';
 import { AvatarPainter, AVATAR_SKINS } from './avatar.js';
@@ -38,7 +38,7 @@ import { Daily } from './daily.js';
 import { getReward as getBattlepassRewardEntry } from './battlepass.js';
 import { Replay, extractReplayHighlight } from './replay.js';
 import { ReplayView } from './replay-view.js';
-import { Spectator } from './spectator.js';
+import { CAMERA_MODES, Spectator } from './spectator.js';
 import { BALL_SKINS, ballShapeParts } from './ball.js';
 import { accountRankLabel, matchXp, prestigeTitle } from './prestige.js';
 import { Console } from './console.js';
@@ -84,6 +84,34 @@ import {
 
 const SOCIAL_DISCOVERY_KEY = 'warrball.social.discovery.v1';
 const PARTY_INVITE_BLOCKED_STATES = new Set([STATES.PLAYING, STATES.COUNTDOWN, STATES.ROUND_END, STATES.CELEBRATION]);
+
+const SPECTATOR_MODE_LABELS = Object.freeze({
+    [CAMERA_MODES.FIRST_PERSON]: 'PLAYER CAM',
+    [CAMERA_MODES.CHASE]: 'CHASE CAM',
+    [CAMERA_MODES.FREE_ROAM]: 'FREE CAM'
+});
+
+function renderSpectatorHUD(name, state = {}) {
+    const surface = document.getElementById('spectator-info');
+    if (!surface) return;
+    const active = state.active !== false;
+    surface.classList.toggle('hidden', !active);
+    if (!active) return;
+    const mode = state.mode || CAMERA_MODES.CHASE;
+    const targetName = document.getElementById('spectator-target-name');
+    const modeLabel = document.getElementById('spectator-mode-label');
+    if (targetName && targetName.textContent !== name) targetName.textContent = name || 'Player';
+    if (modeLabel) modeLabel.textContent = SPECTATOR_MODE_LABELS[mode] || 'CHASE CAM';
+    surface.dataset.context = state.context || 'spectator';
+    surface.querySelectorAll('[data-spectator-mode]').forEach(button => {
+        const selected = button.dataset.spectatorMode === mode;
+        button.setAttribute('aria-pressed', String(selected));
+        button.disabled = state.controls === false;
+    });
+    surface.querySelectorAll('#spectator-prev-target, #spectator-next-target').forEach(button => {
+        button.disabled = state.controls === false;
+    });
+}
 
 function presenceStateFor(screen, gameState) {
     if (PARTY_INVITE_BLOCKED_STATES.has(gameState)) return 'match';
@@ -325,16 +353,7 @@ class App {
             this._renderSocialCenter();
         };
 
-        Spectator.onTargetChange = name => {
-            const el = document.getElementById('spectator-info');
-            if (!el) return;
-            if (Spectator.active) {
-                el.textContent = `👁 ${name}${Spectator.freeCam ? ' • FREE CAM' : ''}`;
-                el.classList.remove('hidden');
-            } else {
-                el.classList.add('hidden');
-            }
-        };
+        Spectator.onTargetChange = (name, state) => renderSpectatorHUD(name, state);
 
         this.initFriendsSidebar();
 
@@ -676,7 +695,6 @@ class App {
         this.game.selectMode(this.game.mode.id);
         this.refreshMetaStats();
         this.ui.showScreen('mainMenu');
-        if (shouldShowFtueWelcome(this.store.get('ftueSeen'))) this.showFtueWelcome();
         this._setupPresenceHeartbeat();
         this._startSocialPolling();
     }
@@ -852,7 +870,12 @@ class App {
         const poll = async () => {
             if (!this._authenticated || document.hidden || !socialScreens.has(document.body.dataset.screen)) return;
             const { region } = this._socialDiscoveryPreferences();
-            await Promise.all([Friends.sync(), Friends.refreshAvailable(region), Friends.refreshParty()]);
+            this._socialRailSyncing = true;
+            this.refreshFriendsSidebar();
+            const results = await Promise.all([Friends.sync(), Friends.refreshAvailable(region), Friends.refreshParty()]);
+            this._socialRailSyncing = false;
+            this._socialRailLoaded = true;
+            this._socialRailError = results.find(result => result?.error)?.error || '';
             this.refreshFriendsSidebar();
             this._presentPendingPartyInvite();
             if (document.body.dataset.screen === 'socialCenter') this._renderSocialCenter();
@@ -1455,56 +1478,31 @@ class App {
         menu.addEventListener('mouseenter', () => { cursor.style.opacity = '1'; });
     }
 
-    // ===== FTUE (first-time user experience) =====
-    // Welcome overlay: shows once ever (Store 'ftueSeen' flag, same JSON-blob
-    // persistence as every other Store flag — see js/store.js DEFAULTS), plus
-    // on demand via the "?" button. Never shows mid-match (guarded on MENU state).
+    // ===== Manual help / practice entry =====
+    // Authentication lands directly on the menu. This panel opens only when the
+    // player asks for help and never interrupts a first session automatically.
     showFtueWelcome() {
         if (this.game.state !== STATES.MENU) return;
-        this._ftueWelcomeFirstRun = shouldShowFtueWelcome(this.store.get('ftueSeen'));
+        this._ftueWelcomeFirstRun = false;
         document.getElementById('ftue-welcome')?.classList.remove('hidden');
-        this.productAnalytics.track('ftue_view', { source: this._ftueWelcomeFirstRun ? 'first_run' : 'manual' });
+        this.productAnalytics.track('ftue_view', { source: 'manual' });
     }
 
     hideFtueWelcome({ reason = 'dismiss', trackExit = false } = {}) {
-        const firstRun = this._ftueWelcomeFirstRun === true;
         document.getElementById('ftue-welcome')?.classList.add('hidden');
-        if (firstRun) {
-            this.store.set('ftueSeen', true);
-            void this.store.syncOnboarding({ ftueSeen: true });
-        }
-        if (trackExit) this.productAnalytics.track('ftue_exit', { reason, source: firstRun ? 'first_run' : 'manual' });
+        if (trackExit) this.productAnalytics.track('ftue_exit', { reason, source: 'manual' });
         this._ftueWelcomeFirstRun = false;
     }
 
     startFtueGuidedDrill() {
-        const firstRun = this._ftueWelcomeFirstRun === true && this.store.get('ftueCompleted') !== true;
         this.hideFtueWelcome({ reason: 'start_guided_drill' });
-        this.startGuidedDeflectDrill({ source: firstRun ? 'ftue' : 'manual_help' });
+        this.startGuidedDeflectDrill({ source: 'manual_help' });
     }
 
-    // First-match HUD hints: armed only from the solo/bot start paths below
-    // (never multiplayer), fire once the match actually reaches PLAYING, then
-    // the 'ftueMatchHintsSeen' flag guarantees this never runs again.
-    _armFirstMatchHints() {
-        if (!shouldArmFirstMatchHints(this.store.get('ftueMatchHintsSeen'))) return;
-        this._pendingFirstMatchHints = true;
+    // Preserve the first-solo bot reliability guard without showing automatic
+    // tutorial overlays or timed HUD hints.
+    _armFirstSoloBotGuard() {
         this.game.armFirstSoloBotDeflectGuard();
-    }
-
-    _runFirstMatchHints() {
-        this.store.set('ftueMatchHintsSeen', true);
-        void this.store.syncOnboarding({ ftueMatchHintsSeen: true });
-        const hints = [
-            'Hold Left-Click near the ball to deflect it back',
-            'Flick your mouse up to lob, down to spike',
-            'Right-Click to stab up close'
-        ];
-        hints.forEach((text, i) => {
-            setTimeout(() => {
-                if (this.game.state === STATES.PLAYING) this.ui.showMessage?.(text, 5000);
-            }, 1500 + i * 6000);
-        });
     }
 
     setupMenuHandlers() {
@@ -1545,6 +1543,10 @@ class App {
             clearInterval(this._mpRefreshTimer);
             this._doHostGame();
         });
+        bind('btn-mp-host-strip', () => {
+            clearInterval(this._mpRefreshTimer);
+            this._doHostGame();
+        });
         bind('btn-mp-join', () => {
             clearInterval(this._mpRefreshTimer);
             this.ui.showScreen('joinMenu');
@@ -1552,7 +1554,7 @@ class App {
         bind('btn-mp-solo', () => {
             clearInterval(this._mpRefreshTimer);
             this.game.startSolo();
-            this._armFirstMatchHints();
+            this._armFirstSoloBotGuard();
             this.ui.showScreen('lobby');
         });
         bind('btn-mp-quick', () => this._startQuickPlay());
@@ -1585,6 +1587,11 @@ class App {
         });
         document.getElementById('replay-camera-mode')?.addEventListener('change', event => {
             Spectator.setCameraMode(event.target.value);
+        });
+        bind('spectator-prev-target', () => Spectator.prevTarget());
+        bind('spectator-next-target', () => Spectator.nextTarget());
+        document.querySelectorAll('[data-spectator-mode]').forEach(button => {
+            button.addEventListener('click', () => Spectator.setCameraMode(button.dataset.spectatorMode));
         });
 
         bind('btn-join-connect', async () => {
@@ -2383,7 +2390,7 @@ bind('btn-remove-bot', () => {
                 this.game.botCounter = 0;
                 this.ui.setPlayerTarget(false);
                 this.game.startSolo();
-                this._armFirstMatchHints();
+                this._armFirstSoloBotGuard();
                 this.ui.showScreen('lobby');
                 this.player.unlock();
                 this.refreshMetaStats();
@@ -2461,15 +2468,6 @@ bind('carousel-next', () => {
             setRangePreview(range);
             range.addEventListener('input', () => setRangePreview(range));
         });
-        const lobbyRegion = document.getElementById('lobby-region');
-        if (lobbyRegion) {
-            lobbyRegion.value = this.store.get('preferredRegion') || 'auto';
-            lobbyRegion.addEventListener('change', event => {
-                this.store.set('preferredRegion', event.target.value);
-                this.ui.showMessage?.(`Preferred region: ${event.target.options[event.target.selectedIndex].text}`, 1400);
-            });
-        }
-
         this.settingsTabs = initSettingsTabs(document);
         const uiPreferences = loadUiPreferences(this.store);
         const themeInput = document.getElementById('setting-theme');
@@ -3179,7 +3177,11 @@ updateCSLobbyInfo();
                 } else {
                     ballInspect.textContent = inspecting ? 'Stop preview' : 'Inspect trail';
                 }
-                this.ui.showMessage?.(inspecting ? `${skin?.name || 'Ball'} preview` : 'Preview stopped', 1100);
+                // The shop's persistent status/detail panel already announces this
+                // selection. A second toast used to overlap the catalog heading.
+                if (!ballInspect.closest('#shop-grid')) {
+                    this.ui.showMessage?.(inspecting ? `${skin?.name || 'Ball'} preview` : 'Preview stopped', 1100);
+                }
             }
             // Battlepass claim
             const claimBtn = e.target.closest('.bp-claim');
@@ -3302,7 +3304,7 @@ updateCSLobbyInfo();
                 if (m.p1 === 'You' || m.p2 === 'You') {
                     this.ui.showMessage?.('Tournament match starting!', 2000);
                     this.game.startSolo();
-                    this._armFirstMatchHints();
+                    this._armFirstSoloBotGuard();
                     this.ui.showScreen('lobby');
                     this._pendingTournamentMatch = matchId;
                 } else {
@@ -4051,7 +4053,7 @@ updateCSLobbyInfo();
         this.game.emotes.showWheel({ x: cx, y: cy });
         this.game.emotes.onEmoteSelect = (emoteId) => {
             this.game.showEmote(this.player, emoteId);
-            this.player.lock();
+            this.closeEmoteWheel();
         };
     }
 
@@ -4616,11 +4618,26 @@ updateCSLobbyInfo();
     // that equips the same shape later in the session.
     _buildBallPreviewModel(skin) {
         const group = new THREE.Group();
-        const body = new THREE.MeshStandardMaterial({ color: skin.color, roughness: .44, metalness: .24, emissive: skin.glow, emissiveIntensity: .16 });
+        const content = new THREE.Group();
+        const bodyColor = skin.shape === 'shuriken'
+            ? new THREE.Color(skin.color).multiplyScalar(.62)
+            : skin.color;
+        const body = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: .38, metalness: .42, emissive: skin.glow, emissiveIntensity: .1 });
         const accent = new THREE.MeshStandardMaterial({ color: skin.glow, roughness: .3, metalness: .5, emissive: skin.glow, emissiveIntensity: .34 });
-        for (const part of ballShapeParts(skin.shape, .45, THREE)) {
-            group.add(new THREE.Mesh(part.geo.clone(), part.tint === 'accent' ? accent : body));
+        const parts = skin.shape
+            ? ballShapeParts(skin.shape, .45, THREE)
+            : [{ geo: new THREE.SphereGeometry(.45, 24, 18), tint: 'body', owned: true }];
+        for (const part of parts) {
+            content.add(new THREE.Mesh(part.owned ? part.geo : part.geo.clone(), part.tint === 'accent' ? accent : body));
         }
+        // Gameplay's shuriken lies in the XZ plane so it spins like a thrown
+        // blade. Face that plane toward the showcase camera; keep the outer
+        // group free for the shared preview turntable rotation below.
+        if (skin.shape === 'shuriken') {
+            content.rotation.x = Math.PI / 2;
+            group.userData.previewSpinAxis = 'z';
+        }
+        group.add(content);
         return group;
     }
 
@@ -4634,7 +4651,7 @@ updateCSLobbyInfo();
 
     // `build` lets a caller supply its own Object3D (the model-skin balls do); without
     // it this stays exactly the knife preview it always was.
-    _renderCosmeticPreview(container, style, build = null) {
+    _renderCosmeticPreview(container, style, build = null, autoDispose = true) {
         if (!container || !style) return;
         try {
             this._cosmeticPreviews ??= new Map();
@@ -4659,7 +4676,8 @@ updateCSLobbyInfo();
             const size = bounds.getSize(new THREE.Vector3());
             model.position.sub(center);
             model.scale.setScalar(1.8 / Math.max(size.x, size.y, size.z, .1));
-            model.rotation.set(.2, -.7, -.25);
+            const previewSpinAxis = model.userData?.previewSpinAxis === 'z' ? 'z' : 'y';
+            model.rotation.set(previewSpinAxis === 'z' ? .08 : .2, previewSpinAxis === 'z' ? 0 : -.7, -.25);
             scene.add(model);
             container.classList.add('actual-preview');
             container.appendChild(renderer.domElement);
@@ -4667,7 +4685,7 @@ updateCSLobbyInfo();
             let disposed = false;
             const render = () => {
                 if (disposed || !container.isConnected) return;
-                model.rotation.y += .012;
+                model.rotation[previewSpinAxis] += .012;
                 renderer.render(scene, camera);
                 frame = requestAnimationFrame(render);
             };
@@ -4681,12 +4699,14 @@ updateCSLobbyInfo();
                 container.classList.remove('actual-preview');
             };
             this._cosmeticPreviews.set(container, { dispose });
-            window.setTimeout(() => {
-                if (this._cosmeticPreviews.get(container)?.dispose === dispose) {
-                    dispose();
-                    this._cosmeticPreviews.delete(container);
-                }
-            }, 10000);
+            if (autoDispose) {
+                window.setTimeout(() => {
+                    if (this._cosmeticPreviews.get(container)?.dispose === dispose) {
+                        dispose();
+                        this._cosmeticPreviews.delete(container);
+                    }
+                }, 10000);
+            }
             render();
         } catch (error) {
             RuntimeLog.log('cosmetic-preview', { message: String(error?.message || error) });
@@ -4881,6 +4901,13 @@ updateCarousel() {
             if (detail?.type === 'character' && CHARACTERS[detail.id]) {
                 this._syncShopShowcase(null, detail.id);
                 this.productAnalytics.track('shop_inspect', { shopTab: 'chars', itemType: 'character', itemId: detail.id });
+            }
+            if (detail?.type === 'ball' && BALL_SKINS[detail.id]) {
+                const skin = BALL_SKINS[detail.id];
+                const visual = document.getElementById('shop-selected-product-visual');
+                this._renderCosmeticPreview(visual, skin, () => this._buildBallPreviewModel(skin), false);
+                visual?.querySelector('canvas')?.setAttribute('aria-hidden', 'true');
+                this.productAnalytics.track('shop_inspect', { shopTab: 'balls', itemType: 'ball', itemId: detail.id });
             }
             if (detail?.type === 'cosmetic' && COSMETICS[detail.id]) {
                 const cosmetic = COSMETICS[detail.id];
@@ -5340,7 +5367,7 @@ updateCarousel() {
         }
         this._exitPracticeSession();
         this.game.startSolo();
-        this._armFirstMatchHints();
+        this._armFirstSoloBotGuard();
         this.ui.showScreen('lobby');
         document.getElementById('btn-start-game')?.click();
         return true;
@@ -6370,35 +6397,53 @@ updateCarousel() {
         };
         this._chattingWith = null;
         this._friendsRailTab = 'friends';
+        this._socialRailLoaded = false;
+        this._socialRailSyncing = false;
+        this._socialRailError = '';
         const preferences = this._socialDiscoveryPreferences();
         const discoverable = document.getElementById('fbar-discoverable');
-        const region = document.getElementById('fbar-region');
         if (discoverable) discoverable.checked = preferences.discoverable;
-        if (region) region.value = preferences.region;
 
-        document.getElementById('fbar-toggle')?.addEventListener('click', () => {
+        const desktopToggle = document.getElementById('fbar-toggle');
+        desktopToggle?.addEventListener('click', () => {
             const sidebar = document.getElementById('friends-sidebar');
             if (!sidebar) return;
             sidebar.classList.toggle('collapsed');
-            document.getElementById('fbar-toggle')?.setAttribute('aria-expanded', String(!sidebar.classList.contains('collapsed')));
+            const expanded = !sidebar.classList.contains('collapsed');
+            desktopToggle.setAttribute('aria-expanded', String(expanded));
+            desktopToggle.setAttribute('aria-label', expanded ? 'Collapse social panel' : 'Open social panel');
+            desktopToggle.querySelector('use')?.setAttribute('href', expanded ? '#i-arrow-left' : '#i-arrow-right');
         });
         document.getElementById('fbar-sheet-handle')?.addEventListener('click', () => {
             const sidebar = document.getElementById('friends-sidebar');
-            const open = sidebar?.classList.toggle('mobile-open') === true;
-            this._setMobileSocialRailOpen(open);
+            this._setMobileSocialRailOpen(!sidebar?.classList.contains('mobile-open'));
+        });
+        document.getElementById('friends-sidebar')?.addEventListener('keydown', event => {
+            if (event.key === 'Escape' && event.currentTarget.classList.contains('mobile-open')) {
+                event.preventDefault();
+                this._setMobileSocialRailOpen(false);
+            }
         });
         this._setMobileSocialRailOpen(false, { moveFocus: false });
         const mobileRailQuery = window.matchMedia?.('(max-width: 760px)');
         mobileRailQuery?.addEventListener?.('change', () => this._setMobileSocialRailOpen(false, { moveFocus: false }), { signal: this._mainAbort.signal });
-        document.querySelectorAll('[data-fbar-tab]').forEach(button => button.addEventListener('click', () => this._setFriendsRailTab(button.dataset.fbarTab)));
+        const socialTabs = [...document.querySelectorAll('[data-fbar-tab]')];
+        socialTabs.forEach(button => button.addEventListener('click', () => this._setFriendsRailTab(button.dataset.fbarTab)));
+        document.querySelector('.fbar-tabs')?.addEventListener('keydown', event => {
+            if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+            event.preventDefault();
+            const current = socialTabs.indexOf(document.activeElement);
+            const next = event.key === 'Home' ? 0 : event.key === 'End' ? socialTabs.length - 1 : (current + (event.key === 'ArrowRight' ? 1 : -1) + socialTabs.length) % socialTabs.length;
+            socialTabs[next]?.focus();
+            this._setFriendsRailTab(socialTabs[next]?.dataset.fbarTab);
+        });
+        this._setFriendsRailTab(this._friendsRailTab);
         const savePresence = () => {
-            const next = this._saveSocialDiscoveryPreferences(discoverable?.checked !== false, region?.value || 'global');
-            if (region) region.value = next.region;
+            const next = this._saveSocialDiscoveryPreferences(discoverable?.checked !== false, 'global');
             this._presenceHeartbeatNow?.();
-            Friends.refreshAvailable(next.region).then(() => this.refreshFriendsSidebar());
+            Friends.refreshAvailable('global').then(() => this.refreshFriendsSidebar());
         };
         discoverable?.addEventListener('change', savePresence);
-        region?.addEventListener('change', savePresence);
         document.getElementById('fbar-party-leave')?.addEventListener('click', async () => {
             const result = await Friends.leaveParty();
             if (result.error) this.ui.showMessage?.(result.error, 1800);
@@ -6418,16 +6463,38 @@ updateCarousel() {
             }
         });
 
+        const submitFriendRequest = async () => {
+            const input = document.getElementById('fbar-add-input');
+            const submit = document.getElementById('fbar-add-submit');
+            const status = document.getElementById('fbar-add-status');
+            const friendTag = input?.value.trim();
+            if (!friendTag) { if (status) status.textContent = 'Enter a profile code first.'; input?.focus(); return; }
+            if (submit) { submit.disabled = true; submit.textContent = 'Sending'; }
+            if (status) status.textContent = 'Sending friend request...';
+            const result = await Friends.request(friendTag);
+            if (submit) { submit.disabled = false; submit.textContent = 'Send'; }
+            if (result.error) {
+                if (status) status.textContent = result.error;
+                this.ui.showMessage?.(result.error, 1800);
+                return;
+            }
+            input.value = '';
+            if (status) status.textContent = 'Friend request sent.';
+        };
+        document.getElementById('fbar-add-toggle')?.addEventListener('click', () => {
+            const toggle = document.getElementById('fbar-add-toggle');
+            const form = document.getElementById('fbar-add-form');
+            if (!toggle || !form) return;
+            const expanded = form.classList.toggle('hidden') === false;
+            toggle.setAttribute('aria-expanded', String(expanded));
+            toggle.classList.toggle('is-open', expanded);
+            if (expanded) document.getElementById('fbar-add-input')?.focus();
+        });
+        document.getElementById('fbar-add-submit')?.addEventListener('click', submitFriendRequest);
         document.getElementById('fbar-add-input')?.addEventListener('keydown', e => {
             if (e.code !== 'Enter') return;
-            const input = document.getElementById('fbar-add-input');
-            const friendTag = input?.value.trim();
-            if (friendTag) {
-                Friends.request(friendTag).then(result => {
-                    if (result.error) this.ui.showMessage?.(result.error, 1800);
-                });
-                input.value = '';
-            }
+            e.preventDefault();
+            submitFriendRequest();
         });
         document.getElementById('fbar-own-tag')?.addEventListener('click', async () => {
             const tag = account.getFriendTag();
@@ -6452,21 +6519,40 @@ updateCarousel() {
     refreshFriendsSidebar() {
         const directory = document.getElementById('fbar-directory');
         const countEl = document.getElementById('fbar-count');
+        const sheetCount = document.getElementById('fbar-sheet-count');
+        const syncState = document.getElementById('fbar-sync-state');
+        const directoryTitle = document.getElementById('fbar-directory-title');
         const ownTag = document.getElementById('fbar-own-tag');
         if (!directory) return;
-        if (ownTag) ownTag.textContent = account.getFriendTag() || 'Your friend tag';
+        const ownCode = account.getFriendTag() || 'Profile code unavailable';
+        const ownCodeNode = document.getElementById('fbar-own-tag-code');
+        if (ownCodeNode) ownCodeNode.textContent = ownCode;
+        if (ownTag) ownTag.setAttribute('aria-label', `Copy profile code ${ownCode}`);
         const online = Friends.friends.filter(friend => Friends.isOnline(friend));
-        if (countEl) countEl.textContent = `${online.length} online`;
+        const onlineLabel = `${online.length} online`;
+        if (countEl) {
+            countEl.replaceChildren();
+            const dot = document.createElement('i');
+            dot.setAttribute('aria-hidden', 'true');
+            countEl.append(dot, onlineLabel);
+        }
+        if (sheetCount) sheetCount.textContent = onlineLabel;
+        if (syncState) {
+            syncState.textContent = this._socialRailSyncing ? 'Syncing' : this._socialRailError ? 'Offline' : 'Live';
+            syncState.dataset.state = this._socialRailError ? 'error' : this._socialRailSyncing ? 'loading' : 'live';
+        }
+        if (directoryTitle) directoryTitle.textContent = this._friendsRailTab === 'nearby' ? 'Nearby players' : this._friendsRailTab === 'online' ? 'Friends online' : 'All friends';
         const currentAccountId = account.getAccount()?.id;
         const partyMembers = new Set(Friends.party?.memberAccountIds || []);
         const canInvite = Friends.isPartyLeader(currentAccountId);
         let players;
         if (this._friendsRailTab === 'nearby') players = Friends.available.map(player => ({ ...player, id: player.accountId, online: true, nearby: true }));
         else if (this._friendsRailTab === 'online') players = online.map(friend => ({ ...friend, online: true }));
-        else players = Friends.friends.map(friend => ({ ...friend, online: Friends.isOnline(friend) }));
+        else players = Friends.friends.map(friend => ({ ...friend, online: Friends.isOnline(friend) })).sort((left, right) => Number(right.online) - Number(left.online) || String(left.username).localeCompare(String(right.username)));
         const row = player => {
             const item = document.createElement('div');
             item.className = 'fbar-friend';
+            item.dataset.presence = player.online ? 'online' : 'offline';
             const avatar = document.createElement('div');
             avatar.className = `fbar-avatar ${player.online ? 'online-avatar' : 'offline-avatar'}`;
             avatar.textContent = String(player.username || 'P').slice(0, 1).toUpperCase();
@@ -6479,15 +6565,21 @@ updateCarousel() {
             name.className = 'fbar-name';
             name.textContent = String(player.username || 'Player');
             const state = document.createElement('small');
-            state.textContent = player.nearby ? `${player.state || 'menu'} · ${player.region || 'global'}` : (player.online ? 'Online' : 'Offline');
+            state.textContent = player.nearby ? `${player.sameRegion ? 'Your region' : (player.region || 'Global')} / ${player.state || 'menu'}` : (player.friendTag || (player.online ? 'Available to play' : 'Offline'));
             identity.append(name, state);
+            const presence = document.createElement('span');
+            presence.className = 'fbar-presence-badge';
+            presence.dataset.state = player.online ? (player.state || 'online') : 'offline';
+            presence.textContent = player.online ? (player.state === 'lobby' ? 'IN LOBBY' : player.state === 'social' ? 'IN HUB' : 'ONLINE') : 'OFFLINE';
             const actions = document.createElement('div');
             actions.className = 'fbar-actions';
             if (Friends.getFriend(player.id)) {
                 const message = document.createElement('button');
                 message.className = 'fbar-msg-btn';
                 message.type = 'button';
-                message.textContent = 'Message';
+                message.setAttribute('aria-label', `Message ${player.username || 'friend'}`);
+                message.title = 'Message';
+                message.innerHTML = '<svg class="ui-icon" aria-hidden="true"><use href="#i-message"></use></svg>';
                 message.addEventListener('click', () => this._openChatWith(player.id));
                 actions.append(message);
             }
@@ -6495,24 +6587,72 @@ updateCarousel() {
                 const invite = document.createElement('button');
                 invite.className = 'fbar-invite-btn';
                 invite.type = 'button';
-                invite.textContent = 'Invite';
+                invite.setAttribute('aria-label', `Invite ${player.username || 'player'} to party`);
+                invite.title = 'Invite to party';
+                invite.innerHTML = '<svg class="ui-icon" aria-hidden="true"><use href="#i-user-plus"></use></svg>';
                 invite.addEventListener('click', async () => {
                     invite.disabled = true;
+                    invite.classList.add('is-loading');
                     const result = await Friends.inviteToParty(player.id);
                     invite.disabled = false;
+                    invite.classList.remove('is-loading');
                     this.ui.showMessage?.(result.error || 'Party invite sent.', 1600);
                     this.refreshFriendsSidebar();
                 });
                 actions.append(invite);
             }
-            item.append(avatar, identity, actions);
+            const detail = document.createElement('div');
+            detail.className = 'fbar-row-detail';
+            detail.append(identity, presence);
+            item.append(avatar, detail, actions);
             return item;
         };
-        const empty = Object.assign(document.createElement('div'), {
-            className: 'friends-sidebar-empty',
-            textContent: this._friendsRailTab === 'nearby' ? 'No discoverable players nearby' : this._friendsRailTab === 'online' ? 'No friends online' : 'Add friends with your profile code'
-        });
-        directory.replaceChildren(...(players.length ? players.map(row) : [empty]));
+        const emptyState = () => {
+            const empty = document.createElement('div');
+            empty.className = 'fbar-empty-state';
+            const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            icon.setAttribute('class', 'ui-icon');
+            icon.setAttribute('aria-hidden', 'true');
+            const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+            use.setAttribute('href', this._socialRailError ? '#i-refresh' : '#i-users');
+            icon.append(use);
+            const title = document.createElement('strong');
+            const copy = document.createElement('span');
+            const action = document.createElement('button');
+            action.type = 'button';
+            if (this._socialRailError) {
+                title.textContent = 'Social is offline';
+                copy.textContent = 'We could not refresh players. Your game is still available.';
+                action.textContent = 'Retry';
+                action.addEventListener('click', () => this._socialPollNow?.());
+            } else if (this._friendsRailTab === 'nearby') {
+                title.textContent = 'No nearby players yet';
+                copy.textContent = 'Stay discoverable and try again shortly.';
+                action.textContent = 'Refresh nearby';
+                action.addEventListener('click', () => this._socialPollNow?.());
+            } else if (this._friendsRailTab === 'online') {
+                title.textContent = 'Your squad is offline';
+                copy.textContent = 'Invite new friends with a profile code.';
+                action.textContent = 'Add a friend';
+                action.addEventListener('click', () => document.getElementById('fbar-add-toggle')?.click());
+            } else {
+                title.textContent = 'Find friends to team up';
+                copy.textContent = 'Add friends using their profile code.';
+                action.textContent = 'Add a friend';
+                action.addEventListener('click', () => document.getElementById('fbar-add-toggle')?.click());
+            }
+            empty.append(icon, title, copy, action);
+            return empty;
+        };
+        directory.setAttribute('aria-busy', String(this._socialRailSyncing));
+        if (this._socialRailSyncing && !this._socialRailLoaded && !players.length) {
+            directory.replaceChildren(...Array.from({ length: 3 }, () => {
+                const skeleton = document.createElement('div');
+                skeleton.className = 'fbar-skeleton';
+                skeleton.innerHTML = '<i></i><span></span><b></b>';
+                return skeleton;
+            }));
+        } else directory.replaceChildren(...(players.length ? players.map(row) : [emptyState()]));
         this._renderAuthoritativeParty();
         this._renderMenuPartyRail();
         if (this._chattingWith) this._renderChatThread(this._chattingWith);
@@ -6523,6 +6663,7 @@ updateCarousel() {
         document.querySelectorAll('[data-fbar-tab]').forEach(button => {
             const selected = button.dataset.fbarTab === this._friendsRailTab;
             button.setAttribute('aria-selected', String(selected));
+            button.tabIndex = selected ? 0 : -1;
         });
         this.refreshFriendsSidebar();
     }
@@ -6558,11 +6699,20 @@ updateCarousel() {
         list.replaceChildren(...members.map(memberId => {
             const row = document.createElement('div');
             row.className = 'fbar-party-member';
-            const name = document.createElement('span');
-            name.textContent = this._socialAccountName(memberId);
+            const memberName = this._socialAccountName(memberId);
+            const avatar = document.createElement('span');
+            avatar.className = 'fbar-party-avatar';
+            avatar.textContent = memberName.slice(0, 1).toUpperCase();
+            const identity = document.createElement('span');
+            identity.className = 'fbar-party-identity';
+            const name = document.createElement('b');
+            name.textContent = memberName;
             const role = document.createElement('small');
             role.textContent = party?.leaderAccountId === memberId ? 'Leader' : memberId === myId ? 'You' : 'Member';
-            row.append(name, role);
+            identity.append(name, role);
+            const status = document.createElement('em');
+            status.textContent = memberId === myId ? 'YOU' : 'READY';
+            row.append(avatar, identity, status);
             return row;
         }));
     }
@@ -6706,9 +6856,14 @@ updateCarousel() {
         // ponytail: bg loop continues running (host sim depends on it now); only audio + render throttle
         if (document.hidden) {
             this._tabHidden = true;
+            // Offline RAF is suspended by browsers. Settle only the already
+            // incoming ball; player input, bots and the match clock stay paused.
+            if (!this.network?.connected && this.game.armIncomingSettlement?.()) this._startBgLoop();
             if (this.audio?.ctx?.state === 'running') this.audio.ctx.suspend();
         } else {
             this._tabHidden = false;
+            this.game.cancelIncomingSettlement?.();
+            if (!this.network?.connected) this._stopBgLoop();
             if (this.audio?.ctx?.state === 'suspended') this.audio.ctx.resume();
         }
     }
@@ -6786,7 +6941,10 @@ updateCarousel() {
         this._bgInterval = setInterval(() => {
             // ponytail: bg loop is now the authoritative host simulation path — must run regardless of tab visibility.
             // Only condition: a network connection must exist (otherwise no game to simulate).
-            if (!this.network?.connected) return;
+            if (!this.network?.connected && !this.game.hasPendingIncomingSettlement?.()) {
+                this._stopBgLoop();
+                return;
+            }
             if (!document.hidden && this._tabHidden) this._tabHidden = false;
             const now = performance.now();
             const dt = Math.min((now - this._lastBgDt) / 1000, 0.1);
@@ -6821,6 +6979,7 @@ updateCarousel() {
         }
     }
     _bgTick(dt) {
+        const settlingIncoming = this.game.hasPendingIncomingSettlement?.() === true;
         // Remote player lerp always
         if (document.hidden) {
             this.game.invokeRemoteSnapshots(dt);
@@ -6829,14 +6988,16 @@ updateCarousel() {
                 || this.game.state === STATES.ROUND_END
                 || this.game.state === STATES.COUNTDOWN
                 || this.game.state === STATES.CELEBRATION;
-            if (advancesPlayer && !Spectator.active && !this.ui.isTeamPopupOpen?.()) {
+            if (advancesPlayer && !settlingIncoming && !Spectator.active && !this.ui.isTeamPopupOpen?.()) {
                 this.player.update(dt);
             }
         }
         // Process attack queue (bg tab hidden icin — main loop calismaz)
         this._bgProcessAttackQueue();
         // Game simulation only for host (all states need update — round timing, celebration, etc.)
-        if (this.network?.isHost) {
+        if (settlingIncoming) {
+            this.game.updateIncomingSettlement?.(dt);
+        } else if (this.network?.isHost) {
             this.game.update(dt);
             // Host position to clients (delta filtered) — player can move during these states
             if (document.hidden && (this.game.state === STATES.PLAYING || this.game.state === STATES.CELEBRATION)) {
@@ -6951,14 +7112,26 @@ updateCarousel() {
     _voiceTargets() {
         if (!this.network?.peer || !this.network.connected) return [];
         const localPosition = this.player.getPosition();
+        const cameraRight = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
+        cameraRight.y = 0;
+        cameraRight.normalize();
         return [...this.game.remotePlayers.values()].filter(target => {
             if (!target.alive || !target.peerId) return false;
             if (!this.game._ffa) return target.team === this.player.team;
             return target.position?.distanceTo?.(localPosition) <= 22;
-        }).map(target => ({
-            peerId: target.peerId,
-            muted: this._mutedPlayers.has(target.name) || this.socialProfile.muted?.includes(target.name)
-        }));
+        }).map(target => {
+            const dx = (target.position?.x || 0) - localPosition.x;
+            const dz = (target.position?.z || 0) - localPosition.z;
+            const distance = Math.hypot(dx, dz);
+            return {
+                peerId: target.peerId,
+                muted: this._mutedPlayers.has(target.name) || this.socialProfile.muted?.includes(target.name),
+                distance,
+                maxDistance: this.game._ffa ? 22 : 80,
+                teamChannel: !this.game._ffa,
+                pan: distance > .001 ? (dx * cameraRight.x + dz * cameraRight.z) / distance : 0
+            };
+        });
     }
 
     _syncVoiceChat() {
@@ -6996,14 +7169,6 @@ updateCarousel() {
         this._lastFrameTime = _now;
         requestAnimationFrame(() => this.loop());
         const dt = Math.min(this.clock.getDelta(), 0.05);
-
-        // First-match FTUE hints: fire once the armed solo/bot match reaches
-        // PLAYING. !network.connected excludes hosted/joined multiplayer, whose
-        // startSolo()-based lobby setup (see _doHostGame) never arms this flag.
-        if (this._pendingFirstMatchHints && this.game.state === STATES.PLAYING && !this.network?.connected) {
-            this._pendingFirstMatchHints = false;
-            this._runFirstMatchHints();
-        }
 
         this._voiceSyncTimer = (this._voiceSyncTimer || 0) - dt;
         if (this._voiceSyncTimer <= 0) {
@@ -7112,6 +7277,10 @@ updateCarousel() {
             this.ui.updateCombo?.(cs.combo, cs.multiplier);
             // Flash overlay
             this.ui.updateFlash?.(this.game.juice.flashAmt);
+        }
+
+        if (this.game.state === STATES.PAUSED && !this.network?.connected) {
+            this.game.updateIncomingSettlement?.(dt);
         }
 
         if (this.game.state === STATES.SOCIAL_HUB) {
@@ -7425,15 +7594,15 @@ updateCarousel() {
                     this.camera.position.lerp(chase, alpha);
                     this.camera.lookAt(tpos.x, tpos.y + 1.25, tpos.z);
                 }
-                const info = document.getElementById('spectator-info');
-                if (info) {
-                    info.textContent = this.game._ffa
-                        ? `FFA ${view.distance <= 1 ? 'POV' : 'TPS'}  ${t.name || 'PLAYER'}  CLICK switch  WHEEL zoom`
-                        : `TEAM ${view.distance <= 1 ? 'POV' : 'TPS'}  ${t.name || 'TEAMMATE'}  CLICK switch  WHEEL zoom`;
-                    info.classList.remove('hidden');
-                }
+                renderSpectatorHUD(t.name || (this.game._ffa ? 'PLAYER' : 'TEAMMATE'), {
+                    active: true,
+                    context: this.game._ffa ? 'ffa' : 'team',
+                    controls: false,
+                    mode: view.distance <= 1 ? CAMERA_MODES.FIRST_PERSON : CAMERA_MODES.CHASE
+                });
             } else if (this.player.alive) {
                 this._deadSpectateView = null;
+                if (!Spectator.active) renderSpectatorHUD('', { active: false });
             }
             this.renderer.render(this.camera);
         }

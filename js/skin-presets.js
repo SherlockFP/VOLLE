@@ -39,13 +39,78 @@ function buildFace(rows, legend) {
 // out of the 96-pixel front torso) on purpose -- see TEAM DOMINANCE note above.
 const motif = points => Object.freeze(points.map(([x, y, color]) => Object.freeze({ x, y, color })));
 
-const preset = (id, name, theme, inspiration, rows, legend, motifPoints = []) => Object.freeze({
+const row = (y, color) => [[0, y, color], [1, y, color], [2, y, color], [3, y, color]];
+const column = (x, fromY, toY, color) => {
+    const points = [];
+    for (let y = fromY; y <= toY; y++) points.push([x, y, color]);
+    return points;
+};
+
+// Authored limb patterns make a preset read as a complete costume instead of
+// a face sticker. Every pattern deliberately leaves at least half of each limb
+// in the underlying team color, preserving red/blue combat readability.
+function costume(style, primary, secondary = primary) {
+    let leftArm = [];
+    let rightArm = [];
+    let leftLeg = [];
+    let rightLeg = [];
+    switch (style) {
+        case 'armored':
+            leftArm = [...row(0, primary), ...row(1, secondary), ...row(7, primary)];
+            rightArm = [...leftArm];
+            leftLeg = [...row(5, primary), ...row(6, secondary), ...row(11, primary)];
+            rightLeg = [...leftLeg];
+            break;
+        case 'runner':
+            leftArm = [...column(0, 2, 8, primary), ...row(10, secondary)];
+            rightArm = [...column(3, 2, 8, primary), ...row(10, secondary)];
+            leftLeg = [...column(0, 2, 8, primary), ...row(10, secondary)];
+            rightLeg = [...column(3, 2, 8, primary), ...row(10, secondary)];
+            break;
+        case 'robe':
+            leftArm = [...row(8, primary), ...row(10, secondary)];
+            rightArm = [...leftArm];
+            leftLeg = [...column(3, 1, 9, primary), ...row(11, secondary)];
+            rightLeg = [...column(0, 1, 9, primary), ...row(11, secondary)];
+            break;
+        case 'tech':
+            leftArm = [...column(1, 1, 7, primary), ...row(9, secondary)];
+            rightArm = [...column(2, 1, 7, primary), ...row(9, secondary)];
+            leftLeg = [...column(1, 3, 8, primary), ...row(10, secondary)];
+            rightLeg = [...column(2, 3, 8, primary), ...row(10, secondary)];
+            break;
+        case 'torn':
+            leftArm = [...column(0, 2, 7, primary), ...row(10, secondary)];
+            rightArm = [...column(3, 4, 9, primary), ...row(11, secondary)];
+            leftLeg = [...column(3, 4, 9, primary), ...row(10, secondary)];
+            rightLeg = [...column(0, 2, 7, primary), ...row(11, secondary)];
+            break;
+        case 'trim':
+        default:
+            leftArm = [...row(1, primary), ...row(9, secondary)];
+            rightArm = [...leftArm];
+            leftLeg = [...row(6, primary), ...row(10, secondary)];
+            rightLeg = [...leftLeg];
+            break;
+    }
+    return Object.freeze({
+        leftArm: motif(leftArm), rightArm: motif(rightArm),
+        leftLeg: motif(leftLeg), rightLeg: motif(rightLeg)
+    });
+}
+
+const EMPTY_COSTUME = Object.freeze({
+    leftArm: motif([]), rightArm: motif([]), leftLeg: motif([]), rightLeg: motif([])
+});
+
+const preset = (id, name, theme, inspiration, rows, legend, motifPoints = [], partMotifs = EMPTY_COSTUME) => Object.freeze({
     id,
     name,
     theme,
     inspiration,
     face: Object.freeze(buildFace(rows, legend)),
-    motif: motif(motifPoints)
+    motif: motif(motifPoints),
+    partMotifs
 });
 
 export const SKIN_PRESETS = Object.freeze({
@@ -130,7 +195,8 @@ export const SKIN_PRESETS = Object.freeze({
             '........',
             '........'
         ], { c: '#14161f', w: '#e8f4ff' },
-        [[1, 0, '#14161f'], [6, 0, '#14161f'], [3, 0, '#14161f'], [4, 0, '#14161f']]
+        [[1, 0, '#14161f'], [6, 0, '#14161f'], [3, 0, '#14161f'], [4, 0, '#14161f']],
+        costume('robe', '#14161f', '#53627a')
     ),
 
     chaos_clown: preset(
@@ -146,7 +212,8 @@ export const SKIN_PRESETS = Object.freeze({
             '........',
             '........'
         ], { g: '#3fae56', p: '#7a3fc2', n: '#c23a3a', r: '#c23a3a' },
-        [[1, 0, '#5a2f8f'], [6, 0, '#5a2f8f'], [0, 2, '#5a2f8f'], [7, 2, '#5a2f8f']]
+        [[1, 0, '#5a2f8f'], [6, 0, '#5a2f8f'], [0, 2, '#5a2f8f'], [7, 2, '#5a2f8f']],
+        costume('torn', '#5a2f8f', '#3fae56')
     ),
 
     shonen_hero: preset(
@@ -162,7 +229,8 @@ export const SKIN_PRESETS = Object.freeze({
             '........',
             '........'
         ], { o: '#ff7a1a', k: '#241a12' },
-        [[2, 3, '#ff7a1a'], [3, 4, '#ff7a1a'], [4, 5, '#ff7a1a'], [5, 6, '#ff7a1a']]
+        [[2, 3, '#ff7a1a'], [3, 4, '#ff7a1a'], [4, 5, '#ff7a1a'], [5, 6, '#ff7a1a']],
+        costume('runner', '#ff7a1a', '#241a12')
     ),
 
     pirate_captain: preset(
@@ -178,7 +246,8 @@ export const SKIN_PRESETS = Object.freeze({
             '........',
             '........'
         ], { k: '#1a1a1a', p: '#171717', s: '#5a3a1f', g: '#3a2413' },
-        [[2, 9, '#d9a441'], [3, 9, '#d9a441'], [4, 9, '#d9a441'], [5, 9, '#d9a441'], [3, 10, '#d9a441'], [4, 10, '#d9a441']]
+        [[2, 9, '#d9a441'], [3, 9, '#d9a441'], [4, 9, '#d9a441'], [5, 9, '#d9a441'], [3, 10, '#d9a441'], [4, 10, '#d9a441']],
+        costume('trim', '#171717', '#d9a441')
     ),
 
     cyber_ninja: preset(
@@ -194,7 +263,8 @@ export const SKIN_PRESETS = Object.freeze({
             '........',
             '........'
         ], { k: '#12141a', c: '#59f3ff' },
-        [[3, 1, '#59f3ff'], [4, 1, '#59f3ff'], [3, 2, '#59f3ff'], [4, 2, '#59f3ff']]
+        [[3, 1, '#59f3ff'], [4, 1, '#59f3ff'], [3, 2, '#59f3ff'], [4, 2, '#59f3ff']],
+        costume('tech', '#59f3ff', '#12141a')
     ),
 
     ice_queen: preset(
@@ -210,7 +280,8 @@ export const SKIN_PRESETS = Object.freeze({
             '........',
             '........'
         ], { w: '#eaf7ff', i: '#5fc9e8' },
-        [[3, 0, '#bdeeff'], [4, 0, '#bdeeff'], [2, 1, '#bdeeff'], [5, 1, '#bdeeff']]
+        [[3, 0, '#bdeeff'], [4, 0, '#bdeeff'], [2, 1, '#bdeeff'], [5, 1, '#bdeeff']],
+        costume('robe', '#bdeeff', '#5fc9e8')
     ),
 
     robot: preset(
@@ -226,7 +297,8 @@ export const SKIN_PRESETS = Object.freeze({
             '........',
             '........'
         ], { m: '#8b93a0', r: '#ff3b3b' },
-        [[0, 1, '#c7ced6'], [7, 1, '#c7ced6'], [0, 10, '#c7ced6'], [7, 10, '#c7ced6'], [3, 5, '#c7ced6'], [4, 5, '#c7ced6']]
+        [[0, 1, '#c7ced6'], [7, 1, '#c7ced6'], [0, 10, '#c7ced6'], [7, 10, '#c7ced6'], [3, 5, '#c7ced6'], [4, 5, '#c7ced6']],
+        costume('armored', '#c7ced6', '#ff3b3b')
     ),
 
     zombie: preset(
@@ -242,7 +314,8 @@ export const SKIN_PRESETS = Object.freeze({
             'zzzzzzzz',
             '........'
         ], { z: '#7a9b5a', k: '#141c0a', s: '#241a12' },
-        [[1, 3, '#2a331f'], [2, 4, '#2a331f'], [6, 3, '#2a331f'], [5, 4, '#2a331f']]
+        [[1, 3, '#2a331f'], [2, 4, '#2a331f'], [6, 3, '#2a331f'], [5, 4, '#2a331f']],
+        costume('torn', '#2a331f', '#7a9b5a')
     ),
 
     astronaut: preset(
@@ -258,7 +331,8 @@ export const SKIN_PRESETS = Object.freeze({
             '........',
             '........'
         ], { w: '#f2f6fa', g: '#e8a23c' },
-        [[3, 1, '#e7edf5'], [3, 4, '#e7edf5'], [3, 7, '#e7edf5'], [3, 10, '#e7edf5'], [4, 1, '#e7edf5'], [4, 4, '#e7edf5']]
+        [[3, 1, '#e7edf5'], [3, 4, '#e7edf5'], [3, 7, '#e7edf5'], [3, 10, '#e7edf5'], [4, 1, '#e7edf5'], [4, 4, '#e7edf5']],
+        costume('tech', '#e7edf5', '#e8a23c')
     ),
 
     royal_knight: preset(
@@ -274,7 +348,8 @@ export const SKIN_PRESETS = Object.freeze({
             '........',
             '........'
         ], { g: '#d9b34a', d: '#26314a' },
-        [[3, 2, '#d9b34a'], [3, 3, '#d9b34a'], [2, 3, '#d9b34a'], [4, 3, '#d9b34a'], [3, 4, '#d9b34a'], [1, 0, '#d9b34a'], [6, 0, '#d9b34a']]
+        [[3, 2, '#d9b34a'], [3, 3, '#d9b34a'], [2, 3, '#d9b34a'], [4, 3, '#d9b34a'], [3, 4, '#d9b34a'], [1, 0, '#d9b34a'], [6, 0, '#d9b34a']],
+        costume('armored', '#d9b34a', '#26314a')
     ),
 
     // Character accent for the "Dark Eater" set (ball skin + knife + cape/aura/trail share
@@ -292,7 +367,8 @@ export const SKIN_PRESETS = Object.freeze({
             'vvvvvvvv',
             '........'
         ], { v: '#0b0416', p: '#c48cff' },
-        [[0, 0, '#c48cff'], [7, 0, '#c48cff'], [3, 1, '#0b0416'], [4, 1, '#0b0416'], [3, 2, '#c48cff'], [4, 2, '#c48cff']]
+        [[0, 0, '#c48cff'], [7, 0, '#c48cff'], [3, 1, '#0b0416'], [4, 1, '#0b0416'], [3, 2, '#c48cff'], [4, 2, '#c48cff']],
+        costume('robe', '#0b0416', '#c48cff')
     )
 });
 
@@ -317,6 +393,16 @@ export function renderSkinPreset(presetId, team = 'red') {
         const px = FRONT_UV.body.x + point.x;
         const py = FRONT_UV.body.y + point.y;
         atlas[py * ATLAS_SIZE + px] = point.color;
+    }
+    for (const [partName, points] of Object.entries(preset.partMotifs)) {
+        const region = FRONT_UV[partName];
+        if (!region) continue;
+        for (const point of points) {
+            if (point.x < 0 || point.x >= region.width || point.y < 0 || point.y >= region.height) continue;
+            const px = region.x + point.x;
+            const py = region.y + point.y;
+            atlas[py * ATLAS_SIZE + px] = point.color;
+        }
     }
     return atlas;
 }

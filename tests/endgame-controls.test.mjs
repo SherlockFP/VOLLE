@@ -142,7 +142,8 @@ test('lethal remote players hide their character model before spectators cycle',
 
     assert.match(game, /hitTarget\.alive = false;\s*if \(hitTarget\.group\) hitTarget\.group\.visible = false;/);
     assert.match(main, /Spectator\.handlePointerButton\(e\)/);
-    assert.match(main, /TEAM \$\{view\.distance <= 1 \? 'POV' : 'TPS'\}/);
+    assert.match(main, /mode: view\.distance <= 1 \? CAMERA_MODES\.FIRST_PERSON : CAMERA_MODES\.CHASE/);
+    assert.match(main, /renderSpectatorHUD\(t\.name/);
 });
 
 test('spectator Escape reaches the normal pause menu flow', async () => {

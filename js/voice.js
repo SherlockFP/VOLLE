@@ -6,12 +6,27 @@ export function shouldInitiateVoice(localPeerId, remotePeerId) {
         && localPeerId !== remotePeerId && localPeerId < remotePeerId;
 }
 
+export function calculateVoiceSpatialMix(distance, pan, { maxDistance = 80, teamChannel = true, muted = false } = {}) {
+    if (muted) return { gain: 0, pan: 0 };
+    const safeDistance = Math.max(0, Number.isFinite(distance) ? distance : 0);
+    const range = Math.max(1, Number.isFinite(maxDistance) ? maxDistance : 80);
+    const falloff = Math.max(0, 1 - safeDistance / range);
+    // Team comms must remain intelligible across an arena. FFA proximity voice
+    // is allowed to become almost silent at the edge of its 22m target gate.
+    const floor = teamChannel ? .35 : .06;
+    return {
+        gain: Math.min(1, floor + (1 - floor) * falloff * falloff),
+        pan: Math.max(-1, Math.min(1, Number.isFinite(pan) ? pan : 0))
+    };
+}
+
 export class VoiceChat {
     constructor(network) {
         this.network = network;
         this.stream = null;
         this.peers = new Map();
         this.remoteAudio = new Map();
+        this.remoteMixers = new Map();
         this.enabled = false;
         this.userMuted = false;
         this.pushToTalk = true;
@@ -78,6 +93,7 @@ export class VoiceChat {
         for (const peerId of [...this.peers.keys()]) {
             if (!this._targets.has(peerId)) this.disconnectPeer(peerId);
         }
+        for (const [peerId, target] of this._targets) this._applyRemoteMix(peerId, target);
         if (!this.enabled || !this.stream) return;
         const localPeerId = this.network?.peer?.id;
         for (const peerId of this._targets.keys()) {
@@ -111,17 +127,48 @@ export class VoiceChat {
         const audio = new Audio();
         audio.autoplay = true;
         audio.srcObject = stream;
-        audio.muted = Boolean(this._targets.get(peerId)?.muted);
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        let mixer = null;
+        if (AudioContext) {
+            const context = new AudioContext();
+            const source = context.createMediaElementSource(audio);
+            const gain = context.createGain();
+            const panner = context.createStereoPanner?.() || null;
+            source.connect(gain);
+            if (panner) {
+                gain.connect(panner);
+                panner.connect(context.destination);
+            } else {
+                gain.connect(context.destination);
+            }
+            mixer = { context, gain, panner };
+            this.remoteMixers.set(peerId, mixer);
+            context.resume?.().catch(() => {});
+        }
         this.remoteAudio.set(peerId, audio);
+        this._applyRemoteMix(peerId, this._targets.get(peerId));
         audio.play?.().catch(() => {});
         this._monitorSpeaking(peerId, stream);
     }
 
-    setRemoteMuted(peerId, muted) {
+    _applyRemoteMix(peerId, target = {}) {
+        const mix = calculateVoiceSpatialMix(target?.distance, target?.pan, target);
+        const mixer = this.remoteMixers.get(peerId);
         const audio = this.remoteAudio.get(peerId);
-        if (audio) audio.muted = Boolean(muted);
+        if (mixer) {
+            mixer.gain.gain.value = mix.gain;
+            if (mixer.panner) mixer.panner.pan.value = mix.pan;
+            if (audio) audio.muted = false;
+        } else if (audio) {
+            audio.muted = Boolean(target?.muted);
+            audio.volume = mix.gain;
+        }
+    }
+
+    setRemoteMuted(peerId, muted) {
         const target = this._targets.get(peerId);
         if (target) target.muted = Boolean(muted);
+        this._applyRemoteMix(peerId, target);
     }
 
     _monitorSpeaking(peerId, stream) {
@@ -157,6 +204,9 @@ export class VoiceChat {
         this.peers.delete(peerId);
         this.remoteAudio.get(peerId)?.pause?.();
         this.remoteAudio.delete(peerId);
+        const mixer = this.remoteMixers.get(peerId);
+        mixer?.context?.close?.();
+        this.remoteMixers.delete(peerId);
         this._speakingState.delete(peerId);
     }
 

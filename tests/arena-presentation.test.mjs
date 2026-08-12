@@ -14,11 +14,17 @@ const { ARENA_PRESENTATION_PROFILES, arenaPresentationProfile } = new Function(
 test('arena presentation profiles lock the approved exposure, sun, and bloom channels', () => {
     assert.deepEqual(ARENA_PRESENTATION_PROFILES.default,
         { exposure: 1.10, sun: 1.80, bloomRadius: 0.22, bloomThreshold: 0.78 });
+    assert.deepEqual(ARENA_PRESENTATION_PROFILES.beach_open,
+        { exposure: 1.18, sun: 2.05, bloomRadius: 0.20, bloomThreshold: 0.80 });
+    assert.deepEqual(ARENA_PRESENTATION_PROFILES.industrial,
+        { exposure: 1.16, sun: 2.10, bloomRadius: 0.18, bloomThreshold: 0.76 });
     assert.deepEqual(ARENA_PRESENTATION_PROFILES.neon,
         { exposure: 1.06, sun: 1.65, bloomRadius: 0.18, bloomThreshold: 0.72 });
     assert.deepEqual(ARENA_PRESENTATION_PROFILES.grand_stadium,
         { exposure: 1.12, sun: 1.90, bloomRadius: 0.18, bloomThreshold: 0.82 });
     assert.equal(arenaPresentationProfile('beach'), ARENA_PRESENTATION_PROFILES.default);
+    assert.equal(arenaPresentationProfile('beach_open'), ARENA_PRESENTATION_PROFILES.beach_open);
+    assert.equal(arenaPresentationProfile('industrial'), ARENA_PRESENTATION_PROFILES.industrial);
     assert.equal(arenaPresentationProfile('neon'), ARENA_PRESENTATION_PROFILES.neon);
 });
 test('initial construction and every rebuild apply all presentation channels', () => {
@@ -33,4 +39,14 @@ test('initial construction and every rebuild apply all presentation channels', (
     assert.match(method, /strength: null/);
     assert.match(method, /radius: profile\.bloomRadius/);
     assert.match(method, /threshold: profile\.bloomThreshold/);
+});
+
+test('floor materials consume each arena roughness, metalness, and emissive profile', () => {
+    const method = source.slice(
+        source.indexOf('    buildFloor() {'),
+        source.indexOf('    _createTexturedToonMaterial(', source.indexOf('    buildFloor() {'))
+    );
+    assert.match(method, /c\.floorMaterial \|\| \{\}/);
+    assert.match(method, /roughness: floorRoughness, metalness: floorMetalness/);
+    assert.equal((method.match(/emissiveIntensity: floorEmissive/g) || []).length, 2);
 });

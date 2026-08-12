@@ -6,13 +6,15 @@ import {
     COSMETIC_TYPES,
     DEFAULT_WEARABLE_LOADOUT,
     cosmeticsByType,
-    normalizeWearableLoadout
+    normalizeWearableLoadout,
+    resolveEquippedGlove
 } from '../js/cosmetic-catalog.js';
 
 // cape/aura/trail are 7 (not 6): the Dark Eater set adds one wearable to each.
 const EXPECTED_COUNTS = {
     cape: 7, pet: 6, shoes: 6, aura: 7, impact: 6,
-    hat: 8, mask: 6, wings: 6, backpack: 5, banner: 4, trail: 7, finisher: 5
+    hat: 8, mask: 6, wings: 6, backpack: 5, banner: 4, trail: 7, finisher: 5,
+    gloves: 3
 };
 
 test('wearable catalog has priced effect skins in every slot', () => {
@@ -28,7 +30,7 @@ test('wearable catalog has priced effect skins in every slot', () => {
 });
 
 test('new cosmetic types price by rarity roughly in line with existing tiers', () => {
-    const newTypes = ['hat', 'mask', 'wings', 'backpack', 'banner', 'trail', 'finisher'];
+    const newTypes = ['hat', 'mask', 'wings', 'backpack', 'banner', 'trail', 'finisher', 'gloves'];
     for (const type of newTypes) {
         for (const item of cosmeticsByType(type)) {
             if (item.rarity === 'rare') assert.ok(item.price >= 240 && item.price <= 340, `${item.id} rare price`);
@@ -74,6 +76,13 @@ test('wearable loadout rejects wrong slots, unknown ids, and unowned items', () 
         backpack: 'none',
         banner: 'none',
         trail: 'none',
-        finisher: 'none'
+        finisher: 'none',
+        gloves: 'none'
     });
+});
+
+test('equipped glove resolver accepts only the dedicated cosmetic slot', () => {
+    assert.equal(resolveEquippedGlove({ gloves: 'gloves_prism' })?.id, 'gloves_prism');
+    assert.equal(resolveEquippedGlove({ gloves: 'hat_cap' }), null);
+    assert.equal(resolveEquippedGlove({ hat: 'gloves_prism' }), null);
 });

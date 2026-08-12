@@ -15,6 +15,7 @@ const {
     STEERING_CONTROL_WINDOW,
     createAimRouteOffset,
     createWideWaypoint,
+    floorSafeHomingTargetY,
     hasCrossedTargetPlane,
     homingRescueRange,
     isSteeringControlLocked,
@@ -245,7 +246,123 @@ test('terminal rescue ends tangent and away orbits without capping rally speed',
     assert.equal(homingRescueRange(17), 3.5);
     assert.equal(homingRescueRange(204), 6);
     assert.equal(shouldDirectHomingRescue(20, 204, 0.5, 0.2), false);
+    assert.equal(shouldDirectHomingRescue(3, 51, 1.2, 0.4), true);
+    assert.equal(shouldDirectHomingRescue(20, 51, 1.2, -0.4), true);
     assert.equal((source.match(/shouldDirectHomingRescue\(/g) || []).length, 4);
+});
+
+function simulateFloorOrbit(targetY, speed = 204, fps = 60, rescueDecision = shouldDirectHomingRescue) {
+    const dt = 1 / fps;
+    const position = { x: 1.7, y: 0.47, z: 0 };
+    const heading = -70 * Math.PI / 180;
+    const velocity = {
+        x: -Math.cos(heading) * speed,
+        y: 0,
+        z: -Math.sin(heading) * speed
+    };
+    const hitRadius = 0.47 + 0.4 + Math.min(speed * 0.003, 2);
+    let homingAge = 0;
+    let bounces = 0;
+
+    for (let frame = 0; frame < fps * 5; frame++) {
+        const dx = -position.x;
+        const dy = targetY - position.y;
+        const dz = -position.z;
+        const distance = Math.hypot(dx, dy, dz);
+        const targetDir = { x: dx / distance, y: dy / distance, z: dz / distance };
+        const velocityLength = Math.hypot(velocity.x, velocity.y, velocity.z);
+        const current = {
+            x: velocity.x / velocityLength,
+            y: velocity.y / velocityLength,
+            z: velocity.z / velocityLength
+        };
+        homingAge += dt;
+        const alignment = current.x * targetDir.x + current.y * targetDir.y + current.z * targetDir.z;
+        const direct = rescueDecision(distance, speed, homingAge, alignment);
+        const momentum = distance < 1.5 ? 0.22 : distance < 3 ? 0.18 : Math.min(distance / 10, 1) * 0.4;
+        let next = direct ? targetDir : {
+            x: targetDir.x * (1 - momentum) + current.x * momentum,
+            y: targetDir.y * (1 - momentum) + current.y * momentum,
+            z: targetDir.z * (1 - momentum) + current.z * momentum
+        };
+        let nextLength = Math.hypot(next.x, next.y, next.z);
+        next = { x: next.x / nextLength, y: next.y / nextLength, z: next.z / nextLength };
+        if (!direct) {
+            const turn = 1 - Math.exp(-proximityHomingTurnRate(distance, homingAge) * dt);
+            next = {
+                x: current.x + (next.x - current.x) * turn,
+                y: current.y + (next.y - current.y) * turn,
+                z: current.z + (next.z - current.z) * turn
+            };
+            nextLength = Math.hypot(next.x, next.y, next.z);
+            next.x /= nextLength;
+            next.y /= nextLength;
+            next.z /= nextLength;
+        }
+        velocity.x = next.x * speed;
+        velocity.y = next.y * speed;
+        velocity.z = next.z * speed;
+
+        const before = { x: position.x, z: position.z };
+        position.x += velocity.x * dt;
+        position.y += velocity.y * dt;
+        position.z += velocity.z * dt;
+        if (position.y < 0.47) {
+            position.y = 0.47;
+            const floorBounce = 0.62 + Math.min(0.33, speed * 0.014);
+            velocity.y = Math.max(4.5, Math.abs(velocity.y) * floorBounce);
+            const recovered = recoverCornerHoming(
+                velocity,
+                position,
+                { x: 0, y: targetY, z: 0 },
+                speed
+            );
+            velocity.x = recovered.x;
+            velocity.y = recovered.y;
+            velocity.z = recovered.z;
+            homingAge = Math.max(homingAge, 0.75);
+            bounces++;
+        }
+        if (segmentEntersRadius(before, position, hitRadius)) {
+            return { hitTime: (frame + 1) * dt, bounces };
+        }
+    }
+    return { hitTime: null, bounces };
+}
+
+test('floor-safe target breaks the close horizontal orbit without changing speed', () => {
+    const legacyRescue = (distance, speed, homingAge, alignment) => (
+        alignment < 0.15
+        && (distance < homingRescueRange(speed) || homingAge > 1.15)
+    );
+    const unsafe = simulateFloorOrbit(0.35, 204, 60, legacyRescue);
+    const safeTargetY = floorSafeHomingTargetY(0.35, 0.47);
+    const rescued = simulateFloorOrbit(safeTargetY);
+
+    assert.equal(unsafe.hitTime, null);
+    assert.equal(unsafe.bounces, 300);
+    assert.equal(safeTargetY, 0.47);
+    assert.ok(rescued.hitTime !== null && rescued.hitTime <= 0.05);
+    assert.ok(rescued.bounces <= 1);
+});
+
+test('leg and downward-route targeting cannot steer below the ball floor', () => {
+    const ball = Object.create(Ball.prototype);
+    ball.radius = 0.47;
+    ball.bodyZone = 'legs';
+    ball._targetRouteOffset = { x: 0, y: -0.8, z: 0 };
+    ball.targetPlayer = {
+        getPosition() {
+            return {
+                x: 2,
+                y: 1.7,
+                z: 3,
+                clone() { return { x: this.x, y: this.y, z: this.z }; }
+            };
+        }
+    };
+
+    assert.equal(ball._getTargetPos().y, 0.47);
 });
 
 // Regresyon koruması: orbit kurtarma yalnızca _updatePlayerSteering'de vardı.

@@ -9,6 +9,7 @@ import {
     NETWORK_WORLD_BOUND,
     Network,
     TARGET_ID_MAX_BYTES,
+    isSafeBallSkinId,
     isNewerSequence,
     isSafeTargetId,
     reconnectDelay
@@ -209,6 +210,7 @@ test('ball packet preserves stable target identity with legacy name fallback', (
         vx: 4, vy: 5, vz: 6,
         speed: 12,
         active: true,
+        skinId: 'dark_eater',
         targetName: 'Duplicate Name',
         targetPlayerId: 'player-stable',
         targetPeerId: 'peer-current'
@@ -216,6 +218,7 @@ test('ball packet preserves stable target identity with legacy name fallback', (
     assert.equal(modern.targetName, 'Duplicate Name');
     assert.equal(modern.targetPlayerId, 'player-stable');
     assert.equal(modern.targetPeerId, 'peer-current');
+    assert.equal(modern.skinId, 'dark_eater');
 
     const legacy = network._decodeBinary(network.encodeBallState({
         x: 1, y: 2, z: 3,
@@ -247,6 +250,7 @@ test('host ball broadcast derives target playerId and peerId', () => {
         currentSpeed: 12,
         active: true,
         state: 'rally',
+        skinId: 'solar',
         targetPlayer: target,
         affix: null
     });
@@ -254,6 +258,32 @@ test('host ball broadcast derives target playerId and peerId', () => {
     assert.equal(packet.targetName, 'Remote');
     assert.equal(packet.targetPlayerId, 'player-stable');
     assert.equal(packet.targetPeerId, 'peer-new');
+    assert.equal(packet.skinId, 'solar');
+});
+
+test('client applies authoritative ball appearance on hot packets and reconnect snapshots', () => {
+    const applied = [];
+    const game = {
+        ball: { skinId: 'classic', setSkin(id) { this.skinId = id; applied.push(id); } },
+        updateBallFromNetwork() {},
+        getPlayerList: () => [],
+        snapshotState: () => ({})
+    };
+    const network = new Network(game);
+    network.isHost = false;
+    network.hostConn = { peer: 'host' };
+
+    network.handleMessage({
+        type: 'ballState', x: 0, y: 2, z: 0, vx: 0, vy: 0, vz: 0,
+        speed: 12, active: true, skinId: 'solar'
+    }, 'host');
+    network.handleMessage({
+        type: 'welcome', players: [], snapshot: { ball: { skinId: 'dark_eater' } }
+    }, 'host');
+
+    assert.deepEqual(applied, ['solar', 'dark_eater']);
+    assert.equal(isSafeBallSkinId('dark_eater'), true);
+    assert.equal(isSafeBallSkinId('../dark-eater'), false);
 });
 
 test('foreground and background host paths use the stable ball broadcast helper', () => {

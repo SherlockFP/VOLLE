@@ -216,6 +216,48 @@ test('split limbs remain contiguous and character identity never non-uniformly d
     rig.dispose();
 });
 
+test('hero and premium-skin costume signatures remain distinct without deforming the Minecraft base', () => {
+    const rig = createCharacterRig({ characterId: 'rally', skinId: 'default' });
+    const signatureNames = [
+        'signature-crest', 'signature-temple-L', 'signature-temple-R',
+        'signature-chest', 'signature-back'
+    ];
+    const signatureMeshes = () => signatureNames.map((name) => {
+        let found = null;
+        rig.root.traverse((node) => { if (node.name === name) found = node; });
+        assert.ok(found, `${name} should exist`);
+        return found;
+    });
+    const snapshot = () => JSON.stringify(signatureMeshes().map((mesh) => ({
+        name: mesh.name,
+        visible: mesh.visible,
+        scale: [mesh.scale.x, mesh.scale.y, mesh.scale.z],
+        position: [mesh.position.x, mesh.position.y, mesh.position.z]
+    })));
+
+    const heroSnapshots = new Set();
+    for (const characterId of ['rally', 'tank', 'scout', 'blazer', 'phantom']) {
+        rig.setCharacter(characterId);
+        heroSnapshots.add(snapshot());
+        assert.deepEqual(
+            meshChild(rig.joints.torso, 'torso-mesh').geometry.args,
+            [TORSO_WIDTH, TORSO_HEIGHT, TORSO_DEPTH],
+            `${characterId}: costume layer must not replace canonical torso geometry`
+        );
+    }
+    assert.equal(heroSnapshots.size, 5, 'sampled heroes should have five readable costume silhouettes');
+
+    rig.setCharacter('rally');
+    rig.setSkin('samurai');
+    const samurai = snapshot();
+    const templeL = rig.joints.head.children.find((node) => node.name === 'signature-temple-L');
+    assert.equal(templeL.visible, true, 'armored premium skin should expose helmet side guards');
+    rig.setSkin('neon');
+    assert.notEqual(snapshot(), samurai, 'agile premium skin must not reuse the armored silhouette');
+    assert.equal(templeL.visible, false, 'agile premium skin removes the armored side guards');
+    rig.dispose();
+});
+
 test('applyPose writes euler values onto the matching joints, maps offsetY and lean', () => {
     const rig = createCharacterRig({});
     const pose = {

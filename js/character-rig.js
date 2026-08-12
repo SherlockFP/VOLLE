@@ -13,24 +13,50 @@ export const RIG_SOCKETS = Object.freeze([
 const MATERIAL_SLOTS = Object.freeze(['head', 'body', 'arms', 'legs', 'accent', 'detail', 'visor']);
 const TEAM_COLORS = Object.freeze({ red: 0xcc3333, blue: 0x3355cc });
 const ATLAS_SIZE = 64;
-// Small, socket-safe silhouette signatures make each selectable hero legible from
-// range without replacing the shared animation skeleton or adding per-frame work.
+// Small, socket-safe silhouette signatures make each selectable hero and skin
+// legible from range without replacing the shared skeleton. Each tuple is
+// [width,height,depth,x,y,z] and is applied only when identity changes, never in
+// the render/update loop.
+const signature = values => Object.freeze(values);
 const CHARACTER_SIGNATURES = Object.freeze({
-    rally: Object.freeze({ crest: [.18, .06, .08, 0, .40, 0], back: [.24, .16, .10, 0, .38, .24] }),
-    tank: Object.freeze({ crest: [.30, .08, .12, 0, .40, 0], back: [.42, .28, .16, 0, .34, .28] }),
-    scout: Object.freeze({ crest: [.12, .15, .08, -.12, .38, 0], back: [.16, .12, .08, 0, .42, .22] }),
-    sniper: Object.freeze({ crest: [.08, .18, .08, .10, .40, 0], back: [.18, .30, .10, 0, .38, .24] }),
-    guardian: Object.freeze({ crest: [.34, .05, .12, 0, .40, 0], back: [.36, .18, .16, 0, .36, .26] }),
-    blazer: Object.freeze({ crest: [.16, .20, .10, 0, .44, 0], back: [.22, .22, .10, 0, .40, .24] }),
-    frost: Object.freeze({ crest: [.28, .12, .08, 0, .43, 0], back: [.28, .20, .12, 0, .38, .24] }),
-    volt: Object.freeze({ crest: [.18, .13, .10, .08, .42, 0], back: [.20, .26, .10, 0, .39, .24] }),
-    nova: Object.freeze({ crest: [.24, .10, .14, 0, .43, 0], back: [.30, .18, .12, 0, .38, .26] }),
-    ripple: Object.freeze({ crest: [.30, .06, .14, 0, .41, 0], back: [.34, .13, .14, 0, .36, .26] }),
-    soldier: Object.freeze({ crest: [.22, .07, .12, 0, .41, 0], back: [.32, .30, .15, 0, .34, .27] }),
-    anchor: Object.freeze({ crest: [.32, .09, .12, 0, .42, 0], back: [.38, .25, .16, 0, .34, .28] }),
-    phantom: Object.freeze({ crest: [.10, .24, .06, 0, .44, 0], back: [.16, .20, .08, 0, .39, .24] }),
-    hardy: Object.freeze({ crest: [.26, .12, .14, 0, .42, 0], back: [.38, .22, .16, 0, .36, .27] }),
-    swift: Object.freeze({ crest: [.14, .16, .08, -.08, .42, 0], back: [.18, .16, .08, 0, .40, .23] })
+    rally: signature({ crest: [.16, .08, .12, -.08, .46, -.02], chest: [.16, .22, .03, 0, .43, -.145], back: [.22, .12, .08, 0, .40, .19] }),
+    tank: signature({ crest: [.36, .08, .30, 0, .47, 0], temples: [.06, .24, .26, .28, .20, 0], chest: [.42, .30, .04, 0, .43, -.15], back: [.42, .34, .16, 0, .38, .24] }),
+    scout: signature({ crest: [.24, .07, .28, -.09, .47, 0], chest: [.11, .22, .03, -.11, .42, -.145], back: [.16, .12, .08, 0, .42, .19] }),
+    sniper: signature({ crest: [.38, .05, .30, 0, .46, 0], temples: [.04, .20, .26, .27, .20, 0], chest: [.06, .30, .03, .11, .40, -.145], back: [.18, .30, .10, 0, .38, .20] }),
+    guardian: signature({ crest: [.34, .10, .22, 0, .48, 0], temples: [.08, .18, .24, .28, .20, 0], chest: [.36, .28, .04, 0, .42, -.15], back: [.36, .20, .15, 0, .38, .23] }),
+    blazer: signature({ crest: [.10, .24, .16, 0, .55, .02], chest: [.20, .18, .03, 0, .48, -.145], back: [.20, .22, .09, 0, .40, .19] }),
+    frost: signature({ crest: [.30, .14, .24, 0, .50, 0], temples: [.05, .12, .22, .27, .24, 0], chest: [.28, .22, .03, 0, .45, -.145], back: [.28, .20, .11, 0, .38, .21] }),
+    volt: signature({ crest: [.12, .19, .16, .08, .52, 0], chest: [.08, .28, .03, .09, .42, -.145], back: [.20, .26, .09, 0, .39, .20] }),
+    nova: signature({ crest: [.24, .15, .20, 0, .51, 0], chest: [.22, .22, .03, 0, .44, -.145], back: [.30, .18, .11, 0, .38, .22] }),
+    ripple: signature({ crest: [.34, .07, .24, 0, .47, 0], chest: [.34, .10, .03, 0, .47, -.145], back: [.34, .13, .13, 0, .36, .22] }),
+    soldier: signature({ crest: [.30, .08, .26, 0, .47, 0], temples: [.05, .14, .24, .27, .20, 0], chest: [.28, .24, .04, 0, .42, -.15], back: [.32, .30, .14, 0, .36, .24] }),
+    anchor: signature({ crest: [.34, .10, .26, 0, .49, 0], temples: [.07, .20, .24, .28, .20, 0], chest: [.34, .26, .04, 0, .42, -.15], back: [.38, .25, .15, 0, .36, .25] }),
+    phantom: signature({ crest: [.34, .05, .28, 0, .46, .02], temples: [.04, .24, .24, .27, .20, 0], chest: [.12, .26, .03, 0, .42, -.145], back: [.16, .20, .07, 0, .39, .19] }),
+    hardy: signature({ crest: [.28, .13, .24, 0, .50, 0], chest: [.38, .24, .04, 0, .42, -.15], back: [.38, .22, .15, 0, .36, .24] }),
+    swift: signature({ crest: [.20, .11, .22, -.09, .49, 0], chest: [.12, .20, .03, -.10, .44, -.145], back: [.18, .16, .07, 0, .40, .19] })
+});
+
+// Premium skins add a recognisable costume layer over whichever gameplay hero
+// is selected. This is intentionally small geometry, not a second rig/model.
+const SKIN_SIGNATURES = Object.freeze({
+    neon: signature({ crest: [.11, .22, .14, .09, .54, 0], chest: [.08, .30, .025, .10, .42, -.155], back: [.20, .26, .10, 0, .39, .22] }),
+    samurai: signature({ crest: [.40, .07, .28, 0, .48, 0], temples: [.07, .26, .25, .28, .20, 0], chest: [.40, .28, .04, 0, .43, -.15], back: [.30, .26, .12, 0, .38, .23] }),
+    frost: signature({ crest: [.30, .16, .22, 0, .51, 0], temples: [.05, .14, .22, .27, .23, 0], chest: [.30, .24, .03, 0, .44, -.15] }),
+    astro: signature({ crest: [.40, .08, .34, 0, .48, 0], temples: [.08, .30, .28, .29, .20, 0], chest: [.34, .22, .04, 0, .43, -.15], back: [.38, .36, .17, 0, .38, .25] }),
+    arcade: signature({ crest: [.30, .07, .28, -.07, .47, 0], chest: [.22, .20, .03, 0, .44, -.15], back: [.22, .20, .10, 0, .40, .21] }),
+    moss: signature({ crest: [.28, .15, .25, -.05, .51, 0], temples: [.06, .12, .20, .27, .24, 0], chest: [.32, .20, .04, 0, .44, -.15], back: [.36, .28, .16, 0, .38, .24] }),
+    striker: signature({ crest: [.10, .23, .17, 0, .55, 0], chest: [.10, .28, .03, 0, .43, -.15], back: [.20, .24, .09, 0, .40, .21] }),
+    void: signature({ crest: [.38, .06, .30, 0, .47, 0], temples: [.05, .26, .25, .28, .20, 0], chest: [.18, .26, .03, 0, .43, -.15], back: [.24, .30, .10, 0, .38, .21] }),
+    royal: signature({ crest: [.32, .17, .24, 0, .52, 0], temples: [.05, .12, .22, .27, .24, 0], chest: [.38, .26, .04, 0, .43, -.15], back: [.38, .22, .14, 0, .38, .23] }),
+    circuit: signature({ crest: [.18, .14, .20, .08, .51, 0], chest: [.08, .30, .03, -.10, .42, -.15], back: [.25, .30, .11, 0, .38, .22] }),
+    creeper_knight: signature({ crest: [.38, .09, .30, 0, .49, 0], temples: [.07, .22, .26, .28, .20, 0], chest: [.38, .28, .04, 0, .43, -.15] }),
+    ender_mage: signature({ crest: [.40, .06, .32, 0, .47, 0], temples: [.05, .29, .27, .28, .19, 0], chest: [.14, .30, .03, 0, .42, -.15], back: [.24, .34, .10, 0, .38, .22] }),
+    magma_guard: signature({ crest: [.28, .20, .20, 0, .55, 0], temples: [.06, .18, .23, .27, .22, 0], chest: [.36, .26, .04, 0, .43, -.15], back: [.34, .25, .14, 0, .38, .24] }),
+    bee_runner: signature({ crest: [.28, .08, .22, 0, .48, 0], chest: [.38, .12, .03, 0, .46, -.15], back: [.32, .26, .14, 0, .39, .24] }),
+    axolotl_scout: signature({ crest: [.24, .08, .22, 0, .48, 0], temples: [.09, .26, .10, .30, .20, 0], chest: [.22, .20, .03, 0, .44, -.15], back: [.18, .20, .08, 0, .40, .20] }),
+    ghost_keeper: signature({ crest: [.40, .06, .32, 0, .47, 0], temples: [.05, .28, .27, .28, .20, 0], chest: [.30, .24, .035, 0, .43, -.15] }),
+    infernal_smile: signature({ crest: [.28, .22, .20, 0, .56, 0], temples: [.06, .18, .23, .27, .22, 0], chest: [.30, .24, .04, 0, .43, -.15], back: [.28, .26, .12, 0, .38, .23] }),
+    galaxy_idol: signature({ crest: [.34, .14, .24, 0, .51, 0], temples: [.05, .12, .22, .27, .24, 0], chest: [.24, .24, .03, 0, .43, -.15], back: [.28, .22, .11, 0, .39, .22] })
 });
 // --- Canonical Minecraft-compatible geometry --------------------------------
 // 32 vertical pixels map to exactly 2 world units. Every core dimension derives
@@ -276,15 +302,15 @@ export function createCharacterRig(options = {}) {
     });
 
     // trim — gives the accent/detail/visor palette slots somewhere to live
-    addPart(joints.shoulderL, {
+    const shoulderPadL = addPart(joints.shoulderL, {
         name: 'pad-L', geometry: new THREE.BoxGeometry(.26, .14, .26),
         position: [0, 0, 0], material: materials.accent, outline: false
     });
-    addPart(joints.shoulderR, {
+    const shoulderPadR = addPart(joints.shoulderR, {
         name: 'pad-R', geometry: new THREE.BoxGeometry(.26, .14, .26),
         position: [0, 0, 0], material: materials.accent, outline: false
     });
-    addPart(joints.hips, {
+    const beltMesh = addPart(joints.hips, {
         name: 'belt', geometry: new THREE.BoxGeometry(.5, .12, .3),
         position: [0, .02, 0], material: materials.detail, outline: false
     });
@@ -292,25 +318,37 @@ export function createCharacterRig(options = {}) {
     // it straddles it (half embedded, half proud), derived from HEAD_HALF_DEPTH so it tracks any
     // future head resize instead of drifting inside/off the face like the sphere-era -.19 would.
     const visorMesh = addPart(joints.head, {
-        name: 'visor', geometry: new THREE.BoxGeometry(.22, .05, .04),
-        position: [0, HEAD_MESH_LOCAL_Y, -HEAD_HALF_DEPTH], material: materials.visor, outline: false
+        name: 'visor', geometry: new THREE.BoxGeometry(.28, .025, .025),
+        position: [0, HEAD_MESH_LOCAL_Y + .12, -HEAD_HALF_DEPTH], material: materials.accent, outline: false
     });
     // Default skins need a readable face at Shop distance too. These are direct
     // head children: the live renderer's visible scene now has no Mesh-parent
     // dependency, while the existing visor remains intact for compatibility.
     const facePlate = addPart(joints.head, {
-        name: 'face-plate', geometry: new THREE.BoxGeometry(.30, .22, .018),
-        position: [0, HEAD_MESH_LOCAL_Y, -(HEAD_HALF_DEPTH + .035)], material: materials.detail, outline: false
+        name: 'face-plate', geometry: new THREE.BoxGeometry(.34, .27, .018),
+        position: [0, HEAD_MESH_LOCAL_Y - .015, -(HEAD_HALF_DEPTH + .016)], material: materials.head, outline: false
     });
     const leftEye = addPart(joints.head, {
-        name: 'eye-L', geometry: new THREE.BoxGeometry(.064, .056, .016),
-        position: [-.072, HEAD_MESH_LOCAL_Y + .016, -(HEAD_HALF_DEPTH + .062)], material: materials.visor, outline: false
+        name: 'eye-L', geometry: new THREE.BoxGeometry(.055, .052, .016),
+        position: [-.075, HEAD_MESH_LOCAL_Y + .025, -(HEAD_HALF_DEPTH + .030)], material: materials.visor, outline: false
     });
     const rightEye = addPart(joints.head, {
-        name: 'eye-R', geometry: new THREE.BoxGeometry(.070, .056, .016),
-        position: [.072, HEAD_MESH_LOCAL_Y + .004, -(HEAD_HALF_DEPTH + .062)], material: materials.visor, outline: false
+        name: 'eye-R', geometry: new THREE.BoxGeometry(.055, .052, .016),
+        position: [.075, HEAD_MESH_LOCAL_Y + .025, -(HEAD_HALF_DEPTH + .030)], material: materials.visor, outline: false
     });
-    const proceduralFaceParts = [visorMesh, facePlate, leftEye, rightEye];
+    const leftBrow = addPart(joints.head, {
+        name: 'brow-L', geometry: new THREE.BoxGeometry(.07, .014, .014),
+        position: [-.075, HEAD_MESH_LOCAL_Y + .073, -(HEAD_HALF_DEPTH + .031)], material: materials.detail, outline: false
+    });
+    const rightBrow = addPart(joints.head, {
+        name: 'brow-R', geometry: new THREE.BoxGeometry(.07, .014, .014),
+        position: [.075, HEAD_MESH_LOCAL_Y + .073, -(HEAD_HALF_DEPTH + .031)], material: materials.detail, outline: false
+    });
+    const mouthMesh = addPart(joints.head, {
+        name: 'mouth', geometry: new THREE.BoxGeometry(.11, .018, .014),
+        position: [0, HEAD_MESH_LOCAL_Y - .070, -(HEAD_HALF_DEPTH + .031)], material: materials.detail, outline: false
+    });
+    const proceduralFaceParts = [visorMesh, facePlate, leftEye, rightEye, leftBrow, rightBrow, mouthMesh];
 
     function setProceduralFaceVisible(visible) {
         for (const part of proceduralFaceParts) part.visible = visible;
@@ -333,6 +371,18 @@ export function createCharacterRig(options = {}) {
         name: 'signature-back', geometry: new THREE.BoxGeometry(1, 1, 1),
         position: [0, .38, .24], material: materials.detail, outline: false
     });
+    const signatureTempleL = addPart(joints.head, {
+        name: 'signature-temple-L', geometry: new THREE.BoxGeometry(1, 1, 1),
+        position: [-.28, .20, 0], material: materials.accent, outline: false
+    });
+    const signatureTempleR = addPart(joints.head, {
+        name: 'signature-temple-R', geometry: new THREE.BoxGeometry(1, 1, 1),
+        position: [.28, .20, 0], material: materials.accent, outline: false
+    });
+    const signatureChest = addPart(joints.torso, {
+        name: 'signature-chest', geometry: new THREE.BoxGeometry(1, 1, 1),
+        position: [0, .42, -.15], material: materials.accent, outline: false
+    });
 
     // --- palette / proportions ---
     const PART_SLOTS = ['body', 'arms', 'legs'];
@@ -345,15 +395,36 @@ export function createCharacterRig(options = {}) {
     let avatarModelId = null;
 
     function applySignature() {
-        const signature = CHARACTER_SIGNATURES[state.characterId] || CHARACTER_SIGNATURES.rally;
+        const heroSignature = CHARACTER_SIGNATURES[state.characterId] || CHARACTER_SIGNATURES.rally;
+        const skinSignature = SKIN_SIGNATURES[state.skinId];
+        const valuesFor = key => skinSignature?.[key] || heroSignature?.[key];
         const place = (mesh, values) => {
             mesh.visible = Array.isArray(values);
             if (!Array.isArray(values)) return;
             mesh.scale.set(values[0], values[1], values[2]);
             mesh.position.set(values[3], values[4], values[5]);
         };
-        place(signatureCrest, signature.crest);
-        place(signatureBack, signature.back);
+        place(signatureCrest, valuesFor('crest'));
+        place(signatureBack, valuesFor('back'));
+        place(signatureChest, valuesFor('chest'));
+        const temples = valuesFor('temples');
+        if (Array.isArray(temples)) {
+            place(signatureTempleL, temples);
+            place(signatureTempleR, temples);
+            signatureTempleL.position.x = -Math.abs(temples[3]);
+            signatureTempleR.position.x = Math.abs(temples[3]);
+        } else {
+            signatureTempleL.visible = false;
+            signatureTempleR.visible = false;
+        }
+
+        // Armor-heavy identities get readable shoulder mass; agile identities
+        // retain the canonical slim block silhouette. This is static mutation.
+        const armored = Boolean(temples || valuesFor('chest')?.[0] >= .34);
+        const padScale = armored ? 1.12 : .82;
+        shoulderPadL.scale.set(padScale, armored ? 1.08 : .72, padScale);
+        shoulderPadR.scale.set(padScale, armored ? 1.08 : .72, padScale);
+        beltMesh.scale.y = armored ? 1.08 : .78;
     }
 
     function applyPalette() {

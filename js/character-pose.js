@@ -15,6 +15,12 @@ export const POSE_STATES = Object.freeze([
 const TAU = Math.PI * 2;
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const num = (value, fallback = 0) => (Number.isFinite(value) ? value : fallback);
+// A square voxel torso reads much more dramatically than a rounded humanoid at
+// the same Euler angle. Keep living silhouettes upright enough that hit +
+// strafe reactions never fold the head and torso sideways across the legs.
+export const MAX_LIVE_LEAN = .06;
+export const MAX_LIVE_TORSO_ROLL = .08;
+export const MAX_LIVE_HEAD_ROLL = .12;
 
 /** Zero euler set for every joint. Callers mutate the returned object. */
 export function neutralPose() {
@@ -62,22 +68,22 @@ export function poseFor(state, time = 0, params = {}) {
     switch (state) {
         case 'walk': {
             const phase = t * 5.4 + seed;
-            swingLegs(pose, phase, .52);
-            swingArms(pose, phase, .38);
-            pose.offsetY = Math.abs(Math.sin(phase)) * .045;
-            pose.torso.y = Math.sin(phase) * .05;
+            swingLegs(pose, phase, .46);
+            swingArms(pose, phase, .32);
+            pose.offsetY = Math.abs(Math.sin(phase)) * .035;
+            pose.torso.y = Math.sin(phase) * .035;
             break;
         }
         case 'run': {
             const rate = 6.2 + clamp(speed, 0, 18) * .28;
             const phase = t * rate + seed;
-            const amount = .62 + clamp(speed / 18, 0, 1) * .32;
+            const amount = .56 + clamp(speed / 18, 0, 1) * .22;
             swingLegs(pose, phase, amount);
             swingArms(pose, phase, amount * .82);
-            pose.offsetY = Math.abs(Math.sin(phase)) * .075;
-            pose.torso.x = .16 + clamp(speed / 18, 0, 1) * .14;
-            pose.torso.y = Math.sin(phase) * .08;
-            pose.head.x = -pose.torso.x * .7;
+            pose.offsetY = Math.abs(Math.sin(phase)) * .055;
+            pose.torso.x = .09 + clamp(speed / 18, 0, 1) * .07;
+            pose.torso.y = Math.sin(phase) * .045;
+            pose.head.x = -pose.torso.x * .52;
             break;
         }
         case 'jump':
@@ -99,8 +105,8 @@ export function poseFor(state, time = 0, params = {}) {
             pose.hipL.x = -.7 * ease; pose.kneeL.x = 1.1 * ease;
             pose.hipR.x = -.7 * ease; pose.kneeR.x = 1.1 * ease;
             pose.shoulderL.x = .5 * ease; pose.shoulderR.x = .5 * ease;
-            pose.offsetY = -.32 * ease;
-            pose.torso.x = .3 * ease;
+            pose.offsetY = -.24 * ease;
+            pose.torso.x = .18 * ease;
             break;
         }
         case 'throw': {
@@ -113,10 +119,10 @@ export function poseFor(state, time = 0, params = {}) {
             pose.shoulderR.z = .45 * arc;
             pose.elbowR.x = -1.5 * wind + 1.35 * release;
             pose.shoulderL.x = -.55 * wind + .3 * release;
-            pose.torso.y = .55 * wind - .95 * release + .4 * recover;
-            pose.hips.y = pose.torso.y * .35;
-            pose.head.y = -pose.torso.y * .45;
-            pose.torso.x = -.18 * wind + .3 * release;
+            pose.torso.y = .38 * wind - .62 * release + .24 * recover;
+            pose.hips.y = pose.torso.y * .22;
+            pose.head.y = -pose.torso.y * .32;
+            pose.torso.x = -.1 * wind + .18 * release;
             break;
         }
         case 'deflect': {
@@ -124,17 +130,17 @@ export function poseFor(state, time = 0, params = {}) {
             pose.shoulderL.x = -1.75 * push; pose.shoulderL.z = -.5 * push;
             pose.shoulderR.x = -1.75 * push; pose.shoulderR.z = .5 * push;
             pose.elbowL.x = -.95 * push; pose.elbowR.x = -.95 * push;
-            pose.torso.x = -.22 * push;
-            pose.offsetY = -.1 * push;
+            pose.torso.x = -.12 * push;
+            pose.offsetY = -.06 * push;
             break;
         }
         case 'hit': {
             const shock = (1 - progress) * Math.sin(progress * 22 + seed);
-            pose.torso.x = -.35 * (1 - progress);
-            pose.torso.z = .18 * shock;
-            pose.head.z = -.3 * shock;
-            pose.shoulderL.z = -.4 * (1 - progress);
-            pose.shoulderR.z = .4 * (1 - progress);
+            pose.torso.x = -.18 * (1 - progress);
+            pose.torso.z = .07 * shock;
+            pose.head.z = -.11 * shock;
+            pose.shoulderL.z = -.24 * (1 - progress);
+            pose.shoulderR.z = .24 * (1 - progress);
             break;
         }
         case 'dead': {
@@ -152,8 +158,8 @@ export function poseFor(state, time = 0, params = {}) {
             pose.shoulderL.z = -2.3 + Math.sin(phase) * .35;
             pose.shoulderR.z = 2.3 - Math.sin(phase) * .35;
             pose.elbowL.x = -.4; pose.elbowR.x = -.4;
-            pose.torso.y = Math.sin(phase * .5) * .25;
-            pose.offsetY = Math.abs(Math.sin(phase * .5)) * .09;
+            pose.torso.y = Math.sin(phase * .5) * .14;
+            pose.offsetY = Math.abs(Math.sin(phase * .5)) * .07;
             break;
         }
         case 'victory': {
@@ -182,8 +188,10 @@ export function poseFor(state, time = 0, params = {}) {
     // Aim pitch + strafe lean apply on top of every state except dead.
     if (state !== 'dead') {
         pose.head.x += aim * .55;
-        pose.torso.x += aim * .12;
-        pose.lean = -strafe * .12;
+        pose.torso.x += aim * .08;
+        pose.lean = clamp(-strafe * MAX_LIVE_LEAN, -MAX_LIVE_LEAN, MAX_LIVE_LEAN);
+        pose.torso.z = clamp(pose.torso.z, -MAX_LIVE_TORSO_ROLL, MAX_LIVE_TORSO_ROLL);
+        pose.head.z = clamp(pose.head.z, -MAX_LIVE_HEAD_ROLL, MAX_LIVE_HEAD_ROLL);
     }
     return pose;
 }

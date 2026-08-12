@@ -1,14 +1,14 @@
 const CASES = Object.freeze({
     kickoff: { price: 120, drops: [
-        ['knife', 'tide', 'rare', 28], ['knife', 'flare', 'rare', 28], ['knife', 'prism', 'epic', 16], ['knife', 'stiletto', 'rare', 10], ['knife', 'sherlock', 'legendary', 3],
+        ['knife', 'tide', 'rare', 19], ['knife', 'flare', 'rare', 19], ['knife', 'courtline', 'rare', 10], ['knife', 'stiletto', 'rare', 10], ['knife', 'prism', 'epic', 16], ['knife', 'sherlock', 'legendary', 3], ['cosmetic', 'gloves_kinetic', 'rare', 8],
         ['avatar', 'neon', 'rare', 12], ['avatar', 'frost', 'rare', 7], ['avatar', 'astro', 'epic', 4], ['avatar', 'arcade', 'legendary', 2]
     ] },
     chroma: { price: 180, drops: [
-        ['knife', 'tide', 'rare', 22], ['knife', 'flare', 'rare', 22], ['knife', 'prism', 'epic', 17], ['knife', 'crimson_web', 'epic', 6], ['knife', 'doppler', 'legendary', 2],
+        ['knife', 'tide', 'rare', 22], ['knife', 'flare', 'rare', 22], ['knife', 'prism', 'epic', 11], ['knife', 'crimson_web', 'epic', 6], ['knife', 'doppler', 'legendary', 2], ['cosmetic', 'gloves_prism', 'epic', 6],
         ['avatar', 'samurai', 'rare', 10], ['avatar', 'moss', 'rare', 8], ['avatar', 'striker', 'epic', 4], ['avatar', 'void', 'epic', 2], ['avatar', 'circuit', 'rare', 7]
     ] },
     arsenal: { price: 240, drops: [
-        ['knife', 'prism', 'epic', 32], ['knife', 'crimson_web', 'epic', 25], ['knife', 'cleaver', 'epic', 14], ['knife', 'fade', 'legendary', 10], ['knife', 'doppler', 'legendary', 5], ['knife', 'sherlock', 'legendary', 3],
+        ['knife', 'prism', 'epic', 27], ['knife', 'crimson_web', 'epic', 20], ['knife', 'pulsewing', 'epic', 10], ['knife', 'cleaver', 'epic', 14], ['knife', 'fade', 'legendary', 10], ['knife', 'doppler', 'legendary', 5], ['knife', 'sherlock', 'legendary', 3],
         ['avatar', 'astro', 'rare', 10], ['avatar', 'void', 'epic', 9], ['avatar', 'royal', 'legendary', 6]
     ] },
     elemental: { price: 190, drops: [
@@ -20,8 +20,8 @@ const CASES = Object.freeze({
         ['avatar', 'bee_runner', 'epic', 8], ['avatar', 'axolotl_scout', 'legendary', 4], ['knife', 'pixel_edge', 'rare', 2]
     ] },
     mythic: { price: 280, drops: [
-        ['knife', 'aurora', 'legendary', 8], ['knife', 'reactor', 'legendary', 8], ['knife', 'dark_eater', 'legendary', 5], ['ball', 'portal', 'legendary', 10], ['ball', 'blackhole', 'legendary', 6],
-        ['avatar', 'galaxy_idol', 'legendary', 10], ['avatar', 'infernal_smile', 'legendary', 10], ['cosmetic', 'cape_royal', 'legendary', 12], ['cosmetic', 'cape_glitch', 'legendary', 10], ['cosmetic', 'shoes_magma', 'legendary', 12], ['cosmetic', 'impact_glitch', 'legendary', 14]
+        ['knife', 'aurora', 'legendary', 5], ['knife', 'reactor', 'legendary', 5], ['knife', 'dark_eater', 'legendary', 5], ['knife', 'rift_hook', 'legendary', 5], ['ball', 'portal', 'legendary', 10], ['ball', 'blackhole', 'legendary', 6],
+        ['avatar', 'galaxy_idol', 'legendary', 10], ['avatar', 'infernal_smile', 'legendary', 10], ['cosmetic', 'cape_royal', 'legendary', 9], ['cosmetic', 'cape_glitch', 'legendary', 10], ['cosmetic', 'shoes_magma', 'legendary', 12], ['cosmetic', 'impact_glitch', 'legendary', 12], ['cosmetic', 'gloves_crown', 'legendary', 6]
     ] }
 });
 
@@ -44,7 +44,7 @@ const BALL_PRICES = Object.freeze({
 
 const COSMETIC_TYPES = Object.freeze([
     'cape', 'pet', 'shoes', 'aura', 'impact', 'hat',
-    'mask', 'wings', 'backpack', 'banner', 'trail', 'finisher'
+    'mask', 'wings', 'backpack', 'banner', 'trail', 'finisher', 'gloves'
 ]);
 
 const COSMETIC_DESCRIPTORS = Object.freeze({
@@ -113,6 +113,9 @@ const COSMETIC_DESCRIPTORS = Object.freeze({
     trail_stardust: Object.freeze({ type: 'trail', price: 400 }),
     trail_glitch: Object.freeze({ type: 'trail', price: 480 }),
     trail_rainbow: Object.freeze({ type: 'trail', price: 520 }),
+    gloves_kinetic: Object.freeze({ type: 'gloves', price: 260 }),
+    gloves_prism: Object.freeze({ type: 'gloves', price: 420 }),
+    gloves_crown: Object.freeze({ type: 'gloves', price: 620 }),
     finisher_confetti: Object.freeze({ type: 'finisher', price: 260 }),
     finisher_shatter: Object.freeze({ type: 'finisher', price: 300 }),
     finisher_lightning: Object.freeze({ type: 'finisher', price: 400 }),

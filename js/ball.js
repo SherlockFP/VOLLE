@@ -29,10 +29,17 @@ export function homingRescueRange(speed) {
 }
 
 export function shouldDirectHomingRescue(distance, speed, homingAge, alignment) {
-    if (!Number.isFinite(alignment) || alignment >= 0.15) return false;
-    const isCircling = Number.isFinite(distance) && distance < homingRescueRange(speed);
+    if (!Number.isFinite(alignment) || !Number.isFinite(distance)) return false;
+    const isClose = distance < homingRescueRange(speed);
+    const isCircling = isClose && alignment < 0.15;
     const hasOverstayed = Number.isFinite(homingAge) && homingAge > 1.15;
-    return isCircling || hasOverstayed;
+    return isCircling || (hasOverstayed && (isClose || alignment < 0.15));
+}
+
+export function floorSafeHomingTargetY(targetY, radius) {
+    const safeRadius = Number.isFinite(radius) ? Math.max(0, radius) : 0.35;
+    const minimumY = Math.max(0.35, safeRadius);
+    return Math.max(minimumY, Number.isFinite(targetY) ? targetY : minimumY);
 }
 
 export function createAimRouteOffset(origin, target, aimDirection) {
@@ -518,6 +525,8 @@ export class Ball {
         this.targetPlayer = null;
         this.state = 'idle';
         this.skinId = 'classic';
+        this.skinConfig = BALL_SKINS.classic;
+        this._skinHeatColor = new THREE.Color(0xffffff);
 
         this.trail = [];
         this.trailTimer = 0;
@@ -631,13 +640,15 @@ export class Ball {
 
     // Skin değiştir — store'dan equippedBall ile eşle.
     setSkin(skinId) {
-        const skin = BALL_SKINS[skinId] || BALL_SKINS.classic;
-        this.skinId = skinId;
-        this.mat.uniforms.uColor.value.setHex(skin.color);
-        this.glowMat.color.setHex(skin.glow);
+        const resolvedId = Object.hasOwn(BALL_SKINS, skinId) ? skinId : 'classic';
+        const skin = BALL_SKINS[resolvedId];
+        this.skinId = resolvedId;
         this.starMat.color.setHex(skin.starColor);
         this.skinConfig = skin;
         this._applyShape(skin.shape || 'sphere');
+        this.clearTrail();
+        this.updateColor();
+        return resolvedId;
     }
 
     // Swap the VISUAL mesh only. this.radius / this.visualRadius / every physics field
@@ -1224,12 +1235,16 @@ export class Ball {
             && Math.abs(this.targetPlayer.group.position.y - this.targetPlayer.position.y) < 0.05;
         if (usesGroundPosition) basePos.y += 0.65;
         const zone = Ball.BODY_ZONES[this.bodyZone] || Ball.BODY_ZONES.chest;
-        basePos.y = Math.max(0.35, basePos.y + zone.y);
+        basePos.y = floorSafeHomingTargetY(basePos.y + zone.y, this.radius);
         if (includeRouteOffset && this._targetRouteOffset) {
             basePos.x += this._targetRouteOffset.x;
             basePos.y += this._targetRouteOffset.y;
             basePos.z += this._targetRouteOffset.z;
         }
+        // A downward aim offset must never put the pursuit point below the
+        // physical ball floor. Otherwise floor recovery steers down again and
+        // can form a stable horizontal orbit at high rally speed.
+        basePos.y = floorSafeHomingTargetY(basePos.y, this.radius);
         return basePos;
     }
 
@@ -1383,13 +1398,16 @@ export class Ball {
 
     updateColor() {
         const sr = this.currentSpeed / this.baseSpeed;
-        // ponytail: orange → pink → red → white as speed increases
-        const hue = Math.max(0, 0.08 - (sr - 1) * 0.012);
-        const sat = Math.min(1, 0.8 + sr * 0.015);
-        const light = Math.min(0.75, 0.55 + sr * 0.02);
-        const color = new THREE.Color().setHSL(hue, sat, light);
-        this.mat.uniforms.uColor.value.copy(color);
-        this.glowMat.color.copy(color);
+        // Cosmetic base color stays authoritative; speed contributes heat only.
+        const skin = this.skinConfig || BALL_SKINS.classic;
+        // Preserve the equipped skin through spawn/deflect updates. Long
+        // rallies still read hotter by blending toward white instead of
+        // replacing every cosmetic with the old hard-coded orange/red ramp.
+        const heatBlend = Math.min(0.42, Math.max(0, sr - 1) * 0.08);
+        this.mat.uniforms.uColor.value.setHex(skin.color).lerp(this._skinHeatColor, heatBlend);
+        this.glowMat.color
+            .setHex(this._affixGlowColor ?? skin.glow)
+            .lerp(this._skinHeatColor, heatBlend * 0.6);
         // ponytail: glow intensity scales with speed — fast ball = bright glow
         this.glowMat.opacity = Math.min(0.6, 0.2 + sr * 0.04);
     }

@@ -196,7 +196,8 @@ export class UI {
 
         const timerEl = el('hud-round-timer');
         if (timerEl) {
-            timerEl.textContent = time;
+            const timerValue = timerEl.querySelector('[data-timer-value]') || timerEl;
+            if (timerValue.textContent !== time) timerValue.textContent = time;
             // updateHUD runs every frame, so only touch the DOM when the tier
             // actually changes rather than rewriting the attribute 60x a second.
             const urgency = !Number.isFinite(timeRemaining) ? ''
@@ -218,7 +219,8 @@ export class UI {
             this._hudScores[side] = value;
             const node = el(`hud-score-${side}`);
             if (!node) continue;
-            node.textContent = value;
+            const scoreValue = node.querySelector('[data-score-value]') || node;
+            scoreValue.textContent = value;
             node.classList.remove('score-pop');
             void node.offsetWidth; // restart the animation on repeat scores
             node.classList.add('score-pop');
@@ -1831,7 +1833,7 @@ export class UI {
             avatars: ['all', 'owned', 'affordable'],
             balls: ['all', 'ball', 'owned', 'affordable'],
             live: ['all', 'ball', 'cosmetic', 'owned', 'affordable'],
-            wearables: ['all', 'cosmetic', 'owned', 'affordable'],
+            wearables: ['all', 'cosmetic', 'hat', 'shoes', 'cape', 'owned', 'affordable'],
             cases: ['all', 'affordable'],
             boosts: ['all', 'affordable']
         };
@@ -1861,6 +1863,7 @@ export class UI {
         const kicker = document.getElementById('shop-selected-kicker');
 
         if (stage) {
+            stage.dataset.previewType = 'character';
             stage.dataset.skinId = selected.id;
             stage.style.setProperty('--showcase-head', selected.head);
             stage.style.setProperty('--showcase-body', selected.body);
@@ -1910,6 +1913,10 @@ export class UI {
         if (dispatchPreview && typeof window !== 'undefined' && window.dispatchEvent && typeof CustomEvent !== 'undefined') {
             window.dispatchEvent(new CustomEvent('warrball:shop-preview', { detail }));
         }
+        const productVisual = document.getElementById('shop-selected-product-visual');
+        productVisual?.setAttribute('aria-hidden', 'true');
+        productVisual?.removeAttribute('role');
+        productVisual?.removeAttribute('aria-label');
         if (announce && status) status.focus?.({ preventScroll: true });
     }
 
@@ -1925,6 +1932,8 @@ export class UI {
         const practice = document.getElementById('btn-shop-practice');
         const action = document.getElementById('shop-selected-action');
         const kicker = document.getElementById('shop-selected-kicker');
+        const stage = document.getElementById('shop-showcase-stage');
+        if (stage) stage.dataset.previewType = 'character';
         this._shopPreviewCosmetic = item.id;
         if (kicker) kicker.textContent = 'WEARABLE PREVIEW';
         if (name) name.textContent = item.name;
@@ -1953,6 +1962,49 @@ export class UI {
         return true;
     }
 
+    _setShopBallShowcase(store, item, announce = false) {
+        if (!item?.id) return false;
+        const owned = store.ownsBall(item.id);
+        const equipped = store.get('equippedBall') === item.id;
+        const stage = document.getElementById('shop-showcase-stage');
+        const visual = document.getElementById('shop-selected-product-visual');
+        const name = document.getElementById('shop-selected-name');
+        const meta = document.getElementById('shop-selected-meta');
+        const status = document.getElementById('shop-showcase-status');
+        const practice = document.getElementById('btn-shop-practice');
+        const action = document.getElementById('shop-selected-action');
+        const kicker = document.getElementById('shop-selected-kicker');
+        if (stage) stage.dataset.previewType = 'ball';
+        if (visual) {
+            visual.innerHTML = `<span class="shop-selected-ball" data-shape="${item.shape || 'sphere'}" data-effect="${item.effect || 'core'}" style="--ball-color:#${item.color.toString(16).padStart(6, '0')};--ball-glow:#${item.glow.toString(16).padStart(6, '0')}"></span><i class="shop-selected-ball-trail" aria-hidden="true"></i>`;
+            visual.setAttribute('role', 'img');
+            visual.setAttribute('aria-label', `${item.name} 3D preview`);
+            visual.setAttribute('aria-hidden', 'false');
+        }
+        if (kicker) kicker.textContent = 'BALL SKIN PREVIEW';
+        if (name) name.textContent = item.name;
+        if (meta) meta.textContent = `${String(item.rarity || 'common').toUpperCase()} · ${(item.shape || 'sphere').toUpperCase()} · ${equipped ? 'Equipped' : owned ? 'Owned' : `${item.price || 150} credits`}`;
+        if (status) status.textContent = `${item.name} · Full-size model and trail preview`;
+        if (practice) { practice.hidden = true; practice.disabled = true; }
+        if (action) {
+            action.className = 'btn btn-primary shop-selected-action';
+            action.dataset.type = 'ball';
+            action.dataset.id = item.id;
+            action.disabled = equipped;
+            action.textContent = equipped ? `${item.name} equipped` : owned ? `Equip ${item.name}` : `Buy ${item.name} — ${item.price || 150}`;
+            action.classList.toggle('shop-equip', !equipped && owned);
+            action.classList.toggle('shop-buy', !equipped && !owned);
+        }
+        document.querySelectorAll('.ball-inspect').forEach(control => control.setAttribute('aria-pressed', String(control.dataset.id === item.id)));
+        if (typeof window !== 'undefined' && window.dispatchEvent && typeof CustomEvent !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('warrball:shop-preview', {
+                detail: Object.freeze({ type: 'ball', id: item.id, ball: item, source: 'shop' })
+            }));
+        }
+        if (announce && status) status.focus?.({ preventScroll: true });
+        return true;
+    }
+
     _resetShopCosmeticShowcase(store) {
         this._shopPreviewCosmetic = null;
         document.querySelectorAll('.wearable-inspect').forEach(control => {
@@ -1976,7 +2028,10 @@ export class UI {
         const action = document.getElementById('shop-selected-action');
         const kicker = document.getElementById('shop-selected-kicker');
 
-        if (stage) stage.dataset.characterId = selected.id;
+        if (stage) {
+            stage.dataset.previewType = 'character';
+            stage.dataset.characterId = selected.id;
+        }
         if (kicker) kicker.textContent = 'FEATURED CHARACTER';
         if (name) name.textContent = selected.name;
         if (meta) meta.textContent = `${selected.desc} · ${equipped ? 'In your loadout' : owned ? 'Unlocked' : `${selected.price} credits`}`;
@@ -2140,8 +2195,10 @@ export class UI {
             this._shopPreviewCharacter = selectedCharacter.id;
             this._setShopCharacterDetail(store, selectedCharacter);
         } else if (tab === 'balls') {
+            let selectedBall = null;
             Object.entries(BALL_SKINS).forEach(([id, b]) => {
                 if (id === 'classic') return;
+                if (!selectedBall || store.get('equippedBall') === id) selectedBall = { ...b, id };
                 const owned = store.ownsBall(id);
                 const card = document.createElement('div');
                 card.className = `shop-card ball-skin rarity-${b.rarity || 'common'} ${owned ? 'owned' : ''}`;
@@ -2176,9 +2233,11 @@ export class UI {
                 }
                 const buy = card.querySelector('.shop-buy');
                 if (buy) buy.textContent = `Buy — ${b.price || 150}`;
+                card.querySelector('.ball-inspect')?.addEventListener('click', () => this._setShopBallShowcase(store, { ...b, id }, true));
                 this._decorateShopCard(card, { category: 'ball', price: b.price || 150, owned, equipped, currency: coinBalance });
                 grid.appendChild(card);
             });
+            if (selectedBall) this._setShopBallShowcase(store, selectedBall);
         } else if (tab === 'avatars') {
             const visibleSkins = Object.values(AVATAR_SKINS).filter(s => s.id !== 'default');
             const previewId = AVATAR_SKINS[this._shopPreviewAvatar]?.id || equippedSkin.id;
@@ -2262,7 +2321,7 @@ export class UI {
                     inspect.addEventListener('click', () => this._dispatchCosmeticPreview(item));
                     actions.append(inspect, action);
                     card.append(preview, name, rarity, description, actions);
-                    this._decorateShopCard(card, { category: 'cosmetic', price: item.price, owned, equipped: active, currency: coinBalance });
+                    this._decorateShopCard(card, { category: item.type, price: item.price, owned, equipped: active, currency: coinBalance });
                     grid.appendChild(card);
                 });
             });

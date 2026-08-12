@@ -58,6 +58,21 @@ test('beach volleyball config has regulation net and bounded sand gameplay hints
     assert.equal(beach.spectator.stands.length, 2);
 });
 
+test('volleyball and factory use bounded ten-percent footprint and material upgrades', () => {
+    const volleyball = MAPS.beach_open;
+    const factory = MAPS.industrial;
+    assert.ok(volleyball.courtWidth / 52 >= 1.08 && volleyball.courtWidth / 52 <= 1.12);
+    assert.ok(volleyball.courtLength / 68 >= 1.08 && volleyball.courtLength / 68 <= 1.12);
+    assert.ok(factory.courtWidth / 101 >= 1.08 && factory.courtWidth / 101 <= 1.12);
+    assert.ok(factory.courtLength / 112 >= 1.08 && factory.courtLength / 112 <= 1.12);
+    for (const config of [volleyball, factory]) {
+        const bounds = getArenaBounds(config);
+        assert.equal(bounds.maxX, config.courtWidth / 2);
+        assert.equal(bounds.maxZ, config.courtLength / 2);
+        assert.ok(config.floorMaterial.emissiveIntensity > 0.05);
+    }
+});
+
 test('arena bounds helpers are pure and handle fall-death thresholds', () => {
     const config = MAPS.dropworks;
     const before = structuredClone(config);
@@ -91,9 +106,9 @@ test('stand geometry metadata remains under the runtime mesh budget', () => {
     }
 });
 
-test('legacy map dimensions and flags remain available', () => {
+test('established map dimensions and flags remain available', () => {
     assert.equal(MAPS.beach.courtWidth, 106);
-    assert.equal(MAPS.industrial.courtLength, 112);
+    assert.equal(MAPS.industrial.courtLength, 123);
     assert.equal(MAPS.space.lowGravity, true);
     assert.equal(MAPS.ice.slippery, true);
 });

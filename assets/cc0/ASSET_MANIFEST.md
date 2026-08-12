@@ -28,5 +28,15 @@ beside each pack.
   referenced `Textures/colormap.png`
 - Use: practice parkour area
 
+## Kenney Furniture Kit
+
+- Source: https://kenney.nl/assets/furniture-kit
+- License: CC0 1.0
+- Files: `loungeSofa.glb`, `loungeSofaCorner.glb`, `loungeChair.glb`,
+  `tableCoffee.glb`, `pottedPlant.glb`, `plantSmall2.glb`,
+  `lampRoundFloor.glb`, `rugRound.glb`, `speaker.glb`, and
+  `bookcaseOpen.glb`
+- Use: compact social lounge seating, plants, lighting, and conversation props
+
 Kenney attribution is not required for CC0 assets. Sources are retained for
 provenance and future updates.

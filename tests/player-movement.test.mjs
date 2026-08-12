@@ -33,6 +33,10 @@ const {
     LONG_JUMP_STAMINA_COST
 } = helpers;
 
+test('pointer-lock rejection is contained in embedded browser contexts', () => {
+    assert.match(source, /requestPointerLock\(\)\?\.catch\?\.\(\(\) => \{\}\)/);
+});
+
 test('box collision stops entry and preserves an outward normal', () => {
     const collider = { minX: 2, maxX: 6, minY: 0, maxY: 8, minZ: -2, maxZ: 2 };
     const result = resolvePlanarBoxCollision(

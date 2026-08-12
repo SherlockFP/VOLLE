@@ -54,6 +54,13 @@ const KEY = 'dodgball_save_v2';
 const CASE_OPEN_REQUEST_TTL_MS = 10 * 60 * 1000;
 const CASE_OPEN_REQUEST_MAX = 12;
 
+export function normalizeEquippedBall(ballId, ownedBalls = []) {
+    const valid = ballId === 'classic' || Object.hasOwn(BALL_PRICES, ballId);
+    return valid && Array.isArray(ownedBalls) && ownedBalls.includes(ballId)
+        ? ballId
+        : 'classic';
+}
+
 export function isDefinitiveCaseOpenRejection(status) {
     return Number.isInteger(status) && status >= 400 && status < 500 && status !== 408;
 }
@@ -241,6 +248,9 @@ class StoreClass {
             const raw = localStorage.getItem(KEY);
             if (!raw) return structuredClone(DEFAULTS);
             const parsed = JSON.parse(raw);
+            const ownedBalls = Array.isArray(parsed.ownedBalls)
+                ? [...new Set(['classic', ...parsed.ownedBalls.filter(id => Object.hasOwn(BALL_PRICES, id))])]
+                : [...DEFAULTS.ownedBalls];
             const legacyElo = Math.min(5000, Math.max(0,
                 Number(parsed.rankedState?.elo ?? parsed.elo ?? parsed.stats?.rankedElo ?? 1000) || 1000
             ));
@@ -262,6 +272,8 @@ class StoreClass {
                 },
                 crosshairSettings: { ...DEFAULTS.crosshairSettings, ...(parsed.crosshairSettings||{}) },
                 selectedChar: CHARACTERS[parsed.selectedChar] ? parsed.selectedChar : DEFAULTS.selectedChar,
+                ownedBalls,
+                equippedBall: normalizeEquippedBall(parsed.equippedBall, ownedBalls),
                 characterProgress: { ...DEFAULTS.characterProgress, ...(parsed.characterProgress||{}) },
                 battlepass: normalizeBattlepassProgress(parsed.battlepass),
                 stats: { ...DEFAULTS.stats, ...(parsed.stats||{}) },
@@ -371,6 +383,7 @@ class StoreClass {
             ...(this.data.arenaCache && typeof this.data.arenaCache === 'object' ? this.data.arenaCache : {})
         };
         this.data.battlepass = normalizeBattlepassProgress(this.data.battlepass);
+        this.data.equippedBall = normalizeEquippedBall(this.data.equippedBall, this.data.ownedBalls);
         if (profile.battlepassBoosts && typeof profile.battlepassBoosts === 'object' && !Array.isArray(profile.battlepassBoosts)) {
             const userId = this._socialUserId();
             const current = this.data.socialState?.xpBoosts?.[userId] || { active: null };
@@ -1396,7 +1409,7 @@ class StoreClass {
     }
 
     equipBall(ballId) {
-        if (!BALL_PRICES[ballId] && ballId !== 'classic') return false;
+        if (ballId !== 'classic' && !Object.hasOwn(BALL_PRICES, ballId)) return false;
         if (!this.ownsBall(ballId)) return false;
         this.data.equippedBall = ballId;
         this.save();
@@ -1419,6 +1432,7 @@ class StoreClass {
     setLoadout(loadout) {
         if (loadout.char && !this.ownsCharacter(loadout.char)) return false;
         if (loadout.skill && !this.ownsSkill(loadout.skill)) return false;
+        if (loadout.ball && normalizeEquippedBall(loadout.ball, this.data.ownedBalls) !== loadout.ball) return false;
         const runes = Array.isArray(loadout.runes)
             ? loadout.runes.filter(id => RUNES[id] && this.owns(id)).slice(0, 1)
             : this.data.loadout.runes;

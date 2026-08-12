@@ -397,7 +397,26 @@ function createGloves(item) {
     // Gloves attach to both handL and handR sockets, so we create one per hand below
     // and let attachToRig handle duplicating this group's structure for each hand.
     // For now, create a single left glove in local space; attachToRig will mirror it.
-    if (item.style === 'leather') {
+    if (item.style === 'kinetic') {
+        group.add(part(new THREE.BoxGeometry(0.17, 0.22, 0.18), item.colors[0], 0, -0.11, 0));
+        group.add(part(new THREE.BoxGeometry(0.19, 0.055, 0.205), item.colors[1], 0, 0.025, 0));
+        for (const x of [-0.06, 0, 0.06]) {
+            group.add(part(new THREE.BoxGeometry(0.042, 0.035, 0.025), item.colors[1], x, -0.08, -0.1));
+        }
+    } else if (item.style === 'prism') {
+        group.add(part(new THREE.BoxGeometry(0.17, 0.22, 0.18), item.colors[0], 0, -0.11, 0));
+        for (const x of [-0.065, 0, 0.065]) {
+            const plate = part(new THREE.OctahedronGeometry(0.043), item.colors[1], x, -0.08, -0.11);
+            plate.scale.set(1, .65, .45);
+            group.add(plate);
+        }
+    } else if (item.style === 'royal') {
+        group.add(part(new THREE.BoxGeometry(0.18, 0.23, 0.19), item.colors[0], 0, -0.115, 0));
+        group.add(part(new THREE.BoxGeometry(0.20, 0.06, 0.21), item.colors[1], 0, 0.025, 0));
+        for (const x of [-0.07, -0.023, 0.023, 0.07]) {
+            group.add(part(new THREE.BoxGeometry(0.034, 0.045, 0.03), item.colors[1], x, -0.075, -0.105));
+        }
+    } else if (item.style === 'leather') {
         group.add(part(new THREE.BoxGeometry(0.16, 0.22, 0.18), item.colors[0], 0, -0.11, 0));
         group.add(part(new THREE.BoxGeometry(0.18, 0.06, 0.2), item.colors[1], 0, 0.03, 0));
     } else if (item.style === 'metal') {
@@ -505,12 +524,12 @@ function attachToRig(entity, model, type) {
     if (type === 'gloves') {
         const { handL, handR } = rig.sockets;
         if (!handL || !handR) return null;
-        // Attach single model to both hands by cloning for the right hand
+        // Clone before offsetting the left glove so both sides start in model-local space.
+        const rightClone = model.clone(true);
         const leftClone = model;
         leftClone.position.sub(socketLocalOffset(entity, handL, offset));
         handL.add(leftClone);
-        const rightClone = new THREE.Group();
-        rightClone.copy(model, false);
+        rightClone.position.set(0, 0, 0);
         rightClone.position.sub(socketLocalOffset(entity, handR, offset));
         // Mirror the right glove by negating x positions of children
         for (const child of rightClone.children) {

@@ -5,7 +5,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { shouldArmFirstMatchHints, shouldShowFtueWelcome } from '../js/store.js';
 
 async function mainMenuBlock() {
     const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
@@ -153,7 +152,7 @@ test('welcome overlay tip text matches the real bindings from js/player.js (WASD
     assert.match(block, /Right-Click to stab up close/);
 });
 
-test('FTUE primary starts the real guided drill while skip/escape record exits without claiming completion', async () => {
+test('manual help starts the real guided drill while skip/escape record exits without claiming completion', async () => {
     const source = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
     assert.match(source, /bind\('btn-how-to-play', \(\) => this\.showFtueWelcome\(\)\)/);
     assert.match(source, /bind\('ftue-welcome-start', \(\) => this\.startFtueGuidedDrill\(\)\)/);
@@ -161,13 +160,13 @@ test('FTUE primary starts the real guided drill while skip/escape record exits w
     assert.match(source, /hideFtueWelcome\(\{ reason: 'escape', trackExit: true \}\)/);
 
     const hideStart = source.indexOf('hideFtueWelcome({');
-    const hideEnd = source.indexOf('// First-match HUD hints', hideStart);
+    const hideEnd = source.indexOf('_armFirstSoloBotGuard()', hideStart);
     const hideSlice = source.slice(hideStart, hideEnd);
     assert.match(hideSlice, /this\.productAnalytics\.track\('ftue_exit'/);
     assert.doesNotMatch(hideSlice, /ftue_complete/, 'dismissing the overlay is not completion');
     const ftueStart = source.indexOf('startFtueGuidedDrill()');
     const ftueSlice = source.slice(ftueStart, ftueStart + 500);
-    assert.match(ftueSlice, /this\.startGuidedDeflectDrill\(\{ source: firstRun \? 'ftue' : 'manual_help' \}\)/);
+    assert.match(ftueSlice, /this\.startGuidedDeflectDrill\(\{ source: 'manual_help' \}\)/);
 
     const completionCount = (source.match(/productAnalytics\.track\('ftue_complete'/g) || []).length;
     assert.equal(completionCount, 1, 'only the guided-drill completion callback may claim FTUE completion');
@@ -185,7 +184,7 @@ test('guided drill result CTA leaves practice and routes through the existing so
     assert.match(slice, /if \(this\.network\?\.connected\)/, 'must not auto-start multiplayer');
     assert.match(slice, /this\._exitPracticeSession\(\);/);
     assert.match(slice, /this\.game\.startSolo\(\);/);
-    assert.match(slice, /this\._armFirstMatchHints\(\);/);
+    assert.match(slice, /this\._armFirstSoloBotGuard\(\);/);
     assert.match(slice, /this\.ui\.showScreen\('lobby'\);/);
     assert.match(slice, /document\.getElementById\('btn-start-game'\)\?\.click\(\)/);
     assert.match(source, /bind\('btn-drill-first-bot', \(\) => this\._startFirstBotMatchFromDrill\(\)\)/);
@@ -218,17 +217,17 @@ test('first-run drill result is a match handoff rather than a grade and preserve
     assert.match(slice, /\$\{stage\.perfect \|\| 0\} perfect/);
 });
 
-test('first-match hint arming remains restricted to solo/bot paths', async () => {
+test('first-solo reliability guard remains restricted to solo/bot paths', async () => {
     const source = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
 
-    // Hints must arm only on solo/bot start paths, never on the multiplayer
+    // The reliability guard arms only on solo/bot start paths, never on the multiplayer
     // host path (_doHostGame also calls startSolo() internally to seed lobby
     // state before real players join).
-    assert.match(source, /this\.game\.startSolo\(\);\s*\n\s*this\._armFirstMatchHints\(\);/);
+    assert.match(source, /this\.game\.startSolo\(\);\s*\n\s*this\._armFirstSoloBotGuard\(\);/);
     const hostFnIdx = source.indexOf('async _doHostGame()');
     assert.ok(hostFnIdx >= 0, 'expected _doHostGame in main.js');
     const hostSlice = source.slice(hostFnIdx, hostFnIdx + 600);
-    assert.doesNotMatch(hostSlice, /_armFirstMatchHints/);
+    assert.doesNotMatch(hostSlice, /_armFirstSoloBotGuard/);
 });
 
 test('Card Collection is a local Locker tab with roving tab state', async () => {
@@ -273,13 +272,12 @@ test('Card Collection render uses sprite art, rarity/state datasets, and respons
     assert.match(css, /@media \(max-width: 700px\)[\s\S]*?\.card-collection-grid\s*\{\s*grid-template-columns:\s*1fr/);
 });
 
-// Pure-function pins (same style as store.js's isFirstMatchOfDay/loginStreakReward):
-// exercised without touching localStorage or the DOM.
-test('shouldShowFtueWelcome / shouldArmFirstMatchHints are pure flag gates', () => {
-    assert.equal(shouldShowFtueWelcome(undefined), true, 'no flag yet -> overlay should show');
-    assert.equal(shouldShowFtueWelcome(false), true);
-    assert.equal(shouldShowFtueWelcome(true), false, 'flag already set -> overlay must not show again');
-
-    assert.equal(shouldArmFirstMatchHints(undefined), true, 'no flag yet -> hints should arm');
-    assert.equal(shouldArmFirstMatchHints(true), false, 'flag already set -> hints must never arm/fire again');
+test('authentication never auto-launches FTUE or timed first-match hints', async () => {
+    const source = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
+    const authStart = source.indexOf('async _completeAuthentication()');
+    const authEnd = source.indexOf('_setupAuthModal()', authStart);
+    const authSlice = source.slice(authStart, authEnd);
+    assert.doesNotMatch(authSlice, /showFtueWelcome|startGuidedDeflectDrill/);
+    assert.doesNotMatch(source, /shouldShowFtueWelcome|shouldArmFirstMatchHints|_pendingFirstMatchHints|_runFirstMatchHints/);
+    assert.match(source, /bind\('btn-how-to-play', \(\) => this\.showFtueWelcome\(\)\)/, 'manual help remains available');
 });

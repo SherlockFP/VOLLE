@@ -11,9 +11,9 @@ import {
     deriveShopCardState
 } from '../js/shop-clarity.js';
 
-test('SHOP_FILTERS exposes exactly the six documented chips, all/category/owned/affordable', () => {
+test('SHOP_FILTERS exposes the storefront and wearable category chips', () => {
     const ids = SHOP_FILTERS.map(f => f.id);
-    assert.deepEqual(ids, ['all', 'ball', 'cosmetic', 'knife', 'owned', 'affordable']);
+    assert.deepEqual(ids, ['all', 'ball', 'cosmetic', 'hat', 'shoes', 'cape', 'knife', 'owned', 'affordable']);
     assert.ok(Object.isFrozen(SHOP_FILTERS));
     for (const filter of SHOP_FILTERS) assert.equal(typeof filter.label, 'string');
 });
@@ -56,6 +56,10 @@ test('matchesShopFilter: all/owned/affordable are cross-category; others match b
     assert.equal(matchesShopFilter('knife', cheapKnife), true);
     assert.equal(matchesShopFilter('cosmetic', pricyCosmetic), true);
     assert.equal(matchesShopFilter('cosmetic', cheapKnife), false);
+    assert.equal(matchesShopFilter('hat', { category: 'hat' }), true);
+    assert.equal(matchesShopFilter('shoes', { category: 'shoes' }), true);
+    assert.equal(matchesShopFilter('cape', { category: 'cape' }), true);
+    assert.equal(matchesShopFilter('cosmetic', { category: 'hat' }), true, 'wearables remain visible in the aggregate cosmetic filter');
 });
 
 test('deriveShopCardState: equipped beats owned for badge, both are never dim', () => {

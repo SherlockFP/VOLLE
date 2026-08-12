@@ -6,6 +6,9 @@ import {
     POSE_STATES,
     ONE_SHOT_STATES,
     STATE_DURATION,
+    MAX_LIVE_LEAN,
+    MAX_LIVE_TORSO_ROLL,
+    MAX_LIVE_HEAD_ROLL,
     neutralPose,
     isPoseState,
     poseFor,
@@ -183,6 +186,25 @@ test('dead pose ignores aim and strafe entirely', () => {
     const idleNoAim = poseFor('idle', 1, { aim: 0, strafe: 0 });
     const idleBigAim = poseFor('idle', 1, { aim: 1.2, strafe: 1 });
     assert.notDeepEqual(idleNoAim, idleBigAim);
+});
+
+test('living voxel poses keep an upright readable silhouette under hit and strafe stacking', () => {
+    const liveStates = POSE_STATES.filter((state) => state !== 'dead');
+    for (const state of liveStates) {
+        for (const progress of [0, .2, .5, .8, 1]) {
+            for (const strafe of [-1, 0, 1]) {
+                const pose = poseFor(state, .713, {
+                    progress, strafe, speed: 24, aim: 1.2, seed: 2.4
+                });
+                assert.ok(Math.abs(pose.lean) <= MAX_LIVE_LEAN + 1e-9,
+                    `${state}/${progress}: hips lean exceeded voxel silhouette budget`);
+                assert.ok(Math.abs(pose.torso.z) <= MAX_LIVE_TORSO_ROLL + 1e-9,
+                    `${state}/${progress}: torso roll exceeded voxel silhouette budget`);
+                assert.ok(Math.abs(pose.head.z) <= MAX_LIVE_HEAD_ROLL + 1e-9,
+                    `${state}/${progress}: head roll exceeded voxel silhouette budget`);
+            }
+        }
+    }
 });
 
 test('blendPose(a, b, 0) is a, blendPose(a, b, 1) is b, midpoint lies between', () => {

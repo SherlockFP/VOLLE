@@ -75,19 +75,25 @@ test('face-mesh exists and is initially hidden (no texture)', () => {
     rig.dispose();
 });
 
-test('default rig carries a readable two-eye robot face directly on the head front plane', () => {
+test('default rig carries a friendly, symmetric pixel face directly on the head front plane', () => {
     const rig = createCharacterRig({});
     const visorMesh = meshChild(rig.joints.head, 'visor');
     const plate = meshChild(rig.joints.head, 'face-plate');
     const leftEye = meshChild(rig.joints.head, 'eye-L');
     const rightEye = meshChild(rig.joints.head, 'eye-R');
+    const leftBrow = meshChild(rig.joints.head, 'brow-L');
+    const rightBrow = meshChild(rig.joints.head, 'brow-R');
+    const mouth = meshChild(rig.joints.head, 'mouth');
 
-    assert.ok(plate && leftEye && rightEye, 'default face should include a plate and two eye blocks');
+    assert.ok(plate && leftEye && rightEye && leftBrow && rightBrow && mouth,
+        'default face should include a plate, paired eyes/brows and a mouth');
     assert.equal(plate.parent, rig.joints.head, 'face plate must be a direct head child in the live render hierarchy');
     assert.equal(leftEye.parent, rig.joints.head, 'left eye must be a direct head child in the live render hierarchy');
     assert.equal(rightEye.parent, rig.joints.head, 'right eye must be a direct head child in the live render hierarchy');
     assert.ok(leftEye.position.x < 0 && rightEye.position.x > 0, 'eyes must occupy distinct left/right positions');
-    assert.notEqual(leftEye.position.y, rightEye.position.y, 'eye offsets retain a subtle robot asymmetry');
+    assert.equal(leftEye.position.y, rightEye.position.y, 'friendly face keeps the eyes level');
+    assert.equal(leftEye.geometry.args[0], rightEye.geometry.args[0], 'eye blocks use equal widths');
+    assert.ok(mouth.position.y < leftEye.position.y, 'mouth sits below the eyes');
     assert.ok(
         leftEye.position.z < -HEAD_HALF_DEPTH,
         'eye blocks must sit in front of the head front plane'
@@ -103,6 +109,9 @@ test('custom face textures and atlases hide every procedural face mesh together'
     const plate = meshChild(rig.joints.head, 'face-plate');
     const leftEye = meshChild(rig.joints.head, 'eye-L');
     const rightEye = meshChild(rig.joints.head, 'eye-R');
+    const leftBrow = meshChild(rig.joints.head, 'brow-L');
+    const rightBrow = meshChild(rig.joints.head, 'brow-R');
+    const mouth = meshChild(rig.joints.head, 'mouth');
     const texture = { isTexture: true, dispose() {} };
 
     rig.setHeadTexture(texture);
@@ -110,16 +119,21 @@ test('custom face textures and atlases hide every procedural face mesh together'
     assert.equal(plate.visible, false, 'custom face texture hides the face plate');
     assert.equal(leftEye.visible, false, 'custom face texture hides the left eye');
     assert.equal(rightEye.visible, false, 'custom face texture hides the right eye');
+    assert.equal(leftBrow.visible, false, 'custom face texture hides the left brow');
+    assert.equal(rightBrow.visible, false, 'custom face texture hides the right brow');
+    assert.equal(mouth.visible, false, 'custom face texture hides the mouth');
 
     rig.setHeadTexture(null);
     assert.equal(plate.visible, true, 'clearing custom texture restores the face plate');
     assert.equal(leftEye.visible, true, 'clearing custom texture restores the left eye');
     assert.equal(rightEye.visible, true, 'clearing custom texture restores the right eye');
+    assert.equal(mouth.visible, true, 'clearing custom texture restores the mouth');
     rig.setAvatarAtlasTexture(texture, 'classic');
     assert.equal(visorMesh.visible, false, 'full avatar atlas hides the same visor parent');
     assert.equal(plate.visible, false, 'full avatar atlas hides the face plate');
     assert.equal(leftEye.visible, false, 'full avatar atlas hides the left eye');
     assert.equal(rightEye.visible, false, 'full avatar atlas hides the right eye');
+    assert.equal(mouth.visible, false, 'full avatar atlas hides the mouth');
     rig.dispose();
 });
 

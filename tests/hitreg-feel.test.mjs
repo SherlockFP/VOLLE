@@ -15,6 +15,27 @@ import {
 } from '../js/combat.js';
 import { compileGameMethod } from './game-source.mjs';
 
+function fakeTimers() {
+    const pending = [];
+    let clears = 0;
+    return {
+        setTimeout(callback, delay = 0) {
+            const timer = { callback, delay, cancelled: false };
+            pending.push(timer);
+            return timer;
+        },
+        clearTimeout(timer) {
+            clears++;
+            if (timer) timer.cancelled = true;
+        },
+        runAll() {
+            for (const timer of pending) if (!timer.cancelled) timer.callback();
+        },
+        pending,
+        get clears() { return clears; }
+    };
+}
+
 // ---------------------------------------------------------------------------
 // sweptHitStepCount — swept-hit decision (tunneling audit, item a)
 // ---------------------------------------------------------------------------
@@ -82,6 +103,43 @@ test('scaleLethalGraceMs: unscaled for a local/bot victim with no known ping', (
 test('scaleLethalGraceMs: grows with the victim\'s ping, capped', () => {
     assert.equal(scaleLethalGraceMs(80, 100), 130); // +50ms
     assert.equal(scaleLethalGraceMs(80, 1000), 200); // capped at +120ms
+});
+
+test('repeated capsule contact keeps one lethal grace deadline and resolves once', () => {
+    const timers = fakeTimers();
+    const applied = [];
+    const handleHit = compileGameMethod('handleHit', {
+        BASE_HIT_DAMAGE: 25,
+        resolveKillerName: () => 'Attacker',
+        scaleLethalGraceMs,
+        setTimeout: timers.setTimeout,
+        clearTimeout: timers.clearTimeout
+    });
+    const victim = { alive: true, hp: 1, _lastPing: 80 };
+    const game = {
+        network: { connected: false, isHost: false },
+        player: {},
+        playerName: 'Local',
+        ball: { lastShot: 'flat', lastShotBy: 'Attacker' },
+        lastDeflector: {},
+        _oneHitKill: true,
+        _pendingLethalHit: null,
+        _pendingLethalVictim: null,
+        _doApplyHit: (...args) => applied.push(args)
+    };
+
+    handleHit.call(game, victim);
+    const deadline = game._pendingLethalHit;
+    handleHit.call(game, victim);
+    handleHit.call(game, victim);
+
+    assert.equal(timers.pending.length, 1);
+    assert.equal(timers.clears, 0);
+    assert.equal(game._pendingLethalHit, deadline);
+    timers.runAll();
+    assert.equal(applied.length, 1);
+    assert.equal(game._pendingLethalHit, null);
+    assert.equal(game._pendingLethalVictim, null);
 });
 
 // ---------------------------------------------------------------------------

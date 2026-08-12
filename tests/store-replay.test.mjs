@@ -65,6 +65,23 @@ test('ball purchases validate the catalog and use the configured price', () => {
     assert.equal(Store.buyBall('not-a-ball'), false);
 });
 
+test('persisted and loadout ball selections stay catalog-valid and owned', () => {
+    Store.reset();
+    Store.data.ownedBalls.push('solar');
+    Store.data.equippedBall = 'solar';
+    Store.save();
+    Store.load();
+    assert.equal(Store.get('equippedBall'), 'solar');
+
+    Store.data.equippedBall = 'not-a-ball';
+    Store.save();
+    Store.load();
+    assert.equal(Store.get('equippedBall'), 'classic');
+    assert.equal(Store.setLoadout({ ball: 'solar' }), true);
+    assert.equal(Store.get('equippedBall'), 'solar');
+    assert.equal(Store.setLoadout({ ball: 'fire' }), false, 'unowned selection is rejected');
+});
+
 test('wearable purchases equip one owned item per cosmetic slot', () => {
     Store.reset();
     Store.grant({ currency: 500 });

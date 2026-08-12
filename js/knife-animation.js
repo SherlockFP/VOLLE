@@ -1,10 +1,11 @@
-const ACTIONS = Object.freeze(['idle', 'draw', 'slash', 'stab', 'inspect']);
+const ACTIONS = Object.freeze(['idle', 'draw', 'slash', 'stab', 'heavy', 'inspect']);
 
 export const KNIFE_ACTION_DURATIONS = Object.freeze({
     idle: Infinity,
     draw: 0.62,
     slash: 0.34,
     stab: 0.42,
+    heavy: 0.48,
     inspect: 1.65,
     rareInspect: 2.35
 });
@@ -17,7 +18,11 @@ const smooth = value => {
 };
 const pulse = value => Math.sin(clamp01(value) * Math.PI);
 const lerp = (a, b, t) => a + (b - a) * t;
-const lerpDelta = (a, b, t) => ({ x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t), z: lerp(a.z, b.z, t) });
+const setLerpDelta = (out, a, b, t) => {
+    out.x = lerp(a.x, b.x, t);
+    out.y = lerp(a.y, b.y, t);
+    out.z = lerp(a.z, b.z, t);
+};
 
 const GAIT_START_RESPONSE = 14;
 const GAIT_STOP_RESPONSE = 8;
@@ -146,24 +151,44 @@ export function viewmodelFrame(model) {
 // Kept modest: the claw's ring (radius 0.205) and point (~0.29 units off the rotation pivot) sweep
 // a wide arc per radian, so anything much larger visibly tears the ring/point away from the fist.
 const KARAMBIT_REST = Object.freeze({ x: -0.42, y: 0.1, z: 0.16 });
+const ZERO_DELTA = Object.freeze({ x: 0, y: 0, z: 0 });
 
 // Delta triples for butterfly's [left, right, bladeRoot] inspectParts. (0,0,0) everywhere is the
 // authored closed/rest silhouette (blade folded back between the rails).
-function butterflyParts(leftZ, rightZ, bladeY, bladeZ = 0) {
-    return [
-        { x: 0, y: 0, z: leftZ },
-        { x: 0, y: 0, z: rightZ },
-        { x: 0, y: bladeY, z: bladeZ }
-    ];
+function setButterflyParts(parts, leftZ, rightZ, bladeY, bladeZ = 0) {
+    parts[0].x = 0; parts[0].y = 0; parts[0].z = leftZ;
+    parts[1].x = 0; parts[1].y = 0; parts[1].z = rightZ;
+    parts[2].x = 0; parts[2].y = bladeY; parts[2].z = bladeZ;
+}
+
+const isHookModel = model => model === 'karambit' || model === 'hook';
+
+export function knifeAnimationActionForAttack(action) {
+    return action === 'stab' || action === 'heavy' ? 'heavy' : 'slash';
+}
+
+function createPose(model, frame) {
+    const parts = model === 'butterfly'
+        ? [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }]
+        : isHookModel(model) ? [{ x: 0, y: 0, z: 0 }] : [0, 0, 0];
+    return {
+        armPosition: [0, 0, 0], armRotation: [0, 0, 0],
+        knifePosition: [...frame.position], knifeRotation: [...frame.rotation],
+        parts, action: 'draw', progress: 0, variant: 'standard'
+    };
 }
 
 export function createKnifeAnimationState(model = 'classic') {
+    const resolvedModel = typeof model === 'string' ? model : 'classic';
+    const frame = viewmodelFrame(resolvedModel);
     return {
-        model: typeof model === 'string' ? model : 'classic',
+        model: resolvedModel,
         action: 'draw',
         elapsed: 0,
         duration: KNIFE_ACTION_DURATIONS.draw,
-        variant: 'standard'
+        variant: 'standard',
+        _frame: frame,
+        _pose: createPose(resolvedModel, frame)
     };
 }
 
@@ -212,23 +237,31 @@ export function resolveKnifePose(state, context = {}) {
         context.reduceMotion === true
     );
     const model = state?.model;
-    const frame = viewmodelFrame(model);
-    const pose = {
-        armPosition: [0.25 + swayX * 0.025, -0.3 + bob + landingOffset - swayY * 0.018, -0.3],
-        armRotation: [-swayY * 0.035, -swayX * 0.05, swayX * 0.025],
-        knifePosition: frame.position,
-        knifeRotation: frame.rotation,
-        parts: [0, 0, 0],
-        action,
-        progress,
-        variant: state?.variant === 'rare' ? 'rare' : 'standard'
-    };
+    const frame = state?._frame || viewmodelFrame(model);
+    const pose = state?._pose || createPose(model, frame);
+    pose.armPosition[0] = 0.25 + swayX * 0.025;
+    pose.armPosition[1] = -0.3 + bob + landingOffset - swayY * 0.018;
+    pose.armPosition[2] = -0.3;
+    pose.armRotation[0] = -swayY * 0.035;
+    pose.armRotation[1] = -swayX * 0.05;
+    pose.armRotation[2] = swayX * 0.025;
+    for (let index = 0; index < 3; index++) {
+        pose.knifePosition[index] = frame.position[index];
+        pose.knifeRotation[index] = frame.rotation[index];
+    }
+    pose.action = action;
+    pose.progress = progress;
+    pose.variant = state?.variant === 'rare' ? 'rare' : 'standard';
 
     // Rest baseline: closed/tucked silhouette for the two folding models. Action branches below
     // animate away from this and (except idle itself) settle back onto it by progress 1, matching
     // the same start==end-at-baseline convention the arm/knife transforms above already use.
-    if (model === 'butterfly') pose.parts = butterflyParts(0, 0, 0, 0);
-    else if (model === 'karambit') pose.parts = [{ ...KARAMBIT_REST }];
+    if (model === 'butterfly') setButterflyParts(pose.parts, 0, 0, 0, 0);
+    else if (isHookModel(model)) {
+        pose.parts[0].x = KARAMBIT_REST.x;
+        pose.parts[0].y = KARAMBIT_REST.y;
+        pose.parts[0].z = KARAMBIT_REST.z;
+    }
 
     if (action === 'draw') {
         const settle = smooth(progress);
@@ -241,15 +274,15 @@ export function resolveKnifePose(state, context = {}) {
         if (model === 'butterfly') {
             // Draw presents the blade open, then folds it closed into the resting grip by the end.
             const openAmt = 1 - settle;
-            pose.parts = butterflyParts(
+            setButterflyParts(pose.parts,
                 -1.8 * openAmt,
                 1.8 * openAmt,
                 -Math.PI * openAmt,
                 Math.sin(progress * Math.PI * 2) * 0.3 * openAmt
             );
-        } else if (model === 'karambit') {
+        } else if (isHookModel(model)) {
             const combatAmt = snapEnvelope(progress, 0.18, 0.55);
-            pose.parts = [lerpDelta(KARAMBIT_REST, { x: 0, y: 0, z: 0 }, combatAmt)];
+            setLerpDelta(pose.parts[0], KARAMBIT_REST, ZERO_DELTA, combatAmt);
         }
     } else if (action === 'slash') {
         const windup = progress < 0.22 ? smooth(progress / 0.22) : 1;
@@ -264,25 +297,27 @@ export function resolveKnifePose(state, context = {}) {
         pose.knifeRotation[2] += 1.45 * (cut - recover * 0.7) - 0.3 * windup;
         if (model === 'butterfly') {
             const openAmt = pulse(progress);
-            pose.parts = butterflyParts(0, 0, -Math.PI * openAmt, 0);
-        } else if (model === 'karambit') {
+            setButterflyParts(pose.parts, 0, 0, -Math.PI * openAmt, 0);
+        } else if (isHookModel(model)) {
             const combatAmt = snapEnvelope(progress, 0.12, 0.3);
-            pose.parts = [lerpDelta(KARAMBIT_REST, { x: 0, y: 0, z: 0 }, combatAmt)];
+            setLerpDelta(pose.parts[0], KARAMBIT_REST, ZERO_DELTA, combatAmt);
         }
-    } else if (action === 'stab') {
+    } else if (action === 'stab' || action === 'heavy') {
         const thrust = progress < 0.42 ? smooth(progress / 0.42) : 1 - smooth((progress - 0.42) / 0.58);
-        pose.armPosition[0] -= 0.12 * thrust;
+        const heavy = action === 'heavy' ? 1 : .82;
+        pose.armPosition[0] -= 0.12 * thrust * heavy;
         pose.armPosition[1] += 0.05 * thrust;
-        pose.armPosition[2] -= 0.43 * thrust;
-        pose.armRotation[0] += 0.18 * thrust;
+        pose.armPosition[2] -= 0.43 * thrust * heavy;
+        pose.armRotation[0] += 0.18 * thrust * heavy;
         pose.knifeRotation[0] += 0.2 * thrust;
-        pose.knifeRotation[2] += 0.32 * thrust;
+        pose.knifeRotation[2] += (model === 'bayonet' ? .22 : .32) * thrust;
         if (model === 'butterfly') {
             const openAmt = pulse(progress);
-            pose.parts = butterflyParts(0, 0, -Math.PI * openAmt, 0);
-        } else if (model === 'karambit') {
+            setButterflyParts(pose.parts, 0, 0, -Math.PI * openAmt, 0);
+        } else if (isHookModel(model)) {
             const combatAmt = snapEnvelope(progress, 0.15, 0.4);
-            pose.parts = [lerpDelta(KARAMBIT_REST, { x: 0, y: 0, z: 0 }, combatAmt)];
+            setLerpDelta(pose.parts[0], KARAMBIT_REST, ZERO_DELTA, combatAmt);
+            pose.knifeRotation[2] -= pulse(progress) * .48;
         }
     } else if (action === 'inspect') {
         const reveal = pulse(progress);
@@ -299,17 +334,15 @@ export function resolveKnifePose(state, context = {}) {
             // Flourish: open -> spin -> closed, ending back on the resting silhouette.
             const flip = Math.sin(progress * Math.PI * turns);
             const openAmt = pulse(progress);
-            pose.parts = butterflyParts(-flip * 1.75, flip * 1.75, -Math.PI * openAmt, flip * 0.6);
-        } else if (model === 'karambit') {
+            setButterflyParts(pose.parts, -flip * 1.75, flip * 1.75, -Math.PI * openAmt, flip * 0.6);
+        } else if (isHookModel(model)) {
             // Continuous multi-turn roll around the ring. Adding whole turns (2*PI*turns, turns an
             // integer) is periodic, so progress===1 lands visually back on KARAMBIT_REST even though
             // the numeric value keeps accumulating — satisfies both "completes a full rotation" and
             // the same start/end-at-rest continuity every other action uses.
-            pose.parts = [{
-                x: KARAMBIT_REST.x + progress * Math.PI * 2 * turns,
-                y: KARAMBIT_REST.y + Math.sin(progress * Math.PI * turns) * 0.4,
-                z: KARAMBIT_REST.z
-            }];
+            pose.parts[0].x = KARAMBIT_REST.x + progress * Math.PI * 2 * turns;
+            pose.parts[0].y = KARAMBIT_REST.y + Math.sin(progress * Math.PI * turns) * 0.4;
+            pose.parts[0].z = KARAMBIT_REST.z;
         }
     }
     return pose;

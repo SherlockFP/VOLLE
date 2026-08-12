@@ -1,10 +1,59 @@
 # MIMO.md — 2BALL Project Current State
 
-> **Last updated:** 2026-08-12
+> **Last updated:** 2026-08-13
 > **Status:** Active development. Account system complete; Phase 1-3 done; V4 immersive/economy/combat pass complete (see below); Phase 4 backlog pending.
 > **Tech Stack:** Three.js + PeerJS + vanilla JS (ES modules), browser-based 3D dodgeball.
 
 ---
+
+## 2026-08-13 Gameplay Reliability, Viewmodel and Interface Cycle
+
+- **Terminal hit reliability:** close floor-level balls that are still moving
+  tangentially now converge on the target capsule instead of orbiting forever.
+  Repeated capsule overlap no longer resets the pending lethal deadline, so
+  Instagib eliminates once and advances the round. Pausing or backgrounding an
+  offline match only settles an already incoming ball for a bounded two-second
+  window; players, bots and the score clock remain frozen, and a P2P client
+  never takes host simulation authority.
+- **Ball cosmetics end to end:** the equipped ball skin is normalized through
+  Store, retained through spawn/deflect material refreshes, and synchronized in
+  binary ball state plus welcome/game-start/round-start/reconnect packets. Shop
+  ball selection now drives the persistent large Live 3D showcase rather than
+  only changing copy and a CSS placeholder.
+- **First-person collection:** the allocation-free hand/knife pose state now
+  supports draw/inspect, slash and heavy-thrust presentations. Three original
+  knife silhouettes and three glove families were added to the mirrored
+  client/server case catalogs; gloves cover first-person cuffs/palms/knuckles
+  and both full-character hand sockets. Soldier rocket and Practice controls
+  retain their existing input ownership.
+- **Competitive interface:** the HUD uses a compact red/round/blue score lane,
+  text-only network/FPS diagnostics, a 12-action SVG emote wheel with keyboard
+  and pointer control, and Player/Chase/Free spectator camera controls with
+  previous/next targeting. The social rail has party, Friends/Online/Nearby,
+  profile-code, invite and responsive collapsed states; its toggle remains
+  reachable and reopens at narrow widths.
+- **Menu and lobby scalability:** the authenticated CS-inspired landing page,
+  Shop decision layout, P2P match browser and team lobby use the shared eight
+  route design language. Desktop short-height gates now fit both match browser
+  and team lobby into an exact 1280x720 viewport without document overflow;
+  the P2P flow intentionally has no fake region selector.
+- **Session and voice:** token-based account restore survives reload until
+  explicit logout without storing plaintext credentials. Automatic first-entry
+  tutorial overlays were removed while manual How to Play/Practice remains.
+  V push-to-talk keeps team filtering and adds distance gain plus stereo pan;
+  FFA voice is proximity bounded.
+- **World presentation:** Volleyball grows from 52x68 to 58x75 and Factory from
+  101x112 to 111x123, with brighter map-specific exposure, floor and palette
+  profiles. The single social map is now the compact Neon Clubhouse with a
+  walkable lounge, stage, pool and garden using a curated CC0 Kenney Furniture
+  Kit subset plus procedural fallbacks and local license metadata.
+- **Verification:** `node scripts/check-js.js` passes 96 files; the full suite is
+  **1,570/1,570**. The refreshed Graft wiring graph is in sync at 3,551 nodes and
+  8,855 edges. Runtime browser QA passed auto-login, the eight-route main menu,
+  Shop selected-item flow, responsive social reopen, global P2P match browser,
+  team lobby and exact 1280x720 height gates without console warnings/errors.
+  Microphone hardware, a real two-peer session and real retention/revenue KPI
+  movement remain unmeasured and must not be inferred from these checks.
 
 ## 2026-08-12 Menu, Commerce, Identity, Ball and Social Cycle
 

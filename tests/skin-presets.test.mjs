@@ -45,6 +45,24 @@ test('every preset has required fields with correct shapes', () => {
         // Sparse by design (see TEAM DOMINANCE note in skin-presets.js) -- well under the
         // 96-pixel front-torso area so the team hex always keeps the strict majority.
         assert.ok(p.motif.length <= 16, `${id}: motif stays sparse (${p.motif.length} points)`);
+        assert.equal(typeof p.partMotifs, 'object', `${id}: full-body motif table exists`);
+        for (const partName of ['leftArm', 'rightArm', 'leftLeg', 'rightLeg']) {
+            const region = FRONT_UV[partName];
+            const points = p.partMotifs[partName];
+            assert.ok(Array.isArray(points), `${id}: ${partName} motif is an array`);
+            assert.ok(points.length <= 16, `${id}: ${partName} leaves a team-color majority`);
+            for (const point of points) {
+                assert.ok(point.x >= 0 && point.x < region.width, `${id}: ${partName} x is in bounds`);
+                assert.ok(point.y >= 0 && point.y < region.height, `${id}: ${partName} y is in bounds`);
+                assert.match(point.color, /^#[0-9a-f]{6}$/i, `${id}: ${partName} color is hex`);
+            }
+        }
+        if (p.theme === 'themed') {
+            assert.ok(
+                Object.values(p.partMotifs).every((points) => points.length >= 8),
+                `${id}: themed preset should visibly change every limb`
+            );
+        }
     }
 });
 
@@ -79,6 +97,27 @@ test('team-tint preserves team dominance: torso stays strictly majority team-col
                 teamCount > regionSize / 2,
                 `${id}/${team}: team color must stay torso majority (${teamCount}/${regionSize})`
             );
+        }
+    }
+});
+
+test('full-body costumes preserve a strict team-color majority on every limb', () => {
+    for (const id of SKIN_PRESET_IDS) {
+        for (const [team, skinId] of [['red', 'red_guard'], ['blue', 'blue_default']]) {
+            const atlas = renderSkinPreset(id, team);
+            const teamHex = AVATAR_SKINS[skinId].arms;
+            for (const partName of ['leftArm', 'rightArm', 'leftLeg', 'rightLeg']) {
+                const region = FRONT_UV[partName];
+                const expectedHex = partName.includes('Arm') ? teamHex : AVATAR_SKINS[skinId].legs;
+                let count = 0;
+                for (let y = region.y; y < region.y + region.height; y++) {
+                    for (let x = region.x; x < region.x + region.width; x++) {
+                        if (atlas[y * ATLAS_SIZE + x] === expectedHex) count++;
+                    }
+                }
+                assert.ok(count > (region.width * region.height) / 2,
+                    `${id}/${team}/${partName}: team base stays majority (${count}/${region.width * region.height})`);
+            }
         }
     }
 });
