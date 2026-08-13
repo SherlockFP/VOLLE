@@ -10,7 +10,7 @@ export const RIG_SOCKETS = Object.freeze([
     'handL', 'handR', 'footL', 'footR', 'aura', 'trail'
 ]);
 
-const MATERIAL_SLOTS = Object.freeze(['head', 'body', 'arms', 'legs', 'accent', 'detail', 'visor']);
+const MATERIAL_SLOTS = Object.freeze(['head', 'body', 'arms', 'legs', 'accent', 'detail', 'visor', 'identity', 'identityDetail']);
 const TEAM_COLORS = Object.freeze({ red: 0xcc3333, blue: 0x3355cc });
 const ATLAS_SIZE = 64;
 // Small, socket-safe silhouette signatures make each selectable hero and skin
@@ -304,15 +304,15 @@ export function createCharacterRig(options = {}) {
     // trim — gives the accent/detail/visor palette slots somewhere to live
     const shoulderPadL = addPart(joints.shoulderL, {
         name: 'pad-L', geometry: new THREE.BoxGeometry(.26, .14, .26),
-        position: [0, 0, 0], material: materials.accent, outline: false
+        position: [0, 0, 0], material: materials.identity, outline: false
     });
     const shoulderPadR = addPart(joints.shoulderR, {
         name: 'pad-R', geometry: new THREE.BoxGeometry(.26, .14, .26),
-        position: [0, 0, 0], material: materials.accent, outline: false
+        position: [0, 0, 0], material: materials.identity, outline: false
     });
     const beltMesh = addPart(joints.hips, {
         name: 'belt', geometry: new THREE.BoxGeometry(.5, .12, .3),
-        position: [0, .02, 0], material: materials.detail, outline: false
+        position: [0, .02, 0], material: materials.identityDetail, outline: false
     });
     // Front of the character is -Z. The visor's center sits exactly on the cube's front plane so
     // it straddles it (half embedded, half proud), derived from HEAD_HALF_DEPTH so it tracks any
@@ -365,23 +365,23 @@ export function createCharacterRig(options = {}) {
     // by the animation update, so hero identity has no per-frame cost.
     const signatureCrest = addPart(joints.head, {
         name: 'signature-crest', geometry: new THREE.BoxGeometry(1, 1, 1),
-        position: [0, .40, 0], material: materials.accent, outline: false
+        position: [0, .40, 0], material: materials.identity, outline: false
     });
     const signatureBack = addPart(joints.torso, {
         name: 'signature-back', geometry: new THREE.BoxGeometry(1, 1, 1),
-        position: [0, .38, .24], material: materials.detail, outline: false
+        position: [0, .38, .24], material: materials.identityDetail, outline: false
     });
     const signatureTempleL = addPart(joints.head, {
         name: 'signature-temple-L', geometry: new THREE.BoxGeometry(1, 1, 1),
-        position: [-.28, .20, 0], material: materials.accent, outline: false
+        position: [-.28, .20, 0], material: materials.identity, outline: false
     });
     const signatureTempleR = addPart(joints.head, {
         name: 'signature-temple-R', geometry: new THREE.BoxGeometry(1, 1, 1),
-        position: [.28, .20, 0], material: materials.accent, outline: false
+        position: [.28, .20, 0], material: materials.identity, outline: false
     });
     const signatureChest = addPart(joints.torso, {
         name: 'signature-chest', geometry: new THREE.BoxGeometry(1, 1, 1),
-        position: [0, .42, -.15], material: materials.accent, outline: false
+        position: [0, .42, -.15], material: materials.identity, outline: false
     });
 
     // --- palette / proportions ---

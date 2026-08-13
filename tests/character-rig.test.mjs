@@ -582,6 +582,33 @@ test('full avatar atlas maps every skinnable material, survives classic/slim swa
     assert.equal(third.disposeCalls, 1, 'one atlas shared by four materials disposes once on rig teardown');
 });
 
+test('a full saved atlas preserves the selected hero identity palette on static signatures', () => {
+    const texture = () => ({ isTexture: true, dispose() {} });
+    const rig = createCharacterRig({ characterId: 'rally', skinId: 'default' });
+    const find = name => {
+        let result = null;
+        rig.root.traverse(node => { if (node.name === name) result = node; });
+        return result;
+    };
+    const torso = meshChild(rig.joints.torso, 'torso-mesh');
+    const chest = find('signature-chest');
+    const crest = find('signature-crest');
+    const shoulderPad = meshChild(rig.joints.shoulderL, 'pad-L');
+    rig.setAvatarAtlasTexture(texture(), 'classic');
+    assert.ok(torso.material.map, 'the custom sheet still owns the canonical torso');
+    assert.equal(chest.material.color.hex, 0xff8844, 'Rally signature keeps Rally orange above the atlas');
+    assert.equal(crest.material.color.hex, 0xff8844);
+    assert.equal(shoulderPad.material.color.hex, 0xff8844, 'hero colour reaches a readable silhouette piece');
+    rig.setCharacter('tank');
+    assert.equal(torso.material.map.isTexture, true, 'identity swaps must not clear the custom sheet');
+    assert.equal(chest.material.color.hex, 0x4488ff, 'Bulwark signature changes to its dominant blue');
+    assert.equal(shoulderPad.material.color.hex, 0x4488ff);
+    rig.setCharacter('scout');
+    assert.equal(chest.material.color.hex, 0x44dd44, 'Scout signature changes to its dominant green');
+    assert.equal(shoulderPad.material.color.hex, 0x44dd44);
+    rig.dispose();
+});
+
 test('createCharacterAnimator.update() drives rig.applyPose every frame', () => {
     let calls = 0;
     let lastPose = null;

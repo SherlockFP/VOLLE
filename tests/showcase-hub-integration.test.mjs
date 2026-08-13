@@ -62,6 +62,18 @@ test('social runtimes use local allowlisted maps and obsolete assets stay remove
     assert.equal(existsSync(new URL('../assets/user-content/olann-island/olann-island.glb', import.meta.url)), false);
 });
 
+test('all non-gameplay avatar surfaces share the saved-atlas resolver, including cosmetic practice', () => {
+    const source = read('js/main.js');
+    assert.match(source, /_resolveAvatarPreview\(skinId, characterId = this\.store\.get\('selectedChar'\), atlasOverride = null\)/);
+    assert.match(source, /resolveAvatarAtlas\(resolvedSkinId, this\.store\.get\('customAvatar'\)\)/);
+    assert.match(source, /_syncAvatarPreview\(this\.shopShowcase, selected, characterId \|\| this\.store\.get\('selectedChar'\)\)/);
+    assert.match(source, /_syncAvatarPreview\(this\.menuHero, skinId\)/);
+    assert.match(source, /_syncAvatarPreview\(this\.avatarStage3D, this\.avatarPainter\.skinId, this\.store\.get\('selectedChar'\), \{/);
+    const practice = source.slice(source.indexOf('    _renderCosmeticPractice('), source.indexOf('    _selectCosmeticPracticeSkin('));
+    assert.match(practice, /_syncAvatarPreview\(this\._cosmeticPracticeAvatar, snapshot\.selectedSkinId\)/);
+    assert.doesNotMatch(practice, /this\.store\.(set|update|save)/, 'previewing must not mutate saved avatar state');
+});
+
 test('leaving the social hub restores its renderer overrides before clearing hub state', () => {
     const source = read('js/main.js');
     const leave = source.slice(source.indexOf('    _leaveSocialLobby() {'), source.indexOf('    _exitSocialLobby() {'));

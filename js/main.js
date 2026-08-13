@@ -4243,19 +4243,46 @@ updateCSLobbyInfo();
         return this.avatarStage3D;
     }
 
+    // Resolve the one presentation state used by every non-gameplay avatar
+    // surface. A saved atlas only wins for its matching base skin inside
+    // resolveAvatarAtlas(), so previewing another catalog skin never mutates
+    // the stored custom avatar or leaks its pixels onto the wrong product.
+    _resolveAvatarPreview(skinId, characterId = this.store.get('selectedChar'), atlasOverride = null) {
+        const resolvedSkinId = AVATAR_SKINS[skinId] ? skinId : 'default';
+        const resolvedCharacterId = CHARACTERS[characterId] ? characterId : 'rally';
+        const hasOverride = Array.isArray(atlasOverride?.pixels) && atlasOverride.pixels.length === 4096;
+        const resolvedAtlas = hasOverride
+            ? Object.freeze({
+                pixels: atlasOverride.pixels,
+                modelId: atlasOverride.modelId === 'slim' ? 'slim' : 'classic'
+            })
+            : resolveAvatarAtlas(resolvedSkinId, this.store.get('customAvatar'));
+        return Object.freeze({
+            characterId: resolvedCharacterId,
+            skinId: resolvedSkinId,
+            atlas: resolvedAtlas
+        });
+    }
+
+    // Applies the canonical presentation state to Shop, Menu, Studio and
+    // Cosmetic Practice. `target` is either a ShopShowcaseRenderer or the
+    // lightweight createShowcaseAvatar() practice instance; both retain one
+    // shared rig implementation and no path writes back into Store.
+    _syncAvatarPreview(target, skinId, characterId = this.store.get('selectedChar'), atlasOverride = null) {
+        const preview = this._resolveAvatarPreview(skinId, characterId, atlasOverride);
+        target?.sync?.({ characterId: preview.characterId, skinId: preview.skinId });
+        this._applyAvatarAtlasToRig(target?.avatar?.rig || target?.rig, preview.atlas.pixels, preview.atlas.modelId);
+        return preview;
+    }
+
     // Repaints the 3D preview's rig from the painter's live atlas -- the same
     // full-body atlas path as Shop/menu/in-game remote avatars.
     _updateAvatar3DStage() {
         if (!this.avatarStage3D || !this.avatarPainter) return;
-        this.avatarStage3D.sync({
-            characterId: this.store.get('selectedChar'),
-            skinId: AVATAR_SKINS[this.avatarPainter.skinId] ? this.avatarPainter.skinId : 'default'
+        this._syncAvatarPreview(this.avatarStage3D, this.avatarPainter.skinId, this.store.get('selectedChar'), {
+            pixels: this.avatarPainter.getAtlasPixels(),
+            modelId: AVATAR_SKINS[this.avatarPainter.skinId]?.model
         });
-        this._applyAvatarAtlasToRig(
-            this.avatarStage3D.avatar?.rig,
-            this.avatarPainter.getAtlasPixels(),
-            AVATAR_SKINS[this.avatarPainter.skinId]?.model
-        );
         this.avatarStage3D.resize();
     }
 
@@ -5061,18 +5088,7 @@ updateCarousel() {
         const selected = skinId
             || document.getElementById('shop-showcase-stage')?.dataset.skinId
             || this.store.get('equippedAvatarSkin');
-        const resolved = AVATAR_SKINS[selected] ? selected : 'default';
-        this.shopShowcase?.sync({
-            characterId: CHARACTERS[characterId] ? characterId : this.store.get('selectedChar'),
-            skinId: resolved
-        });
-        const customAvatar = this.store.get('customAvatar');
-        const atlas = resolveAvatarAtlas(resolved, customAvatar);
-        this._applyAvatarAtlasToRig(
-            this.shopShowcase?.avatar?.rig,
-            atlas.pixels,
-            atlas.modelId
-        );
+        this._syncAvatarPreview(this.shopShowcase, selected, characterId || this.store.get('selectedChar'));
         this._applyShopShowcaseCosmetics(this.store.get('equippedWearables'));
         this.shopShowcase?.resize();
     }
@@ -5135,18 +5151,7 @@ updateCarousel() {
 
     _syncMenuHero() {
         const skinId = this.store.get('equippedAvatarSkin');
-        const resolved = AVATAR_SKINS[skinId] ? skinId : 'default';
-        this.menuHero?.sync({
-            characterId: this.store.get('selectedChar'),
-            skinId: resolved
-        });
-        const customAvatar = this.store.get('customAvatar');
-        const atlas = resolveAvatarAtlas(resolved, customAvatar);
-        this._applyAvatarAtlasToRig(
-            this.menuHero?.avatar?.rig,
-            atlas.pixels,
-            atlas.modelId
-        );
+        this._syncAvatarPreview(this.menuHero, skinId);
         // Apply equipped cosmetics to the hero avatar
         if (this.menuHero?.root?.rig) {
             const knifeId = this.store.get('equippedKnife');
@@ -5231,10 +5236,7 @@ updateCarousel() {
 
     _renderCosmeticPractice(snapshot = this.cosmeticPractice.snapshot()) {
         if (!snapshot?.skin) return;
-        this._cosmeticPracticeAvatar?.sync({
-            characterId: this.store.get('selectedChar'),
-            skinId: snapshot.selectedSkinId
-        });
+        this._syncAvatarPreview(this._cosmeticPracticeAvatar, snapshot.selectedSkinId);
         const eligibility = snapshot.eligibility;
         const setText = (id, value) => {
             const element = document.getElementById(id);

@@ -80,6 +80,11 @@ export function getShowcaseMaterialPalette(value = {}) {
     const skin = AVATAR_SKINS[state.skinId];
     const character = CHARACTERS[state.characterId];
     const body = hexNumber(skin.body, character.color);
+    // The base body can be a player-painted 64x64 atlas. Keep the selected
+    // hero legible in that case with a separate, non-atlas costume palette.
+    // These colours only drive static signature meshes in character-rig.js;
+    // they never recolour or mutate a player's saved sheet.
+    const identity = hexNumber(character.color, 0xff8844);
     const accent = mixColor(hexNumber(skin.arms, character.color), character.color, .42);
     return Object.freeze({
         head: hexNumber(skin.head, 0xffd8a8),
@@ -88,7 +93,9 @@ export function getShowcaseMaterialPalette(value = {}) {
         legs: hexNumber(skin.legs, body),
         accent,
         detail: mixColor(body, 0x071725, .68),
-        visor: mixColor(accent, 0xbdfcff, .6)
+        visor: mixColor(accent, 0xbdfcff, .6),
+        identity,
+        identityDetail: mixColor(identity, 0x071725, .58)
     });
 }
 

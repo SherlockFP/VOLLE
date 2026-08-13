@@ -6967,6 +6967,16 @@ body:not(.practice-lab-active) .network-diagnostics {
         top: 96px; right: 12px; bottom: 16px; width: min(360px, calc(100vw - 84px));
         box-shadow: -28px 20px 64px rgba(0, 0, 0, .62), inset 0 1px rgba(255, 255, 255, .055);
     }
+    /* A compact desktop rail is an overlay, but its closed state must still
+       advertise the social destination rather than leave a mystery chevron. */
+    #main-menu .friends-sidebar.collapsed { transform: translateX(calc(100% - 184px)); }
+    #main-menu .friends-sidebar.collapsed .friends-sidebar-header { min-width: 184px; padding: 8px 10px; gap: 7px; justify-content: flex-start; }
+    #main-menu .friends-sidebar.collapsed .fbar-title-icon { display: none; }
+    #main-menu .friends-sidebar.collapsed .fbar-title { display: grid; flex: 0 0 auto; }
+    #main-menu .friends-sidebar.collapsed .fbar-title small { display: none; }
+    #main-menu .friends-sidebar.collapsed .friends-sidebar-count { display: inline-flex; flex: 0 0 auto; margin-left: 0; font-size: .58rem; }
+    /* Do not let decorative hero copy compete with the opened social directory. */
+    #main-menu:has(.friends-sidebar:not(.collapsed)) .ow-showcase .ow-splash { opacity: 0; pointer-events: none; }
 }
 
 @media (max-width: 760px) {

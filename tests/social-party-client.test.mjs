@@ -113,6 +113,15 @@ test('collapsed desktop social rail keeps its reopen control inside the visible 
     assert.match(main, /setDesktopRailExpanded\(compactRailQuery\?\.matches !== true\)/);
 });
 
+test('compact desktop keeps a labeled social command handle instead of an anonymous edge chevron', () => {
+    assert.match(css, /@media \(min-width: 761px\) and \(max-width: 1339px\)[\s\S]*?\.friends-sidebar\.collapsed \{ transform: translateX\(calc\(100% - 184px\)\); \}/);
+    assert.match(css, /\.friends-sidebar\.collapsed \.fbar-title-icon \{ display: none; \}/);
+    assert.match(css, /\.friends-sidebar\.collapsed \.fbar-title \{ display: grid; flex: 0 0 auto; \}/);
+    assert.match(css, /\.friends-sidebar\.collapsed \.friends-sidebar-header \{ min-width: 184px; padding: 8px 10px; gap: 7px; justify-content: flex-start; \}/);
+    assert.match(css, /\.friends-sidebar\.collapsed \.friends-sidebar-count \{ display: inline-flex; flex: 0 0 auto; margin-left: 0; font-size: \.58rem; \}/);
+    assert.match(css, /#main-menu:has\(\.friends-sidebar:not\(\.collapsed\)\) \.ow-showcase \.ow-splash \{ opacity: 0; pointer-events: none; \}/);
+});
+
 test('social rail exposes professional async, empty and friend-request states', () => {
     for (const id of ['fbar-sync-state', 'fbar-directory-title', 'fbar-own-tag-code', 'fbar-add-toggle', 'fbar-add-form', 'fbar-add-submit', 'fbar-add-status']) {
         assert.match(html, new RegExp(`id="${id}"`));
