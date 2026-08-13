@@ -84,8 +84,24 @@ test('straight shot leads a moving target with bounded sampled velocity', () => 
         20
     );
     assert.ok(lead.x > 2);
-    assert.ok(lead.x <= 3.5);
+    assert.ok(lead.x <= 4.2);
     assert.equal(lead.z, -10);
+});
+
+test('player steering preserves a stationary baseline, leads laterally, and pursues a bounded rear intercept', () => {
+    const target = { x: 0, y: 1, z: -10 };
+    const projectile = { x: 0, y: 1, z: 0 };
+    const stationary = predictLeadTarget(target, { x: 0, y: 0, z: 0 }, projectile, 20);
+    const lateral = predictLeadTarget(target, { x: 6, y: 0, z: 0 }, projectile, 20);
+    const movingAway = predictLeadTarget(target, { x: 0, y: 0, z: -14 }, projectile, 20);
+
+    assert.deepEqual(stationary, target, 'a stationary target must keep the direct baseline');
+    assert.ok(lateral.x > 1.7 && lateral.x < 2.6,
+        `lateral movement should produce a readable lead, got ${lateral.x}`);
+    assert.ok(movingAway.z < target.z,
+        'a target moving away should be pursued from behind rather than pulled back to a frontal point');
+    assert.ok(movingAway.z >= target.z - 5.88,
+        'rear pursuit must remain bounded by the 0.42s intercept cap');
 });
 
 test('wide shot creates a deterministic side/back waypoint and switches at target plane', () => {

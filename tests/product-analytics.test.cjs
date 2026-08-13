@@ -158,6 +158,35 @@ test('KPI report uses first-session completion and returns null for insufficient
     assert.ok(report.notInstrumentedYet.includes('paidBattlePassConversion'));
 });
 
+test('KPI report distinguishes lobby screen diagnostics from lifecycle-derived journey stages', () => {
+    const events = [
+        { ...base({ eventId: 'product_stage_a001', name: 'screen_view', dimensions: { screen: 'lobby' } }), profileKey: 'qa-profile-lobby', serverTimestamp: now },
+        { ...base({ eventId: 'product_stage_b001', name: 'screen_view', dimensions: { screen: 'lobby' } }), profileKey: 'qa-profile-started', serverTimestamp: now + 1 },
+        { ...base({ eventId: 'product_stage_b002', name: 'match_start', dimensions: { matchId: 'match_stage_b' } }), profileKey: 'qa-profile-started', serverTimestamp: now + 2 },
+        { ...base({ eventId: 'product_stage_c001', name: 'screen_view', dimensions: { screen: 'lobby' } }), profileKey: 'qa-profile-completed', serverTimestamp: now + 3 },
+        { ...base({ eventId: 'product_stage_c002', name: 'match_start', dimensions: { matchId: 'match_stage_c' } }), profileKey: 'qa-profile-completed', serverTimestamp: now + 4 },
+        { ...base({ eventId: 'product_stage_c003', name: 'match_complete', dimensions: { matchId: 'match_stage_c' } }), profileKey: 'qa-profile-completed', serverTimestamp: now + 5 },
+        { ...base({ eventId: 'product_stage_c004', name: 'match_start', dimensions: { matchId: 'match_stage_c2' } }), profileKey: 'qa-profile-completed', serverTimestamp: now + 6 }
+    ];
+    const report = buildKpiReport(events, now + 10, { sampleKind: 'local_qa_or_test' });
+    assert.equal(report.churnLastScreen.lobby, 3, 'legacy screen diagnostic remains available');
+    assert.deepEqual(report.journeyTerminalStage.lastLobbyScreen, {
+        total: 3,
+        lobbyWithoutMatch: 1,
+        matchStartedNotCompleted: 1,
+        completedOrPostgame: 1
+    });
+    assert.deepEqual(report.sampleQuality, {
+        source: 'local_qa_or_test',
+        totalProfiles: 3,
+        qaOrTestProfileCount: 3,
+        cohortEligibleProfileCount: 0,
+        retentionClaimsAllowed: false,
+        warning: 'LOCAL_QA_OR_TEST_SAMPLE: local QA/test profiles are excluded from retention claims.'
+    });
+    assert.equal(JSON.stringify(report).includes('qa-profile-'), false, 'report exposes aggregate counts only');
+});
+
 test('KPI report exposes Arena Cache and card engagement without inventing denominators', () => {
     const events = [
         { ...base({ eventId: 'product_card_a00001', name: 'arena_cache_earned' }), profileKey: 'a', serverTimestamp: now },

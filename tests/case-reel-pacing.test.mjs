@@ -3,7 +3,11 @@
 // js/ui.js showCaseReel() — see js/cosmetics.js for the implementation.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { computeCaseReelTickSchedule, arrangeNearMissFillers, revealPresentationForRarity, getCaseDropRates, CASES } from '../js/cosmetics.js';
+
+const uiSource = await readFile(new URL('../js/ui.js', import.meta.url), 'utf8');
+const polishSource = await readFile(new URL('../css/polish.css', import.meta.url), 'utf8');
 
 // ===== computeCaseReelTickSchedule =====
 
@@ -167,4 +171,28 @@ test('revealPresentationForRarity: spin duration lands in the 6-7s CS:GO band fo
         assert.ok(presentation.spinMs >= 6000 && presentation.spinMs <= 7200,
             `${rarity} spinMs (${presentation.spinMs}) should be in the ~6-7s CS:GO band, not the old 1.2-3.4s range`);
     }
+});
+
+test('reused case reel clears a skipped inline animation before starting a real timed spin', () => {
+    const reelStart = uiSource.indexOf('showCaseReel(');
+    const reel = uiSource.slice(reelStart, uiSource.indexOf('\n    _scheduleReelTicks(', reelStart));
+    assert.match(reel, /track\.style\.removeProperty\('animation'\);[\s\S]*?track\.style\.removeProperty\('transform'\);/,
+        'a previous Escape/Skip must not leave animation:none on the reusable reel');
+    assert.match(reel, /track\.classList\.add\('spin'\);[\s\S]*?timer = setTimeout\(finish, presentation\.spinMs \+ 100\);/,
+        'normal motion must traverse cards before actions/reward settlement unlock');
+});
+
+test('case inspector protects the Open CTA at 100% desktop 720px height', () => {
+    assert.match(polishSource, /@media \(min-width: 701px\) and \(max-height: 760px\)[\s\S]*?height: min\(560px, calc\(100dvh - 24px\)\);/,
+        'short desktop inspector must fit within the overlay viewport');
+    assert.match(polishSource, /#case-inspector-open \{ flex: 0 0 auto; margin-top: auto; \}/,
+        'the confirmation action must remain at the end of the compact inspector column');
+});
+
+test('compact desktop preserves the case-card opening CTA instead of applying the generic card floor', () => {
+    const compact = polishSource.slice(polishSource.lastIndexOf('@media (min-width: 981px) and (max-height: 800px)'));
+    assert.match(compact, /#shop-screen \.shop-card \{ min-height: 294px; \}[\s\S]*?#shop-screen \.case-card \{ min-height: 360px; \}/,
+        'the compact generic card rule must not crop Inspect and open at 100% UI scale');
+    assert.match(compact, /#shop-screen \.case-select \{ min-height: 44px; \}/,
+        'the case action must retain a touch-sized visible target');
 });

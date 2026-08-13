@@ -6988,8 +6988,9 @@ updateCarousel() {
                 this.game.invokeRemoteSnapshots(dt);
                 this.game.invokeBallSmoothing?.(dt);
             }
-            // Host broadcasts use packet-specific rate limits.
-            if (this.game.state === STATES.PLAYING) {
+            // The RAF is the sole visible-tab host publisher. The interval only
+            // takes over transport publication once browsers throttle RAF.
+            if (document.hidden && this.game.state === STATES.PLAYING) {
                 this._hostBgSlowBroadcast(dt);
             }
             if (this.game.state === STATES.MENU) {
@@ -7071,9 +7072,11 @@ updateCarousel() {
             this.network.sendPosition(pos, p.euler.y, extra);
         }
     }
-    // Host slow-rate broadcasts: score 2Hz, powerUp 2Hz, ballState 15Hz
+    // Hidden-tab host publisher: score 2Hz, powerUp 2Hz, ballState 30Hz.
     _hostBgSlowBroadcast(dt) {
-        if (!this.network?.isHost) return;
+        // Never publish alongside the foreground RAF: duplicate ball snapshots
+        // waste bandwidth and can arrive out of cadence on P2P clients.
+        if (!this.network?.isHost || !document.hidden) return;
         this._bgBallTimer += dt;
         // Ball state: 30Hz binary position/velocity; state/target only when changed.
         if (this._bgBallTimer >= 1 / 30 && (this.game.ball.active || this.game.ball.state !== 'idle')) {
@@ -7568,6 +7571,9 @@ updateCarousel() {
                 if (this.game.powerUps.length > 0) {
                     const puData = this.game.powerUps.map(pu => ({ x: pu.pos.x, z: pu.pos.z, type: pu.type.id }));
                     this.network.broadcast({ type: 'powerUpState', powerUps: puData });
+                } else {
+                    // A clear is state, too: clients must remove an expired pickup.
+                    this.network.broadcast({ type: 'powerUpState', powerUps: [] });
                 }
             }
         }

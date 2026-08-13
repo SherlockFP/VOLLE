@@ -56,6 +56,61 @@ function lastScreenCounts(events) {
     return counts;
 }
 
+// A last rendered menu is a useful diagnostic, but it is not a lifecycle
+// outcome. In particular, players can enter a lobby, begin a match, then have
+// the final recorded screen remain `lobby`. Keep the legacy screen breakdown
+// above, and derive a separate journey stage from ordered product events.
+// Reaching a completion/post-game event wins over later launch attempts: this
+// is a journey funnel, not an assertion that the last in-progress match ended.
+function journeyTerminalStageCounts(events, profileFilter = () => true) {
+    const eventsByProfile = new Map();
+    for (const event of events) {
+        if (!event.profileKey || !profileFilter(event.profileKey)) continue;
+        const profileEvents = eventsByProfile.get(event.profileKey) || [];
+        profileEvents.push(event);
+        eventsByProfile.set(event.profileKey, profileEvents);
+    }
+    const counts = {
+        total: eventsByProfile.size,
+        lobbyWithoutMatch: 0,
+        matchStartedNotCompleted: 0,
+        completedOrPostgame: 0
+    };
+    for (const profileEvents of eventsByProfile.values()) {
+        let startedMatch = false;
+        let completedOrPostgame = false;
+        profileEvents.sort((a, b) => (a.serverTimestamp || 0) - (b.serverTimestamp || 0));
+        for (const event of profileEvents) {
+            if (event.name === 'match_start') startedMatch = true;
+            if (event.name === 'match_complete'
+                || (event.name === 'screen_view' && event.dimensions?.screen === 'postgame')) {
+                completedOrPostgame = true;
+            }
+        }
+        if (completedOrPostgame) counts.completedOrPostgame += 1;
+        else if (startedMatch) counts.matchStartedNotCompleted += 1;
+        else counts.lobbyWithoutMatch += 1;
+    }
+    return counts;
+}
+
+function sampleQuality(players, sampleKind = 'unlabeled') {
+    const localQaOrTest = sampleKind === 'local_qa_or_test';
+    const productionCohort = sampleKind === 'production_cohort';
+    return {
+        source: sampleKind,
+        totalProfiles: players.size,
+        qaOrTestProfileCount: localQaOrTest ? players.size : 0,
+        cohortEligibleProfileCount: localQaOrTest ? 0 : players.size,
+        retentionClaimsAllowed: productionCohort,
+        warning: localQaOrTest
+            ? 'LOCAL_QA_OR_TEST_SAMPLE: local QA/test profiles are excluded from retention claims.'
+            : productionCohort
+                ? null
+                : 'UNLABELED_SAMPLE: retention claims require a labeled production cohort.'
+    };
+}
+
 function firstSessionCompletion(events) {
     const starts = events
         .filter(event => event.name === 'session_start' && event.profileKey && event.sessionId)
@@ -149,7 +204,7 @@ function rematchPropensity(events, completedMatches) {
     return ratio(startsAfterCompletion.size, completedMatches.length);
 }
 
-function buildKpiReport(rawEvents, now = Date.now()) {
+function buildKpiReport(rawEvents, now = Date.now(), options = {}) {
     const events = rawEvents.filter(event => event && Number.isFinite(event.serverTimestamp) && event.serverTimestamp <= now);
     const players = new Set(events.map(event => event.profileKey).filter(Boolean));
     const activeSessionStarts = events.filter(event => event.name === 'session_start' && event.profileKey && event.sessionId);
@@ -172,6 +227,14 @@ function buildKpiReport(rawEvents, now = Date.now()) {
     const cardEarners = unique(events, event => event.name === 'card_earned');
     const sessionDurations = longestSessionDurations(events);
     const paidRevenueByCurrency = paymentMetrics(events, activeSessionStarts);
+    const lastScreenByProfile = new Map();
+    for (const event of [...events].sort((a, b) => (a.serverTimestamp || 0) - (b.serverTimestamp || 0))) {
+        if (event.name === 'screen_view' && event.profileKey && event.dimensions?.screen) {
+            lastScreenByProfile.set(event.profileKey, event.dimensions.screen);
+        }
+    }
+    const allJourneyStages = journeyTerminalStageCounts(events);
+    const lobbyJourneyStages = journeyTerminalStageCounts(events, profileKey => lastScreenByProfile.get(profileKey) === 'lobby');
 
     return {
         generatedAt: new Date(now).toISOString(),
@@ -199,6 +262,11 @@ function buildKpiReport(rawEvents, now = Date.now()) {
         averageMatchSetupMs: observedMetricAverage(events, 'match_start', 'matchSetupMs'),
         averageClickToCountdownMs: observedMetricAverage(events, 'match_start', 'clickToCountdownMs'),
         churnLastScreen: lastScreenCounts(events),
+        journeyTerminalStage: {
+            ...allJourneyStages,
+            lastLobbyScreen: lobbyJourneyStages
+        },
+        sampleQuality: sampleQuality(players, options.sampleKind),
         shopViewRate: ratio(shopViewers.size, players.size),
         purchaseConversion: ratio(purchasers.size, shopViewers.size),
         cosmeticEquipRate: ratio(unique(events, event => event.name === 'cosmetic_equip').size, shopViewers.size),
@@ -232,7 +300,13 @@ function buildKpiReport(rawEvents, now = Date.now()) {
 if (require.main === module) {
     const fileIndex = process.argv.indexOf('--file');
     const filePath = fileIndex >= 0 ? process.argv[fileIndex + 1] : path.resolve(__dirname, '..', 'data', 'product-analytics.json');
-    process.stdout.write(JSON.stringify(buildKpiReport(readEvents(filePath)), null, 2) + '\n');
+    const sampleIndex = process.argv.indexOf('--sample');
+    const sampleKind = sampleIndex >= 0
+        ? process.argv[sampleIndex + 1]
+        : path.resolve(filePath) === path.resolve(__dirname, '..', 'data', 'product-analytics.json')
+            ? 'local_qa_or_test'
+            : 'unlabeled';
+    process.stdout.write(JSON.stringify(buildKpiReport(readEvents(filePath), Date.now(), { sampleKind }), null, 2) + '\n');
 }
 
-module.exports = { buildKpiReport, readEvents, ratio, retention, firstSessionCompletion, uniqueMatchLifecycle, longestSessionDurations, observedMetricAverage, paymentMetrics, rematchPropensity };
+module.exports = { buildKpiReport, readEvents, ratio, retention, firstSessionCompletion, uniqueMatchLifecycle, longestSessionDurations, observedMetricAverage, paymentMetrics, rematchPropensity, journeyTerminalStageCounts, sampleQuality };

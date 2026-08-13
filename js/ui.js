@@ -2439,6 +2439,14 @@ export class UI {
         // drop-rate odds are untouched, only where each already-rolled filler lands.
         const arrangedItems = arrangeNearMissFillers(items, targetIndex, { windowSize: 2, minAdjacent: 1 });
         track.className = 'case-reel-track';
+        // `settleImmediately()` uses an inline animation reset so Escape/Skip
+        // cannot leave the spinner half-way through a stale keyframe. The reel
+        // node is intentionally reused, therefore that reset must be cleared
+        // before every new opening or the next CSS spin is silently overridden
+        // and appears to reveal the reward immediately.
+        track.style.removeProperty('animation');
+        track.style.removeProperty('transform');
+        track.style.removeProperty('--case-reel-stop');
         track.innerHTML = arrangedItems.map(item => {
             const type = item.type === 'avatar' ? 'CHARACTER SKIN'
                 : item.type === 'ball' ? 'BALL SKIN'

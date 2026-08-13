@@ -164,11 +164,25 @@ export function networkBallStep(position, velocity, target, dt, packetAge) {
 export function predictLeadTarget(target, targetVelocity, projectile, projectileSpeed) {
     if (!finitePoint(target)) return { x: 0, y: 0, z: 0 };
     const velocity = finitePoint(targetVelocity) ? targetVelocity : { x: 0, y: 0, z: 0 };
-    const distance = finitePoint(projectile)
-        ? Math.hypot(target.x - projectile.x, target.y - projectile.y, target.z - projectile.z)
-        : 0;
+    const offsetX = finitePoint(projectile) ? target.x - projectile.x : 0;
+    const offsetY = finitePoint(projectile) ? target.y - projectile.y : 0;
+    const offsetZ = finitePoint(projectile) ? target.z - projectile.z : 0;
+    const distance = Math.hypot(offsetX, offsetY, offsetZ);
     const speed = Number.isFinite(projectileSpeed) && projectileSpeed > 0 ? projectileSpeed : 1;
-    const leadTime = clamp((distance / speed) * 0.25, 0, 0.3);
+    if (distance < 0.001) return { x: target.x, y: target.y, z: target.z };
+    // Movement perpendicular to the incoming ball needs more lead than a
+    // stationary target. A target sprinting away receives a smaller extra
+    // pursuit bias, which lets the ball arc in from the rear instead of making
+    // an abrupt frontal pull. Velocity is already sampled and bounded before
+    // this helper; the time cap keeps the intercept readable at rally speeds.
+    const invDistance = 1 / distance;
+    const radialSpeed = (velocity.x * offsetX + velocity.y * offsetY + velocity.z * offsetZ) * invDistance;
+    const velocityLength = Math.hypot(velocity.x, velocity.y, velocity.z);
+    const lateralSpeed = Math.sqrt(Math.max(0, velocityLength * velocityLength - radialSpeed * radialSpeed));
+    const lateralRatio = velocityLength > 0.001 ? lateralSpeed / velocityLength : 0;
+    const awayRatio = velocityLength > 0.001 ? clamp(radialSpeed / velocityLength, 0, 1) : 0;
+    const leadWeight = 0.46 + lateralRatio * 0.16 + awayRatio * 0.12;
+    const leadTime = clamp((distance / speed) * leadWeight, 0, 0.42);
     return {
         x: target.x + velocity.x * leadTime,
         y: target.y + velocity.y * leadTime,
