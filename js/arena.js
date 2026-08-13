@@ -9,7 +9,9 @@ import { loadSkyboxTexture, resolveFogColor } from './skybox-loader.js';
 
 export const ARENA_PRESENTATION_PROFILES = Object.freeze({
     default: Object.freeze({ exposure: 1.10, sun: 1.80, bloomRadius: 0.22, bloomThreshold: 0.78 }),
-    beach_open: Object.freeze({ exposure: 1.18, sun: 2.05, bloomRadius: 0.20, bloomThreshold: 0.80 }),
+    // Keep the open court vivid without bleaching the ball, players, or net into
+    // the bright horizon. Strength remains quality-owned (including low=off).
+    beach_open: Object.freeze({ exposure: 0.98, sun: 1.70, bloomRadius: 0.16, bloomThreshold: 0.84 }),
     industrial: Object.freeze({ exposure: 1.16, sun: 2.10, bloomRadius: 0.18, bloomThreshold: 0.76 }),
     neon: Object.freeze({ exposure: 1.06, sun: 1.65, bloomRadius: 0.18, bloomThreshold: 0.72 }),
     grand_stadium: Object.freeze({ exposure: 1.12, sun: 1.90, bloomRadius: 0.18, bloomThreshold: 0.82 })
@@ -31,8 +33,10 @@ export const MAPS = {
     beach_open: {
         name: 'Beach Volleyball',
         courtWidth: 58, courtLength: 75, wallHeight: 9, ceilingHeight: 0,
-        floorRed: 0xf29a54, floorBlue: 0x55c4df, wallColor: 0xffd780,
-        skyTop: 0x249cff, skyBottom: 0xdff7ff, fogColor: 0xdff7ff,
+        // Deliberately separated from the default orange ball and team models:
+        // coral/teal court halves hold at mid-field against a quieter sky.
+        floorRed: 0xc94f5c, floorBlue: 0x168fbc, wallColor: 0xf4c56f,
+        skyTop: 0x0d71c7, skyBottom: 0x8ecedc, fogColor: 0x79b7c6,
         floorMaterial: { roughness: 0.82, metalness: 0, emissiveIntensity: 0.07 },
         hasOcean: true, hasGlass: false, openAir: true, isBeachOpen: true, size: 'small', weather: 'clear', noSides: true,
         spectator: {
@@ -60,7 +64,7 @@ export const MAPS = {
             Object.freeze({ kind: 'palm', x: 0.90, y: 0.83 }),
             Object.freeze({ kind: 'service-rings' })
         ]),
-        sky: { horizonColor: 0xffe1a8, sun: true, sunColor: 0xfff1b0, cloudAmount: 0.55 },
+        sky: { horizonColor: 0x60b9d1, sun: true, sunColor: 0xffcf78, cloudAmount: 0.24 },
     },
     industrial: {
         name: '🏭 Factory',
@@ -1648,9 +1652,9 @@ export class Arena {
         group.userData.nonColliding = true;
 
         const shoreGeo = new THREE.PlaneGeometry(this.courtWidth + 22, 7);
-        const shoreMat = new THREE.MeshBasicMaterial({ color: 0xffd58d, transparent: true, opacity: 0.88 });
+        const shoreMat = new THREE.MeshBasicMaterial({ color: 0xd99449, transparent: true, opacity: 0.82 });
         const surfGeo = new THREE.PlaneGeometry(this.courtWidth + 18, 0.55);
-        const surfMat = new THREE.MeshBasicMaterial({ color: 0x7fe8f5, transparent: true, opacity: 0.72 });
+        const surfMat = new THREE.MeshBasicMaterial({ color: 0x26bdd8, transparent: true, opacity: 0.68 });
         for (const side of [-1, 1]) {
             const shore = new THREE.Mesh(shoreGeo, shoreMat);
             shore.rotation.x = -Math.PI / 2;
@@ -1667,8 +1671,8 @@ export class Arena {
         const cabanaRoofGeo = new THREE.ConeGeometry(2.7, 1.15, 4);
         const cabanaPostMat = this.renderer.createToonMaterial(0xf7f0dc);
         const cabanaRoofMats = [
-            new THREE.MeshBasicMaterial({ color: 0xff5d70 }),
-            new THREE.MeshBasicMaterial({ color: 0x3bbcf3 })
+            new THREE.MeshBasicMaterial({ color: 0xe84f61 }),
+            new THREE.MeshBasicMaterial({ color: 0x249fd0 })
         ];
         [[-halfW - 4.4, -halfL - 5.2], [halfW + 4.4, halfL + 5.2]].forEach(([x, z], index) => {
             for (const dx of [-1.75, 1.75]) {
@@ -2398,7 +2402,7 @@ export class Arena {
         // Posts
         const postHeight = netH + 1;
         const postGeo = new THREE.CylinderGeometry(0.12, 0.15, postHeight, 8);
-        const postMat = this.renderer.createToonMaterial(0xdddddd);
+        const postMat = this.renderer.createToonMaterial(this.config.isBeachOpen ? 0x173d5e : 0xdddddd);
         [-halfW + 1, halfW - 1].forEach(x => {
             const p = new THREE.Mesh(postGeo, postMat);
             p.position.set(x, postHeight / 2, 0);
@@ -2420,7 +2424,8 @@ export class Arena {
 
         // Net
         const netMat = new THREE.MeshBasicMaterial({
-            color: 0xffffff, transparent: true, opacity: 0.2,
+            color: this.config.isBeachOpen ? 0x184968 : 0xffffff,
+            transparent: true, opacity: this.config.isBeachOpen ? 0.34 : 0.2,
             side: THREE.DoubleSide, wireframe: true
         });
         const net = new THREE.Mesh(

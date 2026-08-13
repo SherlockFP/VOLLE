@@ -15,7 +15,7 @@ test('arena presentation profiles lock the approved exposure, sun, and bloom cha
     assert.deepEqual(ARENA_PRESENTATION_PROFILES.default,
         { exposure: 1.10, sun: 1.80, bloomRadius: 0.22, bloomThreshold: 0.78 });
     assert.deepEqual(ARENA_PRESENTATION_PROFILES.beach_open,
-        { exposure: 1.18, sun: 2.05, bloomRadius: 0.20, bloomThreshold: 0.80 });
+        { exposure: 0.98, sun: 1.70, bloomRadius: 0.16, bloomThreshold: 0.84 });
     assert.deepEqual(ARENA_PRESENTATION_PROFILES.industrial,
         { exposure: 1.16, sun: 2.10, bloomRadius: 0.18, bloomThreshold: 0.76 });
     assert.deepEqual(ARENA_PRESENTATION_PROFILES.neon,
@@ -49,4 +49,19 @@ test('floor materials consume each arena roughness, metalness, and emissive prof
     assert.match(method, /c\.floorMaterial \|\| \{\}/);
     assert.match(method, /roughness: floorRoughness, metalness: floorMetalness/);
     assert.equal((method.match(/emissiveIntensity: floorEmissive/g) || []).length, 2);
+});
+
+test('Volleyball keeps a distinct court, horizon, and net without changing bloom ownership', () => {
+    const beachStart = source.indexOf('    beach_open: {');
+    const beachEnd = source.indexOf('    industrial: {', beachStart);
+    const beach = source.slice(beachStart, beachEnd);
+    const net = source.slice(source.indexOf('    buildNet() {'), source.indexOf('    buildCeiling() {'));
+
+    assert.match(beach, /floorRed: 0xc94f5c, floorBlue: 0x168fbc/);
+    assert.match(beach, /skyTop: 0x0d71c7, skyBottom: 0x8ecedc, fogColor: 0x79b7c6/);
+    assert.match(beach, /horizonColor: 0x60b9d1, sun: true, sunColor: 0xffcf78, cloudAmount: 0.24/);
+    assert.match(net, /this\.config\.isBeachOpen \? 0x173d5e : 0xdddddd/);
+    assert.match(net, /this\.config\.isBeachOpen \? 0x184968 : 0xffffff/);
+    assert.match(net, /this\.config\.isBeachOpen \? 0\.34 : 0\.2/);
+    assert.match(source, /strength: null/, 'map presentation must retain quality-gated bloom ownership');
 });
