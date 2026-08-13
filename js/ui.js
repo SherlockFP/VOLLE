@@ -3394,7 +3394,9 @@ export class UI {
             <div class="stat-card"><div class="stat-value">${stats.deaths}</div><div class="stat-label">Deaths</div></div>
             <div class="stat-card"><div class="stat-value">${stats.damage}</div><div class="stat-label">Damage</div></div>`;
 
-        this.showScreen('screen-profile');
+        // `screens` is keyed by the product route (`profile`), not by the
+        // DOM id. Using the id hid Main Menu without revealing a target.
+        this.showScreen('profile');
     }
 
     hideProfile() { this.showScreen('mainMenu'); }

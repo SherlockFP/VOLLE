@@ -63,6 +63,12 @@ test('rank badges are SVG/CSS presentation rather than emoji-only primary UI', (
     assert.match(css, /\.menu-rank-badge,/);
 });
 
+test('Profile route resolves through the UI screen registry instead of a DOM id', () => {
+    const profile = ui.slice(ui.indexOf('showProfile()'), ui.indexOf('hideProfile()'));
+    assert.match(profile, /this\.showScreen\('profile'\);/);
+    assert.doesNotMatch(profile, /this\.showScreen\('screen-profile'\);/);
+});
+
 test('menu layout supplies tokenized responsive, focus and reduced-motion contracts', () => {
     assert.match(tokens, /--ui-space-8: 64px;/);
     for (const token of ['--ui-surface-rest', '--ui-menu-max-width', '--ui-hud-edge', '--ui-ultrawide-safe', '--ui-z-hud']) {

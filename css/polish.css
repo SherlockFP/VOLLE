@@ -7159,6 +7159,52 @@ body:not(.practice-lab-active) .network-diagnostics {
     #main-menu .friends-sidebar-body { scrollbar-width: none; }
 }
 
+/* Social directory keeps one deliberate scroll surface.  The native white
+   mobile bar looked detached from the panel and made the directory read like
+   an embedded page rather than part of the Squad Network. */
+#main-menu .friends-sidebar-body {
+    overscroll-behavior-y: contain;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--menu-cyan) 70%, var(--menu-blue)) rgba(2, 8, 18, .76);
+}
+
+#main-menu .friends-sidebar-body::-webkit-scrollbar {
+    display: block;
+    width: 9px;
+}
+
+#main-menu .friends-sidebar-body::-webkit-scrollbar-track {
+    margin-block: 8px;
+    border: 2px solid rgba(2, 8, 18, .68);
+    border-radius: 999px;
+    background: linear-gradient(180deg, rgba(112, 92, 255, .12), rgba(1, 7, 17, .82));
+}
+
+#main-menu .friends-sidebar-body::-webkit-scrollbar-thumb {
+    min-height: 44px;
+    border: 2px solid rgba(3, 10, 22, .94);
+    border-radius: 999px;
+    background: linear-gradient(180deg, var(--menu-cyan), var(--menu-blue));
+    box-shadow: 0 0 10px color-mix(in srgb, var(--menu-cyan) 52%, transparent);
+}
+
+#main-menu .friends-sidebar-body::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, color-mix(in srgb, var(--menu-ink) 88%, var(--menu-cyan)), var(--menu-cyan));
+}
+
+#main-menu .friends-sidebar-body::-webkit-scrollbar-button { display: none; }
+
+@media (max-width: 760px) {
+    #main-menu .friends-sidebar-body {
+        /* Override the older invisible-bar rule: touch scrolling stays native,
+           but the visible affordance belongs to the sheet. */
+        scrollbar-width: thin;
+    }
+
+    #main-menu .friends-sidebar-body::-webkit-scrollbar { display: block; }
+}
+
 /* Social Hub is a complete secondary destination, not a clipped utility row. */
 #main-menu .ow-world-grid { min-width: 0; grid-template-columns: minmax(0, 1fr); }
 #main-menu .ow-social-lobby {
