@@ -46,6 +46,7 @@ import { shouldEndOvertime, shouldStartOvertime } from './competitive-service.js
 import { normalizeNetcode, predictPosition, rewindSnapshot, sampleSnapshots } from './experimental-netcode.js';
 import { RuntimeLog } from './runtime-safety.js';
 import { DEFLECT_TIMING_WINDOWS, PracticeLabMetrics, resolvePerfectDeflect } from './perfect-deflect.js';
+import { getDeflectPresentation } from './deflect-presentation.js';
 import { GuidedDeflectDrill } from './guided-deflect-drill.js';
 import { MatchAnalytics } from './match-analytics.js';
 import { applyCompetitiveRules } from './competitive-rules.js';
@@ -2659,6 +2660,18 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         return heat;
     }
 
+    // One local presentation path keeps solo and client prediction equally
+    // readable. It is copy only: no extra sound, animation, trail, reward,
+    // authority or input mutation can be replayed by an authoritative echo.
+    _presentLocalDeflectResult(result) {
+        if (!result) return;
+        this.onDeflectResult?.(result);
+        this.ui.showMessage?.(result.message, result.duration, {
+            priority: result.priority,
+            tone: result.tone
+        });
+    }
+
     handlePlayerDeflection(skipAimCheck = false) {
         const pos = this.player.getPosition();
         const aimDir = this.player.getAimDirection();
@@ -2736,7 +2749,13 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             this.juice.slashEffect(pos.clone().add(new THREE.Vector3(0, 1, 0)), slashDir, 0x00ffee);
             this.juice.sparks(this.ball.position.clone(), 0xff8844, 6);
             this.juice.shake(0.08);
-            this.ui.showMessage('🏐 Deflect!', 600);
+            // Prediction gets the same local timing read as solo. It does not
+            // mutate its chain/reward state; host authority still reconciles it.
+            this._presentLocalDeflectResult(getDeflectPresentation({
+                timingErrorMs: this.ball.getPerfectTimingErrorMs(),
+                shot: result.shot,
+                speedPercent: (this.ball.getSpeed() / this.ball.baseSpeed) * 100
+            }));
             return;
         }
 
@@ -2837,12 +2856,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             this.ball.deactivate();
             this.onGuidedDrillUpdate?.(this.guidedDrill.snapshot());
         }
-        this.onPerfectDeflect?.({
-            tier: timingTier || 'normal',
-            chain: this.perfectDeflectChain.count,
-            timingErrorMs: Number.isFinite(rawTimingErrorMs) ? rawTimingErrorMs : null,
-            reward: resolvedDeflect.reward
-        });
+        let perfectCooldownCut = 0;
         if (isPerfect) {
             this.ball.lastPerfectBy = this.player;
             // Perfect deflect improves timing/reward, not rally speed.
@@ -2856,9 +2870,9 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             // V3_UX_ROADMAP.md 3.3: chained perfect deflects shave flat seconds off the
             // equipped skill's cooldown (skills.js perfectDeflectCooldownCut), capped per
             // round. Client-side only — see report for the P2P host-authoritative audit.
-            const cdCut = this._applyPerfectDeflectCooldownCut(this.player, this.perfectDeflectChain.count, 'local');
-            const cdSuffix = cdCut > 0 ? `  −${cdCut.toFixed(1)}s ${SKILLS[this.player.loadout?.skill]?.emoji || ''}` : '';
-            this.ui.showMessage(`✨ PERFECT DEFLECT! x${this.juice.combo} combo${cdSuffix}`, 2500);
+            perfectCooldownCut = this._applyPerfectDeflectCooldownCut(this.player, this.perfectDeflectChain.count, 'local');
+            // The shared presentation below owns the readable toast. Keep the
+            // cooldown benefit in its own HUD/skill state without replacing it.
             this.audio.playSfx('tf2_crit', 0.65, comboPitchRate(comboTier(this.juice.combo)));
         } else {
             // Normal deflect — spark + small flash for impact feel
@@ -2870,9 +2884,17 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         }
 
         const spd = Math.round((this.ball.getSpeed() / this.ball.baseSpeed) * 100);
-        const tag = result.shot === 'spike' ? '💥 SPIKE!' : result.shot === 'lob' ? '🌈 Lob' : isPerfect ? '✨ PERFECT' : `Rally ${this.rallyCount}`;
         if (result.shot === 'spike') this.spikeCount++;
-        this.ui.showMessage(`🏐 ${tag} — ${spd}%`, 800);
+        this._presentLocalDeflectResult({
+            ...getDeflectPresentation({
+                timingErrorMs: rawTimingErrorMs,
+                chain: this.perfectDeflectChain.count,
+                shot: result.shot,
+                speedPercent: spd
+            }),
+            reward: resolvedDeflect.reward,
+            cooldownCut: perfectCooldownCut
+        });
     }
 
     handleBotDeflection(bot) {

@@ -316,7 +316,7 @@ class App {
             this._matchLaunchTiming = null;
             this._pendingMatchStartAnalytics = null;
         };
-        this.game.onPerfectDeflect = result => this._showPerfectDeflect(result);
+        this.game.onDeflectResult = result => this._showDeflectResult(result);
         this.game.onPracticeMetrics = summary => this._updatePracticeLab(summary);
         this.game.onGuidedDrillUpdate = snapshot => this._updateGuidedDrillHUD(snapshot);
         this.game.onGuidedDrillComplete = result => {
@@ -5693,16 +5693,21 @@ updateCarousel() {
     }
 
 
-    _showPerfectDeflect(result = {}) {
+    _showDeflectResult(result = {}) {
         if (result.tier !== 'perfect' && result.tier !== 'great') return;
         const hud = document.getElementById('perfect-deflect-hud');
         if (!hud) return;
+        const perfect = result.tier === 'perfect';
+        hud.classList.toggle('is-perfect', perfect);
+        hud.classList.toggle('is-great', !perfect);
         document.getElementById('perfect-deflect-tier').textContent = result.tier.toUpperCase();
-        document.getElementById('perfect-deflect-chain').textContent = `x${result.chain || 1}`;
+        const chain = document.getElementById('perfect-deflect-chain');
+        chain.textContent = perfect ? `x${result.chain || 1}` : '';
+        chain.hidden = !perfect;
         document.getElementById('perfect-deflect-timing').textContent = `${Math.round(result.timingErrorMs || 0)} ms`;
         hud.classList.remove('hidden');
         clearTimeout(this._perfectDeflectTimer);
-        this._perfectDeflectTimer = setTimeout(() => hud.classList.add('hidden'), 850);
+        this._perfectDeflectTimer = setTimeout(() => hud.classList.add('hidden'), perfect ? 1800 : 1100);
     }
 
     _updateGuidedDrillHUD(snapshot = {}) {

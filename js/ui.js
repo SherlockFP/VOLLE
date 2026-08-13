@@ -585,17 +585,40 @@ export class UI {
         if (el) el.classList.add('hidden');
     }
 
-    showMessage(text, duration = 2000) {
+    showMessage(text, duration = 2000, { priority = 0, tone = '' } = {}) {
         const el = document.getElementById('game-message');
-        if (!el) return;
+        if (!el) return false;
+        const safeDuration = Math.max(0, Number(duration) || 0);
+        const safePriority = Math.max(0, Number(priority) || 0);
+        const now = performance.now();
+        // A lower-priority generic event must never erase an active perfect
+        // confirmation. The token also prevents an older timeout hiding a newer
+        // toast during a fast rally.
+        if (this._messageUntil > now && safePriority < (this._messagePriority || 0)) return false;
+        clearTimeout(this._messageTimer);
+        const token = (this._messageToken || 0) + 1;
+        this._messageToken = token;
+        this._messagePriority = safePriority;
+        this._messageUntil = now + safeDuration;
         el.textContent = text;
+        el.classList.remove('deflect-normal', 'deflect-great', 'deflect-perfect');
+        if (tone === 'deflect-normal' || tone === 'deflect-great' || tone === 'deflect-perfect') {
+            el.classList.add(tone);
+        }
         // Fixed position — no random placement
         el.classList.remove('hidden');
         el.classList.add('message-anim');
-        setTimeout(() => {
+        void el.offsetWidth;
+        this._messageTimer = setTimeout(() => {
+            if (token !== this._messageToken) return;
             el.classList.add('hidden');
             el.classList.remove('message-anim');
-        }, duration);
+            el.classList.remove('deflect-normal', 'deflect-great', 'deflect-perfect');
+            this._messagePriority = 0;
+            this._messageUntil = 0;
+            this._messageTimer = null;
+        }, safeDuration);
+        return true;
     }
 
     showPostGame(won, xpGained, level, kills, deflects, audio, result = {}, store = Store) {
