@@ -4042,12 +4042,12 @@ spawnPowerUp() {
         this._prevHandVisible = this.player.armGroup?.visible ?? false;
         const wh = document.getElementById('celeb-weapon-hud');
         if (this._won) {
-            this.player.setHandVisible?.(true);
+            this.player.setHandTemporarilyVisible?.(true);
             this._setCelebrationGloveColor(0xff8800);
             this._buildCelebWeapons();
             this._showCelebWeapon('rocket');
         } else {
-            this.player.setHandVisible?.(false);
+            this.player.setHandTemporarilyVisible?.(false);
         }
         if (wh && this._won) {
             wh.classList.remove('hidden');
@@ -4170,7 +4170,7 @@ spawnPowerUp() {
         this._hideCelebrationBanner();
         this._teardownCelebrationTrophy();
         // Restore viewmodel to its pre-celebration state
-        this.player.setHandVisible?.(this._prevHandVisible);
+        this.player.setHandTemporarilyVisible?.(this._prevHandVisible);
         if (this.player.handMesh) this.player.handMesh.visible = true;
         if (this.player.gloveMesh) this.player.gloveMesh.visible = true;
         // Clean up weapon meshes
@@ -4862,10 +4862,10 @@ spawnPowerUp() {
                 this.player.activateRound = pl.activateRound || null;
                 if (this.player.queuedForNextRound) {
                     this.player.alive = false;
-                    this.player.setHandVisible?.(false);
+                    this.player.setHandTemporarilyVisible?.(false);
                 } else if (revived) {
                     this.player.alive = true;
-                    this.player.setHandVisible?.(true);
+                    this.player.restoreHandVisibility?.();
                     this._spectateTarget = null;
                 }
                 continue;
@@ -4985,7 +4985,7 @@ spawnPowerUp() {
             if (queued) {
                 this.player.alive = false;
                 this.player.hp = 0;
-                this.player.setHandVisible?.(false);
+                this.player.setHandTemporarilyVisible?.(false);
             } else {
                 this.player.respawn();
             }
@@ -5723,9 +5723,8 @@ spawnPowerUp() {
         }
         if (updateHandVisibility) {
             try {
-                this.player?.setHandVisible?.(
-                    !this.player.queuedForNextRound && this.player.alive !== false
-                );
+                if (!this.player.queuedForNextRound && this.player.alive !== false) this.player?.restoreHandVisibility?.();
+                else this.player?.setHandTemporarilyVisible?.(false);
             } catch (_) {}
         }
         try { this.ui?.updateScores?.(score); } catch (_) {}
@@ -6214,7 +6213,7 @@ applyPowerUpState(data) {
         this.remotePlayers.forEach(p => p.setTargetOutline?.(false));
         this._celebWeapon = 'rocket';
         this._prevHandVisible = this.player.armGroup?.visible ?? false;
-        this.player.setHandVisible?.(this._won);
+        this.player.setHandTemporarilyVisible?.(this._won);
         if (this._won) {
             this._setCelebrationGloveColor(0xff8800);
             this._buildCelebWeapons();
@@ -6320,7 +6319,7 @@ applyPowerUpState(data) {
             weaponHud.classList.add('hidden');
             weaponHud.style.display = 'none';
         }
-        this.player.setHandVisible?.(this._prevHandVisible);
+        this.player.setHandTemporarilyVisible?.(this._prevHandVisible);
         if (this.player.handMesh) this.player.handMesh.visible = true;
         if (this.player.gloveMesh) this.player.gloveMesh.visible = true;
         if (this.player.knifeGroup) this.player.knifeGroup.visible = true;

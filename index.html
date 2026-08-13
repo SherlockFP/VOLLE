@@ -101,7 +101,7 @@
                 <button class="auth-tab-btn" data-tab="register" role="tab" aria-selected="false" aria-controls="auth-register-tab">Create Account</button>
             </div>
             <div id="auth-login-tab" class="auth-tab-content auth-tab-active" role="tabpanel">
-                <label class="auth-label" for="auth-login-username">Username</label><input type="text" id="auth-login-username" class="auth-input" placeholder="Username" autocomplete="username">
+                <label class="auth-label" for="auth-login-username">Username or email</label><input type="text" id="auth-login-username" class="auth-input" placeholder="Username or email" autocomplete="username">
                 <label class="auth-label" for="auth-login-password">Password</label><input type="password" id="auth-login-password" class="auth-input" placeholder="Password" autocomplete="current-password">
                 <div id="auth-login-error" class="auth-error hidden"></div>
                 <button id="auth-login-submit" class="btn btn-primary">Sign In</button>
@@ -109,6 +109,7 @@
             </div>
             <div id="auth-register-tab" class="auth-tab-content hidden" role="tabpanel">
                 <label class="auth-label" for="auth-register-username">Username</label><input type="text" id="auth-register-username" class="auth-input" placeholder="3–20 letters, numbers, or underscores" autocomplete="username">
+                <label class="auth-label" for="auth-register-email">Email</label><input type="email" id="auth-register-email" class="auth-input" placeholder="you@example.com" autocomplete="email" maxlength="254" required>
                 <label class="auth-label" for="auth-register-password">Password</label><input type="password" id="auth-register-password" class="auth-input" placeholder="At least 8 characters" autocomplete="new-password">
                 <div id="auth-register-error" class="auth-error hidden"></div>
                 <button id="auth-register-submit" class="btn btn-primary">Create Account</button>
@@ -972,10 +973,6 @@
     <!-- ===== SHOP ===== -->
     <div id="shop-screen" class="screen hidden">
         <div class="panel wide-panel shell-panel shop-shell">
-            <header class="shell-header shop-header">
-                <div class="shop-header-title"><span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-shop"></use></svg></span><h1>Shop</h1></div>
-                <div class="shop-header-wallet"><div id="shop-earn-slot"></div><span class="meta-stat" aria-label="Current credit balance"><svg class="ui-icon" aria-hidden="true"><use href="#i-coins"></use></svg><strong id="shop-coins">0</strong><small>credits</small></span></div>
-            </header>
             <div class="shop-toolbar">
                 <div class="shop-tabs" id="shop-tabs" role="tablist" aria-label="Shop categories">
                     <button id="shop-tab-chars" class="shop-tab selected" role="tab" aria-selected="true" aria-controls="shop-grid" data-tab="chars"><svg class="ui-icon" aria-hidden="true"><use href="#i-user"></use></svg><span>Characters</span></button>
@@ -1026,8 +1023,10 @@
                 </section>
             </main>
             <footer class="shop-footer">
+                <div class="shop-footer-brand"><span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-shop"></use></svg></span><strong>Shop</strong></div>
                 <button id="btn-shop-back" class="btn btn-secondary shell-back"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back to menu</button>
-                <span class="shop-note">Select any skin to preview. Owned items equip instantly.</span>
+                <span class="shop-note">Select any item to preview. Owned items equip instantly.</span>
+                <div class="shop-footer-wallet"><div id="shop-earn-slot"></div><span class="meta-stat" aria-label="Current credit balance"><svg class="ui-icon" aria-hidden="true"><use href="#i-coins"></use></svg><strong id="shop-coins">0</strong><small>credits</small></span></div>
             </footer>
         </div>
     </div>

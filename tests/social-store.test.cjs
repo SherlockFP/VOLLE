@@ -14,8 +14,8 @@ async function fixture(t) {
     const accounts = new AccountStore(path.join(dir, 'accounts.db'), profiles, { now: () => now });
     const social = new SocialStore(path.join(dir, 'accounts.db'), { now: () => now });
     t.after(() => { social.close(); accounts.close(); fs.rmSync(dir, { recursive: true, force: true }); });
-    const a = await accounts.register('PlayerA', 'hunter22', '');
-    const b = await accounts.register('PlayerB', 'hunter22', '');
+    const a = await accounts.register('PlayerA', 'hunter22', 'playera@example.com', '');
+    const b = await accounts.register('PlayerB', 'hunter22', 'playerb@example.com', '');
     return { accounts, social, a: a.account, b: b.account, tick: ms => { now += ms; } };
 }
 

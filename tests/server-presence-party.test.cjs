@@ -28,7 +28,7 @@ test.after(async () => {
 });
 
 test('authenticated HTTP discovery, friend status allowlist and party flow converge securely', async () => {
-    const register = username => api('/api/account/register', { method: 'POST', body: { username, password: 'hunter22' } });
+    const register = username => api('/api/account/register', { method: 'POST', body: { username, email: `${username.toLowerCase()}@example.com`, password: 'hunter22' } });
     const alice = (await register('RouteAlice')).body;
     const bob = (await register('RouteBob')).body;
     const charlie = (await register('RouteCharlie')).body;

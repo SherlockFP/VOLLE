@@ -7,9 +7,13 @@ const { DatabaseSync } = require('node:sqlite');
 
 const scrypt = promisify(crypto.scrypt);
 const USERNAME_RE = /^[A-Za-z0-9_]{3,20}$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMAIL_MAX_LENGTH = 254;
 const SCRYPT_KEYLEN = 64;
 const PASSWORD_MAX_LENGTH = 256;
-const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+// Long-lived device session: survives ordinary reloads/redeploys, remains revocable,
+// and still has a bounded maximum lifetime if a device token is abandoned.
+const SESSION_TTL_MS = 365 * 24 * 60 * 60 * 1000;
 const MAX_ACTIVE_SESSIONS = 8;
 const MAX_KDF_CONCURRENCY = 4;
 const MAX_KDF_QUEUE = 16;
@@ -46,6 +50,7 @@ class AccountStore {
             CREATE TABLE IF NOT EXISTS accounts (
                 id TEXT PRIMARY KEY,
                 username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                email TEXT,
                 password_hash TEXT NOT NULL,
                 salt TEXT NOT NULL,
                 avatar TEXT NOT NULL DEFAULT '',
@@ -67,10 +72,11 @@ class AccountStore {
                 ON account_sessions(account_id, revoked_at, expires_at, created_at);
         `);
         this._insert = this.db.prepare(
-            'INSERT INTO accounts (id, username, password_hash, salt, avatar, profile_token, friend_code, friend_tag, created_at, last_login) '
-            + 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO accounts (id, username, email, password_hash, salt, avatar, profile_token, friend_code, friend_tag, created_at, last_login) '
+            + 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         this._byUsername = this.db.prepare('SELECT * FROM accounts WHERE username = ?');
+        this._byEmail = this.db.prepare('SELECT * FROM accounts WHERE email = ? COLLATE NOCASE');
         this._byFriendTag = this.db.prepare('SELECT * FROM accounts WHERE friend_tag = ? COLLATE NOCASE');
         this._byProfileToken = this.db.prepare('SELECT * FROM accounts WHERE profile_token = ?');
         this._byId = this.db.prepare('SELECT * FROM accounts WHERE id = ?');
@@ -95,8 +101,10 @@ class AccountStore {
 
     _migrateAccounts() {
         const columns = new Set(this.db.prepare('PRAGMA table_info(accounts)').all().map(column => column.name));
+        if (!columns.has('email')) this.db.exec('ALTER TABLE accounts ADD COLUMN email TEXT');
         if (!columns.has('friend_code')) this.db.exec("ALTER TABLE accounts ADD COLUMN friend_code TEXT NOT NULL DEFAULT ''");
         if (!columns.has('friend_tag')) this.db.exec("ALTER TABLE accounts ADD COLUMN friend_tag TEXT NOT NULL DEFAULT ''");
+        this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS accounts_email_unique ON accounts(email COLLATE NOCASE) WHERE email IS NOT NULL AND email <> ''");
         this.db.exec('CREATE UNIQUE INDEX IF NOT EXISTS accounts_friend_code_unique ON accounts(friend_code) WHERE friend_code <> \'\'');
         this.db.exec('CREATE UNIQUE INDEX IF NOT EXISTS accounts_friend_tag_unique ON accounts(friend_tag COLLATE NOCASE) WHERE friend_tag <> \'\'');
         const missing = this.db.prepare("SELECT id, username FROM accounts WHERE friend_code = '' OR friend_tag = ''").all();
@@ -139,13 +147,18 @@ class AccountStore {
         }
     }
 
-    async register(username, password, avatar) {
+    async register(username, password, email, avatar) {
         const name = String(username || '').trim();
+        const normalizedEmail = String(email || '').trim().toLowerCase();
         if (!USERNAME_RE.test(name)) return { status: 400, error: 'username must be 3-20 letters, numbers, or underscores' };
+        if (!normalizedEmail || normalizedEmail.length > EMAIL_MAX_LENGTH || !EMAIL_RE.test(normalizedEmail)) {
+            return { status: 400, error: 'a valid email address is required' };
+        }
         if (typeof password !== 'string' || password.length < 8 || password.length > PASSWORD_MAX_LENGTH) {
             return { status: 400, error: `password must be 8-${PASSWORD_MAX_LENGTH} characters` };
         }
         if (this._byUsername.get(name)) return { status: 409, error: 'username already taken' };
+        if (this._byEmail.get(normalizedEmail)) return { status: 409, error: 'email already registered' };
         const salt = crypto.randomBytes(16).toString('hex');
         let passwordHash;
         try { passwordHash = await this._derivePassword(password, salt); }
@@ -155,6 +168,7 @@ class AccountStore {
         }
         // Re-check after the asynchronous KDF so two requests cannot create a duplicate.
         if (this._byUsername.get(name)) return { status: 409, error: 'username already taken' };
+        if (this._byEmail.get(normalizedEmail)) return { status: 409, error: 'email already registered' };
         const avatarValue = typeof avatar === 'string' ? avatar.slice(0, 64) : '';
         const { token: profileToken, profile } = this.profiles.create(name, null);
         const id = crypto.randomUUID();
@@ -162,10 +176,11 @@ class AccountStore {
         while (this.db.prepare('SELECT 1 FROM accounts WHERE friend_code = ?').get(code)) code = friendCode();
         const now = this.now();
         try {
-            this._insert.run(id, name, passwordHash, salt, avatarValue, profileToken, code, `${name}#${code}`, now, now);
+            this._insert.run(id, name, normalizedEmail, passwordHash, salt, avatarValue, profileToken, code, `${name}#${code}`, now, now);
         } catch (error) {
-            // A unique username collision is safe to report; no password/hash details leak.
+            // Identity collisions are safe to report; no password/hash details leak.
             if (String(error?.message || '').includes('accounts.username')) return { status: 409, error: 'username already taken' };
+            if (/accounts(?:_email_unique|\.email)/.test(String(error?.message || ''))) return { status: 409, error: 'email already registered' };
             throw error;
         }
         const account = this._byId.get(id);
@@ -173,7 +188,10 @@ class AccountStore {
     }
 
     async login(username, password) {
-        const row = this._byUsername.get(String(username || '').trim());
+        const identity = String(username || '').trim();
+        const row = identity.includes('@')
+            ? this._byEmail.get(identity.toLowerCase())
+            : this._byUsername.get(identity);
         if (typeof password !== 'string' || password.length > PASSWORD_MAX_LENGTH) {
             return { status: 401, error: 'invalid credentials' };
         }

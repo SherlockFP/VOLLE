@@ -45,8 +45,8 @@ export class Account {
         return { ok: true, account: next };
     }
 
-    async register(username, password) {
-        return this._submit('/api/account/register', { username, password }, 'registration');
+    async register(username, password, email) {
+        return this._submit('/api/account/register', { username, password, email }, 'registration');
     }
 
     async login(username, password) {
@@ -55,6 +55,7 @@ export class Account {
 
     async _submit(path, body, label) {
         if (!String(body.username || '').trim() || !String(body.password || '')) return { error: 'Username and password are required.' };
+        if (path.endsWith('/register') && !String(body.email || '').trim()) return { error: 'Email is required.' };
         try {
             const response = await this.fetchImpl(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
             const data = await response.json().catch(() => ({}));

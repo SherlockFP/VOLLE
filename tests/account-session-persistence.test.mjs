@@ -55,15 +55,20 @@ test('a successful login survives a reload and restores with only the revocable 
 
 test('registration uses the same persistent session path without storing its password', async () => {
     const storage = new MemoryStorage();
-    const fetchImpl = async path => path === '/api/account/register'
-        ? jsonResponse(201, { sessionToken: 'r'.repeat(43), account: PUBLIC_ACCOUNT })
-        : jsonResponse(404, {});
+    let registrationBody;
+    const fetchImpl = async (path, options = {}) => {
+        if (path !== '/api/account/register') return jsonResponse(404, {});
+        registrationBody = JSON.parse(options.body);
+        return jsonResponse(201, { sessionToken: 'r'.repeat(43), account: PUBLIC_ACCOUNT });
+    };
     const account = new Account({ storage, fetchImpl });
 
-    assert.equal((await account.register('VolleyFan', 'register-secret')).ok, true);
+    assert.equal((await account.register('VolleyFan', 'register-secret', 'fan@example.com')).ok, true);
+    assert.deepEqual(registrationBody, { username: 'VolleyFan', password: 'register-secret', email: 'fan@example.com' });
     const persisted = storage.getItem(ACCOUNT_KEY);
     assert.match(persisted, /"sessionToken"/);
     assert.doesNotMatch(persisted, /register-secret|password/i);
+    assert.doesNotMatch(persisted, /fan@example\.com/i, 'email must not be copied into the public local account cache');
 });
 
 test('logout clears the local session before the network request and prevents reload auto-login', async () => {

@@ -104,7 +104,7 @@ test('social hub API accepts each current map and rejects the retired map id', a
     const registration = await fetch(`http://127.0.0.1:${port}/api/account/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: `Hub${process.pid}`, password: 'test-password-123' })
+        body: JSON.stringify({ username: `Hub${process.pid}`, email: `hub${process.pid}@example.com`, password: 'test-password-123' })
     });
     assert.equal(registration.status, 201);
     const { sessionToken } = await registration.json();

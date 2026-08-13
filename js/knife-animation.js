@@ -113,8 +113,8 @@ const snapEnvelope = (progress, riseEnd, fallStart) => {
 // The one grip pose every held item is framed against: the point in armGroup space where the
 // Roblox-style fist (js/player.js buildHandMesh) closes. An item's own grip must land here, so
 // each model's frame offset below is the delta that pulls ITS handle centre onto this point.
-export const VIEWMODEL_BASE_POSITION = Object.freeze([0.08, -0.12, -0.58]);
-export const VIEWMODEL_BASE_ROTATION = Object.freeze([-0.08, 0.18, -0.34]);
+export const VIEWMODEL_BASE_POSITION = Object.freeze([0.035, -0.065, -0.49]);
+export const VIEWMODEL_BASE_ROTATION = Object.freeze([-0.13, 0.24, -0.28]);
 
 // Per-item correction so each silhouette frames consistently in the cramped first-person
 // frustum AND so its handle sits inside the fist instead of intersecting it. `z` is the
@@ -131,7 +131,7 @@ export const MODEL_FRAME_OFFSET = Object.freeze({
     dagger: { position: [0, 0, 0], rotation: [0, 0.02, 0], scale: 1 },
     // Not a knife and never animated by resolveKnifePose, but it is a held item and shares the
     // same fist, so it lives in the same table (js/player.js reads it via viewmodelFrame).
-    rocket: { position: [-0.06, 0.16, 0.19], rotation: [-0.04, -0.34, 0.38], scale: 0.62 }
+    rocket: { position: [-0.06, 0.16, 0.09], rotation: [-0.04, -0.34, 0.38], scale: 0.62 }
 });
 
 // Absolute rest transform for a held item id. Single source of truth for "where does this thing

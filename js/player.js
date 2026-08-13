@@ -436,6 +436,7 @@ export class Player {
         // State
         this.alive = true;
         this.deathTimer = 0;
+        this._handRequested = false;
 
         // Health & combat — karakter + rune ile override edilir
         this.maxHp = 100;
@@ -495,28 +496,28 @@ export class Player {
         // item speared straight through them. The fist is now one closed box and the item's
         // GRIP (not its pommel) is what lands inside it — see knife-animation.js
         // VIEWMODEL_BASE_POSITION and the per-model z offsets that keep that true.
-        const armGeo = new THREE.BoxGeometry(0.13, 0.115, 0.42);
+        const armGeo = new THREE.BoxGeometry(0.12, 0.105, 0.31);
         this.armMat = this.renderer.createToonMaterial(
             this.team === 'red' ? 0xee5555 : 0x5577dd,
         );
         this.armMesh = new THREE.Mesh(armGeo, this.armMat);
-        this.armMesh.position.set(0, 0.018, -0.10);
+        this.armMesh.position.set(0, 0.022, -0.06);
         this.armGroup.add(this.armMesh);
 
         this.gloveMat = this.renderer.createToonMaterial(
             this.team === 'red' ? 0xee5555 : 0x5577dd,
         );
-        this.gloveMesh = new THREE.Mesh(new THREE.BoxGeometry(0.155, 0.135, 0.085), this.gloveMat);
-        this.gloveMesh.position.set(0, -0.018, -0.294);
+        this.gloveMesh = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.13, 0.075), this.gloveMat);
+        this.gloveMesh.position.set(0, -0.016, -0.23);
         this.armGroup.add(this.gloveMesh);
 
         this.gloveAccentMat = this.renderer.createToonMaterial(0x9bdcff);
         this.glovePalmMat = this.renderer.createToonMaterial(0x1a2635);
         this.gloveCuff = new THREE.Mesh(new THREE.BoxGeometry(0.165, 0.145, 0.055), this.gloveAccentMat);
-        this.gloveCuff.position.set(0, -0.018, -0.265);
+        this.gloveCuff.position.set(0, -0.018, -0.205);
         this.armGroup.add(this.gloveCuff);
         this.glovePalm = new THREE.Mesh(new THREE.BoxGeometry(0.115, 0.085, 0.025), this.glovePalmMat);
-        this.glovePalm.position.set(0, -0.105, -0.39);
+        this.glovePalm.position.set(0, -0.1, -0.325);
         this.armGroup.add(this.glovePalm);
         this.gloveKnuckles = new THREE.Group();
         for (let index = 0; index < 3; index++) {
@@ -524,13 +525,13 @@ export class Player {
             plate.position.set((index - 1) * 0.043, 0, 0);
             this.gloveKnuckles.add(plate);
         }
-        this.gloveKnuckles.position.set(0, -0.035, -0.49);
+        this.gloveKnuckles.position.set(0, -0.035, -0.405);
         this.armGroup.add(this.gloveKnuckles);
 
         const handGeo = new THREE.BoxGeometry(0.145, 0.14, 0.19);
         const handMat = this.renderer.createToonMaterial(0xf5c6a0);
         this.handMesh = new THREE.Mesh(handGeo, handMat);
-        this.handMesh.position.set(0.005, -0.07, -0.385);
+        this.handMesh.position.set(0.005, -0.065, -0.32);
         this.armGroup.add(this.handMesh);
 
         // Single thumb block, parented to the fist so hiding the hand hides it too.
@@ -555,13 +556,28 @@ export class Player {
         // ponytail: tek el — sol el kaldırıldı
     }
 
-    setHandVisible(on) {
+    _renderHandVisibility(on) {
         const wasVisible = this.armGroup.visible;
         if (on) this._syncViewmodelGlove();
-        this.armGroup.visible = on;
+        this.armGroup.visible = Boolean(on);
         if (on && !wasVisible && this.knifeGroup?.userData.weaponType === 'knife') {
             startKnifeAnimation(this.knifeAnimation, 'draw');
         }
+    }
+
+    // Console/user preference. Forced death, spectate and preview states use the
+    // temporary API below so a later respawn restores sv_hand instead of erasing it.
+    setHandVisible(on) {
+        this._handRequested = Boolean(on);
+        this._renderHandVisibility(this._handRequested && this.alive !== false);
+    }
+
+    setHandTemporarilyVisible(on) {
+        this._renderHandVisibility(Boolean(on) && this.alive !== false);
+    }
+
+    restoreHandVisibility() {
+        this._renderHandVisibility(this._handRequested && this.alive !== false);
     }
 
     setKnifeStyle(style = {}) {
@@ -1311,7 +1327,7 @@ export class Player {
         this.verticalVel = 0;
         this._resetViewmodelLanding();
         this._clearInputState();
-        this.setHandVisible(false); // ponytail: ölünce hand gizle — spectate temiz
+        this.setHandTemporarilyVisible(false);
     }
 
     revive() {
@@ -1326,7 +1342,7 @@ export class Player {
         this.consecutiveMisses = 0;
         this._burnTimer = 0;
         this._chillTimer = 0;
-        // ponytail: hand default OFF — sv_hand ile açılır, auto-start'ta görünmez
+        this.restoreHandVisibility();
     }
 
     getPosition() { return this.position.clone(); }
@@ -1411,7 +1427,7 @@ export class Player {
         this.ultimateCharge = 0;
         this.ultimateActive = false;
         this._qHoldTimer = 0;
-        this.setHandVisible(false);
+        this.restoreHandVisibility();
     }
 
     setSensitivity(val) { this.sensitivity = val; }

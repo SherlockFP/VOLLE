@@ -30,6 +30,9 @@ const ROOT = __dirname;
 // DATA_DIR env lets hosts point at a persistent disk mount.
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, 'data');
 fs.mkdirSync(DATA_DIR, { recursive: true });
+if (process.env.RENDER && !process.env.DATA_DIR) {
+    console.warn('[server] RENDER is set without DATA_DIR; account data will not survive deploys. Mount a persistent disk and set DATA_DIR to its mount path.');
+}
 const profiles = new ProfileStore(path.join(DATA_DIR, 'profiles.json'));
 const accounts = new AccountStore(path.join(DATA_DIR, 'accounts.db'), profiles);
 const social = new SocialStore(path.join(DATA_DIR, 'accounts.db'));
@@ -214,6 +217,11 @@ function allowRequest(req, res, bucketName) {
 const server = http.createServer(async (req, res) => {
     const urlPath = req.url.split('?')[0];
 
+    if (urlPath === '/healthz' && req.method === 'GET') {
+        sendJson(res, { ok: true, storage: process.env.DATA_DIR ? 'configured' : 'local-default' });
+        return;
+    }
+
     // --- WebRTC ICE config (STUN/TURN + optional self-hosted PeerJS broker) ---
     // Env-driven only; zero env vars set => STUN-only, identical to prior behavior.
     if (urlPath === '/api/rtc-config' && req.method === 'GET') {
@@ -237,14 +245,14 @@ const server = http.createServer(async (req, res) => {
     if (urlPath === '/api/account/register' && req.method === 'POST') {
         if (!allowRequest(req, res, 'account')) return;
         const b = await readBody(req, 2048);
-        const result = await accounts.register(b.username, b.password, b.avatar);
+        const result = await accounts.register(b.username, b.password, b.email, b.avatar);
         sendJson(res, result, result.status);
         return;
     }
     if (urlPath === '/api/account/login' && req.method === 'POST') {
         if (!allowRequest(req, res, 'account')) return;
         const b = await readBody(req, 2048);
-        const result = await accounts.login(b.username, b.password);
+        const result = await accounts.login(b.username ?? b.email, b.password);
         sendJson(res, result, result.status);
         return;
     }

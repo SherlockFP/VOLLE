@@ -742,6 +742,9 @@ class App {
         document.getElementById('auth-register-username')?.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') this._handleRegister();
         });
+        document.getElementById('auth-register-email')?.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') this._handleRegister();
+        });
         document.getElementById('auth-register-password')?.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') this._handleRegister();
         });
@@ -788,12 +791,13 @@ class App {
     async _handleRegister() {
         if (this._authBusy) return;
         const username = document.getElementById('auth-register-username')?.value || '';
+        const email = document.getElementById('auth-register-email')?.value || '';
         const password = document.getElementById('auth-register-password')?.value || '';
         const errorDiv = document.getElementById('auth-register-error');
         
-        if (!username || !password) {
+        if (!username || !email || !password) {
             if (errorDiv) {
-                errorDiv.textContent = 'Username and password required';
+                errorDiv.textContent = 'Username, email and password required';
                 errorDiv.classList.remove('hidden');
             }
             return;
@@ -803,7 +807,7 @@ class App {
         const submit = document.getElementById('auth-register-submit');
         if (submit) { submit.disabled = true; submit.setAttribute('aria-busy', 'true'); }
         let result;
-        try { result = await account.register(username, password); }
+        try { result = await account.register(username, password, email); }
         finally {
             this._authBusy = false;
             if (submit) { submit.disabled = false; submit.removeAttribute('aria-busy'); }
@@ -816,6 +820,7 @@ class App {
         } else {
             if (errorDiv) errorDiv.classList.add('hidden');
             document.getElementById('auth-register-username').value = '';
+            document.getElementById('auth-register-email').value = '';
             document.getElementById('auth-register-password').value = '';
             await this._completeAuthentication();
         }
@@ -3658,7 +3663,7 @@ updateCSLobbyInfo();
         document.getElementById('social-lobby-hud')?.classList.remove('hidden');
         document.body.classList.add('social-hub-active');
         this.game.setState(STATES.SOCIAL_HUB);
-        this.player.setHandVisible(false);
+        this.player.setHandTemporarilyVisible(false);
         const map = this.socialLobby.selectMap(mapId);
         this.socialLobby.enter(undefined, map.id);
         const status = document.getElementById('social-lobby-status');
@@ -3703,7 +3708,7 @@ updateCSLobbyInfo();
             if (Number.isFinite(this._hubVisualState.exposure)) {
                 this.renderer.renderer.toneMappingExposure = this._hubVisualState.exposure;
             }
-            this.player.setHandVisible(this._hubVisualState.handVisible);
+            this.player.setHandTemporarilyVisible(this._hubVisualState.handVisible);
         }
         this._hubVisualState = null;
         this.renderer.setHubPerformance?.(false);
@@ -5210,7 +5215,7 @@ updateCarousel() {
         document.body.classList.remove('practice-lab-active', 'guided-deflect-active');
         document.getElementById('cosmetic-practice-hud')?.classList.remove('hidden');
         document.body.classList.add('cosmetic-practice-active');
-        this.player.setHandVisible(false);
+        this.player.setHandTemporarilyVisible(false);
         this._cosmeticPracticeAvatar = createShowcaseAvatar({
             characterId: this.store.get('selectedChar'),
             skinId: snapshot.selectedSkinId
@@ -5308,7 +5313,7 @@ updateCarousel() {
         this.game.setState(STATES.MENU);
         document.getElementById('cosmetic-practice-hud')?.classList.add('hidden');
         document.body.classList.remove('cosmetic-practice-active');
-        this.player.setHandVisible(true);
+        this.player.restoreHandVisibility();
         this.ui.renderShop(this.store, 'avatars');
         this.ui.showScreen(returnScreen);
         this._syncShopShowcase();
@@ -6370,7 +6375,7 @@ updateCarousel() {
         Spectator.enter(this.game);
         this.ui.spectating = true;
         this.player.alive = false;
-        this.player.setHandVisible?.(false);
+        this.player.setHandTemporarilyVisible?.(false);
         this.player.unlock();
         const status = document.getElementById('late-join-status');
         if (status) {
@@ -6427,6 +6432,17 @@ updateCarousel() {
         this._setMobileSocialRailOpen(false, { moveFocus: false });
         const mobileRailQuery = window.matchMedia?.('(max-width: 760px)');
         mobileRailQuery?.addEventListener?.('change', () => this._setMobileSocialRailOpen(false, { moveFocus: false }), { signal: this._mainAbort.signal });
+        const compactRailQuery = window.matchMedia?.('(min-width: 761px) and (max-width: 1339px)');
+        const collapseCompactRail = () => {
+            if (!compactRailQuery?.matches) return;
+            const sidebar = document.getElementById('friends-sidebar');
+            sidebar?.classList.add('collapsed');
+            desktopToggle?.setAttribute('aria-expanded', 'false');
+            desktopToggle?.setAttribute('aria-label', 'Open social panel');
+            desktopToggle?.querySelector('use')?.setAttribute('href', '#i-arrow-right');
+        };
+        collapseCompactRail();
+        compactRailQuery?.addEventListener?.('change', collapseCompactRail, { signal: this._mainAbort.signal });
         const socialTabs = [...document.querySelectorAll('[data-fbar-tab]')];
         socialTabs.forEach(button => button.addEventListener('click', () => this._setFriendsRailTab(button.dataset.fbarTab)));
         document.querySelector('.fbar-tabs')?.addEventListener('keydown', event => {
@@ -6677,6 +6693,7 @@ updateCarousel() {
         const expanded = mobile && open === true;
         sidebar.classList.toggle('mobile-open', expanded);
         handle.setAttribute('aria-expanded', String(expanded));
+        handle.setAttribute('aria-label', expanded ? 'Close social and party panel' : 'Open social and party panel');
         body.inert = mobile && !expanded;
         body.setAttribute('aria-hidden', String(mobile && !expanded));
         if (moveFocus) {

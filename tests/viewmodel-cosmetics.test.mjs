@@ -165,6 +165,18 @@ test('player input keeps ball combat semantics while gating F inspect from pract
     assert.match(playerSource, /knifeAnimationActionForAttack\(this\.knifeAttackType\)/);
 });
 
+test('sv_hand preference survives death and respawn while temporary states stay hidden', async () => {
+    const source = await readFile(new URL('../js/player.js', import.meta.url), 'utf8');
+    const die = source.slice(source.indexOf('    die() {'), source.indexOf('    revive() {'));
+    const revive = source.slice(source.indexOf('    revive() {'), source.indexOf('    getPosition()'));
+    const respawn = source.slice(source.indexOf('    respawn() {'), source.indexOf('    setSensitivity('));
+    assert.match(source, /this\._handRequested = Boolean\(on\)/);
+    assert.match(die, /setHandTemporarilyVisible\(false\)/);
+    assert.match(revive, /restoreHandVisibility\(\)/);
+    assert.match(respawn, /restoreHandVisibility\(\)/);
+    assert.doesNotMatch(respawn, /setHandVisible\(false\)/);
+});
+
 test('premium gloves have authored first-person accents and two complete rig attachments', async () => {
     const playerSource = await readFile(new URL('../js/player.js', import.meta.url), 'utf8');
     const modelSource = await readFile(new URL('../js/cosmetic-models.js', import.meta.url), 'utf8');
