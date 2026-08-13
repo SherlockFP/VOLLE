@@ -197,7 +197,7 @@ function hostAttackFixture({ queued = false, alive = true, ballActive = true } =
         normalizeGameplayDeflectTimingError: value => value,
         resolvePerfectDeflect: ({ chain }) => ({ tier: 'normal', chain })
     });
-    const attack = (attackId) => method.call(context, 'remote-player', {
+    const attack = (attackId, overrides = {}) => method.call(context, 'remote-player', {
         attackId,
         x: 0,
         y: 0,
@@ -208,7 +208,8 @@ function hostAttackFixture({ queued = false, alive = true, ballActive = true } =
         ax: 0,
         ay: 0,
         az: -1,
-        action: 'slash'
+        action: 'slash',
+        ...overrides
     }, 'remote-peer');
     return {
         context,
@@ -266,4 +267,35 @@ test('host keeps late-deflect grace behavior for inactive ball and dead remote p
     assert.equal(fixture.ball.state, 'rally');
     assert.equal(fixture.broadcasts.filter(packet => packet.type === 'playerHit').length, 1);
     assert.equal(fixture.broadcasts.filter(packet => packet.type === 'remoteAttackAnim').length, 1);
+});
+
+test('host reconciles an implausible client ball snapshot to its authoritative ball', () => {
+    const fixture = hostAttackFixture();
+    fixture.attack('implausible-snapshot', { bx: 300, by: 0, bz: 0 });
+
+    assert.equal(fixture.ball.position.x, 0);
+    assert.equal(fixture.broadcasts.filter(packet => packet.type === 'remoteAttackAnim').length, 1);
+});
+
+test('host accepts a close high-ping predicted snapshot within its bounded tolerance', () => {
+    const fixture = hostAttackFixture();
+    fixture.attack('high-ping-snapshot', {
+        x: 6, y: 0, z: 0,
+        bx: 8, by: 0, bz: 0,
+        ping: 250
+    });
+
+    assert.equal(fixture.ball.position.x, 8);
+    assert.equal(fixture.broadcasts.filter(packet => packet.type === 'remoteAttackAnim').length, 1);
+});
+
+test('host rejects malformed direct remote attacks before dedup or ball mutation', () => {
+    const fixture = hostAttackFixture();
+    fixture.attack('bad-direct-attack', { ax: 0, ay: 0, az: 0 });
+    fixture.attack('bad-snapshot', { bx: Infinity });
+    fixture.attack('outside-world', { x: 513 });
+
+    assert.equal(fixture.ball.position.x, 0);
+    assert.equal(fixture.broadcasts.length, 0);
+    assert.equal(fixture.context.rallyCount, 0);
 });

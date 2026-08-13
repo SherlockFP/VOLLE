@@ -932,11 +932,28 @@ test('host ignores gameplay packets until transport completes admission', () => 
 
 test('attack packets only accept supported knife actions', () => {
     const network = new Network({});
-    const base = { type: 'attack', name: 'A', x: 0, y: 0 };
+    const base = { type: 'attack', name: 'A', x: 0, y: 0, z: 0 };
     assert.equal(network._validateMsg({ ...base, action: 'slash' }), true);
     assert.equal(network._validateMsg({ ...base, action: 'stab' }), true);
     assert.equal(network._validateMsg({ ...base, action: 'inspect' }), false);
     assert.equal(network._validateMsg({ ...base, action: { value: 'stab' } }), false);
+});
+
+test('attack packets reject malformed, partial, and out-of-world intent snapshots', () => {
+    const network = new Network({});
+    const base = {
+        type: 'attack', name: 'A', x: 0, y: 1, z: 2,
+        ax: 0, ay: 0, az: -1, bx: 3, by: 4, bz: 5
+    };
+    assert.equal(network._validateMsg(base), true);
+    assert.equal(network._validateMsg({ ...base, x: Infinity }), false);
+    assert.equal(network._validateMsg({ ...base, z: 513 }), false);
+    assert.equal(network._validateMsg({ ...base, ay: NaN }), false);
+    assert.equal(network._validateMsg({ ...base, az: undefined }), false);
+    assert.equal(network._validateMsg({ ...base, ax: 0, ay: 0, az: 0 }), false);
+    assert.equal(network._validateMsg({ ...base, ax: 2 }), false);
+    assert.equal(network._validateMsg({ ...base, bx: -513 }), false);
+    assert.equal(network._validateMsg({ ...base, bz: undefined }), false);
 });
 
 test('host rejects mesh connections and client requires host-announced identity', () => {

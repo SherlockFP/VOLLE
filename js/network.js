@@ -122,6 +122,33 @@ function isValidBallPacket(data) {
         && (data.skinId === undefined || isSafeBallSkinId(data.skinId));
 }
 
+function isValidOptionalVector(data, keys, bound) {
+    const supplied = keys.filter(key => data[key] !== undefined);
+    return supplied.length === 0
+        || (supplied.length === keys.length
+            && supplied.every(key => isBoundedFinite(data[key], bound)));
+}
+
+function isValidOptionalAim(data) {
+    if (!isValidOptionalVector(data, ['ax', 'ay', 'az'], 1.5)) return false;
+    if (data.ax === undefined) return true;
+    const length = Math.hypot(data.ax, data.ay, data.az);
+    return length >= 0.5 && length <= 1.5;
+}
+
+function isValidAttackPacket(data) {
+    return typeof data.name === 'string'
+        && data.name.length > 0
+        && data.name.length <= 32
+        && ['x', 'y', 'z'].every(key => isBoundedFinite(data[key], NETWORK_WORLD_BOUND))
+        // Keep legacy packets that omit aim/snapshot fields valid, but never allow a
+        // partial vector to leak a NaN into host-side steering or reconciliation.
+        && isValidOptionalAim(data)
+        && isValidOptionalVector(data, ['bx', 'by', 'bz'], NETWORK_WORLD_BOUND)
+        && (data.action === undefined || data.action === 'slash' || data.action === 'stab')
+        && (data.ping === undefined || (Number.isFinite(data.ping) && data.ping >= 0 && data.ping <= 250));
+}
+
 function normalizePlayerHitPacket(data) {
     if (!Number.isFinite(data?.dmg)
         || data.dmg < 0
@@ -2108,11 +2135,7 @@ export class Network {
                         && ['', 'red', 'blue'].includes(data.hotPotato.holderTeam)
                     ));
             case 'attack':
-                return typeof data.name === 'string'
-                    && typeof data.x === 'number'
-                    && typeof data.y === 'number'
-                    && (data.action === undefined || data.action === 'slash' || data.action === 'stab')
-                    && (data.ping === undefined || (Number.isFinite(data.ping) && data.ping >= 0 && data.ping <= 250));
+                return isValidAttackPacket(data);
             case 'position':
                 return isValidPositionPacket(data);
             case 'cosmeticLoadout':

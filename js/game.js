@@ -4665,6 +4665,25 @@ spawnPowerUp() {
 
     remoteAttack(playerId, data = {}, peerId = data.peerId || playerId) {
         if (!this.network?.isHost) return;
+        // Network validates this before dispatch, but keep the authority boundary safe
+        // for direct/replayed calls too. A partial vector would otherwise poison
+        // Vector3.normalize() and let an untrusted snapshot move the host ball.
+        const finiteWorld = value => Number.isFinite(value) && Math.abs(value) <= 512;
+        const completeVector = keys => keys.every(key => data[key] !== undefined);
+        const validVector = keys => completeVector(keys) && keys.every(key => finiteWorld(data[key]));
+        const validAim = () => validVector(['ax', 'ay', 'az'])
+            && Math.abs(data.ax) <= 1.5
+            && Math.abs(data.ay) <= 1.5
+            && Math.abs(data.az) <= 1.5
+            && Math.hypot(data.ax, data.ay, data.az) >= 0.5
+            && Math.hypot(data.ax, data.ay, data.az) <= 1.5;
+        if (!validVector(['x', 'y', 'z'])) return;
+        const hasAim = completeVector(['ax', 'ay', 'az']);
+        const hasBallSnapshot = completeVector(['bx', 'by', 'bz']);
+        if ((['ax', 'ay', 'az'].some(key => data[key] !== undefined) && !hasAim)
+            || (hasAim && !validAim())
+            || (['bx', 'by', 'bz'].some(key => data[key] !== undefined) && !hasBallSnapshot)
+            || (hasBallSnapshot && !validVector(['bx', 'by', 'bz']))) return;
         let p = this.remotePlayers.get(playerId);
         if (!p) {
             if (!data.name || data.x === undefined) return;
@@ -4689,7 +4708,7 @@ spawnPowerUp() {
         if (this._lastRemoteAttack && this._lastRemoteAttack[playerId] && now - this._lastRemoteAttack[playerId] < dedupWindowMs) return;
         if (!this._lastRemoteAttack) this._lastRemoteAttack = {};
 
-        p.aimDir.set(data.ax ?? p.aimDir.x, data.ay ?? p.aimDir.y, data.az ?? p.aimDir.z).normalize();
+        if (hasAim) p.aimDir.set(data.ax, data.ay, data.az).normalize();
 
         let attackPos = new THREE.Vector3(data.x ?? p.position.x, data.y ?? p.position.y, data.z ?? p.position.z);
         const netcode = normalizeNetcode(this.experimentalNetcode);
@@ -4704,11 +4723,14 @@ spawnPowerUp() {
                 );
             }
         }
-        const clientBallPos = new THREE.Vector3(data.bx ?? this.ball.position.x, data.by ?? this.ball.position.y, data.bz ?? this.ball.position.z);
-        // ponytail: trust client range check; also accept if near authoritative ball pos
-        // (client ball render lags via smoothing, so clientBallPos can desync from host ball)
+        const clientBallPos = hasBallSnapshot
+            ? new THREE.Vector3(data.bx, data.by, data.bz)
+            : this.ball.position;
+        // Client rendering deliberately smooths host snapshots, so a nearby report can
+        // be late. It is nevertheless an untrusted *hint*: only adopt it when it stays
+        // close to both the current host ball and the attacking player within a bounded
+        // ping/speed allowance. Otherwise resolve from the authoritative host position.
         const hostBallDist = attackPos.distanceTo(this.ball.position);
-        const clientBallDist = attackPos.distanceTo(clientBallPos);
         const reportedPing = Math.min(250, Math.max(0, Number(data.ping) || 0));
         p._lastPing = reportedPing; // ponytail: for handleHit's grace-window scaling
         const latencyAllowance = Math.min(
@@ -4717,7 +4739,13 @@ spawnPowerUp() {
         );
         const hostRange = this.ball.attackRange * 3.5 + latencyAllowance;
         const predictionRange = this.ball.attackRange * 2.5 + latencyAllowance * 0.35;
-        if (hostBallDist <= hostRange || clientBallDist <= predictionRange) {
+        const snapshotDriftAllowance = this.ball.attackRange + latencyAllowance;
+        const snapshotPlausible = hasBallSnapshot
+            && clientBallPos.distanceTo(this.ball.position) <= snapshotDriftAllowance
+            && attackPos.distanceTo(clientBallPos) <= predictionRange;
+        const resolvedBallPos = snapshotPlausible ? clientBallPos : this.ball.position;
+        const resolvedBallDist = attackPos.distanceTo(resolvedBallPos);
+        if (hostBallDist <= hostRange || (snapshotPlausible && resolvedBallDist <= predictionRange)) {
             this._lastRemoteAttack[playerId] = now;
             if (this._pendingLethalHit && this._pendingLethalVictim === p) {
                 clearTimeout(this._pendingLethalHit);
@@ -4744,7 +4772,7 @@ spawnPowerUp() {
             p.attackType = data.action === 'stab' ? 'stab' : 'slash';
             p.attackTimer = p.attackType === 'stab' ? 0.42 : 0.34;
             p.animator?.play('deflect');
-            this.ball.position.copy(clientBallPos);
+            this.ball.position.copy(resolvedBallPos);
             const target = this.getAimedEnemy(attackPos, p.aimDir, p.team);
             const remoteTimingMs = normalizeGameplayDeflectTimingError(this.ball.getPerfectTimingErrorMs());
             const remoteResolved = resolvePerfectDeflect({
