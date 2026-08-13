@@ -491,8 +491,16 @@
                     <label>Queue <select id="mp-lobby-queue-filter"><option value="all">All</option><option value="casual">Casual</option><option value="ranked">Ranked</option></select></label>
                     <label class="mp-lobby-open"><input id="mp-lobby-open-filter" type="checkbox" checked> Open slots</label>
                 </div>
-                <div class="mp-lobby-list" id="mp-lobby-list">
-                    <div class="mp-lobby-empty">Loading...</div>
+                <div class="mp-lobby-list" id="mp-lobby-list" data-lobby-state="loading" aria-live="polite" aria-busy="true">
+                    <div class="mp-lobby-empty" data-empty-kind="loading">
+                        <span class="mp-lobby-empty-icon" aria-hidden="true"><svg class="ui-icon"><use href="#i-globe"></use></svg></span>
+                        <span class="shell-kicker">LIVE DIRECTORY</span>
+                        <h3>Finding public rooms</h3>
+                        <p>Checking the public P2P board. You can still open your own arena while it refreshes.</p>
+                        <p class="mp-lobby-empty-code">Have a room code? <button class="mp-lobby-empty-join" type="button">Join by Code</button></p>
+                        <button class="btn btn-primary btn-small mp-lobby-empty-cta" type="button">Host a game</button>
+                        <small><i></i> Public rooms refresh automatically</small>
+                    </div>
                 </div>
                 <div class="mp-host-strip"><button id="btn-mp-host-strip" class="btn btn-primary" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#i-plus"></use></svg>Host a Game</button><span>Create a global P2P lobby and invite friends with its room code.</span></div>
             </div>

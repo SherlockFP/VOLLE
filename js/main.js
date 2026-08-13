@@ -1559,6 +1559,18 @@ class App {
             clearInterval(this._mpRefreshTimer);
             this._doHostGame();
         });
+        // The loading, empty and service-error lobby states each expose one
+        // in-context Host action. Delegate once so the initial loading markup
+        // and every refreshed empty state preserve the same keyboard path.
+        document.getElementById('mp-lobby-list')?.addEventListener('click', event => {
+            if (event.target.closest('.mp-lobby-empty-cta')) {
+                document.getElementById('btn-mp-create')?.click();
+                return;
+            }
+            if (event.target.closest('.mp-lobby-empty-join')) {
+                document.getElementById('btn-mp-join')?.click();
+            }
+        });
         bind('btn-mp-join', () => {
             clearInterval(this._mpRefreshTimer);
             this.ui.showScreen('joinMenu');
@@ -6145,17 +6157,28 @@ updateCarousel() {
         await this._lobbyApi(`/api/lobbies/${encodeURIComponent(code)}`, { method: 'DELETE' });
     }
 
-    // ponytail: shared empty-state renderer — clear message + a one-click way to
-    // fill the board yourself instead of staring at nothing (P2P_HOST_FIXES #4).
-    _renderLobbyEmpty(container, message) {
+    // Shared public-board presentation: reserve the list area for clear state
+    // guidance, one primary host action, and the secondary join-by-code route.
+    // This keeps an empty P2P directory useful without fabricating a room.
+    _renderLobbyEmpty(container, message, state = 'empty') {
+        const copy = {
+            loading: { eyebrow: 'LIVE DIRECTORY', title: 'Finding public rooms', icon: 'i-globe' },
+            error: { eyebrow: 'DIRECTORY OFFLINE', title: 'Public rooms unavailable', icon: 'i-refresh' },
+            filtered: { eyebrow: 'FILTER RESULTS', title: 'No rooms match these filters', icon: 'i-globe' },
+            empty: { eyebrow: 'PUBLIC ROOMS', title: 'No public rooms right now', icon: 'i-globe' }
+        }[state] || { eyebrow: 'PUBLIC ROOMS', title: 'No public rooms right now', icon: 'i-globe' };
+        container.dataset.lobbyState = state;
+        container.toggleAttribute('aria-busy', state === 'loading');
         container.innerHTML = `
-            <div class="mp-lobby-empty">
+            <div class="mp-lobby-empty" data-empty-kind="${this._esc(state)}">
+                <span class="mp-lobby-empty-icon" aria-hidden="true"><svg class="ui-icon"><use href="#${copy.icon}"></use></svg></span>
+                <span class="shell-kicker">${copy.eyebrow}</span>
+                <h3>${copy.title}</h3>
                 <p>${this._esc(message)}</p>
+                <p class="mp-lobby-empty-code">Have a room code? <button class="mp-lobby-empty-join" type="button">Join by Code</button></p>
                 <button class="btn btn-primary btn-small mp-lobby-empty-cta" type="button">Host a game</button>
+                <small><i></i> Public rooms refresh automatically</small>
             </div>`;
-        container.querySelector('.mp-lobby-empty-cta')?.addEventListener('click', () => {
-            document.getElementById('btn-mp-create')?.click();
-        });
     }
 
     async _refreshLobbyList() {
@@ -6163,7 +6186,7 @@ updateCarousel() {
         const container = document.getElementById('mp-lobby-list');
         if (!container) return;
         if (list?.__lobbyApiError) {
-            this._renderLobbyEmpty(container, 'Lobby service unreachable. Check your connection and try again.');
+            this._renderLobbyEmpty(container, 'Lobby service unreachable. Check your connection and try again.', 'error');
             return;
         }
         if (!Array.isArray(list) || list.length === 0) {
@@ -6187,10 +6210,12 @@ updateCarousel() {
             openOnly: openFilter?.checked
         });
         if (!filtered.length) {
-            this._renderLobbyEmpty(container, 'No lobbies match these filters.');
+            this._renderLobbyEmpty(container, 'Try widening mode, map, queue, or open-slot filters.', 'filtered');
             return;
         }
         const now = Date.now();
+        container.dataset.lobbyState = 'populated';
+        container.removeAttribute('aria-busy');
         container.innerHTML = filtered.map(l => {
             const { players, maxPlayers } = lobbyCapacity(l);
             return `
