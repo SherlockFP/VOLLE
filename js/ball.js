@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { ObjectPool } from './objectPool.js';
 
 export const STEERING_CONTROL_WINDOW = 0.074;
+export const BOUNCE_ROUTE_OWNERSHIP_WINDOW = 0.082;
 const STEERING_TICK = 1 / 66;
 const WIDE_SHOT_DOT = Math.cos(15 * Math.PI / 180);
 const SUBTLE_ROUTE_DOT = Math.cos(6 * Math.PI / 180);
@@ -82,6 +83,18 @@ export function isSteeringControlLocked(age) {
 export function steeringActiveDt(age, dt) {
     if (!Number.isFinite(age) || !Number.isFinite(dt) || dt <= 0) return 0;
     return Math.max(0, age + dt - Math.max(age, STEERING_CONTROL_WINDOW));
+}
+
+export function postBounceRouteOwnershipDt(remaining, dt) {
+    if (!Number.isFinite(remaining) || !Number.isFinite(dt) || remaining <= 0 || dt <= 0) return 0;
+    return Math.min(remaining, dt);
+}
+
+export function steeringDtAfterBounceOwnership(age, dt, ownershipDt) {
+    if (!Number.isFinite(age) || !Number.isFinite(dt) || dt <= 0) return 0;
+    const controlLock = Math.max(0, STEERING_CONTROL_WINDOW - age);
+    const bounceLock = clamp(Number.isFinite(ownershipDt) ? ownershipDt : 0, 0, dt);
+    return Math.max(0, dt - Math.max(controlLock, bounceLock));
 }
 
 export function splitSteeringDisplacement(before, after, dt, activeDt) {
@@ -578,6 +591,9 @@ export class Ball {
         this.ricochetChance = 0.2;   // configurable via console sv_ricochet
         this._squashTimer = 0;
         this._homingAge = 0; // ponytail: homing ramp timer — her 2 saniyede +%50 çekim
+        this._bounceRouteOwnership = 0;
+        this._bounceRouteVelocity = new THREE.Vector3();
+        this._bounceRouteTarget = new THREE.Vector3();
 
         // Perfect-catch window — Knockout City tarzı.
         // Top hedefe yaklaştığında kısa "perfect" penceresi açılır.
@@ -799,6 +815,7 @@ export class Ball {
         const arenaGravity = this.gravity
             * (this.arena.config?.lowGravity ? 0.55 : 1)
             * (this.arena.config?.gameplay?.ballGravityScale ?? 1);
+        const bounceRouteDt = this._consumeBounceRouteOwnership(dt);
         // ponytail: store previous position for swept sphere hit detection
         this._prevPosition = this.position.clone();
         if (this._noHitTimer > 0) this._noHitTimer -= dt;
@@ -856,6 +873,7 @@ export class Ball {
             if (this.position.y < 4) this.state = 'homing';
         } else if (this.state === 'homing') {
             let dist = 999;
+            let homingDt = Math.max(0, dt - bounceRouteDt);
             if (this.targetPlayer) {
                 const targetPos = this._getTargetPos();
                 const toTarget = new THREE.Vector3().subVectors(targetPos, this.position);
@@ -885,30 +903,36 @@ export class Ball {
                     const directRescue = shouldDirectHomingRescue(
                         dist, this.currentSpeed, this._homingAge, alignment
                     );
+                    if (directRescue) homingDt = dt;
                     // ponytail: ordinary homing stays soft. A proven orbit/overstay
                     // gets a terminal heading so rally speed can keep rising safely.
                     const steer = 1 - Math.exp(
-                        -proximityHomingTurnRate(dist, this._homingAge) * speedFactor * dt
+                        -proximityHomingTurnRate(dist, this._homingAge) * speedFactor * homingDt
                     );
                     const newDir = directRescue
                         ? targetDir
-                        : velDir.lerp(desired, steer).normalize();
+                        : homingDt > 0 ? velDir.lerp(desired, steer).normalize() : velDir;
                     this.velocity.copy(newDir.multiplyScalar(this.currentSpeed));
                 }
             }
-            if (dist >= 2 && !this._affixNoGravity) this.velocity.y += arenaGravity * 0.3 * dt;
+            if (dist >= 2 && !this._affixNoGravity) this.velocity.y += arenaGravity * 0.3 * homingDt;
             this._clampSpeed();
-            this.position.add(this.velocity.clone().multiplyScalar(dt));
+            if (bounceRouteDt > 0 && homingDt < dt) {
+                this.position.addScaledVector(this._bounceRouteVelocity, bounceRouteDt);
+                this.position.addScaledVector(this.velocity, homingDt);
+            } else {
+                this.position.add(this.velocity.clone().multiplyScalar(dt));
+            }
         } else if (this.state === 'rally') {
             let dist = 999;
-            let playerSteeringDt = null;
+            let playerSteeringDt = bounceRouteDt > 0 ? Math.max(0, dt - bounceRouteDt) : null;
             const preSteerVelocity = this.velocity.clone();
             if (this.targetPlayer) {
                 const targetPos = this._getTargetPos();
                 const toTarget = new THREE.Vector3().subVectors(targetPos, this.position);
                 dist = toTarget.length();
                 if (this.aimed && this._steeringActive) {
-                    playerSteeringDt = this._updatePlayerSteering(dt, targetPos);
+                    playerSteeringDt = this._updatePlayerSteering(dt, targetPos, bounceRouteDt);
                 } else if (dist > 0.5) {
                     const targetDir = toTarget.clone().normalize();
                     const velDir = this.velocity.clone().normalize();
@@ -940,14 +964,16 @@ export class Ball {
                     const directRescue = shouldDirectHomingRescue(
                         dist, this.currentSpeed, this._homingAge, alignment
                     );
+                    const homingDt = directRescue ? dt : Math.max(0, dt - bounceRouteDt);
+                    playerSteeringDt = homingDt;
                     if (rescuing) this._targetRouteOffset = { x: 0, y: 0, z: 0 };
                     const steer = Math.max(
-                        1 - Math.exp(-proximityHomingTurnRate(dist, this._homingAge) * speedFactor * dt),
-                        rescuing ? 1 - Math.exp(-7 * dt) : 0
+                        1 - Math.exp(-proximityHomingTurnRate(dist, this._homingAge) * speedFactor * homingDt),
+                        rescuing ? 1 - Math.exp(-7 * homingDt) : 0
                     );
                     const newDir = directRescue
                         ? targetDir
-                        : velDir.lerp(rescuing ? targetDir : desired, steer).normalize();
+                        : homingDt > 0 ? velDir.lerp(rescuing ? targetDir : desired, steer).normalize() : velDir;
                     this.velocity.copy(newDir.multiplyScalar(this.currentSpeed));
                 }
             }
@@ -1054,6 +1080,7 @@ export class Ball {
 
         // Wall collision removed — ball goes outside map. Players chase it anywhere.
         let bounced = false;
+        let cleanBounce = false;
         let bounceSpeed = 0;
 
         // Collision with map props (trees, pillars, mecha legs, canyon rocks)
@@ -1101,6 +1128,7 @@ export class Ball {
             const floorBounce = (0.62 + Math.min(0.33, speed * 0.014)) * this._affixFloorBounce;
             this.velocity.y = Math.max(4.5, Math.abs(this.velocity.y) * floorBounce);
             bounced = true;
+            cleanBounce = true;
             bounceSpeed = Math.max(bounceSpeed, speed * floorBounce);
         }
 
@@ -1127,12 +1155,15 @@ export class Ball {
         }
         if (wallHit) {
             bounced = true;
+            cleanBounce = true;
             bounceSpeed = Math.max(bounceSpeed, this.velocity.length());
         }
         if (bounced && this.targetPlayer && (this.state === 'rally' || this.state === 'homing')) {
-            const recovered = recoverCornerHoming(this.velocity, this.position, this._getTargetPos(), this.currentSpeed);
-            this.velocity.set(recovered.x, recovered.y, recovered.z);
-            this._homingAge = Math.max(this._homingAge || 0, 0.75);
+            if (!cleanBounce || !this._beginBounceRouteOwnership()) {
+                const recovered = recoverCornerHoming(this.velocity, this.position, this._getTargetPos(), this.currentSpeed);
+                this.velocity.set(recovered.x, recovered.y, recovered.z);
+                this._homingAge = Math.max(this._homingAge || 0, 0.75);
+            }
         }
 
         // Stuck detection: bounce çok hızlı tekrarlıyorsa top sıkışmıştır,
@@ -1247,12 +1278,12 @@ export class Ball {
         legs:    { y: -1.35, label: 'LEGS' }
     };
 
-    _getTargetPos(includeRouteOffset = true) {
-        if (!this.targetPlayer) return this.position.clone();
+    _getTargetPos(includeRouteOffset = true, out = null) {
+        if (!this.targetPlayer) return out ? out.copy(this.position) : this.position.clone();
         const base = typeof this.targetPlayer.getPosition === 'function'
             ? this.targetPlayer.getPosition()
             : this.targetPlayer.position.clone();
-        const basePos = base.clone();
+        const basePos = out ? out.copy(base) : base.clone();
         // Target the torso center (whole body), not a random zone — stable homing point.
         const usesGroundPosition = this.targetPlayer.group?.position
             && this.targetPlayer.position
@@ -1284,6 +1315,28 @@ export class Ball {
         this._steeringInitialDir = null;
         this._targetRouteOffset = { x: 0, y: 0, z: 0 };
         this._homingAge = 0;
+        this._bounceRouteOwnership = 0;
+    }
+
+    _consumeBounceRouteOwnership(dt) {
+        const ownedDt = postBounceRouteOwnershipDt(this._bounceRouteOwnership, dt);
+        this._bounceRouteOwnership = Math.max(0, this._bounceRouteOwnership - ownedDt);
+        return ownedDt;
+    }
+
+    _beginBounceRouteOwnership() {
+        const target = this._getTargetPos(true, this._bounceRouteTarget);
+        const dx = target.x - this.position.x;
+        const dy = target.y - this.position.y;
+        const dz = target.z - this.position.z;
+        const distance = Math.hypot(dx, dy, dz);
+        const speed = this.velocity.length();
+        if (distance < 0.001 || speed < 0.001) return false;
+        const alignment = (this.velocity.x * dx + this.velocity.y * dy + this.velocity.z * dz) / (speed * distance);
+        if (shouldDirectHomingRescue(distance, this.currentSpeed, this._homingAge, alignment)) return false;
+        this._bounceRouteVelocity.copy(this.velocity);
+        this._bounceRouteOwnership = BOUNCE_ROUTE_OWNERSHIP_WINDOW;
+        return true;
     }
 
     _beginPlayerSteering(target, aimDirection) {
@@ -1313,9 +1366,9 @@ export class Ball {
         }
     }
 
-    _updatePlayerSteering(dt, targetPos) {
+    _updatePlayerSteering(dt, targetPos, bounceRouteDt = 0) {
         const oldAge = this._steeringAge;
-        const steeringDt = steeringActiveDt(oldAge, dt);
+        const unlockedSteeringDt = steeringActiveDt(oldAge, dt);
         this._steeringAge += Number.isFinite(dt) && dt > 0 ? dt : 0;
         if (this._steeringPhase === 'waypoint'
             && hasCrossedTargetPlane(this.position, targetPos, this._steeringPlaneNormal)) {
@@ -1329,7 +1382,7 @@ export class Ball {
         const filteredVelocity = smoothSampledVelocity(this._steeringTargetVelocity, sampledVelocity, dt);
         this._steeringTargetVelocity = filteredVelocity;
         this._steeringTargetSample.copy(targetPos);
-        if (steeringDt <= 0) return 0;
+        if (unlockedSteeringDt <= 0) return 0;
 
         const target = this._steeringPhase === 'waypoint'
             ? this._steeringWaypoint
@@ -1353,6 +1406,10 @@ export class Ball {
         const directRescue = shouldDirectHomingRescue(
             torsoDistance, this.currentSpeed, this._steeringAge, alignment
         );
+        const steeringDt = directRescue
+            ? unlockedSteeringDt
+            : steeringDtAfterBounceOwnership(oldAge, dt, bounceRouteDt);
+        if (steeringDt <= 0) return 0;
         if (hasOverstayed || isCircling) {
             this._steeringPhase = 'torso';
             this._steeringWaypoint = null;

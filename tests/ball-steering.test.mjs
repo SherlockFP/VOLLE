@@ -12,6 +12,7 @@ const ballModule = await import(`data:text/javascript;base64,${Buffer.from(testa
 const {
     Ball,
     BALL_SKINS,
+    BOUNCE_ROUTE_OWNERSHIP_WINDOW,
     STEERING_CONTROL_WINDOW,
     createAimRouteOffset,
     createWideWaypoint,
@@ -27,7 +28,9 @@ const {
     smoothSampledVelocity,
     splitSteeringDisplacement,
     steeringActiveDt,
+    steeringDtAfterBounceOwnership,
     steeringTurnAlpha,
+    postBounceRouteOwnershipDt,
     shouldDirectHomingRescue
 } = ballModule;
 
@@ -165,6 +168,99 @@ test('aim routes can target side, back, and above-body positions', () => {
     assert.ok(offset.y > 0);
     assert.ok(offset.z < 0);
     assert.deepEqual(createAimRouteOffset(null, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 }), { x: 0, y: 0, z: 0 });
+});
+
+test('clean bank-shot ownership is exact at 30/60/144 FPS and composes with the aim lock', () => {
+    assert.ok(BOUNCE_ROUTE_OWNERSHIP_WINDOW >= 0.075 && BOUNCE_ROUTE_OWNERSHIP_WINDOW <= 0.09);
+    assert.equal(postBounceRouteOwnershipDt(0.082, 1 / 30), 1 / 30);
+    assert.equal(postBounceRouteOwnershipDt(0.01, 1 / 30), 0.01);
+    assert.equal(postBounceRouteOwnershipDt(0.01, -1), 0);
+    assert.ok(Math.abs(steeringDtAfterBounceOwnership(0.05, 0.05, 0.03) - 0.02) < 1e-12);
+    assert.ok(Math.abs(steeringDtAfterBounceOwnership(0.05, 0.05, 0.01) - 0.026) < 1e-12);
+});
+
+function bankShotTrace(kind, fps) {
+    const position = kind === 'floor' ? { x: -3, z: 20 } : { x: -9, z: 14 };
+    const target = { x: 0, z: 0 };
+    const velocity = kind === 'floor' ? { x: 7, z: -22 } : { x: 16, z: -18 };
+    const initial = { ...velocity };
+    const speed = Math.hypot(velocity.x, velocity.z);
+    const hitRadius = 1.4;
+    let remaining = BOUNCE_ROUTE_OWNERSHIP_WINDOW;
+    let time = 0;
+    let owned = 0;
+    let headingAt75 = null;
+    let hitTime = null;
+
+    for (let frame = 0; frame < fps * 3; frame++) {
+        const dt = Math.min(1 / fps, 3 - time);
+        const ownedDt = postBounceRouteOwnershipDt(remaining, dt);
+        remaining -= ownedDt;
+        owned += ownedDt;
+        const steerDt = dt - ownedDt;
+        const dx = target.x - position.x;
+        const dz = target.z - position.z;
+        const distance = Math.hypot(dx, dz);
+        const targetX = dx / distance;
+        const targetZ = dz / distance;
+        const currentLength = Math.hypot(velocity.x, velocity.z);
+        const currentX = velocity.x / currentLength;
+        const currentZ = velocity.z / currentLength;
+        const alignment = currentX * targetX + currentZ * targetZ;
+        const rescue = shouldDirectHomingRescue(distance, speed, time + dt, alignment);
+        let nextX = currentX;
+        let nextZ = currentZ;
+        if (rescue) {
+            nextX = targetX;
+            nextZ = targetZ;
+        } else if (steerDt > 0) {
+            const turn = 1 - Math.exp(-proximityHomingTurnRate(distance, time + dt) * steerDt);
+            nextX += (targetX - nextX) * turn;
+            nextZ += (targetZ - nextZ) * turn;
+            const nextLength = Math.hypot(nextX, nextZ);
+            nextX /= nextLength;
+            nextZ /= nextLength;
+        }
+
+        const before = { ...position };
+        position.x += initial.x * ownedDt + nextX * speed * steerDt;
+        position.z += initial.z * ownedDt + nextZ * speed * steerDt;
+        velocity.x = nextX * speed;
+        velocity.z = nextZ * speed;
+        if (time < 0.075 && time + ownedDt >= 0.075) headingAt75 = { x: initial.x, z: initial.z };
+        if (segmentEntersRadius(before, position, hitRadius)) {
+            hitTime = time + dt;
+            break;
+        }
+        time += dt;
+    }
+
+    const initialLength = Math.hypot(initial.x, initial.z);
+    const headingLength = Math.hypot(headingAt75.x, headingAt75.z);
+    const headingDot = (initial.x * headingAt75.x + initial.z * headingAt75.z) / (initialLength * headingLength);
+    return {
+        owned,
+        hitTime,
+        headingDegrees: Math.acos(Math.max(-1, Math.min(1, headingDot))) * 180 / Math.PI,
+        lateralSign: Math.sign(initial.x),
+        depthSign: Math.sign(initial.z)
+    };
+}
+
+test('floor and wall bank shots preserve their reflected sign before converging in three seconds', () => {
+    for (const kind of ['floor', 'wall']) {
+        for (const fps of [30, 60, 144]) {
+            const trace = bankShotTrace(kind, fps);
+            assert.ok(Math.abs(trace.owned - BOUNCE_ROUTE_OWNERSHIP_WINDOW) < 1e-12, `${kind}/${fps} ownership drifted`);
+            assert.ok(trace.headingDegrees <= 8, `${kind}/${fps} changed reflected heading too early`);
+            assert.equal(trace.lateralSign, 1, `${kind}/${fps} lost reflected lateral sign`);
+            assert.equal(trace.depthSign, -1, `${kind}/${fps} lost reflected depth sign`);
+            assert.ok(trace.hitTime !== null && trace.hitTime <= 3, `${kind}/${fps} bank route did not converge`);
+        }
+    }
+    assert.match(source, /if \(!cleanBounce \|\| !this\._beginBounceRouteOwnership\(\)\)/);
+    assert.match(source, /this\._getTargetPos\(true, this\._bounceRouteTarget\)/);
+    assert.match(source, /if \(shouldDirectHomingRescue\(distance, this\.currentSpeed, this\._homingAge, alignment\)\) return false;/);
 });
 
 function subtleRouteTrace(angleDegrees, fps) {
@@ -340,7 +436,7 @@ test('terminal rescue ends tangent and away orbits without capping rally speed',
     assert.equal(shouldDirectHomingRescue(20, 204, 0.5, 0.2), false);
     assert.equal(shouldDirectHomingRescue(3, 51, 1.2, 0.4), true);
     assert.equal(shouldDirectHomingRescue(20, 51, 1.2, -0.4), true);
-    assert.equal((source.match(/shouldDirectHomingRescue\(/g) || []).length, 4);
+    assert.equal((source.match(/shouldDirectHomingRescue\(/g) || []).length, 5);
 });
 
 function simulateFloorOrbit(targetY, speed = 204, fps = 60, rescueDecision = shouldDirectHomingRescue) {
@@ -469,7 +565,7 @@ test('non-steering homing branch also rescues from orbiting', () => {
     assert.match(branch, /const alignment = velDir\.dot\(targetDir\)/);
     assert.match(branch, /const isCircling = dist < rescueRange && alignment < 0\.15/);
     assert.match(branch, /const hasOverstayed = this\._homingAge > 1\.15/);
-    assert.match(branch, /rescuing \? 1 - Math\.exp\(-7 \* dt\) : 0/);
+    assert.match(branch, /rescuing \? 1 - Math\.exp\(-7 \* homingDt\) : 0/);
     // Patolojik yörünge, aynı yumuşak lerp'e geri düşmeden doğrudan kapanmalı.
     assert.match(branch, /const newDir = directRescue\s+\? targetDir/);
     // eşikler _updatePlayerSteering'deki kurtarma ile aynı kalmalı
@@ -486,7 +582,7 @@ test('homing age resets with steering so a new target starts a fresh rescue cloc
 
 test('steering measures distance before normalization and clears route offsets for torso rescue', () => {
     const method = source.slice(
-        source.indexOf('    _updatePlayerSteering(dt, targetPos) {'),
+        source.indexOf('    _updatePlayerSteering(dt, targetPos, bounceRouteDt = 0) {'),
         source.indexOf('    _clampSpeed() {')
     );
     assert.ok(method.indexOf('const targetDistance = desired.length();') >= 0);
