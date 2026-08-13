@@ -6,6 +6,7 @@ const read = path => readFileSync(new URL(path, import.meta.url), 'utf8');
 const html = read('../index.html');
 const css = read('../css/polish.css');
 const ui = read('../js/ui.js');
+const main = read('../js/main.js');
 
 test('post-game puts the single primary rematch action ahead of the detailed report', () => {
     const panelStart = html.indexOf('<div class="pg-panel">');
@@ -69,4 +70,51 @@ test('post-game gives keyboard focus to Rematch without scrolling the report', (
         showPostGame.indexOf("window._postGameAction?.('main_menu')") < showPostGame.indexOf('playAgain?.focus?.'),
         'focus happens after post-game actions are wired'
     );
+});
+
+test('post-game match drop is hidden by default and stays below the primary Rematch decision', () => {
+    const heroStart = html.indexOf('<section class="pg-rematch-hero"');
+    const dropStart = html.indexOf('id="pg-match-drop"');
+    const statsStart = html.indexOf('id="postgame-stats"');
+
+    assert.ok(dropStart > heroStart, 'match drops never displace the primary Rematch decision');
+    assert.ok(dropStart < statsStart, 'real match drops lead the detailed report rather than burying the collection handoff');
+    assert.match(html.slice(dropStart, statsStart), /id="pg-match-drop"[^>]+hidden/);
+    assert.match(html.slice(dropStart, statsStart), /id="pg-match-drop-list"/);
+    assert.match(css, /\.pg-match-drop\s*\{[\s\S]*?display:\s*grid;/);
+    assert.match(css, /@media \(max-width: 700px\)[\s\S]*?\.pg-match-drop-item \{ grid-template-columns:\s*1fr;/);
+    assert.match(css, /\.pg-match-drop-item \.btn \{ width:\s*100%; min-height:\s*44px;/);
+});
+
+test('post-game match drop only renders settled local or authoritative rewards once', () => {
+    const methodStart = ui.indexOf('    setPostGameMatchDrops(matchId, drops = []) {');
+    const methodEnd = ui.indexOf('\n    // Count-up used by every earned-number', methodStart);
+    const method = ui.slice(methodStart, methodEnd);
+    const rewardStart = main.indexOf('    async awardMatchRewards() {');
+    const rewardEnd = main.indexOf('\n    // ponytail: mouse-follow', rewardStart);
+    const reward = main.slice(rewardStart, rewardEnd);
+
+    assert.match(method, /drop\.type === 'case' \|\| drop\.type === 'card'/);
+    assert.match(method, /wrap\.hidden = safeDrops\.length === 0;/, 'no reward must hide the component');
+    assert.match(method, /this\._postGameDropMatchId && this\._postGameDropMatchId !== matchId\) return false;/, 'stale receipts cannot replace another match');
+    assert.match(method, /textContent = drop\.name;/, 'item names are never HTML-injected');
+    assert.match(method, /drop\.type === 'case' \? 'View Cases' : 'View Cards'/);
+    assert.match(reward, /const freshAuthorityResult = !synced \|\| synced\.replayed !== true;/);
+    assert.match(reward, /this\.game\.matchId === matchId && isTerminalRematchState\(this\.game\.state\)/);
+    assert.match(reward, /this\.ui\.setPostGameMatchDrops\?\.\(matchId, matchDrops\);/);
+    assert.equal((reward.match(/this\.productAnalytics\.track\('card_earned'/g) || []).length, 1,
+        'remote card rewards must not double-track through both receipt branches');
+    assert.equal((reward.match(/this\.productAnalytics\.track\('earned_case_granted'/g) || []).length, 1,
+        'earned cosmetic cases have one analytics emission');
+});
+
+test('match-drop CTAs only navigate to cases or Locker Cards and do not open or buy rewards', () => {
+    const actionStart = main.indexOf('        window._postGameDropAction = action => {');
+    const actionEnd = main.indexOf('\n        window._postGameAction =', actionStart);
+    const action = main.slice(actionStart, actionEnd);
+
+    assert.match(action, /action === 'case'[\s\S]*?renderShop\(this\.store, 'cases'\)/);
+    assert.match(action, /action === 'card'[\s\S]*?_renderCardCollection\(\);[\s\S]*?setLockerTab\('cards'\)/);
+    assert.doesNotMatch(action, /_openShopCase|purchase|equip/i);
+    assert.match(main, /this\.ui\.clearPostGameMatchDrops\?\.\(\);/, 'a rematch clears stale collection UI before its next result');
 });

@@ -1869,6 +1869,13 @@
                     <div id="pgcb-bonus-row" style="display:flex;justify-content:space-between;font-size:.85rem;opacity:.85;"><span>Performance bonus</span><span id="pgcb-bonus">+0</span></div>
                     <div style="display:flex;justify-content:space-between;font-weight:700;margin-top:4px;"><span>Total earned</span><span id="pgcb-total">+0</span></div>
                 </div>
+                <!-- Match-owned drops arrive from the local result or the
+                     authoritative completion receipt. ui.js keeps this hidden
+                     until a real entitlement exists; these CTAs only navigate. -->
+                <section id="pg-match-drop" class="pg-match-drop" aria-label="Match drops" hidden>
+                    <div class="pg-match-drop-head"><span class="shell-kicker">MATCH DROP</span><span>Added to your collection</span></div>
+                    <div id="pg-match-drop-list" class="pg-match-drop-list"></div>
+                </section>
                 <div class="pg-stats" id="postgame-stats"></div>
                 <!-- Per-round breakdown, filled from scoreboard.roundHistory. -->
                 <div class="pg-round-strip" id="pg-round-strip"></div>

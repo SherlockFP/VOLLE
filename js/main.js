@@ -274,6 +274,7 @@ class App {
         };
         this.game.onRoundEnd = () => this._queueRoundReplay();
         this.game.onMatchStart = () => {
+            this.ui.clearPostGameMatchDrops?.();
             this._analyticsMatchStartedAt = Date.now();
             this._analyticsGameplayEndedAt = null;
             this._analyticsPostgameReadyAt = null;
@@ -1386,17 +1387,6 @@ class App {
                     this.productAnalytics.track('daily_challenge_completed', { itemId: challengeId, source: 'match_authority' });
                 }
             }
-            if (cardReward && !synced.replayed) {
-                const card = cardReward.card;
-                this.productAnalytics.track('arena_cache_earned', { itemId: card.id, itemType: card.rarity, result: 'match_drop' });
-                this.productAnalytics.track('arena_cache_opened', { itemId: card.id, itemType: card.rarity, result: cardReward.duplicate ? 'duplicate' : 'new' });
-                this.productAnalytics.track('card_earned', { itemId: card.id, itemType: card.rarity, result: cardReward.duplicate ? 'duplicate' : 'new' });
-                this.ui.showMessage?.(`Arena Cache: ${card.name} (${CARD_RARITIES[card.rarity].label})`, 4200);
-            }
-            if (synced.earnedCase && !synced.replayed) {
-                this.productAnalytics.track('earned_case_granted', { itemId: synced.earnedCase, itemType: 'cosmetic_case', result: synced.earnedCaseSource || 'match_roll' });
-                this.ui.showMessage?.(`MATCH DROP: Earned ${CASES[synced.earnedCase]?.name || 'Cosmetic Case'} — open it free in Cases.`, 4200);
-            }
             this.refreshMetaStats();
         }
         const rally = this.game.rallyCount;
@@ -1440,12 +1430,29 @@ class App {
         if (mastery.masteryLeveledUp) {
             this.ui.showMessage?.(`${CHARACTERS[this.player.charId]?.name || 'Character'} Mastery Lv ${mastery.masteryLevel}!`, 3000);
         }
-        if (cardReward) {
+        // Complete the visual handoff only after the local or authoritative
+        // result settles. A replay is a historical receipt, never a fresh drop.
+        const freshAuthorityResult = !synced || synced.replayed !== true;
+        const matchDrops = [];
+        if (freshAuthorityResult && cardReward?.card) {
             const card = cardReward.card;
-            this.productAnalytics.track('arena_cache_earned', { itemId: card.id, itemType: card.rarity, result: result.leveledUp ? 'level_up' : 'match_drop' });
-            this.productAnalytics.track('arena_cache_opened', { itemId: card.id, itemType: card.rarity, result: cardReward.duplicate ? 'duplicate' : 'new' });
-            this.productAnalytics.track('card_earned', { itemId: card.id, itemType: card.rarity, result: cardReward.duplicate ? 'duplicate' : 'new' });
+            const dropResult = cardReward.duplicate ? 'duplicate' : 'new';
+            this.productAnalytics.track('arena_cache_earned', { itemId: card.id, itemType: card.rarity, result: synced ? 'match_drop' : result.leveledUp ? 'level_up' : 'match_drop' });
+            this.productAnalytics.track('arena_cache_opened', { itemId: card.id, itemType: card.rarity, result: dropResult });
+            this.productAnalytics.track('card_earned', { itemId: card.id, itemType: card.rarity, result: dropResult });
+            matchDrops.push({ type: 'card', id: card.id, name: card.name, rarity: card.rarity });
             this.ui.showMessage?.(`Arena Cache: ${card.name} (${CARD_RARITIES[card.rarity].label})`, 4200);
+        }
+        if (freshAuthorityResult && synced?.earnedCase && CASES[synced.earnedCase]) {
+            const box = CASES[synced.earnedCase];
+            this.productAnalytics.track('earned_case_granted', { itemId: box.id, itemType: 'cosmetic_case', result: synced.earnedCaseSource || 'match_roll' });
+            matchDrops.push({ type: 'case', id: box.id, name: box.name, rarity: 'earned' });
+            this.ui.showMessage?.(`MATCH DROP: Earned ${box.name} — open it free in Cases.`, 4200);
+        }
+        // An async remote result may arrive after the post-game overlay rendered.
+        // Never let that receipt paint onto a new rematch or a non-terminal game.
+        if (this.game.matchId === matchId && isTerminalRematchState(this.game.state)) {
+            this.ui.setPostGameMatchDrops?.(matchId, matchDrops);
         }
         this.ui.showMessage?.(`+${rewardCalc.total} coins, +${xp} XP`, 3000);
 
@@ -2381,6 +2388,19 @@ bind('btn-remove-bot', () => {
         });
 
         // Post-game screen actions
+        window._postGameDropAction = action => {
+            if (action === 'case') {
+                this.ui.showScreen('shop');
+                this.ui.renderShop(this.store, 'cases');
+                this.shopShowcase?.start();
+            } else if (action === 'card') {
+                this.ui.renderCharacterSelect(this.store);
+                this.ui.renderLockerInventory(this.store);
+                this._renderCardCollection();
+                this.ui.setLockerTab('cards');
+                this.ui.showScreen('character');
+            }
+        };
         window._postGameAction = (action) => {
             if (action === 'play_again') {
                 this._requestRematch();

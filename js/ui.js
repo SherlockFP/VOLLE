@@ -800,6 +800,53 @@ export class UI {
         this._lastMatchReward = null;
     }
 
+    clearPostGameMatchDrops() {
+        this._postGameDropMatchId = null;
+        const wrap = document.getElementById('pg-match-drop');
+        const list = document.getElementById('pg-match-drop-list');
+        if (list) list.replaceChildren();
+        if (wrap) wrap.hidden = true;
+    }
+
+    // Only match-owned, already-granted rewards can enter this component. The
+    // match id makes a late completion receipt harmless after a rematch starts.
+    setPostGameMatchDrops(matchId, drops = []) {
+        if (typeof matchId !== 'string' || !matchId) return false;
+        if (this._postGameDropMatchId && this._postGameDropMatchId !== matchId) return false;
+        const wrap = document.getElementById('pg-match-drop');
+        const list = document.getElementById('pg-match-drop-list');
+        if (!wrap || !list) return false;
+        const safeDrops = Array.isArray(drops) ? drops.filter(drop => (
+            drop && (drop.type === 'case' || drop.type === 'card')
+                && typeof drop.id === 'string' && typeof drop.name === 'string'
+        )).slice(0, 2) : [];
+        this._postGameDropMatchId = matchId;
+        list.replaceChildren();
+        wrap.hidden = safeDrops.length === 0;
+        for (const drop of safeDrops) {
+            const item = document.createElement('article');
+            item.className = `pg-match-drop-item rarity-${drop.rarity || 'common'}`;
+            const copy = document.createElement('div');
+            copy.className = 'pg-match-drop-copy';
+            const rarity = document.createElement('span');
+            rarity.className = `skin-rarity rarity-${drop.rarity || 'common'}`;
+            rarity.textContent = String(drop.rarity || 'earned').toUpperCase();
+            const name = document.createElement('strong');
+            name.textContent = drop.name;
+            const type = document.createElement('small');
+            type.textContent = drop.type === 'case' ? 'Cosmetic case' : 'Arena card';
+            copy.append(rarity, name, type);
+            const action = document.createElement('button');
+            action.type = 'button';
+            action.className = 'btn btn-secondary';
+            action.textContent = drop.type === 'case' ? 'View Cases' : 'View Cards';
+            action.addEventListener('click', () => window._postGameDropAction?.(drop.type));
+            item.append(copy, action);
+            list.append(item);
+        }
+        return safeDrops.length > 0;
+    }
+
     // Count-up used by every earned-number on the post-match screen. Plain rAF,
     // no library, one handle per element so a re-render cancels its predecessor
     // instead of leaving two loops fighting over the same node. Reduced motion
