@@ -4313,16 +4313,6 @@ spawnPowerUp() {
         }
         this._celebWpnMeshes = {};
         const kills = this.player.totalDamageDealt > 0 ? Math.floor(this.player.totalDamageDealt / 25) : 0;
-        // Win pays ~5x a loss; losers still earn a small consolation. The split is
-        // kept as named parts so the post-match breakdown can show *why* the number
-        // is what it is without re-deriving (and drifting from) the same formula.
-        const xpBase = this._won ? 400 : 80;
-        const xpPerKill = this._won ? 30 : 8;
-        const xp = xpBase + kills * xpPerKill;
-        const xpSources = [
-            { label: this._won ? 'Victory bonus' : 'Match played', value: xpBase },
-            { label: `Eliminations x${kills}`, value: kills * xpPerKill }
-        ];
         const winnerText = this._finalWinner === 'DRAW'
             ? this._ffa ? 'DRAW: FFA tie' : `DRAW: Red ${this.scoreboard.redScore} - ${this.scoreboard.blueScore} Blue`
             : this._ffa ? `${this._finalWinner} WINS FFA` : `${this._finalWinner} TEAM WINS: Red ${this.scoreboard.redScore} - ${this.scoreboard.blueScore} Blue`;
@@ -4335,11 +4325,12 @@ spawnPowerUp() {
                 bounds: { minX: -24, maxX: 24, minZ: -18, maxZ: 18 }
             }
         });
-        this.ui.showPostGame(this._won, xp, 1, kills, this.rallyCount, this.audio, {
+        this.ui.showPostGame(this._won, 0, 1, kills, this.rallyCount, this.audio, {
             winnerText,
             playerStats,
             analytics,
-            xpSources,
+            rewardsPending: true,
+            matchId: this.matchId,
             roundHistory: this.scoreboard.roundHistory
         });
         // P2P: gameOver state'ini client'lara yayınla
@@ -4349,7 +4340,7 @@ spawnPowerUp() {
                 winner: this._finalWinner,
                 redScore: this.scoreboard.redScore,
                 blueScore: this.scoreboard.blueScore,
-                xp, kills, rally: this.rallyCount,
+                kills, rally: this.rallyCount,
                 playerStats
             });
         }
@@ -6495,7 +6486,12 @@ applyPowerUpState(data) {
             ? `DRAW: RED ${data.redScore} - ${data.blueScore} BLUE`
             : `${winner} TEAM WINS: RED ${data.redScore} - ${data.blueScore} BLUE`;
         this.onMatchComplete?.();
-        this.ui.showPostGame?.(this._won, data.xp || 0, 1, data.kills || 0, data.rally || 0, this.audio, { winnerText, playerStats: data.playerStats || [] });
+        this.ui.showPostGame?.(this._won, 0, 1, data.kills || 0, data.rally || 0, this.audio, {
+            winnerText,
+            playerStats: data.playerStats || [],
+            rewardsPending: true,
+            matchId: this.matchId
+        });
     }
 
     setBotDifficulty(d) { this.botDifficulty = d; }

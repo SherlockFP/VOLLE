@@ -651,22 +651,37 @@ export class UI {
         // The bar tracks progress toward the next level, not an arbitrary
         // xpGained/1000 slice, so "how close am I" is answerable at a glance.
         // That proximity is the actual one-more-match hook.
+        this._postGameRewardMatchId = typeof result.matchId === 'string' ? result.matchId : null;
+        this._postGameRewardSettledMatchId = null;
+        const pending = result.rewardsPending === true;
         const progress = levelProgress(account);
         const perc = Math.round(progress.ratio * 100);
         const gainPerc = Math.min(100, (xpGained / 1000) * 100);
         const xpFill = document.getElementById('pg-xp-fill');
         const xpText = document.getElementById('pg-xp-text');
         if (xpFill) { xpFill.style.width = '0%'; requestAnimationFrame(() => { xpFill.style.width = perc + '%'; }); }
-        if (xpText) {
+        if (xpText && pending) {
+            xpText.textContent = 'Rewards settling…';
+        } else if (xpText) {
             const tail = progress.need > 0
                 ? ` · ${progress.xp}/${progress.need} to Lv ${progress.level + 1}`
                 : ' · MAX RANK';
             this._animateCount(xpText, xpGained, value => `+${value} XP${tail}`);
         }
-        this._renderPostGameBattlepass(store);
-        this._renderPostGameRewardCard(store);
-        this._renderMatchRewardBreakdown();
-        this._renderRewardFlow(xpGained, result.xpSources);
+        if (pending) {
+            const battlepass = document.getElementById('pg-bp-progress');
+            const nextReward = document.getElementById('pg-reward-card');
+            if (battlepass) battlepass.style.display = 'none';
+            if (nextReward) nextReward.style.display = 'none';
+            this._lastMatchReward = null;
+            this._renderMatchRewardBreakdown();
+            this._renderRewardFlow(0, [], { pending: true });
+        } else {
+            this._renderPostGameBattlepass(store);
+            this._renderPostGameRewardCard(store);
+            this._renderMatchRewardBreakdown();
+            this._renderRewardFlow(xpGained, result.xpSources);
+        }
         this.renderMatchAnalysis(result.analytics);
         this._renderRoundStrip(result.roundHistory);
         // Ding count stays tied to the XP earned, so a big match still sounds big.
@@ -825,6 +840,8 @@ export class UI {
 
     clearPostGameMatchDrops() {
         this._postGameDropMatchId = null;
+        this._postGameRewardMatchId = null;
+        this._postGameRewardSettledMatchId = null;
         const wrap = document.getElementById('pg-match-drop');
         const list = document.getElementById('pg-match-drop-list');
         if (list) list.replaceChildren();
@@ -851,6 +868,14 @@ export class UI {
             item.className = `pg-match-drop-item rarity-${drop.rarity || 'common'}`;
             const copy = document.createElement('div');
             copy.className = 'pg-match-drop-copy';
+            const visual = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            visual.setAttribute('class', 'ui-icon pg-match-drop-visual');
+            visual.setAttribute('aria-hidden', 'true');
+            const visualUse = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+            visualUse.setAttribute('href', drop.type === 'case' ? '#i-ticket' : '#i-ball');
+            visual.appendChild(visualUse);
+            const meta = document.createElement('div');
+            meta.className = 'pg-match-drop-meta';
             const rarity = document.createElement('span');
             rarity.className = `skin-rarity rarity-${drop.rarity || 'common'}`;
             rarity.textContent = String(drop.rarity || 'earned').toUpperCase();
@@ -858,16 +883,63 @@ export class UI {
             name.textContent = drop.name;
             const type = document.createElement('small');
             type.textContent = drop.type === 'case' ? 'Cosmetic case' : 'Arena card';
-            copy.append(rarity, name, type);
+            meta.append(rarity, name, type);
+            copy.append(visual, meta);
             const action = document.createElement('button');
             action.type = 'button';
             action.className = 'btn btn-secondary';
             action.textContent = drop.type === 'case' ? 'View Cases' : 'View Cards';
-            action.addEventListener('click', () => window._postGameDropAction?.(drop.type));
+            action.addEventListener('click', () => window._postGameDropAction?.({ type: drop.type, id: drop.id }));
             item.append(copy, action);
             list.append(item);
         }
         return safeDrops.length > 0;
+    }
+
+    // A terminal report is visible immediately, while the values underneath it
+    // wait for this player's settled receipt. The match id blocks a late receipt
+    // from repainting a rematch or applying the same settlement twice.
+    setPostGameRewardReceipt(matchId, receipt = {}, store = Store) {
+        const screen = document.getElementById('post-game-screen');
+        if (!screen || screen.classList.contains('hidden') || this._postGameRewardMatchId !== matchId || this._postGameRewardSettledMatchId === matchId) return false;
+        this._postGameRewardSettledMatchId = matchId;
+        const xp = Math.max(0, Math.floor(Number(receipt.xp) || 0));
+        const account = typeof store?.getAccount === 'function' ? store.getAccount() : { level: 1, xp: 0, prestige: 0 };
+        const progress = levelProgress(account);
+        const xpText = document.getElementById('pg-xp-text');
+        if (xpText) {
+            const tail = progress.need > 0 ? ` · ${progress.xp}/${progress.need} to Lv ${progress.level + 1}` : ' · MAX RANK';
+            this._animateCount(xpText, xp, value => `+${value} XP${tail}`);
+        }
+        this._lastMatchReward = receipt.coins && typeof receipt.coins === 'object' ? receipt.coins : null;
+        this._renderMatchRewardBreakdown();
+        const battlepass = document.getElementById('pg-bp-progress');
+        if (battlepass) battlepass.style.display = '';
+        this._renderPostGameBattlepass(store);
+        this._renderPostGameRewardCard(store);
+        this._renderRewardFlow(xp, receipt.xpSources, { dailies: receipt.dailies, battlepassXp: receipt.battlepassXp });
+        return true;
+    }
+
+    setPostGameRewardRetry(matchId, onRetry, { exhausted = false } = {}) {
+        if (this._postGameRewardMatchId !== matchId || this._postGameRewardSettledMatchId === matchId) return false;
+        const status = document.querySelector('#pg-reward-flow .pg-reward-pending');
+        if (!status) return false;
+        status.replaceChildren();
+        const copy = document.createElement('span');
+        copy.textContent = exhausted ? 'Rewards are still settling.' : 'Rewards settling…';
+        const retry = document.createElement('button');
+        retry.type = 'button';
+        retry.className = 'btn btn-secondary pg-reward-retry';
+        retry.textContent = 'Retry rewards';
+        retry.setAttribute('aria-label', 'Retry loading your match rewards');
+        retry.addEventListener('click', async () => {
+            retry.disabled = true;
+            await onRetry?.();
+            if (this._postGameRewardSettledMatchId !== matchId) retry.disabled = false;
+        });
+        status.append(copy, retry);
+        return true;
     }
 
     // Count-up used by every earned-number on the post-match screen. Plain rAF,
@@ -895,7 +967,7 @@ export class UI {
     // elsewhere, so the container is built here on first use and reused after
     // that. Text goes in through textContent only (challenge names and source
     // labels are data, never markup).
-    _renderRewardFlow(xpGained = 0, xpSources = []) {
+    _renderRewardFlow(xpGained = 0, xpSources = [], { dailies = null, battlepassXp = 0, pending = false } = {}) {
         const panel = document.querySelector('#post-game-screen .pg-panel');
         const stats = document.getElementById('postgame-stats');
         const report = stats?.parentNode;
@@ -913,9 +985,17 @@ export class UI {
         const summary = buildRewardSummary({
             xp: xpGained,
             xpSources,
-            dailies: Daily?.takeLastMatchProgress?.() || []
+            dailies: Array.isArray(dailies) ? dailies : (pending ? [] : Daily?.takeLastMatchProgress?.() || [])
         });
         host.replaceChildren();
+        if (pending) {
+            host.style.display = '';
+            const status = document.createElement('div');
+            status.className = 'pg-reward-pending';
+            status.textContent = 'Settling your match rewards…';
+            host.appendChild(status);
+            return;
+        }
         if (!summary.xpRows.length && !summary.dailyRows.length) {
             host.style.display = 'none';
             return;
@@ -952,6 +1032,17 @@ export class UI {
                 row.append(label, value);
                 this._animateCount(value, source.value, amount => `+${amount} XP`);
             });
+        }
+
+        const safeBattlepassXp = Math.max(0, Math.floor(Number(battlepassXp) || 0));
+        if (safeBattlepassXp > 0) {
+            const group = addGroup('Battle Pass');
+            const row = addRow(group, 'pg-flow-row');
+            const label = document.createElement('span');
+            label.textContent = 'Match progression';
+            const value = document.createElement('b');
+            row.append(label, value);
+            this._animateCount(value, safeBattlepassXp, amount => `+${amount} BP XP`);
         }
 
         if (summary.dailyRows.length) {

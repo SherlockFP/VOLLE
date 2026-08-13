@@ -533,6 +533,7 @@ class StoreClass {
     }
 
     async getMatchRemoteStatus(matchId) {
+        const { applyProfile = true } = arguments[1] || {};
         if (!this.remoteReady || typeof matchId !== 'string' || !matchId) return false;
         try {
             const response = await fetch(`/api/matches/${encodeURIComponent(matchId)}`, {
@@ -540,7 +541,7 @@ class StoreClass {
             });
             const result = await response.json().catch(() => ({}));
             if (!response.ok) return false;
-            if (result.profile) this._applyRemoteProfile(result.profile);
+            if (applyProfile && result.profile) this._applyRemoteProfile(result.profile);
             return { ok: true, ...result };
         } catch {
             return false;
@@ -550,7 +551,7 @@ class StoreClass {
     async pollMatchRemote(matchId, { attempts = 6, delayMs = 1000 } = {}) {
         const total = Math.max(1, Math.min(12, Math.floor(Number(attempts) || 1)));
         for (let attempt = 0; attempt < total; attempt += 1) {
-            const status = await this.getMatchRemoteStatus(matchId);
+            const status = await this.getMatchRemoteStatus(matchId, { applyProfile: false });
             if (!status) return { ok: false, pending: true };
             if (status.status === 'finalized' && status.completion) return { ok: true, pending: false, ...status };
             if (attempt + 1 < total) await new Promise(resolve => setTimeout(resolve, Math.max(250, Math.min(5000, Number(delayMs) || 1000))));
@@ -591,27 +592,55 @@ class StoreClass {
                 // it in a detached promise.
                 const settled = await this.pollMatchRemote(matchId);
                 if (settled?.pending === false && settled.completion) {
-                    const completion = settled.completion;
-                    return {
-                        ok: true,
-                        pending: false,
-                        cardReward: completion.cardReward || null,
-                        earnedCase: completion.earnedCase || null,
-                        earnedCaseSource: completion.earnedCaseSource || null,
-                        dailyProgress: completion.dailyProgress || null,
-                        replayed: settled.replayed === true,
-                        rankedState: completion.rankedState || settled.profile?.rankedState || null
-                    };
+                    const dailyRows = this._matchDailyRows(settled.profile?.dailyChallenges);
+                    if (settled.profile) this._applyRemoteProfile(settled.profile);
+                    return this._matchRemoteCompletion(settled, { dailyRows, profileApplied: true });
                 }
                 return { ok: true, pending: true, ...result };
             }
             if (!response.ok) return false;
+            const dailyRows = this._matchDailyRows(result.profile?.dailyChallenges);
             if (result.profile) this._applyRemoteProfile(result.profile);
-            const completion = result.completion || result;
-            return { ok: true, pending: false, cardReward: completion.cardReward || null, earnedCase: completion.earnedCase || null, earnedCaseSource: completion.earnedCaseSource || null, dailyProgress: completion.dailyProgress || null, replayed: result.replayed === true, rankedState: completion.rankedState || result.profile?.rankedState || null };
+            return this._matchRemoteCompletion(result, { dailyRows, profileApplied: true });
         } catch {
             return false;
         }
+    }
+
+    // The server profile is the source of truth for account dailies. Snapshot
+    // the before state before applying it so the report shows this player's
+    // actual delta without reading or broadcasting another peer.
+    _matchDailyRows(nextState) {
+        const before = new Map((this.data.dailyChallenges?.challenges || []).map(challenge => [challenge.id, challenge]));
+        return (nextState?.challenges || []).map(challenge => ({
+            name: challenge?.name,
+            target: challenge?.target,
+            from: before.get(challenge?.id)?.progress || 0,
+            to: challenge?.progress || 0
+        }));
+    }
+
+    _matchRemoteCompletion(result, { dailyRows = null, profileApplied = false } = {}) {
+        const completion = result?.completion || result || {};
+        const rows = dailyRows || this._matchDailyRows(result?.profile?.dailyChallenges);
+        if (!profileApplied && result?.profile) this._applyRemoteProfile(result.profile);
+        return { ok: true, pending: false, coins: completion.coins, base: completion.base, bonus: completion.bonus, firstOfDay: completion.firstOfDay, battlepassXp: completion.battlepassXp, battlepassBoostMultiplier: completion.battlepassBoostMultiplier, cardReward: completion.cardReward || null, earnedCase: completion.earnedCase || null, earnedCaseSource: completion.earnedCaseSource || null, dailyProgress: completion.dailyProgress || null, dailyRows: rows, replayed: result?.replayed === true, rankedState: completion.rankedState || result?.profile?.rankedState || null };
+    }
+
+    // Read-only receipt retry used only after the original bounded completion
+    // window expires. It does not submit match facts or mutate an economy.
+    async getSettledMatchRemote(matchId) {
+        const status = await this.getMatchRemoteStatus(matchId, { applyProfile: false });
+        if (!status || status.status !== 'finalized' || !status.completion) return { ok: false, pending: true };
+        return { ok: true, pending: false, status };
+    }
+
+    // Callers with a visible, still-current terminal screen may apply a status
+    // returned by getSettledMatchRemote(). Keeping this separate ensures a late
+    // GET response cannot mutate the cached profile after a rematch/menu exit.
+    applySettledMatchRemote(status) {
+        if (!status?.completion) return { ok: false, pending: true };
+        return this._matchRemoteCompletion(status);
     }
 
     getAdRewardStatus() {

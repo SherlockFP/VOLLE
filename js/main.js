@@ -40,7 +40,7 @@ import { Replay, extractReplayHighlight } from './replay.js';
 import { ReplayView } from './replay-view.js';
 import { CAMERA_MODES, Spectator } from './spectator.js';
 import { BALL_SKINS, ballShapeParts } from './ball.js';
-import { accountRankLabel, matchXp, prestigeTitle } from './prestige.js';
+import { accountRankLabel, MATCH_XP, matchXp, prestigeTitle } from './prestige.js';
 import { Console } from './console.js';
 import { tournament } from './tournament.js';
 import { Friends } from './friends.js';
@@ -279,6 +279,8 @@ class App {
         };
         this.game.onRoundEnd = () => this._queueRoundReplay();
         this.game.onMatchStart = () => {
+            clearTimeout(this._deferredRewardRetryTimer);
+            this._deferredRewardRetryTimer = null;
             this.ui.clearPostGameMatchDrops?.();
             this._analyticsMatchStartedAt = Date.now();
             this._analyticsGameplayEndedAt = null;
@@ -1044,8 +1046,10 @@ class App {
             const article = document.createElement('article');
             article.className = `arena-card${isEquipped ? ' is-equipped' : ''}${copies < 1 ? ' is-locked' : ''}`;
             article.dataset.rarity = card.rarity;
+            article.dataset.cardId = card.id;
             article.dataset.slot = card.slot;
             article.dataset.state = isEquipped ? 'equipped' : copies ? 'owned' : 'locked';
+            article.tabIndex = -1;
             const art = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
             art.setAttribute('class', 'ui-icon card-art');
             art.setAttribute('aria-hidden', 'true');
@@ -1455,12 +1459,24 @@ class App {
         });
         // Casual-first XP: weighted on how the match was played rather than on the
         // result, so a strong loss still out-earns a passive win (js/prestige.js).
-        const xp = this.store.boostedXp(matchXp({
+        const rally = this.game.rallyCount;
+        const rawXp = matchXp({
             deflections: myStat.deflections,
             kills: myStat.score,
+            rally,
             survived: (myStat.deaths || 0) === 0,
             won
-        }));
+        });
+        const xp = this.store.boostedXp(rawXp);
+        const xpSources = [
+            { label: 'Match played', value: MATCH_XP.base },
+            { label: `Deflections x${myStat.deflections || 0}`, value: (myStat.deflections || 0) * MATCH_XP.perDeflection },
+            { label: `Eliminations x${myStat.score || 0}`, value: (myStat.score || 0) * MATCH_XP.perKill },
+            { label: `Rally x${rally || 0}`, value: (rally || 0) * MATCH_XP.perRally },
+            { label: (myStat.deaths || 0) === 0 ? 'Survival bonus' : 'Match result', value: (myStat.deaths || 0) === 0 ? MATCH_XP.survivalBonus : 0 },
+            { label: won ? 'Victory bonus' : 'Match played bonus', value: won ? MATCH_XP.win : MATCH_XP.loss },
+            { label: 'Active XP boost', value: xp - rawXp }
+        ];
         // Authenticated matches never add client-issued currency. XP remains
         // local presentation/progression while the economy profile is synced
         // from the lifecycle completion response.
@@ -1490,7 +1506,6 @@ class App {
             }
             this.refreshMetaStats();
         }
-        const rally = this.game.rallyCount;
         const damageDealt = this.player.totalDamageDealt;
         const damageTaken = this.player.totalDamageTaken;
         const finalHp = this.player.hp;
@@ -1550,16 +1565,79 @@ class App {
             matchDrops.push({ type: 'case', id: box.id, name: box.name, rarity: 'earned' });
             this.ui.showMessage?.(`MATCH DROP: Earned ${box.name} — open it free in Cases.`, 4200);
         }
+        // The report receives a receipt only after this player's local or
+        // authoritative settlement. A pending remote completion stays pending;
+        // it must not borrow the host's P2P economy or invent a total.
+        const settledReceipt = this.store.remoteReady && (!synced || synced.pending) ? null : {
+            xp,
+            xpSources,
+            coins: synced ? {
+                base: synced.base,
+                bonus: synced.bonus,
+                firstOfDay: synced.firstOfDay,
+                total: synced.coins
+            } : rewardCalc,
+            battlepassXp: synced ? synced.battlepassXp : xp,
+            dailies: synced ? synced.dailyRows : Daily.takeLastMatchProgress?.()
+        };
         // An async remote result may arrive after the post-game overlay rendered.
         // Never let that receipt paint onto a new rematch or a non-terminal game.
         if (this.game.matchId === matchId && isTerminalRematchState(this.game.state)) {
+            if (settledReceipt && synced?.replayed !== true) this.ui.setPostGameRewardReceipt?.(matchId, settledReceipt, this.store);
             this.ui.setPostGameMatchDrops?.(matchId, matchDrops);
+            if (!settledReceipt && this.store.remoteReady) this._startDeferredMatchRewardRetry(matchId, { xp, xpSources });
         }
-        this.ui.showMessage?.(`+${rewardCalc.total} coins, +${xp} XP`, 3000);
+        if (settledReceipt && synced?.replayed !== true) this.ui.showMessage?.(`+${settledReceipt.coins.total} coins, +${xp} XP`, 3000);
 
         // Replay kaydet
         const replay = Replay.stopRecording();
         if (replay && replay.events.length > 0) Replay.save(replay);
+    }
+
+    _startDeferredMatchRewardRetry(matchId, context) {
+        clearTimeout(this._deferredRewardRetryTimer);
+        const active = () => this.game.matchId === matchId
+            && isTerminalRematchState(this.game.state)
+            && this.ui._postGameRewardMatchId === matchId
+            && !document.getElementById('post-game-screen')?.classList.contains('hidden');
+        const paint = synced => {
+            if (!active() || !synced?.ok || synced.pending || synced.replayed) return false;
+            const receipt = {
+                xp: context.xp,
+                xpSources: context.xpSources,
+                coins: { base: synced.base, bonus: synced.bonus, firstOfDay: synced.firstOfDay, total: synced.coins },
+                battlepassXp: synced.battlepassXp,
+                dailies: synced.dailyRows
+            };
+            const painted = this.ui.setPostGameRewardReceipt?.(matchId, receipt, this.store);
+            if (painted && synced.earnedCase && CASES[synced.earnedCase]) {
+                const box = CASES[synced.earnedCase];
+                this.ui.setPostGameMatchDrops?.(matchId, [{ type: 'case', id: box.id, name: box.name, rarity: 'earned' }]);
+            } else if (painted && synced.cardReward?.card) {
+                const card = synced.cardReward.card;
+                this.ui.setPostGameMatchDrops?.(matchId, [{ type: 'card', id: card.id, name: card.name, rarity: card.rarity }]);
+            }
+            return painted;
+        };
+        let attempts = 0;
+        const retry = async () => {
+            if (!active()) return false;
+            const pendingStatus = await this.store.getSettledMatchRemote(matchId);
+            // The GET can finish after a rematch/menu transition. Recheck before
+            // touching Store so an inactive receipt cannot update profile cache.
+            if (!active()) return false;
+            const settled = pendingStatus?.status
+                ? this.store.applySettledMatchRemote(pendingStatus.status)
+                : pendingStatus;
+            if (paint(settled)) return true;
+            if (!active()) return false;
+            attempts++;
+            this.ui.setPostGameRewardRetry?.(matchId, retry, { exhausted: attempts >= 12 });
+            if (attempts < 12) this._deferredRewardRetryTimer = setTimeout(() => { void retry(); }, 2500);
+            return false;
+        };
+        this.ui.setPostGameRewardRetry?.(matchId, retry);
+        this._deferredRewardRetryTimer = setTimeout(() => { void retry(); }, 2500);
     }
 
     // ponytail: mouse-follow glow + custom ball cursor on the main menu
@@ -2501,17 +2579,19 @@ bind('btn-remove-bot', () => {
         });
 
         // Post-game screen actions
-        window._postGameDropAction = action => {
-            if (action === 'case') {
+        window._postGameDropAction = drop => {
+            if (drop?.type === 'case' && CASES[drop.id]) {
                 this.ui.showScreen('shop');
                 this.ui.renderShop(this.store, 'cases');
                 this.shopShowcase?.start();
-            } else if (action === 'card') {
+                requestAnimationFrame(() => document.querySelector(`.case-select[data-id="${drop.id}"]`)?.click());
+            } else if (drop?.type === 'card' && ARENA_CARDS[drop.id]) {
                 this.ui.renderCharacterSelect(this.store);
                 this.ui.renderLockerInventory(this.store);
                 this._renderCardCollection();
                 this.ui.setLockerTab('cards');
                 this.ui.showScreen('character');
+                requestAnimationFrame(() => document.querySelector(`[data-card-id="${drop.id}"]`)?.focus?.({ preventScroll: true }));
             }
         };
         window._postGameAction = (action) => {

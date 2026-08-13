@@ -109,12 +109,12 @@ test('post-game match drop only renders settled local or authoritative rewards o
 });
 
 test('match-drop CTAs only navigate to cases or Locker Cards and do not open or buy rewards', () => {
-    const actionStart = main.indexOf('        window._postGameDropAction = action => {');
+    const actionStart = main.indexOf('        window._postGameDropAction = drop => {');
     const actionEnd = main.indexOf('\n        window._postGameAction =', actionStart);
     const action = main.slice(actionStart, actionEnd);
 
-    assert.match(action, /action === 'case'[\s\S]*?renderShop\(this\.store, 'cases'\)/);
-    assert.match(action, /action === 'card'[\s\S]*?_renderCardCollection\(\);[\s\S]*?setLockerTab\('cards'\)/);
+    assert.match(action, /drop\?\.type === 'case'[\s\S]*?CASES\[drop\.id\][\s\S]*?renderShop\(this\.store, 'cases'\)/);
+    assert.match(action, /drop\?\.type === 'card'[\s\S]*?ARENA_CARDS\[drop\.id\][\s\S]*?_renderCardCollection\(\);[\s\S]*?setLockerTab\('cards'\)/);
     assert.doesNotMatch(action, /_openShopCase|purchase|equip/i);
     assert.match(main, /this\.ui\.clearPostGameMatchDrops\?\.\(\);/, 'a rematch clears stale collection UI before its next result');
 });
