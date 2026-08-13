@@ -371,6 +371,11 @@ export class Bot {
 
     update(dt, ball) {
         const moveSpeed = this.moveSpeed * (this._hazardMoveMul || 1);
+        // A declined deflect gets one short, committed lateral escape. Consume
+        // only the remaining latch time so its total displacement is stable at
+        // every frame rate; after that the bot holds rather than running away
+        // from the same incoming ball or rolling a new chance decision.
+        const defenseDodgeSeconds = Math.min(this._defenseDodgeLatch, Math.max(0, dt));
         if (this._defenseDodgeLatch > 0) {
             this._defenseDodgeLatch = Math.max(0, this._defenseDodgeLatch - Math.max(0, dt));
         }
@@ -429,15 +434,20 @@ export class Bot {
 
             // An active incoming intent owns one movement branch. Deflects brace;
             // declines keep a stable side-step, never additive dodge/intercept/strafe.
-            if (defenseIntent === 'dodge-left' || defenseIntent === 'dodge-right') {
+            if ((defenseIntent === 'dodge-left' || defenseIntent === 'dodge-right') && defenseDodgeSeconds > 0) {
                 const planarLength = Math.hypot(toBall.x, toBall.z);
                 if (planarLength > 1e-4) {
                     const sign = this._defenseDodgeSign;
-                    const step = Math.min(MAX_DEFENSE_SPEED, moveSpeed * 1.8) * Math.max(0, dt);
+                    const step = Math.min(MAX_DEFENSE_SPEED, moveSpeed * 1.8) * defenseDodgeSeconds;
                     this._dodgeDir.set(-toBall.z / planarLength * sign, 0, toBall.x / planarLength * sign);
                     this.position.addScaledVector(this._dodgeDir, step);
                     this._defenseStrafe = sign;
                 }
+            } else if (defenseIntent === 'dodge-left' || defenseIntent === 'dodge-right') {
+                // The declined opportunity is still in flight. Do not re-enter
+                // intercept/ambient dodge movement or re-roll its decision.
+                // Holding here keeps hard bots inside a readable deflect range.
+                this._defenseStrafe = 0;
             } else if (defenseIntent !== 'deflect') {
                 // Predict ball position using persistent scratch vectors.
                 this._ballDir.copy(ball.velocity).normalize();

@@ -51,8 +51,9 @@ function advanceLatch(state, dt) {
     if (state.latch <= Number.EPSILON) state.latch = 0;
 }
 
-function defenseStep(intent, sign, speed, dt) {
-    return intent === 'deflect' ? 0 : Math.min(MAX_DEFENSE_SPEED, speed * 1.8) * sign * dt;
+function defenseStep(intent, sign, speed, dt, latch = Infinity) {
+    if (intent === 'deflect' || latch <= 0) return 0;
+    return Math.min(MAX_DEFENSE_SPEED, speed * 1.8) * sign * Math.min(latch, dt);
 }
 
 test('1000 seeded opportunities retain exact difficulty chance commits', () => {
@@ -99,6 +100,28 @@ test('a declined dodge remains exclusive through its 250ms latch after leaving a
     }
     assert.equal(state.latch, 0);
     assert.equal(observe(state, { inAlert: false }, DIFFICULTIES.hard.chance, () => 0), 'none');
+});
+
+test('a declined dodge uses exactly one 250ms lateral escape then holds without rerolling', () => {
+    const endpoint = dt => {
+        const state = makeState();
+        const rolls = [0.99, 0.1];
+        observe(state, {}, DIFFICULTIES.hard.chance, () => rolls.shift());
+        let displacement = 0;
+        let rngCallsAfterDecision = 0;
+        for (let elapsed = 0; elapsed < 1 - 1e-12; elapsed += dt) {
+            observe(state, {}, DIFFICULTIES.hard.chance, () => { rngCallsAfterDecision++; return 0; });
+            displacement += defenseStep(state.intent, state.sign, DIFFICULTIES.hard.speed, dt, state.latch);
+            advanceLatch(state, dt);
+        }
+        assert.equal(state.intent, 'dodge-left');
+        assert.equal(rngCallsAfterDecision, 0, 'the same incoming opportunity must not reroll');
+        return displacement;
+    };
+
+    const endpoints = [1 / 20, 1 / 60, 1 / 144].map(endpoint);
+    const expected = Math.min(MAX_DEFENSE_SPEED, DIFFICULTIES.hard.speed * 1.8) * DODGE_LATCH_SECONDS;
+    for (const displacement of endpoints) assert.ok(Math.abs(Math.abs(displacement) - expected) < 1e-9, `expected ${expected}, got ${displacement}`);
 });
 
 test('host and client play one deflect animation per opportunity', () => {
@@ -157,7 +180,10 @@ test('source establishes intent before update, syncs yaw/intent/strafe/attack, a
     assert.match(bot, /observeDefenseIntent\(ball, rng = Math\.random\)/);
     assert.match(bot, /const DEFENSE_DODGE_LATCH_SECONDS = 0\.25;/);
     assert.match(bot, /this\._defenseDodgeLatch = DEFENSE_DODGE_LATCH_SECONDS;/);
-    assert.match(bot, /Math\.min\(MAX_DEFENSE_SPEED, moveSpeed \* 1\.8\)/);
+    assert.match(bot, /const defenseDodgeSeconds = Math\.min\(this\._defenseDodgeLatch, Math\.max\(0, dt\)\);/);
+    assert.match(bot, /&& defenseDodgeSeconds > 0\) \{/);
+    assert.match(bot, /Math\.min\(MAX_DEFENSE_SPEED, moveSpeed \* 1\.8\) \* defenseDodgeSeconds/);
+    assert.match(bot, /The declined opportunity is still in flight/);
     assert.match(bot, /facts\.strafe = this\._defenseStrafe;/);
     const hostMovement = game.slice(game.indexOf('// Bot AI only on host'), game.indexOf('if (this.player._rocketQueued)'));
     assert.ok(hostMovement.indexOf('bot.observeDefenseIntent(this.ball);') < hostMovement.indexOf('bot.update(dt, this.ball);'));
