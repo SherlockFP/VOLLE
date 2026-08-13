@@ -63,6 +63,20 @@ test('card progression events accept bounded product dimensions without social d
     }), 'profile_123456', secret, now), null);
 });
 
+test('party queue analytics retains only anonymous queue outcomes', () => {
+    const start = normalizeProductEvent(base({
+        name: 'party_queue_start', dimensions: { queue: 'casual', source: 'party' }
+    }), 'profile_123456', secret, now);
+    const follow = normalizeProductEvent(base({
+        eventId: 'product_event_654321', name: 'party_queue_follow_success', dimensions: { queue: 'casual', source: 'party', result: 'joined' }
+    }), 'profile_123456', secret, now);
+    assert.equal(start?.name, 'party_queue_start');
+    assert.equal(follow?.name, 'party_queue_follow_success');
+    assert.equal(normalizeProductEvent(base({
+        name: 'party_queue_follow_failure', dimensions: { lobbyCode: 'private-room' }
+    }), 'profile_123456', secret, now), null);
+});
+
 test('battle pass progression events are accepted from the authenticated client while revenue remains server-only', () => {
     const premium = normalizeProductEvent(base({
         name: 'battlepass_premium_unlocked', dimensions: { source: 'soft_currency' }

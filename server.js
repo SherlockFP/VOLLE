@@ -130,7 +130,10 @@ const LOBBY_TTL = 90000;
 function pruneLobbies() {
     const now = Date.now();
     for (const [code, l] of lobbies) {
-        if (now - (l.lastSeen ?? l.updatedAt) > LOBBY_TTL) lobbies.delete(code);
+        if (now - (l.lastSeen ?? l.updatedAt) > LOBBY_TTL) {
+            lobbies.delete(code);
+            partyStore.clearLobbyTargetByCode(code);
+        }
     }
     for (const [code, hub] of socialHubs) {
         if (now - (hub.lastSeen ?? hub.updatedAt) > LOBBY_TTL) socialHubs.delete(code);
@@ -325,6 +328,47 @@ const server = http.createServer(async (req, res) => {
         if (!allowRequest(req, res, 'social')) return;
         const auth = requireAuth(req, res);
         if (auth) sendJson(res, partyStore.snapshot(auth.account.id));
+        return;
+    }
+    // Casual party follow is deliberately a server-side, short-lived intent. It
+    // never enters the P2P protocol and only party members can read its room code.
+    if (urlPath === '/api/party/lobby-target' && req.method === 'GET') {
+        if (!allowRequest(req, res, 'party')) return;
+        const auth = requireAuth(req, res);
+        if (auth) sendJson(res, partyStore.lobbyIntent(auth.account.id));
+        return;
+    }
+    if (urlPath === '/api/party/queue-state' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'party')) return;
+        const b = await readBody(req, 256);
+        const auth = requireAuth(req, res, b);
+        if (auth) {
+            const result = partyStore.beginCasualQueue(auth.account.id, b.partyRevision);
+            sendJson(res, result, result.status);
+        }
+        return;
+    }
+    if (urlPath === '/api/party/lobby-target' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'party')) return;
+        const b = await readBody(req, 512);
+        const auth = requireAuth(req, res, b);
+        if (!auth) return;
+        pruneLobbies();
+        const party = partyStore.snapshot(auth.account.id).party;
+        const code = String(b.lobbyCode || '').trim();
+        const lobby = lobbies.get(code);
+        const admitted = !!lobby?.memberProfileIds?.has(auth.profile.id);
+        const ownsLobby = lobby?.ownerAccountId === auth.account.id;
+        const partySize = party?.memberAccountIds?.length || 0;
+        const occupied = lobby?.memberProfileIds instanceof Set ? lobby.memberProfileIds.size : 0;
+        if (!party || party.leaderAccountId !== auth.account.id || !lobby || lobby.ranked === true
+            || (!ownsLobby && !admitted)
+            || occupied + Math.max(0, partySize - 1) > lobby.maxPlayers) {
+            sendJson(res, { error: 'party lobby unavailable' }, 409);
+            return;
+        }
+        const result = partyStore.setLobbyTarget(auth.account.id, b.partyRevision, code);
+        sendJson(res, result, result.status);
         return;
     }
     if (urlPath === '/api/party/invites' && req.method === 'POST') {
@@ -909,6 +953,7 @@ const server = http.createServer(async (req, res) => {
         const lobby = lobbies.get(code);
         if (!lobby || lobby.ownerAccountId !== auth.account.id) { sendJson(res, { error: 'lobby unavailable' }, 404); return; }
         lobbies.delete(code);
+        partyStore.clearLobbyTargetByCode(code);
         sendJson(res, { ok: true });
         return;
     }

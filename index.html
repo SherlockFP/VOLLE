@@ -231,7 +231,7 @@
                 <section class="menu-party-rail" aria-labelledby="menu-party-title">
                     <header><div><span class="menu-player-label">SQUAD</span><h2 id="menu-party-title">Party status</h2></div></header>
                     <div id="menu-party-list" class="menu-party-list" aria-live="polite"></div>
-                    <div class="menu-party-actions"><button id="btn-menu-party-invite" class="ow-sbtn" type="button">Invite</button><button id="btn-menu-squad-center" class="ow-sbtn" type="button">Squad Center</button></div>
+                    <div class="menu-party-actions"><button id="btn-menu-party-invite" class="ow-sbtn" type="button">Invite</button><button id="btn-menu-squad-center" class="ow-sbtn" type="button">Squad Center</button><button id="btn-menu-party-follow" class="ow-sbtn party-follow-action" type="button" hidden>Join squad</button></div>
                 </section>
                 <div class="ow-retention-strip" id="menu-retention-strip">
                     <button type="button" id="menu-daily-card" class="ow-retention-card ow-retention-daily" aria-label="Daily challenges progress" hidden>
@@ -276,6 +276,8 @@
                     <section class="fbar-party" aria-labelledby="fbar-party-title">
                         <header><span><small>PARTY</small><strong id="fbar-party-title">Your squad</strong></span><b id="fbar-party-count">1 / 8</b></header>
                         <div id="fbar-party-members" class="fbar-party-members" aria-live="polite"></div>
+                        <output id="fbar-party-queue" class="fbar-party-queue" aria-live="polite" hidden></output>
+                        <button id="fbar-party-follow" class="fbar-party-follow party-follow-action" type="button" hidden>Join squad</button>
                         <button id="fbar-party-leave" class="fbar-party-leave" type="button" hidden>Leave party</button>
                     </section>
                     <div class="fbar-tabs" role="tablist" aria-label="Social directory">
@@ -477,6 +479,7 @@
                     <button id="btn-mp-create" class="btn btn-secondary mp-btn"><svg class="ui-icon" aria-hidden="true"><use href="#i-monitor"></use></svg>Create Lobby</button>
                     <button id="btn-mp-join" class="btn btn-secondary mp-btn"><svg class="ui-icon" aria-hidden="true"><use href="#i-link"></use></svg>Join by Code</button>
                     <button id="btn-mp-solo" class="btn btn-secondary mp-btn"><svg class="ui-icon" aria-hidden="true"><use href="#i-user"></use></svg>Solo vs Bots</button>
+                    <button id="btn-mp-party-follow" class="btn btn-primary mp-btn party-follow-action" type="button" hidden>Join squad</button>
                 </div>
                 <button id="btn-mp-back" class="btn btn-secondary mp-btn mp-back"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back to Menu</button>
             </div>
@@ -518,6 +521,7 @@
             <input type="password" id="join-pass-input" class="input" placeholder="Lobby password (if any)..." maxlength="32">
 
             <button id="btn-join-connect" class="btn btn-primary">Connect</button>
+            <button id="btn-join-party-follow" class="btn btn-primary party-follow-action" type="button" hidden>Join squad</button>
             <button id="btn-join-back" class="btn btn-secondary">← Back</button>
         </div>
     </div>

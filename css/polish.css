@@ -6320,6 +6320,9 @@ body.reduced-motion #shop-screen .inventory-tile:hover,
 #main-menu .fbar-party-members { display: grid; margin-top: 8px; }
 #main-menu .fbar-party-member { min-height: 32px; border-top: 1px solid rgba(255,255,255,.07); font-size: .75rem; }
 #main-menu .fbar-party-leave { min-height: 44px; width: 100%; margin-top: 8px; color: #ffacb7; border: 1px solid rgba(240,68,85,.32); background: rgba(240,68,85,.08); }
+#main-menu .fbar-party-queue { display: block; margin-top: 8px; color: var(--ui-menu-muted); font-size: .64rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+#main-menu .fbar-party-follow { width: 100%; min-height: 44px; margin-top: 8px; border: 1px solid color-mix(in srgb, var(--screen-accent) 70%, #fff); color: #fff; background: linear-gradient(110deg, rgba(35,180,255,.24), rgba(158,92,255,.35)); box-shadow: 0 0 18px rgba(104,122,255,.2); font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+.party-follow-action[hidden] { display: none !important; }
 #main-menu .fbar-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; margin: 10px 0; }
 #main-menu .fbar-tabs button, #main-menu .fbar-actions button { min-height: 44px; color: #c7d3e2; border: 1px solid var(--menu-line); background: rgba(255,255,255,.035); }
 #main-menu .fbar-tabs button[aria-selected="true"] { color: #061117; border-color: var(--menu-cyan); background: var(--menu-cyan); }

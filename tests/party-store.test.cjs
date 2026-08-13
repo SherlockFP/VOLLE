@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { PartyStore, PARTY_INVITE_TTL_MS, PARTY_INVITE_COOLDOWN_MS, PARTY_MAX_MEMBERS } = require('../server/party-store');
+const { PartyStore, PARTY_INVITE_TTL_MS, PARTY_INVITE_COOLDOWN_MS, PARTY_MAX_MEMBERS, PARTY_LOBBY_TARGET_TTL_MS } = require('../server/party-store');
 
 function fixture() {
     let now = 1000;
@@ -62,4 +62,48 @@ test('party capacity and deterministic leader transfer/teardown are bounded', ()
     assert.equal(transfer.party.revision, PARTY_MAX_MEMBERS + 1);
     for (let n = 1; n < PARTY_MAX_MEMBERS; n++) f.parties.leave(`p${n}`);
     assert.equal(f.parties.snapshot(`p${PARTY_MAX_MEMBERS - 1}`).party, null);
+});
+
+test('casual party target is leader-only, revisioned, expires, and clears on membership changes', () => {
+    const f = fixture(); f.available.add('a'); f.available.add('b');
+    const invite = f.parties.invite('a', 'b');
+    assert.equal(f.parties.act('b', invite.invite.id, 'accept').status, 200);
+    const party = f.parties.snapshot('a').party;
+    assert.equal(f.parties.beginCasualQueue('b', party.revision).status, 403);
+    assert.equal(f.parties.beginCasualQueue('a', party.revision).status, 200);
+    assert.equal(f.parties.lobbyIntent('b').queueState.state, 'choosing');
+    assert.equal(f.parties.setLobbyTarget('a', party.revision + 1, 'room').status, 409);
+    const target = f.parties.setLobbyTarget('a', party.revision, 'room');
+    assert.equal(target.status, 200);
+    assert.deepEqual(f.parties.lobbyIntent('b').lobbyTarget, { code: 'room', partyRevision: party.revision, revision: 1, expiresAt: 1000 + PARTY_LOBBY_TARGET_TTL_MS });
+    f.tick(PARTY_LOBBY_TARGET_TTL_MS + 1);
+    assert.equal(f.parties.lobbyIntent('a').lobbyTarget, null);
+    assert.equal(f.parties.setLobbyTarget('a', party.revision, 'room').status, 200);
+    f.parties.leave('b');
+    assert.equal(f.parties.lobbyIntent('a').lobbyTarget, null);
+});
+
+test('active leader cannot create or publish a party queue intent', () => {
+    const f = fixture(); f.available.add('a'); f.available.add('b');
+    const invite = f.parties.invite('a', 'b');
+    f.parties.act('b', invite.invite.id, 'accept');
+    const revision = f.parties.snapshot('a').party.revision;
+    f.active.add('a');
+    assert.deepEqual(f.parties.beginCasualQueue('a', revision), { status: 409, error: 'party unavailable' });
+    assert.deepEqual(f.parties.setLobbyTarget('a', revision, 'room'), { status: 409, error: 'party unavailable' });
+    assert.equal(f.parties.lobbyIntent('b').queueState, null);
+    assert.equal(f.parties.lobbyIntent('b').lobbyTarget, null);
+});
+
+test('closing a target room clears every matching party without leaking another room', () => {
+    const f = fixture(); ['a', 'b', 'c', 'd'].forEach(id => f.available.add(id));
+    for (const [leader, member, code] of [['a', 'b', 'same-room'], ['c', 'd', 'other-room']]) {
+        const invite = f.parties.invite(leader, member);
+        f.parties.act(member, invite.invite.id, 'accept');
+        const revision = f.parties.snapshot(leader).party.revision;
+        f.parties.setLobbyTarget(leader, revision, code);
+    }
+    assert.equal(f.parties.clearLobbyTargetByCode('same-room'), 1);
+    assert.equal(f.parties.lobbyIntent('a').lobbyTarget, null);
+    assert.equal(f.parties.lobbyIntent('c').lobbyTarget.code, 'other-room');
 });

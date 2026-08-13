@@ -83,6 +83,7 @@ import {
 } from './crosshair.js';
 
 const SOCIAL_DISCOVERY_KEY = 'warrball.social.discovery.v1';
+const PARTY_FOLLOW_SCREENS = new Set(['mainMenu', 'multiplayerMenu', 'joinMenu']);
 const PARTY_INVITE_BLOCKED_STATES = new Set([STATES.PLAYING, STATES.COUNTDOWN, STATES.ROUND_END, STATES.CELEBRATION]);
 
 const SPECTATOR_MODE_LABELS = Object.freeze({
@@ -151,6 +152,10 @@ class App {
         // with its signal; a later assignment would both crash startup and orphan
         // listeners attached to the previous controller.
         this._mainAbort = new AbortController();
+        this._partyQueueState = null;
+        this._partyLobbyTarget = null;
+        this._partyFollowAttemptedTarget = '';
+        this._partyFollowInFlight = false;
         this.chatOpen = false;
         this._voicePingAttempts = [];
         this._voicePingMutedUntil = 0;
@@ -870,6 +875,94 @@ class App {
         return { discoverable: discoverable !== false, region: safeRegion };
     }
 
+    _canFollowPartyLobby() {
+        return PARTY_FOLLOW_SCREENS.has(document.body.dataset.screen)
+            && !this._socialHubCode
+            && !this.network?.connected;
+    }
+
+    _partyFollowKey(target = this._partyLobbyTarget) {
+        if (!target?.code || !Number.isSafeInteger(target?.revision)) return '';
+        return `${target.partyRevision}:${target.revision}:${target.code}`;
+    }
+
+    async _partyLobbyApi(path, options = {}) {
+        const token = account.getToken();
+        if (!token) return { error: 'Sign in required.' };
+        try {
+            const response = await fetch(path, {
+                ...options,
+                headers: { ...(options.headers || {}), Authorization: `Bearer ${token}` }
+            });
+            const data = await response.json().catch(() => ({}));
+            return response.ok ? data : { error: data.error || 'Squad service unavailable.' };
+        } catch { return { error: 'Squad service unavailable.' }; }
+    }
+
+    async _beginPartyCasualQueue(party) {
+        const partyRevision = Number(party?.revision);
+        if (!Number.isSafeInteger(partyRevision)) return false;
+        const result = await this._partyLobbyApi('/api/party/queue-state', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ partyRevision })
+        });
+        if (result.error || !result.queueState) {
+            this.ui.showMessage?.(result.error || 'Your squad changed. Try again.', 2000);
+            return false;
+        }
+        this._partyQueueState = result.queueState;
+        this._partyLobbyTarget = null;
+        this.productAnalytics.track('party_queue_start', { queue: 'casual', source: 'party' });
+        this.refreshFriendsSidebar();
+        return true;
+    }
+
+    async _publishPartyLobbyTarget(code, party) {
+        const partyRevision = Number(party?.revision);
+        if (!Number.isSafeInteger(partyRevision) || !code) return false;
+        const result = await this._partyLobbyApi('/api/party/lobby-target', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ partyRevision, lobbyCode: code })
+        });
+        if (result.error || !result.lobbyTarget) {
+            this.ui.showMessage?.(result.error || 'Squad could not follow this lobby.', 2200);
+            return false;
+        }
+        this._partyQueueState = null;
+        this._partyLobbyTarget = result.lobbyTarget;
+        this.refreshFriendsSidebar();
+        this._socialPollNow?.();
+        return true;
+    }
+
+    async _refreshPartyLobbyIntent({ allowAutoFollow = true } = {}) {
+        const result = await this._partyLobbyApi('/api/party/lobby-target');
+        if (result.error) return false;
+        this._partyQueueState = result.queueState || null;
+        this._partyLobbyTarget = result.lobbyTarget || null;
+        this.refreshFriendsSidebar();
+        if (allowAutoFollow) await this._followPartyLobbyTarget();
+        return true;
+    }
+
+    async _followPartyLobbyTarget({ manual = false } = {}) {
+        const party = Friends.party;
+        const target = this._partyLobbyTarget;
+        const myId = account.getAccount()?.id;
+        const key = this._partyFollowKey(target);
+        if (!target || !key || !party || party.leaderAccountId === myId || target.partyRevision !== party.revision
+            || !this._canFollowPartyLobby() || this._partyFollowInFlight || (!manual && this._partyFollowAttemptedTarget === key)) return false;
+        this._partyFollowAttemptedTarget = key;
+        this._partyFollowInFlight = true;
+        this.refreshFriendsSidebar();
+        const joined = await this._quickJoin(target.code, { partyFollow: true });
+        this._partyFollowInFlight = false;
+        this.productAnalytics.track(joined ? 'party_queue_follow_success' : 'party_queue_follow_failure', {
+            queue: 'casual', source: 'party', result: joined ? 'joined' : 'join_error'
+        });
+        if (!joined) this.ui.showMessage?.('Squad lobby is still available. Select Join squad to retry.', 2400);
+        this.refreshFriendsSidebar();
+        return joined;
+    }
+
     _startSocialPolling() {
         clearInterval(this._socialPollTimer);
         const socialScreens = new Set(['mainMenu', 'multiplayerMenu', 'joinMenu', 'lobby', 'socialCenter']);
@@ -883,6 +976,7 @@ class App {
             this._socialRailLoaded = true;
             this._socialRailError = results.find(result => result?.error)?.error || '';
             this.refreshFriendsSidebar();
+            await this._refreshPartyLobbyIntent();
             this._presentPendingPartyInvite();
             if (document.body.dataset.screen === 'socialCenter') this._renderSocialCenter();
         };
@@ -1141,7 +1235,7 @@ class App {
         const members = party?.memberAccountIds?.length ? party.memberAccountIds : (accountId ? [accountId] : []);
         if (count) count.textContent = `${Math.max(1, members.length)} / ${party?.maxMembers || 8}`;
         if (!list) return;
-        list.replaceChildren(...members.slice(0, 4).map(memberId => {
+        const rows = members.slice(0, 4).map(memberId => {
             const row = document.createElement('div');
             row.className = 'menu-party-member';
             const identity = document.createElement('span');
@@ -1157,7 +1251,14 @@ class App {
             state.textContent = memberId === accountId ? 'YOU' : 'IN PARTY';
             row.append(identity, state);
             return row;
-        }));
+        });
+        if (this._partyQueueState && party?.leaderAccountId !== accountId) {
+            const status = document.createElement('div');
+            status.className = 'menu-party-member';
+            status.textContent = 'LEADER IS CHOOSING A CASUAL LOBBY…';
+            rows.push(status);
+        }
+        list.replaceChildren(...rows);
     }
 
     _socialAccountName(accountId, fallback = 'Player') {
@@ -6254,6 +6355,14 @@ updateCarousel() {
         const map = mapId === 'all' ? '' : Arena.MAPS[mapId]?.name || mapId;
         const quickPlayStartedAt = performance.now();
         const quickDimensions = { queue, mode: modeId, map: mapId };
+        const party = Friends.party;
+        const partySize = party?.memberAccountIds?.length || 1;
+        const partyQuickPlay = queue === 'casual' && partySize > 1;
+        if (partyQuickPlay && !Friends.isPartyLeader(account.getAccount()?.id)) {
+            this.ui.showMessage?.('Only the party leader can start Casual Quick Play.', 2200);
+            return;
+        }
+        if (partyQuickPlay && !await this._beginPartyCasualQueue(party)) return;
         this.productAnalytics.track('quick_play_click', quickDimensions);
         this._analyticsMatchEntry = 'quick_play';
         if (button) {
@@ -6262,9 +6371,12 @@ updateCarousel() {
         }
         try {
             const lobbies = await this._lobbyApi('/api/lobbies', { method: 'GET' });
-            const match = pickQuickLobby(lobbies, { queue, mode, map, openOnly: true });
+            const match = partyQuickPlay
+                ? pickQuickLobby(lobbies, { queue, mode, map, openOnly: true, minOpenSlots: partySize })
+                : pickQuickLobby(lobbies, { queue, mode, map, openOnly: true });
             if (match) {
-                await this._quickJoin(match.code, { ...quickDimensions, quickPlayStartedAt });
+                const joined = await this._quickJoin(match.code, { ...quickDimensions, quickPlayStartedAt });
+                if (partyQuickPlay && joined) await this._publishPartyLobbyTarget(match.code, party);
                 return;
             }
             const hostedMode = queue === 'ranked' ? 'competitive' : modeId;
@@ -6279,6 +6391,7 @@ updateCarousel() {
                 this.productAnalytics.track('quick_play_failure', { ...quickDimensions, result: 'host_error' });
                 return;
             }
+            if (partyQuickPlay) await this._publishPartyLobbyTarget(this._lobbyCode, party);
             const joinLatencyMs = Math.max(0, performance.now() - quickPlayStartedAt);
             this.productAnalytics.track('quick_play_success', {
                 ...quickDimensions,
@@ -6313,7 +6426,7 @@ updateCarousel() {
             this.ui.showMessage?.('🔗 Joined lobby!', 2000);
             this.productAnalytics.track('lobby_join', { networkRole: 'client' });
             this.productAnalytics.track('network_role', { networkRole: 'client' });
-            if (quickPlay) {
+            if (quickPlay?.quickPlayStartedAt) {
                 const joinLatencyMs = Math.max(0, performance.now() - quickPlay.quickPlayStartedAt);
                 this.productAnalytics.track('quick_play_success', {
                     queue: quickPlay.queue,
@@ -6323,11 +6436,13 @@ updateCarousel() {
                     latencyBucket: joinLatencyBucket(joinLatencyMs)
                 }, { joinLatencyMs });
             }
+            return true;
         } catch (e) {
-            if (quickPlay) this.productAnalytics.track('quick_play_failure', {
+            if (quickPlay?.quickPlayStartedAt) this.productAnalytics.track('quick_play_failure', {
                 queue: quickPlay.queue, mode: quickPlay.mode, map: quickPlay.map, result: 'join_error'
             });
             alert('Failed to join: ' + e.message);
+            return false;
         }
     }
 
@@ -6617,6 +6732,9 @@ updateCarousel() {
             if (result.error) this.ui.showMessage?.(result.error, 1800);
             this.refreshFriendsSidebar();
         });
+        for (const id of ['fbar-party-follow', 'btn-menu-party-follow', 'btn-mp-party-follow', 'btn-join-party-follow']) {
+            document.getElementById(id)?.addEventListener('click', () => this._followPartyLobbyTarget({ manual: true }));
+        }
         document.getElementById('party-invite-accept')?.addEventListener('click', () => this._actOnPresentedPartyInvite('accept'));
         document.getElementById('party-invite-decline')?.addEventListener('click', () => this._actOnPresentedPartyInvite('decline'));
         document.getElementById('party-invite-dialog')?.addEventListener('keydown', event => {
@@ -6859,12 +6977,35 @@ updateCarousel() {
         const list = document.getElementById('fbar-party-members');
         const count = document.getElementById('fbar-party-count');
         const leave = document.getElementById('fbar-party-leave');
+        const queue = document.getElementById('fbar-party-queue');
+        const follow = document.getElementById('fbar-party-follow');
         if (!list) return;
         const myId = account.getAccount()?.id;
         const party = Friends.party;
         const members = party?.memberAccountIds?.length ? party.memberAccountIds : (myId ? [myId] : []);
         if (count) count.textContent = `${Math.max(1, members.length)} / ${party?.maxMembers || 8}`;
         if (leave) leave.hidden = !party;
+        const leader = party?.leaderAccountId === myId;
+        const targetReady = !!this._partyLobbyTarget && this._partyLobbyTarget.partyRevision === party?.revision;
+        const canFollow = targetReady && !leader && this._canFollowPartyLobby();
+        if (queue) {
+            queue.hidden = !this._partyQueueState && !targetReady;
+            queue.textContent = this._partyQueueState && !leader
+                ? 'Leader is choosing a casual lobby…'
+                : targetReady && !leader ? 'Squad lobby is ready.' : targetReady ? 'Squad lobby ready.' : '';
+        }
+        if (follow) {
+            follow.hidden = !canFollow;
+            follow.disabled = this._partyFollowInFlight;
+            follow.textContent = this._partyFollowInFlight ? 'Joining squad…' : 'Join squad';
+        }
+        for (const id of ['btn-menu-party-follow', 'btn-mp-party-follow', 'btn-join-party-follow']) {
+            const action = document.getElementById(id);
+            if (!action) continue;
+            action.hidden = !canFollow;
+            action.disabled = this._partyFollowInFlight;
+            action.textContent = this._partyFollowInFlight ? 'Joining squad…' : 'Join squad';
+        }
         list.replaceChildren(...members.map(memberId => {
             const row = document.createElement('div');
             row.className = 'fbar-party-member';

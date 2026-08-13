@@ -6,7 +6,7 @@ const path = require('node:path');
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'warrball-party-http-'));
 process.env.DATA_DIR = dataDir;
-const { server, social, presence } = require('../server.js');
+const { server, social, presence, lobbies, matchAuthority } = require('../server.js');
 
 let baseUrl;
 async function api(pathname, { token = '', method = 'GET', body } = {}) {
@@ -65,4 +65,38 @@ test('authenticated HTTP discovery, friend status allowlist and party flow conve
     const logout = await api('/api/account/logout', { token: alice.sessionToken, method: 'POST', body: { instanceId: 'alice-one' } });
     assert.equal(logout.body.ok, true);
     assert.equal(presence.getAccount(alice.account.id), null, 'revoking a shared account session removes all ghost tab presence');
+});
+
+test('casual party follow target requires the current leader admission and capacity, then clears when the lobby closes', async () => {
+    const register = username => api('/api/account/register', { method: 'POST', body: { username, email: `${username.toLowerCase()}@example.com`, password: 'hunter22' } });
+    const leader = (await register('SquadLeader')).body;
+    const member = (await register('SquadMember')).body;
+    const heartbeat = (token, instanceId) => api('/api/social/heartbeat', { token, method: 'POST', body: { instanceId, state: 'menu', discoverable: true, region: 'global' } });
+    await heartbeat(leader.sessionToken, 'squad-leader');
+    await heartbeat(member.sessionToken, 'squad-member');
+    const invite = await api('/api/party/invites', { token: leader.sessionToken, method: 'POST', body: { recipientAccountId: member.account.id } });
+    assert.equal((await api(`/api/party/invites/${invite.body.invite.id}`, { token: member.sessionToken, method: 'POST', body: { action: 'accept' } })).status, 200);
+    const party = (await api('/api/party', { token: leader.sessionToken })).body.party;
+    assert.equal((await api('/api/party/queue-state', { token: member.sessionToken, method: 'POST', body: { partyRevision: party.revision } })).status, 403);
+    assert.equal((await api('/api/party/queue-state', { token: leader.sessionToken, method: 'POST', body: { partyRevision: party.revision } })).status, 200);
+    assert.equal((await api('/api/lobbies', { token: leader.sessionToken, method: 'POST', body: { code: 'party-target-room', players: 1, maxPlayers: 2, ranked: false } })).status, 200);
+    lobbies.get('party-target-room').memberProfileIds.add('already-admitted-player');
+    assert.equal((await api('/api/party/lobby-target', { token: leader.sessionToken, method: 'POST', body: { partyRevision: party.revision, lobbyCode: 'party-target-room' } })).status, 409, 'occupied room cannot fit the remaining squad member');
+    lobbies.get('party-target-room').memberProfileIds.delete('already-admitted-player');
+    const published = await api('/api/party/lobby-target', { token: leader.sessionToken, method: 'POST', body: { partyRevision: party.revision, lobbyCode: 'party-target-room' } });
+    assert.equal(published.status, 200);
+    const memberIntent = await api('/api/party/lobby-target', { token: member.sessionToken });
+    assert.equal(memberIntent.body.lobbyTarget.code, 'party-target-room');
+    assert.equal(memberIntent.body.lobbyTarget.partyRevision, party.revision);
+    const activeKey = 'casual:active-party-leader';
+    matchAuthority.matches.set(activeKey, { startedAt: Date.now(), started: new Set([leader.profile.id]) });
+    matchAuthority.activeByProfile.set(leader.profile.id, activeKey);
+    const activeQueue = await api('/api/party/queue-state', { token: leader.sessionToken, method: 'POST', body: { partyRevision: party.revision } });
+    const activePublish = await api('/api/party/lobby-target', { token: leader.sessionToken, method: 'POST', body: { partyRevision: party.revision, lobbyCode: 'party-target-room' } });
+    assert.deepEqual(activeQueue, { status: 409, body: { status: 409, error: 'party unavailable' } });
+    assert.deepEqual(activePublish, { status: 409, body: { status: 409, error: 'party unavailable' } });
+    matchAuthority.activeByProfile.delete(leader.profile.id);
+    matchAuthority.matches.delete(activeKey);
+    assert.equal((await api('/api/lobbies/party-target-room', { token: leader.sessionToken, method: 'DELETE' })).status, 200);
+    assert.equal((await api('/api/party/lobby-target', { token: member.sessionToken })).body.lobbyTarget, null);
 });

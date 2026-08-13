@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { filterLobbies, pickQuickLobby } from '../js/lobby-browser.js';
+import { filterLobbies, lobbyOpenSlots, pickQuickLobby } from '../js/lobby-browser.js';
 
 const lobbies = [
     { code: 'a', mode: 'Classic', map: 'Beach', players: 3, maxPlayers: 8, ranked: false, updatedAt: 1 },
@@ -15,4 +15,10 @@ test('lobby browser filters mode, map, queue and full rooms', () => {
 
 test('quick play chooses the most populated available matching room', () => {
     assert.equal(pickQuickLobby(lobbies, { queue: 'casual' }).code, 'b');
+});
+
+test('party quick play only considers rooms with every squad slot available', () => {
+    assert.equal(lobbyOpenSlots(lobbies[0]), 5);
+    assert.deepEqual(filterLobbies(lobbies, { queue: 'casual', minOpenSlots: 6 }).map(lobby => lobby.code), []);
+    assert.equal(pickQuickLobby(lobbies, { queue: 'casual', minOpenSlots: 5 }).code, 'a');
 });

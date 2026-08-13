@@ -6,6 +6,7 @@ const CLIENT_PRODUCT_EVENT_NAMES = new Set([
     'session_start', 'session_end', 'session_heartbeat',
     'ftue_view', 'ftue_exit', 'ftue_complete', 'practice_start', 'practice_complete',
     'screen_view', 'quick_play_click', 'quick_play_success', 'quick_play_failure',
+    'party_queue_start', 'party_queue_follow_success', 'party_queue_follow_failure',
     'lobby_host', 'lobby_join', 'match_start', 'match_complete',
     'rematch_click', 'rematch_start',
     'shop_inspect', 'shop_purchase_success', 'shop_purchase_failure', 'cosmetic_equip', 'cosmetic_match_use',

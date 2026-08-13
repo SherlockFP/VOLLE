@@ -5,6 +5,7 @@ const PARTY_INVITE_TTL_MS = 30000;
 const PARTY_INVITE_COOLDOWN_MS = 2000;
 const PARTY_RECIPIENT_PENDING_CAP = 20;
 const CLOSED_INVITE_RETENTION_MS = 5 * 60 * 1000;
+const PARTY_LOBBY_TARGET_TTL_MS = 60 * 1000;
 
 class PartyStore {
     constructor({ now = () => Date.now(), isAccountAvailable = () => false, isAccountActive = () => false } = {}) {
@@ -21,11 +22,23 @@ class PartyStore {
     _pair(senderId, recipientId) { return `${senderId}\0${recipientId}`; }
     _publicParty(party) { return party && { partyId: party.partyId, leaderAccountId: party.leaderAccountId, maxMembers: PARTY_MAX_MEMBERS, revision: party.revision, memberAccountIds: [...party.members].sort() }; }
     _publicInvite(invite) { return invite && { id: invite.id, partyId: invite.partyId, senderAccountId: invite.senderAccountId, recipientAccountId: invite.recipientAccountId, status: invite.status, expiresAt: invite.expiresAt, createdAt: invite.createdAt }; }
+    _publicQueueState(party) { return party?.queueState && { state: 'choosing', revision: party.queueState.revision, expiresAt: party.queueState.expiresAt }; }
+    _publicLobbyTarget(party) { return party?.lobbyTarget && { code: party.lobbyTarget.code, partyRevision: party.lobbyTarget.partyRevision, revision: party.lobbyTarget.revision, expiresAt: party.lobbyTarget.expiresAt }; }
+
+    _clearLobbyIntent(party) {
+        if (!party) return;
+        party.queueState = null;
+        party.lobbyTarget = null;
+    }
 
     _expire(now = this.now()) {
         for (const invite of this.invites.values()) {
             if (invite.status === 'pending' && invite.expiresAt <= now) this._closeInvite(invite, 'expired');
             if (invite.status !== 'pending' && now - (invite.closedAt || now) > CLOSED_INVITE_RETENTION_MS) this.invites.delete(invite.id);
+        }
+        for (const party of this.parties.values()) {
+            if (party.queueState?.expiresAt <= now) party.queueState = null;
+            if (party.lobbyTarget?.expiresAt <= now) party.lobbyTarget = null;
         }
         return now;
     }
@@ -47,7 +60,7 @@ class PartyStore {
     }
 
     _createParty(leaderAccountId) {
-        const party = { partyId: crypto.randomUUID(), leaderAccountId, revision: 1, established: false, members: new Set([leaderAccountId]) };
+        const party = { partyId: crypto.randomUUID(), leaderAccountId, revision: 1, established: false, members: new Set([leaderAccountId]), queueState: null, lobbyTarget: null, lobbyTargetRevision: 0 };
         this.parties.set(party.partyId, party);
         this.partyByAccount.set(leaderAccountId, party.partyId);
         return party;
@@ -62,6 +75,47 @@ class PartyStore {
             .sort((a, b) => a.expiresAt - b.expiresAt || a.id.localeCompare(b.id))
             .map(invite => this._publicInvite(invite));
         return { party: this._publicParty(this._partyFor(accountId)), invites };
+    }
+
+    lobbyIntent(accountId) {
+        this._expire();
+        const party = this._partyFor(accountId);
+        return { queueState: this._publicQueueState(party), lobbyTarget: this._publicLobbyTarget(party) };
+    }
+
+    beginCasualQueue(accountId, partyRevision) {
+        const now = this._expire();
+        const party = this._partyFor(accountId);
+        if (!party || party.leaderAccountId !== accountId || party.members.size < 2) return { status: 403, error: 'party leader only' };
+        if (this.isAccountActive(accountId)) return { status: 409, error: 'party unavailable' };
+        if (!Number.isSafeInteger(partyRevision) || party.revision !== partyRevision) return { status: 409, error: 'party changed' };
+        party.lobbyTarget = null;
+        party.queueState = { revision: party.revision, expiresAt: now + PARTY_LOBBY_TARGET_TTL_MS };
+        return { status: 200, queueState: this._publicQueueState(party) };
+    }
+
+    setLobbyTarget(accountId, partyRevision, code) {
+        const now = this._expire();
+        const party = this._partyFor(accountId);
+        if (!party || party.leaderAccountId !== accountId || party.members.size < 2) return { status: 403, error: 'party leader only' };
+        if (this.isAccountActive(accountId)) return { status: 409, error: 'party unavailable' };
+        if (!Number.isSafeInteger(partyRevision) || party.revision !== partyRevision) return { status: 409, error: 'party changed' };
+        const safeCode = typeof code === 'string' ? code.trim() : '';
+        if (!safeCode || safeCode.length > 128) return { status: 400, error: 'lobby unavailable' };
+        party.queueState = null;
+        party.lobbyTargetRevision += 1;
+        party.lobbyTarget = { code: safeCode, partyRevision: party.revision, revision: party.lobbyTargetRevision, expiresAt: now + PARTY_LOBBY_TARGET_TTL_MS };
+        return { status: 200, lobbyTarget: this._publicLobbyTarget(party) };
+    }
+
+    clearLobbyTargetByCode(code) {
+        const safeCode = typeof code === 'string' ? code.trim() : '';
+        if (!safeCode) return 0;
+        let cleared = 0;
+        for (const party of this.parties.values()) {
+            if (party.lobbyTarget?.code === safeCode) { this._clearLobbyIntent(party); cleared += 1; }
+        }
+        return cleared;
     }
 
     invite(senderAccountId, recipientAccountId) {
@@ -100,6 +154,7 @@ class PartyStore {
             || this.isAccountActive(accountId) || this.isAccountActive(invite.senderAccountId)) return { status: 409, error: 'party unavailable' };
         // The mutation is one synchronous critical section: no await may expose a
         // half-accepted invite or double membership.
+        this._clearLobbyIntent(party);
         party.members.add(accountId);
         party.established = true;
         party.revision += 1;
@@ -115,6 +170,7 @@ class PartyStore {
         this._expire();
         const party = this._partyFor(accountId);
         if (!party) return { status: 200, left: false, party: null };
+        this._clearLobbyIntent(party);
         party.members.delete(accountId);
         this.partyByAccount.delete(accountId);
         if (!party.members.size) {
@@ -131,4 +187,4 @@ class PartyStore {
     }
 }
 
-module.exports = { PartyStore, PARTY_MAX_MEMBERS, PARTY_INVITE_TTL_MS, PARTY_INVITE_COOLDOWN_MS, PARTY_RECIPIENT_PENDING_CAP };
+module.exports = { PartyStore, PARTY_MAX_MEMBERS, PARTY_INVITE_TTL_MS, PARTY_INVITE_COOLDOWN_MS, PARTY_RECIPIENT_PENDING_CAP, PARTY_LOBBY_TARGET_TTL_MS };

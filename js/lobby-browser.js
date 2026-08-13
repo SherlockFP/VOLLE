@@ -6,10 +6,11 @@ export function filterLobbies(lobbies, filters = {}) {
     const map = text(filters.map).toLowerCase();
     const queue = text(filters.queue || 'all');
     const openOnly = filters.openOnly !== false;
+    const minOpenSlots = Math.max(1, Math.floor(Number(filters.minOpenSlots) || 1));
     return (Array.isArray(lobbies) ? lobbies : []).filter(lobby => {
         const players = count(lobby?.players, 1);
         const maxPlayers = Math.max(2, count(lobby?.maxPlayers, 8));
-        if (openOnly && players >= maxPlayers) return false;
+        if (openOnly && maxPlayers - players < minOpenSlots) return false;
         if (mode !== 'all' && text(lobby?.mode) !== mode) return false;
         if (map && !text(lobby?.map).toLowerCase().includes(map)) return false;
         if (queue === 'ranked' && lobby?.ranked !== true) return false;
@@ -25,6 +26,11 @@ export function lobbyCapacity(lobby) {
         players: count(lobby?.players, 1),
         maxPlayers: Math.max(2, count(lobby?.maxPlayers, 8))
     };
+}
+
+export function lobbyOpenSlots(lobby) {
+    const { players, maxPlayers } = lobbyCapacity(lobby);
+    return Math.max(0, maxPlayers - players);
 }
 
 // Formats a lobby's last-seen timestamp as a short relative age for the browser list.
