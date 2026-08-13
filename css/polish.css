@@ -7266,3 +7266,68 @@ body:not(.practice-lab-active) .network-diagnostics {
 @media (min-width: 761px) and (max-width: 1080px) {
     #main-menu .friends-sidebar { top: 164px; }
 }
+
+/* Cycle C16b: Card Collection is intentionally long.  Do not make the fixed
+   character screen (or its document) the scroll owner: the Locker heading,
+   current loadout and tabs remain in place while only the collection below
+   them moves.  :has keeps Loadout and Inventory on their existing shell flow. */
+#character-locker-content:has(#locker-panel-cards:not(.hidden)) {
+    height: min(900px, calc(100dvh - 28px));
+    display: grid;
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    overflow: hidden;
+}
+
+#character-locker-content:has(#locker-panel-cards:not(.hidden)) .shell-header {
+    margin-bottom: 14px;
+}
+
+#character-locker-content:has(#locker-panel-cards:not(.hidden)) .locker-rail {
+    position: static;
+    margin-top: 0;
+}
+
+#locker-panel-cards:not(.hidden) {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scroll-padding-block: 12px 18px;
+    padding-right: 8px;
+}
+
+#locker-panel-cards .locker-section-header {
+    margin-top: 14px;
+}
+
+#character-locker-content:has(#locker-panel-cards:not(.hidden)) .hero-actions {
+    flex: 0 0 auto;
+    margin-top: 12px;
+}
+
+@media (max-width: 700px) {
+    #character-locker-content:has(#locker-panel-cards:not(.hidden)) {
+        width: 100%;
+        height: 100dvh;
+        max-height: 100dvh;
+        padding: 14px;
+        border-radius: 0;
+    }
+
+    #character-locker-content:has(#locker-panel-cards:not(.hidden)) .shell-header {
+        margin-bottom: 10px;
+        padding-bottom: 10px;
+    }
+
+    #locker-panel-cards:not(.hidden) {
+        padding-right: 4px;
+    }
+
+    #locker-panel-cards .locker-section-header {
+        margin-top: 10px;
+        padding: 12px;
+    }
+
+    #character-locker-content:has(#locker-panel-cards:not(.hidden)) .hero-actions {
+        margin-top: 10px;
+    }
+}
