@@ -10,7 +10,7 @@ import {
 } from './rematch.js';
 import { Renderer } from './renderer.js';
 import { Player, isEditableTarget } from './player.js';
-import { Arena, registerCustomMap } from './arena.js';
+import { Arena, getLobbyPreviewCommands, registerCustomMap } from './arena.js';
 import { Game, STATES } from './game.js';
 import { GAME_MODES } from './gamemodes.js';
 import { Audio } from './audio.js';
@@ -4881,6 +4881,98 @@ updateCarousel() {
             const pz = ((Number(prop.position?.z ?? prop.z ?? index * 3) % 40) + 40) % 40 / 40;
             ctx.fillStyle = index % 2 ? 'rgba(255,211,107,0.82)' : 'rgba(111,243,227,0.82)';
             ctx.fillRect(px * (courtWidth - 16), pz * (courtHeight - 16), 8, 8);
+        });
+        getLobbyPreviewCommands(config).forEach(command => {
+            const x = Number.isFinite(command.x) ? command.x * courtWidth : courtWidth / 2;
+            const y = Number.isFinite(command.y) ? command.y * courtHeight : courtHeight / 2;
+            switch (command.kind) {
+                case 'shore': {
+                    const shoreY = command.edge === 'north' ? 0 : courtHeight - 18;
+                    ctx.fillStyle = 'rgba(255,230,162,0.76)';
+                    ctx.fillRect(0, shoreY, courtWidth, 18);
+                    break;
+                }
+                case 'net':
+                    ctx.strokeStyle = 'rgba(245,255,255,0.96)';
+                    ctx.lineWidth = 5;
+                    ctx.beginPath();
+                    ctx.moveTo(courtWidth / 2 - 3, 6);
+                    ctx.lineTo(courtWidth / 2 - 3, courtHeight - 6);
+                    ctx.moveTo(courtWidth / 2 + 3, 6);
+                    ctx.lineTo(courtWidth / 2 + 3, courtHeight - 6);
+                    ctx.stroke();
+                    break;
+                case 'palm':
+                    ctx.save();
+                    ctx.translate(x, y);
+                    ctx.strokeStyle = 'rgba(112, 70, 30, 0.94)';
+                    ctx.lineWidth = 5;
+                    ctx.beginPath();
+                    ctx.moveTo(0, 13);
+                    ctx.lineTo(0, -9);
+                    ctx.stroke();
+                    ctx.strokeStyle = 'rgba(43, 130, 84, 0.94)';
+                    ctx.lineWidth = 4;
+                    for (const angle of [-0.82, -0.28, 0.28, 0.82]) {
+                        ctx.beginPath();
+                        ctx.moveTo(0, -8);
+                        ctx.lineTo(Math.sin(angle) * 15, -18 - Math.cos(angle) * 7);
+                        ctx.stroke();
+                    }
+                    ctx.restore();
+                    break;
+                case 'service-rings':
+                    ctx.strokeStyle = 'rgba(255, 248, 207, 0.82)';
+                    ctx.lineWidth = 2;
+                    for (const ringX of [courtWidth * 0.24, courtWidth * 0.76]) {
+                        ctx.beginPath();
+                        ctx.arc(ringX, courtHeight / 2, 15, 0, Math.PI * 2);
+                        ctx.stroke();
+                    }
+                    break;
+                case 'truss': {
+                    const trussY = command.edge === 'north' ? 12 : courtHeight - 12;
+                    ctx.strokeStyle = 'rgba(188, 213, 236, 0.86)';
+                    ctx.lineWidth = 5;
+                    ctx.beginPath();
+                    ctx.moveTo(12, trussY);
+                    ctx.lineTo(courtWidth - 12, trussY);
+                    for (let trussX = 18; trussX < courtWidth - 14; trussX += 24) {
+                        ctx.moveTo(trussX, trussY - 9);
+                        ctx.lineTo(trussX + 12, trussY + 9);
+                        ctx.lineTo(trussX + 24, trussY - 9);
+                    }
+                    ctx.stroke();
+                    break;
+                }
+                case 'conveyor':
+                    ctx.fillStyle = 'rgba(24, 42, 58, 0.74)';
+                    ctx.fillRect(12, y - 7, courtWidth - 24, 14);
+                    ctx.strokeStyle = 'rgba(255, 180, 58, 0.82)';
+                    ctx.lineWidth = 2;
+                    for (let conveyorX = 20; conveyorX < courtWidth - 18; conveyorX += 16) {
+                        ctx.beginPath();
+                        ctx.moveTo(conveyorX, y - 5);
+                        ctx.lineTo(conveyorX + 8, y + 5);
+                        ctx.stroke();
+                    }
+                    break;
+                case 'crate':
+                    ctx.fillStyle = 'rgba(205, 135, 64, 0.95)';
+                    ctx.fillRect(x - 10, y - 10, 20, 20);
+                    ctx.strokeStyle = 'rgba(68, 43, 30, 0.9)';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(x - 10, y - 10, 20, 20);
+                    break;
+                case 'safety-lamps':
+                    ctx.fillStyle = 'rgba(255, 198, 66, 0.96)';
+                    for (const lampX of [courtWidth * 0.13, courtWidth * 0.35, courtWidth * 0.65, courtWidth * 0.87]) {
+                        ctx.beginPath();
+                        ctx.arc(lampX, courtHeight - 12, 5, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                    break;
+            }
         });
         ctx.restore();
     }

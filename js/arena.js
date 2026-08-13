@@ -50,6 +50,16 @@ export const MAPS = {
             playerSpawnZ: 20,
             fallDeathY: -8
         },
+        // Compact, static lobby-canvas cues. They do not affect arena geometry,
+        // collision, or the selectable-map contract.
+        lobbyPreview: Object.freeze([
+            Object.freeze({ kind: 'shore', edge: 'north' }),
+            Object.freeze({ kind: 'shore', edge: 'south' }),
+            Object.freeze({ kind: 'net' }),
+            Object.freeze({ kind: 'palm', x: 0.10, y: 0.17 }),
+            Object.freeze({ kind: 'palm', x: 0.90, y: 0.83 }),
+            Object.freeze({ kind: 'service-rings' })
+        ]),
         sky: { horizonColor: 0xffe1a8, sun: true, sunColor: 0xfff1b0, cloudAmount: 0.55 },
     },
     industrial: {
@@ -58,7 +68,16 @@ export const MAPS = {
         floorRed: 0xe65350, floorBlue: 0x4379ed, wallColor: 0xb8cde2,
         skyTop: 0x5f94dc, skyBottom: 0xf0f6ff, fogColor: 0xe6eefb,
         floorMaterial: { roughness: 0.50, metalness: 0.18, emissiveIntensity: 0.09 },
-        hasOcean: false, hasGlass: true, size: 'medium', weather: 'clear'
+        hasOcean: false, hasGlass: true, size: 'medium', weather: 'clear',
+        // Factory's large-scale signature stays in the lobby preview only; it
+        // deliberately adds no cover or collidable play-space geometry.
+        lobbyPreview: Object.freeze([
+            Object.freeze({ kind: 'truss', edge: 'north' }),
+            Object.freeze({ kind: 'conveyor', y: 0.28 }),
+            Object.freeze({ kind: 'crate', x: 0.14, y: 0.73 }),
+            Object.freeze({ kind: 'crate', x: 0.82, y: 0.17 }),
+            Object.freeze({ kind: 'safety-lamps' })
+        ])
     },
     space: {
         name: '🚀 Space Station',
@@ -440,6 +459,20 @@ function ensureMapMetadata(config) {
 
 Object.values(MAPS).forEach(ensureMapMetadata);
 
+const LOBBY_PREVIEW_KINDS = new Set([
+    'shore', 'net', 'palm', 'service-rings',
+    'truss', 'conveyor', 'crate', 'safety-lamps'
+]);
+
+// Pure config reader for the 2D lobby preview. The frozen command objects are
+// safe to reuse and keep carousel identity separate from the live arena build.
+export function getLobbyPreviewCommands(config) {
+    if (!Array.isArray(config?.lobbyPreview)) return [];
+    return config.lobbyPreview
+        .filter(command => command && LOBBY_PREVIEW_KINDS.has(command.kind))
+        .slice(0, 6);
+}
+
 export function getArenaBounds(config, margin = 0) {
     const safeMargin = Number.isFinite(margin) ? Math.max(0, margin) : 0;
     const halfW = Math.max(0, Number(config?.courtWidth) || 0) / 2;
@@ -656,7 +689,11 @@ export class Arena {
         if (this.config.isJungle) this.buildJungleProps();
         if (this.config.isCyber) this.buildCyberProps();
         if (this.config.isCloud) this.buildCloudProps();
-        if (this.config.isBeachOpen) this.buildBeachOpenProps();
+        if (this.config.isBeachOpen) {
+            this.buildBeachOpenProps();
+            this.buildBeachPresentationProps();
+        }
+        if (this.mapId === 'industrial') this.buildIndustrialProps();
         if (this.config.isCanyon) this.buildCanyonProps();
         if (this.config.isPillar) this.buildPillarProps();
         if (this.config.isLava) this.buildLavaProps();
@@ -1598,6 +1635,123 @@ export class Arena {
             seat.position.set(x, 3.3, 2.2);
             this.add(seat);
         });
+    }
+
+    // Fixed horizon cues make the compact volleyball court read as a sunny venue
+    // without adding cover, collision, animation, or another visual system.
+    buildBeachPresentationProps() {
+        const halfW = this.courtWidth / 2;
+        const halfL = this.courtLength / 2;
+        const group = new THREE.Group();
+        group.name = 'beach-presentation-landmarks';
+        group.userData.presentationOnly = true;
+        group.userData.nonColliding = true;
+
+        const shoreGeo = new THREE.PlaneGeometry(this.courtWidth + 22, 7);
+        const shoreMat = new THREE.MeshBasicMaterial({ color: 0xffd58d, transparent: true, opacity: 0.88 });
+        const surfGeo = new THREE.PlaneGeometry(this.courtWidth + 18, 0.55);
+        const surfMat = new THREE.MeshBasicMaterial({ color: 0x7fe8f5, transparent: true, opacity: 0.72 });
+        for (const side of [-1, 1]) {
+            const shore = new THREE.Mesh(shoreGeo, shoreMat);
+            shore.rotation.x = -Math.PI / 2;
+            shore.position.set(0, 0.008, side * (halfL + 3.8));
+            group.add(shore);
+
+            const surf = new THREE.Mesh(surfGeo, surfMat);
+            surf.rotation.x = -Math.PI / 2;
+            surf.position.set(0, 0.014, side * (halfL + 0.75));
+            group.add(surf);
+        }
+
+        const cabanaPostGeo = new THREE.BoxGeometry(0.24, 4.8, 0.24);
+        const cabanaRoofGeo = new THREE.ConeGeometry(2.7, 1.15, 4);
+        const cabanaPostMat = this.renderer.createToonMaterial(0xf7f0dc);
+        const cabanaRoofMats = [
+            new THREE.MeshBasicMaterial({ color: 0xff5d70 }),
+            new THREE.MeshBasicMaterial({ color: 0x3bbcf3 })
+        ];
+        [[-halfW - 4.4, -halfL - 5.2], [halfW + 4.4, halfL + 5.2]].forEach(([x, z], index) => {
+            for (const dx of [-1.75, 1.75]) {
+                const post = new THREE.Mesh(cabanaPostGeo, cabanaPostMat);
+                post.position.set(x + dx, 2.4, z);
+                group.add(post);
+            }
+            const roof = new THREE.Mesh(cabanaRoofGeo, cabanaRoofMats[index]);
+            roof.position.set(x, 5.15, z);
+            roof.rotation.y = Math.PI / 4;
+            group.add(roof);
+        });
+
+        this.add(group);
+    }
+
+    // Factory gets a deterministic silhouette at the walls, not gameplay cover.
+    // All geometry stays presentation-only so the ball collision contract is unchanged.
+    buildIndustrialProps() {
+        const halfW = this.courtWidth / 2;
+        const halfL = this.courtLength / 2;
+        const group = new THREE.Group();
+        group.name = 'factory-presentation-landmarks';
+        group.userData.presentationOnly = true;
+        group.userData.nonColliding = true;
+
+        const beamGeo = new THREE.BoxGeometry(2.1, 0.55, 2.1);
+        const railGeo = new THREE.BoxGeometry(0.18, 0.18, 15);
+        const catwalkGeo = new THREE.BoxGeometry(2.5, 0.28, this.courtLength * 0.58);
+        const pipeGeo = new THREE.CylinderGeometry(0.38, 0.38, 17, 10);
+        const lampGeo = new THREE.BoxGeometry(1.2, 0.42, 0.22);
+        const steelMat = this.renderer.createToonMaterial(0x405166);
+        const darkSteelMat = this.renderer.createToonMaterial(0x25313f);
+        const safetyMat = new THREE.MeshBasicMaterial({ color: 0xffa72d });
+        const redMat = new THREE.MeshBasicMaterial({ color: 0xff5b57 });
+        const blueMat = new THREE.MeshBasicMaterial({ color: 0x5da6ff });
+
+        // A high end-frame gives each spawn side a readable industrial landmark.
+        for (const side of [-1, 1]) {
+            const z = side * (halfL - 1.4);
+            for (const x of [-halfW * 0.52, halfW * 0.52]) {
+                const tower = new THREE.Mesh(beamGeo, steelMat);
+                tower.scale.set(1, 7.5, 1);
+                tower.position.set(x, 7.9, z);
+                group.add(tower);
+            }
+            const crossbar = new THREE.Mesh(beamGeo, darkSteelMat);
+            crossbar.scale.set(halfW * 0.52, 1, 1);
+            crossbar.position.set(0, 15, z);
+            group.add(crossbar);
+            const safety = new THREE.Mesh(lampGeo, safetyMat);
+            safety.scale.x = halfW * 0.74;
+            safety.position.set(0, 13.5, z - side * 0.25);
+            group.add(safety);
+        }
+
+        // Side catwalks and pipe banks frame the lane while staying flush to the walls.
+        for (const side of [-1, 1]) {
+            const x = side * (halfW - 1.25);
+            const catwalk = new THREE.Mesh(catwalkGeo, steelMat);
+            catwalk.position.set(x, 8.7, 0);
+            group.add(catwalk);
+            for (const z of [-this.courtLength * 0.21, this.courtLength * 0.21]) {
+                const rail = new THREE.Mesh(railGeo, safetyMat);
+                rail.position.set(x - side * 1.2, 10.2, z);
+                group.add(rail);
+            }
+            for (const z of [-this.courtLength * 0.30, this.courtLength * 0.30]) {
+                const pipe = new THREE.Mesh(pipeGeo, darkSteelMat);
+                pipe.position.set(x - side * 2.6, 8.5, z);
+                group.add(pipe);
+            }
+        }
+
+        // Team-color safety lamps communicate orientation, without matching ball/UI threat colours.
+        [[-halfW * 0.28, -halfL + 1.7, redMat], [halfW * 0.28, halfL - 1.7, blueMat]].forEach(([x, z, mat]) => {
+            const lamp = new THREE.Mesh(lampGeo, mat);
+            lamp.scale.set(3.1, 1, 1);
+            lamp.position.set(x, 17.2, z);
+            group.add(lamp);
+        });
+
+        this.add(group);
     }
 
     // A glowing sun disc + halo for open-air beach/sky maps — disabled (visual artifact)
