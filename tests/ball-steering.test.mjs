@@ -167,6 +167,82 @@ test('aim routes can target side, back, and above-body positions', () => {
     assert.deepEqual(createAimRouteOffset(null, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 }), { x: 0, y: 0, z: 0 });
 });
 
+function subtleRouteTrace(angleDegrees, fps) {
+    const target = { x: 0, y: 1, z: -10 };
+    const radians = angleDegrees * Math.PI / 180;
+    const aim = { x: Math.sin(radians), y: 0, z: -Math.cos(radians) };
+    const route = createAimRouteOffset({ x: 0, y: 1, z: 0 }, target, aim);
+    const routeTarget = { x: target.x + route.x, z: target.z + route.z };
+    const speed = 24;
+    const position = { x: 0, z: 0 };
+    let velocity = { x: aim.x * speed, z: aim.z * speed };
+    let age = 0;
+    let time = 0;
+
+    while (time < 0.25 - 1e-12) {
+        const dt = Math.min(1 / fps, 0.25 - time);
+        const activeDt = steeringActiveDt(age, dt);
+        age += dt;
+        time += dt;
+        const before = velocity;
+        if (activeDt > 0) {
+            let desiredX = routeTarget.x - position.x;
+            let desiredZ = routeTarget.z - position.z;
+            const desiredLength = Math.hypot(desiredX, desiredZ);
+            desiredX /= desiredLength;
+            desiredZ /= desiredLength;
+            const velocityLength = Math.hypot(velocity.x, velocity.z);
+            const currentX = velocity.x / velocityLength;
+            const currentZ = velocity.z / velocityLength;
+            const turn = steeringTurnAlpha(activeDt);
+            let nextX = currentX + (desiredX - currentX) * turn;
+            let nextZ = currentZ + (desiredZ - currentZ) * turn;
+            const nextLength = Math.hypot(nextX, nextZ);
+            velocity = { x: nextX / nextLength * speed, z: nextZ / nextLength * speed };
+        }
+        const displacement = splitSteeringDisplacement(before, velocity, dt, activeDt);
+        position.x += displacement.x;
+        position.z += displacement.z;
+    }
+
+    return { route, position };
+}
+
+test('subtle aimed routes preserve zero-degree shots and stay bounded through 10-15 degrees', () => {
+    const origin = { x: 0, y: 1, z: 0 };
+    const target = { x: 0, y: 1, z: -10 };
+    const direct = createAimRouteOffset(origin, target, { x: 0, y: 0, z: -1 });
+    assert.deepEqual(direct, { x: 0, y: 0, z: 0 }, '0-degree aim keeps the exact direct baseline');
+
+    const routes = [10, 12.5, 15].map(angle => {
+        const radians = angle * Math.PI / 180;
+        return createAimRouteOffset(origin, target, {
+            x: Math.sin(radians), y: 0, z: -Math.cos(radians)
+        });
+    });
+
+    assert.ok(routes[0].x > 0.19 && routes[0].z < -0.06,
+        `10-degree aim should make a visible side/rear route, got ${JSON.stringify(routes[0])}`);
+    assert.ok(routes[1].x > routes[0].x && routes[1].z < routes[0].z);
+    assert.ok(routes[2].x > routes[1].x && routes[2].z < routes[1].z);
+    for (const route of routes) {
+        assert.ok(Math.abs(route.x) <= 0.55, `lateral route escaped bound: ${route.x}`);
+        assert.ok(route.z >= -0.48 && route.z <= 0, `rear route escaped bound: ${route.z}`);
+    }
+});
+
+test('subtle aimed route trace is frame-rate equivalent at 30/60/120 FPS', () => {
+    const traces = [30, 60, 120].map(fps => subtleRouteTrace(12.5, fps));
+    const baseline = traces[1];
+    for (const trace of traces) {
+        assert.deepEqual(trace.route, baseline.route, 'route is chosen once and is frame-rate invariant');
+        assert.ok(Math.abs(trace.position.x - baseline.position.x) < 0.04,
+            `lateral trace drifted at route rate: ${trace.position.x}`);
+        assert.ok(Math.abs(trace.position.z - baseline.position.z) < 0.04,
+            `forward trace drifted at route rate: ${trace.position.z}`);
+    }
+});
+
 test('homing gains strength near its target without exceeding its turn cap', () => {
     const far = proximityHomingTurnRate(12, 0);
     const close = proximityHomingTurnRate(1, 2);

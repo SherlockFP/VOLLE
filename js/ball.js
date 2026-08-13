@@ -6,6 +6,7 @@ import { ObjectPool } from './objectPool.js';
 export const STEERING_CONTROL_WINDOW = 0.074;
 const STEERING_TICK = 1 / 66;
 const WIDE_SHOT_DOT = Math.cos(15 * Math.PI / 180);
+const SUBTLE_ROUTE_DOT = Math.cos(6 * Math.PI / 180);
 
 const finitePoint = p => p && Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z);
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
@@ -56,8 +57,17 @@ export function createAimRouteOffset(origin, target, aimDirection) {
     const aim = { x: aimDirection.x / aimLength, z: aimDirection.z / aimLength };
     const cross = direct.x * aim.z - direct.z * aim.x;
     const dot = clamp(direct.x * aim.x + direct.z * aim.z, -1, 1);
-    const side = clamp(cross * 0.7, -0.55, 0.55);
-    const back = clamp((1 - dot) * 0.34, 0, 0.48);
+    // Broad throws own the waypoint path at 15 degrees. Between 6 and 15
+    // degrees, retain the player's deliberate flick with a modest target-side
+    // and rear pursuit bias instead of flattening it into a frontal line.
+    // This is calculated once per player deflect, never in the frame loop.
+    const subtleRoute = clamp(
+        (SUBTLE_ROUTE_DOT - dot) / (SUBTLE_ROUTE_DOT - WIDE_SHOT_DOT),
+        0,
+        1
+    );
+    const side = clamp(cross * (0.85 + subtleRoute), -0.55, 0.55);
+    const back = clamp((1 - dot) * 0.34 + subtleRoute * 0.2, 0, 0.48);
     return {
         x: -direct.z * side + direct.x * back,
         y: clamp(aimDirection.y * 0.75, -0.5, 0.75),
