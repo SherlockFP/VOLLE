@@ -232,7 +232,8 @@ test('hero and premium-skin costume signatures remain distinct without deforming
         name: mesh.name,
         visible: mesh.visible,
         scale: [mesh.scale.x, mesh.scale.y, mesh.scale.z],
-        position: [mesh.position.x, mesh.position.y, mesh.position.z]
+        position: [mesh.position.x, mesh.position.y, mesh.position.z],
+        rotation: [mesh.rotation.x, mesh.rotation.y, mesh.rotation.z]
     })));
 
     const heroSnapshots = new Set();
@@ -255,6 +256,30 @@ test('hero and premium-skin costume signatures remain distinct without deforming
     rig.setSkin('neon');
     assert.notEqual(snapshot(), samurai, 'agile premium skin must not reuse the armored silhouette');
     assert.equal(templeL.visible, false, 'agile premium skin removes the armored side guards');
+
+    rig.setSkin('default');
+    rig.setCharacter('rally');
+    const rallyChest = signatureMeshes().find(mesh => mesh.name === 'signature-chest');
+    assert.notEqual(rallyChest.rotation.z, 0, 'Rally should keep a friendly angled jersey mark');
+    rig.setCharacter('tank');
+    assert.equal(rallyChest.rotation.z, 0, 'Tank should replace the jersey mark with centered armor');
+    rig.setCharacter('scout');
+    assert.notEqual(rallyChest.rotation.z, 0, 'Scout should expose a separate diagonal utility strap');
+    rig.dispose();
+});
+
+test('identity swaps reuse static signature geometry without render-loop allocation', () => {
+    const rig = createCharacterRig({ characterId: 'rally', skinId: 'default' });
+    const signatures = [];
+    rig.root.traverse(node => { if (node.name?.startsWith('signature-')) signatures.push(node); });
+    const geometry = signatures.map(mesh => mesh.geometry);
+    const childCount = signatures.map(mesh => mesh.parent.children.length);
+    for (let index = 0; index < 12; index++) {
+        rig.setCharacter(['rally', 'tank', 'scout'][index % 3]);
+        rig.setSkin(['default', 'neon', 'samurai'][index % 3]);
+    }
+    assert.deepEqual(signatures.map(mesh => mesh.geometry), geometry);
+    assert.deepEqual(signatures.map(mesh => mesh.parent.children.length), childCount);
     rig.dispose();
 });
 

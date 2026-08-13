@@ -20,7 +20,7 @@ import { VoiceChat } from './voice.js';
 import { Store } from './store.js';
 import { DEFAULT_LOADOUT } from './skills.js';
 import { ARENA_CARDS, CARD_RARITIES } from './cards.js';
-import { AvatarPainter, AVATAR_SKINS } from './avatar.js';
+import { AvatarPainter, AVATAR_SKINS, resolveAvatarAtlas } from './avatar.js';
 import { ProductAnalytics, joinLatencyBucket, matchStartTimingMetrics } from './product-analytics.js';
 import { SKIN_PRESETS, SKIN_PRESET_IDS, renderSkinPreset } from './skin-presets.js';
 import { createShowcaseAvatar, ShopShowcaseRenderer } from './shop-showcase.js';
@@ -5067,10 +5067,11 @@ updateCarousel() {
             skinId: resolved
         });
         const customAvatar = this.store.get('customAvatar');
+        const atlas = resolveAvatarAtlas(resolved, customAvatar);
         this._applyAvatarAtlasToRig(
             this.shopShowcase?.avatar?.rig,
-            customAvatar?.skinId === resolved ? customAvatar.pixels : null,
-            customAvatar?.model
+            atlas.pixels,
+            atlas.modelId
         );
         this._applyShopShowcaseCosmetics(this.store.get('equippedWearables'));
         this.shopShowcase?.resize();
@@ -5140,10 +5141,11 @@ updateCarousel() {
             skinId: resolved
         });
         const customAvatar = this.store.get('customAvatar');
+        const atlas = resolveAvatarAtlas(resolved, customAvatar);
         this._applyAvatarAtlasToRig(
             this.menuHero?.avatar?.rig,
-            customAvatar?.skinId === resolved ? customAvatar.pixels : null,
-            customAvatar?.model
+            atlas.pixels,
+            atlas.modelId
         );
         // Apply equipped cosmetics to the hero avatar
         if (this.menuHero?.root?.rig) {
@@ -6410,14 +6412,27 @@ updateCarousel() {
         if (discoverable) discoverable.checked = preferences.discoverable;
 
         const desktopToggle = document.getElementById('fbar-toggle');
+        const sidebar = document.getElementById('friends-sidebar');
+        const mobileRailQuery = window.matchMedia?.('(max-width: 760px)');
+        const compactRailQuery = window.matchMedia?.('(min-width: 761px) and (max-width: 1339px)');
+        const setDesktopRailExpanded = expanded => {
+            if (!sidebar || !desktopToggle) return false;
+            const next = expanded === true;
+            sidebar.classList.toggle('collapsed', !next);
+            desktopToggle.setAttribute('aria-expanded', String(next));
+            desktopToggle.setAttribute('aria-label', next ? 'Collapse social panel' : 'Open social panel');
+            desktopToggle.querySelector('use')?.setAttribute('href', next ? '#i-arrow-left' : '#i-arrow-right');
+            return next;
+        };
+        const syncDesktopRailLayout = () => {
+            if (mobileRailQuery?.matches) return;
+            // Wide desktop is the social-first composition. Compact desktop
+            // keeps the same panel as an overlay and exposes only its 44px handle.
+            setDesktopRailExpanded(compactRailQuery?.matches !== true);
+        };
         desktopToggle?.addEventListener('click', () => {
-            const sidebar = document.getElementById('friends-sidebar');
             if (!sidebar) return;
-            sidebar.classList.toggle('collapsed');
-            const expanded = !sidebar.classList.contains('collapsed');
-            desktopToggle.setAttribute('aria-expanded', String(expanded));
-            desktopToggle.setAttribute('aria-label', expanded ? 'Collapse social panel' : 'Open social panel');
-            desktopToggle.querySelector('use')?.setAttribute('href', expanded ? '#i-arrow-left' : '#i-arrow-right');
+            setDesktopRailExpanded(sidebar.classList.contains('collapsed'));
         });
         document.getElementById('fbar-sheet-handle')?.addEventListener('click', () => {
             const sidebar = document.getElementById('friends-sidebar');
@@ -6430,19 +6445,12 @@ updateCarousel() {
             }
         });
         this._setMobileSocialRailOpen(false, { moveFocus: false });
-        const mobileRailQuery = window.matchMedia?.('(max-width: 760px)');
-        mobileRailQuery?.addEventListener?.('change', () => this._setMobileSocialRailOpen(false, { moveFocus: false }), { signal: this._mainAbort.signal });
-        const compactRailQuery = window.matchMedia?.('(min-width: 761px) and (max-width: 1339px)');
-        const collapseCompactRail = () => {
-            if (!compactRailQuery?.matches) return;
-            const sidebar = document.getElementById('friends-sidebar');
-            sidebar?.classList.add('collapsed');
-            desktopToggle?.setAttribute('aria-expanded', 'false');
-            desktopToggle?.setAttribute('aria-label', 'Open social panel');
-            desktopToggle?.querySelector('use')?.setAttribute('href', '#i-arrow-right');
-        };
-        collapseCompactRail();
-        compactRailQuery?.addEventListener?.('change', collapseCompactRail, { signal: this._mainAbort.signal });
+        syncDesktopRailLayout();
+        mobileRailQuery?.addEventListener?.('change', () => {
+            this._setMobileSocialRailOpen(false, { moveFocus: false });
+            syncDesktopRailLayout();
+        }, { signal: this._mainAbort.signal });
+        compactRailQuery?.addEventListener?.('change', syncDesktopRailLayout, { signal: this._mainAbort.signal });
         const socialTabs = [...document.querySelectorAll('[data-fbar-tab]')];
         socialTabs.forEach(button => button.addEventListener('click', () => this._setFriendsRailTab(button.dataset.fbarTab)));
         document.querySelector('.fbar-tabs')?.addEventListener('keydown', event => {

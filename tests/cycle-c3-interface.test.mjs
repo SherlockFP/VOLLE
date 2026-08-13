@@ -41,18 +41,25 @@ test('short desktop character cards budget every row and keep a full 44px action
     assert.match(css, /shop-character-select[\s\S]*?grid-template-rows:\s*var\(--shop-character-art-height\)[\s\S]*?var\(--shop-character-action-height\)/);
 });
 
-test('navigation and social rail have explicit wide, compact and mobile contracts', () => {
+test('navigation owns the full top lane while social uses a deterministic lower rail', () => {
     const cycleLayer = css.indexOf('/* Cycle C3:');
     assert.ok(cycleLayer > css.indexOf('/* Cycle C2:'), 'C3 navigation must win the cascade after C2');
     assert.ok(cycleLayer > css.indexOf('/* Showcase shop:'), 'C3 shop sizing must win the cascade after showcase defaults');
     const cycle = css.slice(cycleLayer);
     assert.match(cycle, /#main-menu \.ow-world-grid \{ min-width: 0; grid-template-columns: minmax\(0, 1fr\); \}/,
         'the single Social Hub destination must own the full action-panel width at desktop sizes');
-    assert.match(css, /@media \(min-width: 1340px\)/);
+    assert.match(cycle, /Cycle C4:[\s\S]*?@media \(min-width: 1340px\)[\s\S]*?\.ow-menu \{[\s\S]*?padding: 12px 24px 16px;[\s\S]*?grid-template-columns: minmax\(230px, 300px\) minmax\(0, 1fr\) clamp\(328px, 22vw, 380px\)/);
+    assert.match(cycle, /@media \(min-width: 1340px\)[\s\S]*?\.ow-topbar \{ min-width: 0; grid-column: 1 \/ -1; \}/);
+    assert.match(cycle, /@media \(min-width: 1340px\)[\s\S]*?\.friends-sidebar\s*\{[\s\S]*?top: 102px;[\s\S]*?right: 24px/);
     assert.match(css, /@media \(min-width: 761px\) and \(max-width: 1339px\)[\s\S]*?\.ow-tabs[\s\S]*?overflow-x: auto/);
-    assert.match(css, /@media \(min-width: 761px\) and \(max-width: 1339px\)[\s\S]*?\.friends-sidebar\s*\{[\s\S]*?top: 96px/);
+    assert.match(cycle, /Cycle C4:[\s\S]*?@media \(min-width: 761px\) and \(max-width: 1339px\)[\s\S]*?\.ow-menu \{[\s\S]*?padding: 12px 20px 16px;[\s\S]*?grid-template-columns: minmax\(230px, 300px\) minmax\(0, 1fr\)/);
+    assert.match(cycle, /Cycle C4:[\s\S]*?@media \(min-width: 761px\) and \(max-width: 1339px\)[\s\S]*?\.friends-sidebar \{ top: 102px; \}/);
+    assert.match(cycle, /@media \(min-width: 761px\) and \(max-width: 1080px\)[\s\S]*?\.friends-sidebar \{ top: 164px; \}/);
     assert.match(css, /#main-menu \.ow-social-lobby \{[\s\S]*?min-height: 92px/);
-    assert.match(main, /\(min-width: 761px\) and \(max-width: 1339px\)/);
+    assert.match(main, /const setDesktopRailExpanded = expanded => \{[\s\S]*?classList\.toggle\('collapsed', !next\)[\s\S]*?aria-expanded[\s\S]*?aria-label[\s\S]*?#i-arrow-left/);
+    assert.match(main, /const syncDesktopRailLayout = \(\) => \{[\s\S]*?compactRailQuery\?\.matches !== true/);
+    assert.doesNotMatch(main, /event\.detail\?\.screen === 'mainMenu'\) syncDesktopRailLayout\(\)/,
+        'route changes must preserve the player chosen social rail state');
     assert.match(main, /Close social and party panel/);
 });
 

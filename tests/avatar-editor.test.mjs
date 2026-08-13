@@ -17,7 +17,8 @@ const {
     getTeamPresetSkinId,
     layoutAvatarPreview,
     migrateAvatarBodyOverlay,
-    migrateAvatarPixels
+    migrateAvatarPixels,
+    resolveAvatarAtlas
 } = avatar;
 
 test('canonical atlas is 64x64 and face crop uses the head-front UV', () => {
@@ -50,6 +51,40 @@ test('face edits overlay the selected base without mutating it', () => {
     assert.equal(composed[15 * 64 + 15], '#abcdef');
     assert.equal(composed[20 * 64 + 20], AVATAR_SKINS.frost.body);
     assert.deepEqual(base, original);
+});
+
+test('generated catalog atlases carry friendly identity details instead of flat part colours', () => {
+    const front = pixels => {
+        const values = [];
+        for (let y = 8; y < 16; y++) for (let x = 8; x < 16; x++) values.push(pixels[y * 64 + x]);
+        return values;
+    };
+    const defaultAtlas = createAvatarAtlas('default');
+    const neonAtlas = createAvatarAtlas('neon');
+    const samuraiAtlas = createAvatarAtlas('samurai');
+    assert.equal(defaultAtlas[8 * 64 + 8], '#6f3929', 'Rally default should expose a readable hair cap');
+    assert.ok(new Set(front(defaultAtlas)).size >= 5, 'default face should contain hair, eyes, cheeks and skin');
+    assert.ok(new Set(front(neonAtlas)).has('#5fffea'), 'Neon Runner should expose luminous eyes');
+    assert.ok(new Set(front(samuraiAtlas)).has('#f2c04d'), 'Cyber Samurai should expose a gold helmet band');
+    assert.notDeepEqual(front(defaultAtlas), front(neonAtlas));
+    assert.notDeepEqual(front(neonAtlas), front(samuraiAtlas));
+});
+
+test('ordinary atlas fallback and matching custom precedence are deterministic', () => {
+    const mismatched = Array(4096).fill('#123456');
+    const ordinary = resolveAvatarAtlas('neon', { skinId: 'default', model: 'classic', pixels: mismatched });
+    assert.equal(ordinary.skinId, 'neon');
+    assert.equal(ordinary.modelId, 'slim');
+    assert.equal(ordinary.custom, false);
+    assert.deepEqual(ordinary.pixels, createAvatarAtlas('neon'));
+    assert.notEqual(ordinary.pixels, mismatched, 'a custom atlas cannot leak onto another selected skin');
+
+    const customPixels = createAvatarAtlas('samurai');
+    customPixels[8 * 64 + 8] = '#abcdef';
+    const custom = resolveAvatarAtlas('samurai', { baseSkinId: 'samurai', model: 'classic', pixels: customPixels });
+    assert.equal(custom.custom, true);
+    assert.equal(custom.modelId, 'classic');
+    assert.equal(custom.pixels, customPixels, 'matching editor pixels must win without a lossy rebuild');
 });
 
 test('full-body overlay edits visible character parts without replacing the base', () => {

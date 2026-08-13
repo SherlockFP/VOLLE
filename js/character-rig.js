@@ -15,13 +15,13 @@ const TEAM_COLORS = Object.freeze({ red: 0xcc3333, blue: 0x3355cc });
 const ATLAS_SIZE = 64;
 // Small, socket-safe silhouette signatures make each selectable hero and skin
 // legible from range without replacing the shared skeleton. Each tuple is
-// [width,height,depth,x,y,z] and is applied only when identity changes, never in
-// the render/update loop.
+// [width,height,depth,x,y,z,rotX,rotY,rotZ] and is applied only when identity
+// changes, never in the render/update loop.
 const signature = values => Object.freeze(values);
 const CHARACTER_SIGNATURES = Object.freeze({
-    rally: signature({ crest: [.16, .08, .12, -.08, .46, -.02], chest: [.16, .22, .03, 0, .43, -.145], back: [.22, .12, .08, 0, .40, .19] }),
-    tank: signature({ crest: [.36, .08, .30, 0, .47, 0], temples: [.06, .24, .26, .28, .20, 0], chest: [.42, .30, .04, 0, .43, -.15], back: [.42, .34, .16, 0, .38, .24] }),
-    scout: signature({ crest: [.24, .07, .28, -.09, .47, 0], chest: [.11, .22, .03, -.11, .42, -.145], back: [.16, .12, .08, 0, .42, .19] }),
+    rally: signature({ crest: [.28, .12, .24, -.08, .49, -.01, 0, 0, -.12], chest: [.20, .30, .035, -.05, .42, -.15, 0, 0, -.18], back: [.14, .34, .07, .16, .36, .18, 0, 0, .12] }),
+    tank: signature({ crest: [.44, .11, .34, 0, .49, 0], temples: [.09, .28, .30, .29, .20, 0], chest: [.46, .34, .05, 0, .43, -.15], back: [.46, .42, .18, 0, .36, .25] }),
+    scout: signature({ crest: [.34, .06, .44, -.08, .46, -.03, 0, 0, -.05], chest: [.09, .35, .03, -.10, .42, -.15, 0, 0, -.24], back: [.18, .24, .08, 0, .39, .19] }),
     sniper: signature({ crest: [.38, .05, .30, 0, .46, 0], temples: [.04, .20, .26, .27, .20, 0], chest: [.06, .30, .03, .11, .40, -.145], back: [.18, .30, .10, 0, .38, .20] }),
     guardian: signature({ crest: [.34, .10, .22, 0, .48, 0], temples: [.08, .18, .24, .28, .20, 0], chest: [.36, .28, .04, 0, .42, -.15], back: [.36, .20, .15, 0, .38, .23] }),
     blazer: signature({ crest: [.10, .24, .16, 0, .55, .02], chest: [.20, .18, .03, 0, .48, -.145], back: [.20, .22, .09, 0, .40, .19] }),
@@ -39,8 +39,8 @@ const CHARACTER_SIGNATURES = Object.freeze({
 // Premium skins add a recognisable costume layer over whichever gameplay hero
 // is selected. This is intentionally small geometry, not a second rig/model.
 const SKIN_SIGNATURES = Object.freeze({
-    neon: signature({ crest: [.11, .22, .14, .09, .54, 0], chest: [.08, .30, .025, .10, .42, -.155], back: [.20, .26, .10, 0, .39, .22] }),
-    samurai: signature({ crest: [.40, .07, .28, 0, .48, 0], temples: [.07, .26, .25, .28, .20, 0], chest: [.40, .28, .04, 0, .43, -.15], back: [.30, .26, .12, 0, .38, .23] }),
+    neon: signature({ crest: [.13, .28, .15, .09, .56, 0, 0, 0, -.18], chest: [.08, .34, .025, .10, .42, -.155, 0, 0, -.28], back: [.20, .30, .10, 0, .39, .22] }),
+    samurai: signature({ crest: [.44, .09, .32, 0, .50, 0], temples: [.09, .30, .28, .30, .20, 0], chest: [.44, .32, .05, 0, .43, -.15], back: [.34, .32, .14, 0, .37, .24] }),
     frost: signature({ crest: [.30, .16, .22, 0, .51, 0], temples: [.05, .14, .22, .27, .23, 0], chest: [.30, .24, .03, 0, .44, -.15] }),
     astro: signature({ crest: [.40, .08, .34, 0, .48, 0], temples: [.08, .30, .28, .29, .20, 0], chest: [.34, .22, .04, 0, .43, -.15], back: [.38, .36, .17, 0, .38, .25] }),
     arcade: signature({ crest: [.30, .07, .28, -.07, .47, 0], chest: [.22, .20, .03, 0, .44, -.15], back: [.22, .20, .10, 0, .40, .21] }),
@@ -403,6 +403,7 @@ export function createCharacterRig(options = {}) {
             if (!Array.isArray(values)) return;
             mesh.scale.set(values[0], values[1], values[2]);
             mesh.position.set(values[3], values[4], values[5]);
+            mesh.rotation.set(values[6] || 0, values[7] || 0, values[8] || 0);
         };
         place(signatureCrest, valuesFor('crest'));
         place(signatureBack, valuesFor('back'));

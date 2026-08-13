@@ -107,8 +107,10 @@ test('desktop and mobile layout gates are explicit and keep actions touch-safe',
 
 test('collapsed desktop social rail keeps its reopen control inside the visible edge', () => {
     assert.match(css, /\.friends-sidebar\.collapsed \.friends-sidebar-header \{[\s\S]*?padding: 8px 0;[\s\S]*?justify-content: flex-start;/);
-    assert.match(main, /desktopToggle\.setAttribute\('aria-label', expanded \? 'Collapse social panel' : 'Open social panel'\)/);
-    assert.match(main, /desktopToggle\.querySelector\('use'\)\?\.setAttribute\('href', expanded \? '#i-arrow-left' : '#i-arrow-right'\)/);
+    assert.match(main, /desktopToggle\.setAttribute\('aria-label', next \? 'Collapse social panel' : 'Open social panel'\)/);
+    assert.match(main, /desktopToggle\.querySelector\('use'\)\?\.setAttribute\('href', next \? '#i-arrow-left' : '#i-arrow-right'\)/);
+    assert.match(main, /setDesktopRailExpanded\(sidebar\.classList\.contains\('collapsed'\)\)/);
+    assert.match(main, /setDesktopRailExpanded\(compactRailQuery\?\.matches !== true\)/);
 });
 
 test('social rail exposes professional async, empty and friend-request states', () => {

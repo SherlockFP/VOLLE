@@ -170,6 +170,72 @@ const paintBox = (pixels, x, y, width, depth, height, color) => {
     fill(pixels, x + depth * 2 + width, y + depth, width, height, shade(color, 0.76));
 };
 
+// Small deterministic details keep generated catalog skins from reading as four
+// flat colour blocks. They live in the canonical atlas, so menu, Shop, Studio
+// and gameplay all receive the same pixels without adding runtime meshes.
+function paintGeneratedSkinDetails(pixels, preset, boxes) {
+    const face = boxes.head.faces.front;
+    const torso = boxes.body.faces.front;
+    const armL = boxes.leftArm.faces.front;
+    const armR = boxes.rightArm.faces.front;
+    const legL = boxes.leftLeg.faces.front;
+    const legR = boxes.rightLeg.faces.front;
+    const pixel = (region, x, y, color) => {
+        if (x < 0 || y < 0 || x >= region.width || y >= region.height) return;
+        pixels[(region.y + y) * ATLAS_SIZE + region.x + x] = color;
+    };
+    const row = (region, x, y, width, color) => fill(
+        pixels, region.x + x, region.y + y, Math.min(width, region.width - x), 1, color
+    );
+    const ink = shade(preset.legs, .36);
+    const bright = shade(preset.arms, 1.22);
+    const soft = shade(preset.head, .9);
+
+    // Friendly shared face language: brows, square eyes, cheeks and a short
+    // smile. Premium identities can recolour or frame it below.
+    pixel(face, 2, 2, ink); pixel(face, 5, 2, ink);
+    pixel(face, 2, 3, '#202637'); pixel(face, 5, 3, '#202637');
+    pixel(face, 1, 4, soft); pixel(face, 6, 4, soft);
+    pixel(face, 3, 5, ink); pixel(face, 4, 5, ink);
+    pixel(face, 2, 6, ink); pixel(face, 5, 6, ink);
+
+    if (preset.id === 'default') {
+        const hair = '#6f3929';
+        row(face, 0, 0, 8, hair);
+        row(face, 0, 1, 2, hair); row(face, 6, 1, 2, hair);
+        pixel(face, 2, 1, hair); pixel(face, 5, 1, hair);
+        row(torso, 2, 1, 4, '#f7ead7');
+        pixel(torso, 3, 2, '#f7ead7'); pixel(torso, 4, 2, '#f7ead7');
+        row(torso, 3, 5, 2, '#ffd166');
+        row(armL, 0, 9, armL.width, '#f7ead7');
+        row(armR, 0, 9, armR.width, '#f7ead7');
+    } else if (preset.id === 'neon') {
+        const night = '#10152f';
+        row(face, 0, 0, 8, night); row(face, 0, 1, 3, night);
+        pixel(face, 2, 3, '#5fffea'); pixel(face, 5, 3, '#5fffea');
+        for (let y = 2; y <= 8; y++) pixel(torso, 2 + (y % 3), y, y % 2 ? '#5fffea' : '#ff68d8');
+        row(armL, 0, 8, armL.width, '#5fffea'); row(armR, 0, 8, armR.width, '#ff68d8');
+        row(legL, 0, 9, legL.width, '#5fffea'); row(legR, 0, 9, legR.width, '#ff68d8');
+    } else if (preset.id === 'samurai') {
+        const armor = '#151925';
+        const gold = '#f2c04d';
+        row(face, 0, 0, 8, armor); row(face, 0, 1, 8, armor); row(face, 0, 2, 8, gold);
+        pixel(face, 2, 3, '#f5fbff'); pixel(face, 5, 3, '#f5fbff');
+        row(torso, 1, 2, 6, gold); row(torso, 2, 4, 4, armor);
+        row(torso, 1, 7, 6, bright); row(torso, 2, 9, 4, armor);
+        row(armL, 0, 7, armL.width, gold); row(armR, 0, 7, armR.width, gold);
+        row(legL, 0, 9, legL.width, armor); row(legR, 0, 9, legR.width, armor);
+    } else {
+        // A restrained shared uniform vocabulary keeps the wider catalog
+        // coherent while each palette and static costume silhouette stays unique.
+        pixel(torso, 3, 1, bright); pixel(torso, 4, 1, bright);
+        pixel(torso, 2, 2, bright); pixel(torso, 5, 2, bright);
+        row(torso, 3, 5, 2, bright);
+        row(armL, 0, 9, armL.width, bright); row(armR, 0, 9, armR.width, bright);
+        row(legL, 0, 10, legL.width, ink); row(legR, 0, 10, legR.width, ink);
+    }
+}
+
 export function createAvatarAtlas(skinId = 'default') {
     const preset = resolveSkin(skinId);
     const model = resolveModel(preset.model);
@@ -182,8 +248,7 @@ export function createAvatarAtlas(skinId = 'default') {
     paint(boxes.rightLeg, preset.legs);
     paint(boxes.leftArm, preset.arms);
     paint(boxes.leftLeg, preset.legs);
-    pixels[11 * ATLAS_SIZE + 10] = '#222222';
-    pixels[11 * ATLAS_SIZE + 13] = '#222222';
+    paintGeneratedSkinDetails(pixels, preset, boxes);
     if (preset.team) {
         const accent = preset.team === 'red' ? '#ffd8cc' : '#d5f5ff';
         for (let x = 21; x <= 26; x++) pixels[22 * ATLAS_SIZE + x] = accent;
@@ -195,6 +260,24 @@ export function createAvatarAtlas(skinId = 'default') {
         pixels[26 * ATLAS_SIZE + 24] = accent;
     }
     return pixels;
+}
+
+// Resolve one live-preview atlas without leaking equip state into selection.
+// A valid saved editor atlas wins only for the matching base skin; otherwise
+// the ordinary catalog skin is generated through createAvatarAtlas().
+export function resolveAvatarAtlas(skinId = 'default', customAvatar = null) {
+    const preset = resolveSkin(skinId);
+    const savedSkinId = customAvatar?.skinId || customAvatar?.baseSkinId;
+    const customPixels = customAvatar?.pixels;
+    const custom = savedSkinId === preset.id
+        && Array.isArray(customPixels)
+        && customPixels.length === ATLAS_SIZE * ATLAS_SIZE;
+    return Object.freeze({
+        skinId: preset.id,
+        modelId: custom ? resolveModel(customAvatar?.model).id : resolveModel(preset.model).id,
+        pixels: custom ? customPixels : createAvatarAtlas(preset.id),
+        custom
+    });
 }
 
 export function cropAtlasFace(pixels) {

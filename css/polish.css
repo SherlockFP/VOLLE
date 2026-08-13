@@ -7038,3 +7038,31 @@ body:not(.practice-lab-active) .network-diagnostics {
     #shop-screen .shop-footer .shell-back { grid-row: 2; width: 100%; }
     #shop-screen .shop-grid { grid-template-columns: 1fr; }
 }
+
+/* Cycle C4: the primary navigation owns the whole desktop top lane. The
+   social command rail starts one spacing step below it and reserves only the
+   body row on wide screens; compact screens keep it as a reversible overlay. */
+@media (min-width: 1340px) {
+    #main-menu .ow-menu {
+        padding: 12px 24px 16px;
+        grid-template-columns: minmax(230px, 300px) minmax(0, 1fr) clamp(328px, 22vw, 380px);
+    }
+    #main-menu .ow-topbar { min-width: 0; grid-column: 1 / -1; }
+    #main-menu .friends-sidebar {
+        top: 102px;
+        right: 24px;
+        width: clamp(328px, 22vw, 380px);
+    }
+}
+
+@media (min-width: 761px) and (max-width: 1339px) {
+    #main-menu .ow-menu {
+        padding: 12px 20px 16px;
+        grid-template-columns: minmax(230px, 300px) minmax(0, 1fr);
+    }
+    #main-menu .friends-sidebar { top: 102px; }
+}
+
+@media (min-width: 761px) and (max-width: 1080px) {
+    #main-menu .friends-sidebar { top: 164px; }
+}
