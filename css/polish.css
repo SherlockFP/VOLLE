@@ -6860,7 +6860,14 @@ body:not(.practice-lab-active) #controls-hint {
     #lobby-screen .cs-topbar { min-height: 58px; }
     #lobby-screen .cs-body {
         gap: 12px;
-        padding: 10px 18px 86px;
+        /* The action bar is already a flex sibling; do not reserve it twice. */
+        min-height: 0;
+        padding: 10px 18px 10px;
+    }
+    #lobby-screen .cs-center {
+        min-height: 0;
+        overflow-y: auto;
+        scroll-padding-block: 4px 12px;
     }
     #lobby-screen .cs-team-header { min-height: 38px; }
     #lobby-screen .cs-player-card { min-height: 48px; padding-block: 7px; }
@@ -6868,7 +6875,25 @@ body:not(.practice-lab-active) #controls-hint {
     #lobby-screen .map-carousel,
     #lobby-screen .carousel-card { min-height: 142px; max-height: 154px; }
     #lobby-screen #lobby-map-canvas { max-height: 154px; }
-    #lobby-screen .cs-mode-btn { min-height: 38px; }
+    /* Six columns turn the 11 choices into two rows.  The wide Rally Duel
+       label claims two cells, preserving legibility while making room for
+       the always-on chat composer above the action bar. */
+    #lobby-screen .cs-mode-row { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+    #lobby-screen .cs-mode-btn { min-height: 38px; font-size: .64rem; }
+    #lobby-screen .rally-duel-mode { grid-column: span 2; }
+    #lobby-screen .cs-section-chat {
+        min-height: 104px;
+        flex: 0 1 104px;
+        padding: 8px 10px;
+    }
+    #lobby-screen #lobby-chat-log {
+        min-height: 26px;
+        max-height: 34px;
+        margin-bottom: 4px;
+    }
+    #lobby-screen .lobby-chat-input-row { padding: 4px; }
+    #lobby-screen #lobby-chat-input { min-height: 40px; }
+    #lobby-screen .cs-btn-chat-send { flex: 0 0 44px; min-height: 40px; }
     #lobby-screen .cs-bottom { min-height: 74px; padding: 8px 20px; }
     #lobby-screen .cs-btn-start { min-height: 52px; }
 }
@@ -6878,7 +6903,19 @@ body:not(.practice-lab-active) #controls-hint {
 }
 
 @media (max-width: 700px) {
-    #lobby-screen .cs-body { padding-bottom: 104px; }
+    /* The viewport stays fixed; this is the one intentional mobile scroll lane. */
+    #lobby-screen { min-height: 0; overflow: hidden; }
+    #lobby-screen .cs-body {
+        flex: 1 1 0;
+        min-height: 0;
+        padding: 12px 10px 18px;
+        scroll-padding-block: 12px 104px;
+        /* Keep touch and wheel gestures on the only mobile scroll owner. */
+        touch-action: pan-y;
+        overscroll-behavior: contain;
+    }
+    #lobby-screen .cs-center,
+    #lobby-screen .cs-section-chat { scroll-margin-bottom: 104px; }
     #lobby-screen .cs-topbar { grid-template-areas: "room room leave" "name name name" "info network network"; }
     #lobby-screen .cs-bottom { min-height: 86px; padding: 10px; }
     #lobby-screen .cs-btn-start { min-width: 0; width: 100%; min-height: 54px; }
