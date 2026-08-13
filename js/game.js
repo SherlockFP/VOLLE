@@ -205,6 +205,13 @@ export class Game {
         this.syncRate = 0.05;
         this._playerThreatSampleTimer = 0;
         this._playerThreatActive = false;
+        // Local swing feedback is presentation-only. Keep the tiny lifecycle as
+        // scalar fields so the hot game loop does not allocate for missed swings.
+        this._localDeflectAttemptActive = false;
+        this._localDeflectAttemptHit = false;
+        this._localDeflectAttemptResolved = false;
+        this._localDeflectAttemptRemaining = 0;
+        this._localDeflectAttemptWindow = 0;
 
         this.playerName = 'Player';
         this.botCounter = 0;
@@ -413,6 +420,7 @@ export class Game {
         // controls hint and red threat frame return once the round is actually live.
         if (typeof document !== 'undefined') document.body?.classList.toggle('countdown-ui', s === STATES.COUNTDOWN);
         if (s !== STATES.PLAYING && s !== STATES.COUNTDOWN) this._clearPlayerThreat(true);
+        if (s !== STATES.PLAYING) this._clearLocalDeflectAttempt();
         if (s === STATES.ROUND_END && prev !== STATES.ROUND_END) {
             this.onRoundEnd?.();
             // Valorant-style round-end flourish keyed off the winning side's ball skin.
@@ -2375,6 +2383,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         // Player deflection — aim-based
         // CS2-style: never block deflect on ball.active check alone.
         // Host's late-deflect grace window in remoteAttack handles reactivation.
+        this._updateLocalDeflectAttempt(dt);
         const practiceAttacking = this.player.alive && this.player.isAttacking();
         if (this._practiceMode && practiceAttacking && !this._practiceAttemptActive) {
             this._practiceAttemptActive = true;
@@ -2672,6 +2681,99 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         });
     }
 
+    _clearLocalDeflectAttempt() {
+        this._localDeflectAttemptActive = false;
+        this._localDeflectAttemptHit = false;
+        this._localDeflectAttemptResolved = false;
+        this._localDeflectAttemptRemaining = 0;
+        this._localDeflectAttemptWindow = 0;
+    }
+
+    _markLocalDeflectAttemptHit() {
+        if (!this._localDeflectAttemptActive) return;
+        this._localDeflectAttemptActive = false;
+        this._localDeflectAttemptHit = true;
+        this._localDeflectAttemptResolved = true;
+        this._localDeflectAttemptRemaining = 0;
+        this._localDeflectAttemptWindow = 0;
+    }
+
+    // A swing is only eligible when this local player is the live assigned
+    // target. The result is intentionally presentation-only: it cannot affect
+    // ball steering, stamina, hit validation, damage, cooldowns or P2P state.
+    _updateLocalDeflectAttempt(dt) {
+        const ball = this.ball;
+        const player = this.player;
+        const liveTarget = this.state === STATES.PLAYING
+            && player?.alive !== false
+            && !this.ui?.spectating
+            && !!ball?.active
+            && ball.targetPlayer === player;
+        const slashSwing = player?.attacking && player.knifeAttackType !== 'stab';
+
+        // A confirmed contact closes this click even if an external adapter has
+        // not cleared the attack pose by the next simulation tick yet.
+        if (this._localDeflectAttemptResolved) {
+            if (!slashSwing) this._clearLocalDeflectAttempt();
+            return;
+        }
+
+        if (!this._localDeflectAttemptActive) {
+            if (!liveTarget || !slashSwing) return;
+            const swingWindow = Number(player.attackCooldown) || Number(player.attackDuration) || 0.34;
+            this._localDeflectAttemptActive = true;
+            this._localDeflectAttemptHit = false;
+            this._localDeflectAttemptWindow = Math.max(0.01, swingWindow);
+            this._localDeflectAttemptRemaining = this._localDeflectAttemptWindow;
+            return;
+        }
+
+        // State/target loss is not a player miss. Silently discard stale local
+        // attempts on death, pause/round exit, assignment changes and inactive balls.
+        if (!liveTarget) {
+            this._clearLocalDeflectAttempt();
+            return;
+        }
+        if (this._localDeflectAttemptHit) {
+            this._clearLocalDeflectAttempt();
+            return;
+        }
+
+        this._localDeflectAttemptRemaining = Math.max(
+            0,
+            this._localDeflectAttemptRemaining - Math.max(0, Number(dt) || 0)
+        );
+        if (slashSwing && this._localDeflectAttemptRemaining > 0) return;
+
+        const playerPosition = player.position;
+        const ballPosition = ball.position;
+        const velocity = ball.velocity;
+        const dx = playerPosition?.x - ballPosition?.x;
+        const dy = playerPosition?.y - ballPosition?.y;
+        const dz = playerPosition?.z - ballPosition?.z;
+        const vx = velocity?.x;
+        const vy = velocity?.y;
+        const vz = velocity?.z;
+        const distance = Math.hypot(dx, dy, dz);
+        const speed = Math.hypot(vx, vy, vz);
+        const closing = dx * vx + dy * vy + dz * vz;
+        const reliableEta = Number.isFinite(distance)
+            && Number.isFinite(speed)
+            && speed > 0.01
+            && Number.isFinite(closing)
+            && closing > 0
+            ? distance / speed
+            : null;
+        const isEarly = reliableEta !== null && reliableEta > this._localDeflectAttemptWindow;
+        this._clearLocalDeflectAttempt();
+        this.ui.showMessage?.(
+            isEarly ? 'EARLY — WAIT FOR THE BALL' : 'MISSED DEFLECT — TIME IT CLOSER',
+            650,
+            { priority: 0, tone: 'deflect-miss' }
+        );
+        this.audio.playCue?.('deflect-reject');
+    }
+
     handlePlayerDeflection(skipAimCheck = false) {
         const pos = this.player.getPosition();
         const aimDir = this.player.getAimDirection();
@@ -2686,6 +2788,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             if (!isClientCP && this._firstSoloAimFeedbackPending) {
                 this._firstSoloAimFeedbackPending = false;
                 this.player.attacking = false;
+                this._clearLocalDeflectAttempt();
                 this.ui.showMessage?.('BALL BEHIND — TURN TO FACE IT', 900);
                 this.audio.playCue?.('deflect-reject');
             }
@@ -2711,6 +2814,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             const flick = this.player.getFlick();
             const nextTarget = this._goalRush ? null : this.getAimedEnemy(pos, aimDir, team);
             const result = this.ball.deflectWithAim(pos, aimDir, nextTarget, flick, null, chargedPower);
+            this._markLocalDeflectAttemptHit();
             if (nextTarget) this.ball.setTarget(nextTarget);
             if (this.ball._affixSplit) this.spawnSplitBall(this.ball);
             this.lastDeflector = this.player;
@@ -2768,6 +2872,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         const flick = this.player.getFlick();
         const momentum = this.player._frameVel;
         const result = this.ball.deflectWithAim(pos, aimDir, nextTarget, flick, momentum, chargedPower);
+        this._markLocalDeflectAttemptHit();
         if (nextTarget) this.ball.setTarget(nextTarget);
         if (this.ball._affixSplit) this.spawnSplitBall(this.ball);
 
