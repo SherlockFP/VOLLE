@@ -17,9 +17,13 @@ test('Cards uses its own bounded scroll region below persistent Locker chrome', 
 });
 
 test('Cards mobile viewport stays bounded and keeps the collection as the scroll owner', () => {
-    const mobileStart = css.lastIndexOf('@media (max-width: 700px)');
-    const mobile = css.slice(mobileStart);
+    const cycleStart = css.indexOf('/* Cycle C16b: Card Collection is intentionally long.');
+    const mobileStart = css.indexOf('@media (max-width: 700px)', cycleStart);
+    const cycleEnd = css.indexOf('/* ===== CYCLE D1B:', mobileStart);
+    const mobile = css.slice(mobileStart, cycleEnd);
 
+    assert.ok(cycleStart >= 0 && mobileStart > cycleStart && cycleEnd > mobileStart,
+        'the Cards mobile contract must be read from its own cycle block');
     assert.match(mobile, /#character-locker-content:has\(#locker-panel-cards:not\(\.hidden\)\)\s*\{[\s\S]*?height: 100dvh;[\s\S]*?max-height: 100dvh;/);
     assert.match(mobile, /#locker-panel-cards:not\(\.hidden\)\s*\{[\s\S]*?padding-right: 4px;/);
     assert.match(mobile, /#locker-panel-cards \.locker-section-header\s*\{[\s\S]*?margin-top: 10px;/);

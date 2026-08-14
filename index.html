@@ -1883,8 +1883,15 @@
     <!-- ===== POST-GAME XP SCREEN ===== -->
     <div id="post-game-screen" class="hidden">
         <div class="pg-overlay">
-            <div class="pg-panel">
+            <div class="pg-panel" role="dialog" aria-modal="true" aria-labelledby="pg-result">
+                <div class="pg-broadcast-stage">
+                <figure class="pg-key-art" aria-label="Arena broadcast highlight">
+                    <img src="assets/generated/postgame/victory-arena-broadcast-v1.webp" width="1600" height="900" alt="" decoding="async">
+                    <figcaption><span>ARENA BROADCAST</span><b>AFTERSHOW</b></figcaption>
+                </figure>
+                <div class="pg-summary">
                 <header class="pg-header"><div><span class="shell-kicker">MATCH REPORT</span><h2 class="pg-title" id="pg-result"></h2></div><svg class="ui-icon pg-header-mark" aria-hidden="true"><use href="#i-trophy"></use></svg></header>
+                <span class="pg-final-score-label">FINAL SCORE</span>
                 <div class="pg-winner" id="pg-winner"></div>
                 <section class="pg-rematch-hero" aria-label="Play again">
                     <div id="pg-rematch-status" class="rematch-status" role="status" aria-live="polite">Instant solo rematch.</div>
@@ -1893,6 +1900,7 @@
                 <div class="pg-level">
                     <span id="pg-prestige" class="prestige-badge" hidden></span>
                     <span id="pg-level"></span>
+                </div>
                 </div>
                 <section class="pg-detail-report" aria-label="Detailed match report">
                 <div class="pg-xp-bar-wrap">
@@ -1931,6 +1939,9 @@
                     <div class="pg-match-drop-head"><span class="shell-kicker">MATCH DROP</span><span>Added to your collection</span></div>
                     <div id="pg-match-drop-list" class="pg-match-drop-list"></div>
                 </section>
+                <details id="pg-detail-disclosure" class="pg-detail-disclosure">
+                <summary><span><b>Match details</b><small>Overview &middot; Timeline &middot; Stats</small></span><i aria-hidden="true"></i></summary>
+                <div class="pg-detail-body">
                 <div class="pg-stats" id="postgame-stats"></div>
                 <!-- Per-round breakdown, filled from scoreboard.roundHistory. -->
                 <div class="pg-round-strip" id="pg-round-strip"></div>
@@ -1950,7 +1961,10 @@
                         <button id="pg-chat-send" class="btn btn-secondary">Send</button>
                     </div>
                 </div>
+                </div>
+                </details>
                 </section>
+                </div>
                 <div class="pg-secondary-actions">
                     <button id="pg-lobby" class="btn btn-secondary"><svg class="ui-icon" aria-hidden="true"><use href="#i-globe"></use></svg>Return to Lobby</button>
                     <button id="pg-main-menu" class="btn btn-secondary"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Main Menu</button>

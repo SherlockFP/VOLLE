@@ -9,7 +9,7 @@ const ui = read('../js/ui.js');
 const main = read('../js/main.js');
 
 test('post-game puts the single primary rematch action ahead of the detailed report', () => {
-    const panelStart = html.indexOf('<div class="pg-panel">');
+    const panelStart = html.indexOf('<div class="pg-panel"');
     const heroStart = html.indexOf('<section class="pg-rematch-hero"');
     const reportStart = html.indexOf('<section class="pg-detail-report"');
     const secondaryStart = html.indexOf('<div class="pg-secondary-actions">');

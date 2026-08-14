@@ -677,9 +677,10 @@ export class UI {
         const el = document.getElementById('post-game-screen');
         if (!el) return;
         el.classList.remove('hidden');
+        el.dataset.outcome = won ? 'win' : 'loss';
         audio?.playCue?.('score');
         const resultEl = document.getElementById('pg-result');
-        resultEl.textContent = won ? '🏆 VICTORY!' : '💀 DEFEAT';
+        resultEl.textContent = won ? 'VICTORY' : 'DEFEAT';
         // Win/loss is carried on the banner itself so the result reads at a glance
         // instead of every match ending in the same gold title.
         resultEl.classList.toggle('pg-result-win', !!won);
@@ -700,6 +701,8 @@ export class UI {
         document.getElementById('postgame-stats').innerHTML = statsHTML;
         const pgLog = document.getElementById('pg-chat-log');
         if (pgLog) pgLog.innerHTML = '';
+        const detailDisclosure = document.getElementById('pg-detail-disclosure');
+        if (detailDisclosure) detailDisclosure.open = false;
         // The bar tracks progress toward the next level, not an arbitrary
         // xpGained/1000 slice, so "how close am I" is answerable at a glance.
         // That proximity is the actual one-more-match hook.
@@ -920,12 +923,24 @@ export class UI {
             item.className = `pg-match-drop-item rarity-${drop.rarity || 'common'}`;
             const copy = document.createElement('div');
             copy.className = 'pg-match-drop-copy';
-            const visual = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-            visual.setAttribute('class', 'ui-icon pg-match-drop-visual');
-            visual.setAttribute('aria-hidden', 'true');
-            const visualUse = document.createElementNS('http://www.w3.org/2000/svg', 'use');
-            visualUse.setAttribute('href', drop.type === 'case' ? '#i-ticket' : '#i-ball');
-            visual.appendChild(visualUse);
+            const caseArt = drop.type === 'case' ? CASES[drop.id]?.art : null;
+            let visual;
+            if (caseArt) {
+                visual = document.createElement('img');
+                visual.src = caseArt;
+                visual.alt = '';
+                visual.width = 80;
+                visual.height = 80;
+                visual.decoding = 'async';
+                visual.className = 'pg-match-drop-visual pg-match-drop-art';
+            } else {
+                visual = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                visual.setAttribute('class', 'ui-icon pg-match-drop-visual');
+                visual.setAttribute('aria-hidden', 'true');
+                const visualUse = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+                visualUse.setAttribute('href', drop.type === 'case' ? '#i-ticket' : '#i-ball');
+                visual.appendChild(visualUse);
+            }
             const meta = document.createElement('div');
             meta.className = 'pg-match-drop-meta';
             const rarity = document.createElement('span');
@@ -1208,12 +1223,28 @@ export class UI {
     }
 
     renderMatchAnalysis(report, initialTab = 'overview') {
+        const wrap = document.getElementById('pg-analysis');
         const content = document.getElementById('pg-analysis-content');
         const tabs = document.querySelectorAll('[data-analysis-tab]');
         if (!content) return;
         const safe = report && typeof report === 'object' ? report : {};
+        const hasAnalysis = Boolean(
+            safe.mvp
+            || (Array.isArray(safe.players) && safe.players.length)
+            || (Array.isArray(safe.timeline) && safe.timeline.length)
+            || (Array.isArray(safe.heatmap?.cells) && safe.heatmap.cells.flat().length)
+        );
+        if (wrap) wrap.hidden = !hasAnalysis;
+        if (!hasAnalysis) {
+            content.replaceChildren();
+            return;
+        }
         const render = tab => {
-            tabs.forEach(button => button.classList.toggle('selected', button.dataset.analysisTab === tab));
+            tabs.forEach(button => {
+                const selected = button.dataset.analysisTab === tab;
+                button.classList.toggle('selected', selected);
+                button.setAttribute('aria-selected', String(selected));
+            });
             if (tab === 'timeline') {
                 const events = Array.isArray(safe.timeline) ? safe.timeline.slice(-80).reverse() : [];
                 content.innerHTML = events.length ? `<div class="pg-timeline">${events.map(event => {
@@ -1255,7 +1286,7 @@ export class UI {
     }
 
     _buildAARTable(playerStats, totalKills, totalDeflects) {
-        if (!playerStats.length) return `<span>💥 ${totalKills} kills</span><span>🏐 ${totalDeflects} deflects</span>`;
+        if (!playerStats.length) return `<span>${totalKills} kills</span><span>${totalDeflects} deflects</span>`;
         // Team totals
         let redTot = { score:0, deaths:0, assists:0, deflections:0, rally:0, damageDealt:0, damageTaken:0 };
         let blueTot = { score:0, deaths:0, assists:0, deflections:0, rally:0, damageDealt:0, damageTaken:0 };
@@ -1277,14 +1308,14 @@ export class UI {
             const kd = (p.deaths || 1) > 0 ? ((p.score || 0) / (p.deaths || 1)).toFixed(1) : '∞';
             const isMvp = mvp && p.name === mvp.name;
             rows += `<tr class="${isMvp ? 'pg-mvp' : ''} ${p.team}">
-                <td class="pg-name">${this._esc(p.name)}${isMvp ? ' 👑' : ''}</td>
-                <td>${p.score || 0}</td>
-                <td>${p.deaths || 0}</td>
-                <td>${p.deflections || 0}</td>
-                <td>${p.hits || 0}</td>
-                <td>${p.assists || 0}</td>
-                <td>${p.damageDealt || 0}</td>
-                <td>${kd}</td>
+                <td class="pg-name" data-label="Player">${this._esc(p.name)}${isMvp ? ' <span class="pg-mvp-tag">MVP</span>' : ''}</td>
+                <td data-label="Kills">${p.score || 0}</td>
+                <td data-label="Deaths">${p.deaths || 0}</td>
+                <td data-label="Deflects">${p.deflections || 0}</td>
+                <td data-label="Rally">${p.hits || 0}</td>
+                <td data-label="Assists">${p.assists || 0}</td>
+                <td data-label="Damage">${p.damageDealt || 0}</td>
+                <td data-label="K/D">${kd}</td>
             </tr>`;
         });
         return `
@@ -1303,8 +1334,8 @@ export class UI {
                 </thead>
                 <tbody>${rows}</tbody>
                 <tfoot>
-                    <tr class="pg-team-red"><td colspan="8">🔴 RED — K:${redTot.score} D:${redTot.deaths} Defl:${redTot.deflections} Rally:${redTot.rally} Dmg:${redTot.damageDealt}</td></tr>
-                    <tr class="pg-team-blue"><td colspan="8">🔵 BLUE — K:${blueTot.score} D:${blueTot.deaths} Defl:${blueTot.deflections} Rally:${blueTot.rally} Dmg:${blueTot.damageDealt}</td></tr>
+                    <tr class="pg-team-red"><td colspan="8">RED — K:${redTot.score} D:${redTot.deaths} Defl:${redTot.deflections} Rally:${redTot.rally} Dmg:${redTot.damageDealt}</td></tr>
+                    <tr class="pg-team-blue"><td colspan="8">BLUE — K:${blueTot.score} D:${blueTot.deaths} Defl:${blueTot.deflections} Rally:${blueTot.rally} Dmg:${blueTot.damageDealt}</td></tr>
                 </tfoot>
             </table>`;
     }
