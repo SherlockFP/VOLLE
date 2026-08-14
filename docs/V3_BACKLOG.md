@@ -12,31 +12,38 @@ Legend:
 
 - `DONE` Replace v3 plan with implementation roadmap.
 - `DONE` Unify design-system direction.
-- `NOW` Add competitive rules module.
-- `NOW` Normalize competitive player and bot power.
-- `NOW` Disable ranked runes, passives, abilities, ultimates and power-ups.
+- `DONE` Add competitive rules module.
+- `DONE` Normalize competitive player and bot power.
+- `DONE` Disable ranked runes, passives, abilities, ultimates and power-ups.
+- `NOW` D1 — Fix Instagib/P2P lethal truth and canonical kill confirmation.
+- `NOW` D1 — Replace the light receipt Match Report with Arena Broadcast Aftershow.
 
 ## NEXT
 
-- `AUDIT` Perfect-deflect feedback.
-- `AUDIT` Practice/training integration.
-- `AUDIT` Match result and MVP presentation.
-- `NEXT` Rally Duel ruleset.
-- `NEXT` Ball heat and threat readability.
-- `NEXT` HUD competitive state.
-- `NEXT` Shared particle geometry/material pass.
-- `NEXT` Runtime render diagnostics.
+- `DONE` Perfect-deflect feedback.
+- `DONE` Practice/training integration foundation.
+- `AUDIT` Match result presentation (active D1); authoritative MVP is a separate later contract.
+- `DONE` Rally Duel ruleset.
+- `DONE` Ball heat and directional threat readability.
+- `DONE` HUD competitive state.
+- `NEXT` S1 — one fixed Dodgeball simulation clock.
+- `NEXT` D2 — evidence-led core skill tuning.
+- `NEXT` V3 — spatial Volleyball contact authority.
+- `NEXT` V4 — local Volleyball roles and three-contact rhythm.
+- `NEXT` A1 — shared particle geometry/material pass and runtime render diagnostics.
 
 ## AFTER VERTICAL SLICE
 
+- Private Volleyball P2P convergence.
+- Authoritative Dodgeball 1v1 prototype.
 - Team Arena 3v3.
-- Party/rematch/reconnect.
+- Party-to-rematch continuity.
 - Bot backfill.
 - Weekly Arcade rotation.
 - Direct cosmetic locker/store.
 - `DONE` Durable guest profile and inventory foundation.
 - `DONE` Bounded server rate limits for economy and creator endpoints.
-- Authoritative 1v1 prototype.
+- `DONE` Local-only Volleyball rules/physics/practice skeleton.
 
 ## LATER
 

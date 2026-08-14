@@ -5,6 +5,8 @@
 > Stack: Three.js, vanilla JavaScript modules, Node.js, PeerJS
 > Working directory: `C:\Users\Sher\Desktop\dodgb-v3`
 > Rule: v2 is the untouched reference. All new work happens in v3.
+> Canonical execution state: `docs/GAUNTLET_CYCLES.md`. This document preserves
+> product architecture and release intent; it is not the active task queue.
 
 ## 1. Product decision
 
@@ -75,9 +77,9 @@ Ranked 3v3 follows only after the authoritative server prototype works.
 
 ### Missing production foundations
 
-- Durable account authentication.
-- Production database.
-- Server inventory ledger.
+- Transactional profile/inventory/currency ledger (authentication itself is
+  already SQLite+scrypt+revocable-session backed).
+- Production database operations beyond a single persistent-disk instance.
 - Payment provider integration.
 - Refund, tax and regional pricing flow.
 - Dedicated authoritative match service.
@@ -271,14 +273,15 @@ Acceptance checks for the active stream:
 
 Launch queues:
 
-- Quick Play.
+- Quick Play, currently opening in Instagib as the default one-shot ruleset.
 - Rally Duel.
 - Team Arena when ready.
 - One rotating Arcade card.
 - Custom/Private.
 
 Do not launch separate permanent queues for every mutator. Speedball, Multiball,
-Hot Potato, Pinball, Low Gravity and Instagib use the rotating Arcade slot.
+Hot Potato, Pinball and Low Gravity use the rotating Arcade slot. Instagib remains
+the current Quick Play default until controlled playtest evidence selects a replacement.
 
 ## 7. Economy decision
 
@@ -372,16 +375,19 @@ Every implementation item records:
 
 ## 12. Current execution order
 
-1. V3 documents and design source of truth.
-2. Competitive rules module.
-3. Ranked stat/ability normalization.
-4. Rally Duel specification and integration.
-5. HUD and ball-readability pass.
-6. Particle/rendering allocation pass.
-7. Team Arena/social integration.
-8. Production account/economy foundation.
-9. Authoritative match prototype.
-10. Ranked/esports presentation.
-11. Creator beta.
+Work now advances through the bounded SOL → TERRA → QA → LUNA loop in
+`docs/GAUNTLET_CYCLES.md`:
 
-Detailed task state lives in `docs/V3_BACKLOG.md`.
+1. D1 — Elimination clarity and Arena Broadcast Match Report.
+2. S1 — One Dodgeball simulation clock.
+3. D2 — Evidence-led Dodgeball skill-loop tuning.
+4. V3 — Spatial Volleyball contact authority.
+5. V4 — Local Volleyball team rhythm.
+6. P1 — Transactional player ledger.
+7. N1 — Private Volleyball P2P convergence.
+8. R1 — Authoritative Dodgeball 1v1 prototype.
+9. L1 — Party-to-rematch continuity.
+10. A1 — Renderer budget, shared particle resources, and showcase art.
+
+`docs/V3_BACKLOG.md` is the compact status view; the Gauntlet file owns scope,
+no-go rules, dependency order, score evidence, and exit gates.

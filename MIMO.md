@@ -1,8 +1,31 @@
 # MIMO.md — 2BALL Project Current State
 
-> **Last updated:** 2026-08-13
-> **Status:** Active development. Account system complete; Phase 1-3 done; V4 immersive/economy/combat pass complete (see below); Phase 4 backlog pending.
+> **Last updated:** 2026-08-14
+> **Status:** Active Gauntlet development. Canonical cycle order and exit gates live in `docs/GAUNTLET_CYCLES.md`.
 > **Tech Stack:** Three.js + PeerJS + vanilla JS (ES modules), browser-based 3D dodgeball.
+
+---
+
+## 2026-08-14 Sport Foundation and Gauntlet Baseline
+
+- **Sport routing:** Quick Play now enters a keyboard-accessible Dodgeball /
+  Volleyball selector. Dodgeball retains its live P2P directory; Volleyball is
+  explicitly local-only and cannot host or join public rooms yet.
+- **Volleyball local skeleton:** isolated deterministic rules, score, physics,
+  controller, contact adapter and Practice runtime support Serve / Receive / Set /
+  Spike / Block, three-contact ownership, rally scoring and fixed-step snapshots
+  without importing Dodgeball combat, networking, cosmetics or economy.
+- **Dodgeball feel:** aimed returns preserve more deliberate side/rear routing,
+  clean bank shots own their reflected heading briefly, rear-facing deflects are
+  rejected on both prediction and host admission, and incoming direction/ETA has
+  a bounded responsive HUD lane.
+- **Audio:** five Kenney CC0 interface/impact clips augment rather than replace
+  the existing procedural competitive cues; provenance is stored in-repo.
+- **Current audit baseline:** commit `8857f87`; JavaScript syntax passes 105 files
+  and the full suite passes 1,731/1,731. This supersedes older 1,541-test counts.
+- **Active Cycle D1:** Instagib shield handling and contradictory P2P lethal state
+  are confirmed correctness defects. Kill confirmation and the mismatched light
+  Match Report are being addressed before further Volleyball expansion.
 
 ---
 
@@ -596,7 +619,8 @@ dodgb/
 ## Competitive Rules Pass
 
 - Team score is integer round score only; damage and kills remain personal stats.
-- Classic HP/elimination is now the default instead of Instagib.
+- Historical note: this pass made Classic the default at the time. The current
+  2026-08-14 runtime and lobby contract intentionally default to Instagib.
 - A round ends only when a complete team is eliminated.
 - Celebration weapons and HUD are winner-only.
 - Dead players receive smoothed first-person POV restricted to living teammates.
