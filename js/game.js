@@ -62,7 +62,39 @@ const BASE_HIT_DAMAGE = 25;
 // connecting hit gets a small damage bump for a few seconds after a kill.
 const KILL_CONFIRM_DURATION = 3.5;           // seconds
 const KILL_CONFIRM_DAMAGE_MULTIPLIER = 1.15; // +15% damage, single-shot
+// A deflect is a face-the-threat skill check, not a 360-degree proximity hit.
+// 0.15 keeps close side catches available (about 81°) while rejecting anything
+// that has already crossed the player's shoulder line.
+const DEFLECT_MIN_FACING_DOT = 0.15;
 const normalizeAvatarModel = value => value === 'slim' ? 'slim' : 'classic';
+
+// Mutates a caller-owned result so the bounded live-threat sampler can expose
+// camera-relative direction without allocating in the gameplay loop.
+export function sampleThreatDirection(out, forwardX, forwardZ, offsetX, offsetZ) {
+    const forwardLength = Math.hypot(forwardX, forwardZ);
+    const offsetLength = Math.hypot(offsetX, offsetZ);
+    if (!out || forwardLength < 0.0001 || offsetLength < 0.0001) {
+        if (out) {
+            out.side = 0;
+            out.behind = false;
+            out.offscreen = false;
+            out.direction = 'front';
+        }
+        return out;
+    }
+
+    const inverseLength = 1 / (forwardLength * offsetLength);
+    const facing = (forwardX * offsetX + forwardZ * offsetZ) * inverseLength;
+    const side = Math.max(-1, Math.min(1,
+        (forwardX * offsetZ - forwardZ * offsetX) * inverseLength
+    ));
+    const behind = facing < -0.05;
+    out.side = side;
+    out.behind = behind;
+    out.offscreen = behind || facing < 0.35;
+    out.direction = behind ? 'rear' : side < -0.38 ? 'left' : side > 0.38 ? 'right' : 'front';
+    return out;
+}
 
 // Ball uses positive Infinity to mean that no perfect-deflect timing window is
 // active. That is a valid ordinary deflect in gameplay, while NaN remains an
@@ -205,6 +237,8 @@ export class Game {
         this.syncRate = 0.05;
         this._playerThreatSampleTimer = 0;
         this._playerThreatActive = false;
+        this._playerThreatForward = new THREE.Vector3(0, 0, -1);
+        this._playerThreatDirection = { side: 0, behind: false, offscreen: false, direction: 'front' };
         // Local swing feedback is presentation-only. Keep the tiny lifecycle as
         // scalar fields so the hot game loop does not allocate for missed swings.
         this._localDeflectAttemptActive = false;
@@ -2192,8 +2226,31 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             ? measuredSpeed
             : Math.max(0, Number(ball.currentSpeed) || 0);
         const distance = ball.position.distanceTo(playerPosition);
+        const camera = this.player.camera;
+        if (camera?.getWorldDirection) {
+            camera.getWorldDirection(this._playerThreatForward);
+            sampleThreatDirection(
+                this._playerThreatDirection,
+                this._playerThreatForward.x,
+                this._playerThreatForward.z,
+                ball.position.x - playerPosition.x,
+                ball.position.z - playerPosition.z
+            );
+        } else {
+            sampleThreatDirection(this._playerThreatDirection, 0, -1,
+                ball.position.x - playerPosition.x, ball.position.z - playerPosition.z);
+        }
         this._playerThreatActive = true;
-        this.ui?.setPlayerTarget?.(true, speed, distance);
+        this.ui?.setPlayerTarget?.(
+            true,
+            speed,
+            distance,
+            this._playerThreatDirection.side,
+            this._playerThreatDirection.direction,
+            this._playerThreatDirection.behind,
+            this._playerThreatDirection.offscreen,
+            ball.perfectWindow > 0 && ball._perfectWindowTarget === this.player
+        );
         this.audio?.updateThreatAudio?.({ active: true, speed, distance });
     }
 
@@ -2417,7 +2474,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 : this.ball.attackRange + speedBonus;
             if (dist < deflectionRange || (this.ball._prevPosition &&
                 segmentIntersectsSphere(this.ball._prevPosition, ballPos, playerPos, deflectionRange))) {
-                this.handlePlayerDeflection(isClient2);
+                this.handlePlayerDeflection();
             }
         }
 
@@ -2774,17 +2831,32 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         this.audio.playCue?.('deflect-reject');
     }
 
-    handlePlayerDeflection(skipAimCheck = false) {
+    // Uses only aim + current contact position so it is frame-rate independent and
+    // can run identically for local prediction and host-side remote validation.
+    _isDeflectFacingBall(aimDir, origin, ballPosition) {
+        const dx = ballPosition?.x - origin?.x;
+        const dy = ballPosition?.y - origin?.y;
+        const dz = ballPosition?.z - origin?.z;
+        const aimLength = Math.hypot(aimDir?.x, aimDir?.y, aimDir?.z);
+        const ballLength = Math.hypot(dx, dy, dz);
+        if (!Number.isFinite(aimLength) || !Number.isFinite(ballLength) || aimLength < 1e-4 || ballLength < 1e-4) {
+            // At an exact contact point there is no meaningful facing vector; keep
+            // the established range/swept-hit rules as the authority in that case.
+            return ballLength < 1e-4;
+        }
+        const facingDot = (aimDir.x * dx + aimDir.y * dy + aimDir.z * dz) / (aimLength * ballLength);
+        return Number.isFinite(facingDot) && facingDot >= DEFLECT_MIN_FACING_DOT;
+    }
+
+    handlePlayerDeflection() {
         const pos = this.player.getPosition();
         const aimDir = this.player.getAimDirection();
         const team = this.player.team;
         const isClientCP = this.network?.connected && !this.network?.isHost;
 
-        // Skill check: must be roughly looking at the ball (~100° cone).
-        // Client-side prediction skips this so the hit ALWAYS feels connected
-        // (host is authoritative and still enforces it via remoteAttack).
-        const ballDir = new THREE.Vector3().subVectors(this.ball.position, pos).normalize();
-        if (!skipAimCheck && aimDir.dot(ballDir) < -0.2) {
+        // Skill check: a rear/out-of-view click never becomes a 360-degree
+        // proximity hit. P2P prediction uses this same gate as host authority.
+        if (!this._isDeflectFacingBall(aimDir, pos, this.ball.position)) {
             if (!isClientCP && this._firstSoloAimFeedbackPending) {
                 this._firstSoloAimFeedbackPending = false;
                 this.player.attacking = false;
@@ -4863,7 +4935,11 @@ spawnPowerUp() {
             && attackPos.distanceTo(clientBallPos) <= predictionRange;
         const resolvedBallPos = snapshotPlausible ? clientBallPos : this.ball.position;
         const resolvedBallDist = attackPos.distanceTo(resolvedBallPos);
-        if (hostBallDist <= hostRange || (snapshotPlausible && resolvedBallDist <= predictionRange)) {
+        // A client can predict a generous range, but it cannot turn a rear or
+        // out-of-view swing into a host-authoritative deflect. Use the resolved
+        // contact point so valid high-ping snapshots retain their normal arc.
+        const facesResolvedBall = this._isDeflectFacingBall(p.aimDir, attackPos, resolvedBallPos);
+        if (facesResolvedBall && (hostBallDist <= hostRange || (snapshotPlausible && resolvedBallDist <= predictionRange))) {
             this._lastRemoteAttack[playerId] = now;
             if (this._pendingLethalHit && this._pendingLethalVictim === p) {
                 clearTimeout(this._pendingLethalHit);

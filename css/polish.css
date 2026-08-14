@@ -776,6 +776,145 @@ body {
     transform: translateX(-50%) translateY(-3px);
 }
 
+/* === Sport routing V1: Quick Play -> sport -> filtered P2P directory === */
+#multiplayer-menu .sport-select-stage {
+    box-sizing: border-box;
+    width: min(1180px, calc(100% - 32px));
+    min-height: min(720px, calc(100dvh - 40px));
+    margin: auto;
+    padding: clamp(24px, 4vw, 52px);
+    display: grid;
+    align-content: center;
+    gap: clamp(22px, 3vw, 36px);
+    border: 1px solid color-mix(in srgb, var(--screen-line) 32%, transparent);
+    border-radius: 24px;
+    background:
+        radial-gradient(circle at 16% 20%, color-mix(in srgb, var(--screen-accent) 16%, transparent), transparent 33%),
+        radial-gradient(circle at 84% 70%, rgba(201, 76, 255, .14), transparent 37%),
+        rgba(3, 10, 29, .93);
+    box-shadow: 0 28px 90px rgba(0, 0, 0, .48), inset 0 1px rgba(255, 255, 255, .08);
+    backdrop-filter: blur(18px);
+}
+
+#multiplayer-menu .sport-select-header { max-width: 720px; }
+#multiplayer-menu .sport-select-header h1 {
+    margin: 7px 0 8px;
+    color: #f5fbff;
+    font-size: clamp(2.2rem, 5vw, 4.7rem);
+    line-height: .94;
+    letter-spacing: -.045em;
+}
+#multiplayer-menu .sport-select-header p { margin: 0; color: #9ebbd3; font-size: clamp(.9rem, 1.5vw, 1.08rem); }
+#multiplayer-menu .sport-select-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(14px, 2.2vw, 26px); }
+#multiplayer-menu .sport-card {
+    position: relative;
+    min-height: 300px;
+    padding: clamp(20px, 3vw, 34px);
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    gap: 20px;
+    overflow: hidden;
+    color: #f4fbff;
+    text-align: left;
+    border: 1px solid color-mix(in srgb, var(--screen-line) 34%, transparent);
+    border-radius: 20px;
+    background: linear-gradient(145deg, rgba(9, 47, 79, .92), rgba(5, 14, 40, .96));
+    box-shadow: inset 0 1px rgba(255, 255, 255, .1), 0 18px 40px rgba(0, 0, 0, .26);
+    cursor: pointer;
+    transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+#multiplayer-menu .sport-card::after {
+    content: '';
+    position: absolute;
+    inset: auto -12% -45% 20%;
+    height: 72%;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--screen-accent) 14%, transparent);
+    filter: blur(18px);
+    pointer-events: none;
+}
+#multiplayer-menu .sport-card-volleyball {
+    border-color: rgba(213, 108, 255, .36);
+    background: linear-gradient(145deg, rgba(62, 29, 95, .88), rgba(8, 14, 42, .96));
+}
+#multiplayer-menu .sport-card-volleyball::after { background: rgba(213, 91, 255, .16); }
+#multiplayer-menu .sport-card:hover,
+#multiplayer-menu .sport-card:focus-visible { transform: translateY(-4px); border-color: var(--ui-primary-hover); box-shadow: 0 22px 52px color-mix(in srgb, var(--screen-panel) 22%, transparent); outline: none; }
+#multiplayer-menu .sport-card-volleyball:hover,
+#multiplayer-menu .sport-card-volleyball:focus-visible { border-color: #dc82ff; box-shadow: 0 22px 52px rgba(174, 64, 255, .2); }
+#multiplayer-menu .sport-card-status {
+    justify-self: start;
+    padding: 6px 9px;
+    color: #061a20;
+    font-size: .65rem;
+    font-weight: 900;
+    letter-spacing: .11em;
+    border-radius: 999px;
+    background: var(--ui-primary-hover);
+}
+#multiplayer-menu .sport-card-status.is-development { color: #f4e8ff; background: rgba(158, 65, 214, .62); }
+#multiplayer-menu .sport-card-mark { width: 76px; height: 76px; display: grid; place-items: center; border: 1px solid color-mix(in srgb, var(--screen-line) 44%, transparent); border-radius: 22px; background: color-mix(in srgb, var(--screen-panel) 18%, transparent); box-shadow: 0 0 32px color-mix(in srgb, var(--screen-accent) 18%, transparent); }
+#multiplayer-menu .sport-card-mark .ui-icon { width: 38px; height: 38px; }
+#multiplayer-menu .sport-card-copy { align-self: end; display: grid; gap: 8px; }
+#multiplayer-menu .sport-card-copy strong { font-size: clamp(1.65rem, 3vw, 2.6rem); letter-spacing: -.03em; }
+#multiplayer-menu .sport-card-copy small { max-width: 420px; color: #a9c5da; font-size: .88rem; line-height: 1.55; }
+#multiplayer-menu .sport-card-action { position: relative; z-index: 1; display: flex; align-items: center; gap: 8px; color: var(--screen-accent); font-size: .8rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+#multiplayer-menu .sport-card-action .ui-icon { width: 16px; height: 16px; }
+#multiplayer-menu .sport-select-back { width: fit-content; min-width: 190px; display: flex; align-items: center; justify-content: center; gap: 8px; }
+
+#multiplayer-menu .mp-sport-route {
+    width: 100%;
+    min-height: 52px;
+    padding: 10px 14px;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 10px;
+    color: #b8d7ec;
+    border: 1px solid color-mix(in srgb, var(--screen-line) 23%, transparent);
+    border-radius: 12px;
+    background: rgba(5, 24, 50, .72);
+    cursor: pointer;
+}
+#multiplayer-menu .mp-sport-route span,
+#multiplayer-menu .mp-sport-route small { font-size: .63rem; font-weight: 800; letter-spacing: .1em; }
+#multiplayer-menu .mp-sport-route strong { color: #fff; font-size: .95rem; text-align: left; }
+#multiplayer-menu .mp-sport-route small { color: var(--screen-accent); }
+#multiplayer-menu .sport-host-gate { margin: 12px 0 0; padding: 10px 12px; color: #dec6f4; font-size: .75rem; line-height: 1.45; border: 1px solid rgba(204, 104, 255, .25); border-radius: 10px; background: rgba(80, 27, 103, .25); }
+#multiplayer-menu[data-sport="volleyball"] .quick-play-builder { border-color: rgba(205, 103, 255, .45); background: linear-gradient(145deg, rgba(63, 30, 91, .56), rgba(10, 15, 46, .88)); }
+#multiplayer-menu .mp-right[aria-disabled="true"] { opacity: .86; }
+#multiplayer-menu .mp-lobby-list[data-lobby-state="sport-gated"] { display: grid; place-items: center; }
+#multiplayer-menu .mp-sport-gated {
+    width: min(470px, calc(100% - 24px));
+    padding: clamp(24px, 4vw, 42px);
+    text-align: center;
+    border: 1px solid rgba(210, 112, 255, .28);
+    border-radius: 18px;
+    background: radial-gradient(circle at 50% 0, rgba(191, 83, 255, .2), transparent 48%), rgba(7, 16, 42, .8);
+}
+#multiplayer-menu .mp-sport-gated h3 { margin: 8px 0; color: #f5edff; font-size: clamp(1.2rem, 2vw, 1.65rem); }
+#multiplayer-menu .mp-sport-gated p { margin: 0; color: #b9accd; font-size: .82rem; line-height: 1.55; }
+#multiplayer-menu .mp-lobby-card .lobby-icon { display: grid; place-items: center; }
+#multiplayer-menu .mp-lobby-card .lobby-icon .ui-icon { width: 23px; height: 23px; }
+#multiplayer-menu .lobby-sport-badge { padding: 5px 8px; color: var(--screen-accent); font-size: .64rem; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; border: 1px solid color-mix(in srgb, var(--screen-line) 25%, transparent); border-radius: 999px; background: color-mix(in srgb, var(--screen-panel) 42%, transparent); }
+#lobby-screen #cs-lobby-sport { color: var(--screen-accent); font-weight: 900; letter-spacing: .08em; }
+
+@media (max-width: 780px) {
+    #multiplayer-menu .sport-select-stage { width: 100%; min-height: 100dvh; padding: 20px 14px; border: 0; border-radius: 0; align-content: start; overflow-y: auto; }
+    #multiplayer-menu .sport-select-grid { grid-template-columns: 1fr; }
+    #multiplayer-menu .sport-card { min-height: 230px; }
+    #multiplayer-menu .sport-card-mark { width: 58px; height: 58px; border-radius: 17px; }
+    #multiplayer-menu .sport-card-mark .ui-icon { width: 28px; height: 28px; }
+    #multiplayer-menu .sport-select-back { width: 100%; }
+    #multiplayer-menu .lobby-sport-badge { order: 3; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #multiplayer-menu .sport-card { transition: none; }
+    #multiplayer-menu .sport-card:hover,
+    #multiplayer-menu .sport-card:focus-visible { transform: none; }
+}
+
 .movement-hud.dash {
     border-color: var(--screen-accent);
     background: linear-gradient(100deg, rgba(4, 25, 32, 0.82), rgba(20, 82, 88, 0.72));
@@ -3203,6 +3342,8 @@ body.photo-mode #hud,body.photo-mode #scoreboard-overlay,body.photo-mode .networ
 .hud-speed-text[data-heat="critical"], #ball-speed[data-heat="critical"] .speed-value { color: #fff4dc; text-shadow: 0 0 14px rgba(255,77,53,.82); }
 #incoming-indicator {
     --threat-color: rgba(255,181,58,.62);
+    --threat-scale: 1;
+    --threat-pulse: .72s;
     display: block;
     opacity: 0;
     box-shadow: inset 0 0 52px var(--threat-color);
@@ -3213,6 +3354,40 @@ body.photo-mode #hud,body.photo-mode #scoreboard-overlay,body.photo-mode .networ
 #incoming-indicator[data-threat="critical"] {
     --threat-color: rgba(255,49,45,.9);
     animation: incoming-critical .46s ease-in-out infinite alternate;
+}
+#incoming-indicator[data-perfect="true"] { --threat-color: rgba(255,214,71,.96); }
+.incoming-direction-arrow {
+    position: fixed;
+    z-index: 1;
+    top: 82px;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-top: 9px solid transparent;
+    border-bottom: 9px solid transparent;
+    border-left: 17px solid var(--threat-color);
+    filter: drop-shadow(0 0 7px var(--threat-color));
+    scale: var(--threat-scale);
+    transform: translate(-50%, -50%) rotate(90deg);
+    transform-origin: 50% 50%;
+    animation: threat-arrow-pulse var(--threat-pulse) ease-in-out infinite alternate;
+    transition: top var(--ui-motion-fast) var(--ui-ease), left var(--ui-motion-fast) var(--ui-ease), scale var(--ui-motion-fast) var(--ui-ease);
+}
+#incoming-indicator[data-direction="left"] .incoming-direction-arrow {
+    top: 42%;
+    left: 24px;
+    transform: translate(-50%, -50%) rotate(0deg);
+}
+#incoming-indicator[data-direction="right"] .incoming-direction-arrow {
+    top: 42%;
+    left: calc(100vw - 24px);
+    transform: translate(-50%, -50%) rotate(180deg);
+}
+#incoming-indicator[data-direction="rear"] .incoming-direction-arrow {
+    top: auto;
+    bottom: 96px;
+    left: 50%;
+    transform: translate(-50%, 50%) rotate(-90deg);
 }
 #incoming-indicator::after {
     content: attr(data-label);
@@ -3234,11 +3409,29 @@ body.photo-mode #hud,body.photo-mode #scoreboard-overlay,body.photo-mode .networ
     from { box-shadow: inset 0 0 42px rgba(255,49,45,.58); }
     to { box-shadow: inset 0 0 76px rgba(255,49,45,.94); }
 }
+@keyframes threat-arrow-pulse {
+    from { opacity: .68; filter: drop-shadow(0 0 4px var(--threat-color)); }
+    to { opacity: 1; filter: drop-shadow(0 0 11px var(--threat-color)); }
+}
 @media (max-width: 700px) {
     .hud-speed-text, #incoming-indicator::after { right: 8px; }
+    .incoming-direction-arrow {
+        top: 88px;
+        left: 50%;
+        border-top-width: 7px;
+        border-bottom-width: 7px;
+        border-left-width: 14px;
+    }
+    #incoming-indicator[data-direction="left"] .incoming-direction-arrow { left: 14px; }
+    #incoming-indicator[data-direction="right"] .incoming-direction-arrow { left: calc(100vw - 14px); }
+    #incoming-indicator[data-direction="rear"] .incoming-direction-arrow {
+        top: 36%;
+        bottom: auto;
+        left: 14px;
+    }
 }
 @media (prefers-reduced-motion: reduce) {
-    #incoming-indicator { transition: none; animation: none !important; }
+    #incoming-indicator, .incoming-direction-arrow { transition: none; animation: none !important; }
 }
 
 .hot-potato-hud {
@@ -3801,6 +3994,38 @@ body:not(.practice-lab-active) .network-diagnostics {
     .spectator-hint { display: none; }
     .emote-wheel-item { width: 48px; height: 48px; }
     .emote-wheel-item .ui-icon { width: 18px; height: 18px; }
+}
+
+/* A gated Volleyball directory is a compact status route, not a disabled form.
+   At desktop widths the 12px screen inset + fixed shell height exactly equals
+   the viewport; mobile keeps its existing natural document scroll. */
+@media (min-width: 981px) {
+    #multiplayer-menu[data-sport="volleyball"] {
+        padding: 12px;
+        overflow: hidden;
+    }
+    #multiplayer-menu[data-sport="volleyball"] .mp-layout {
+        height: calc(100dvh - 24px);
+        min-height: 0;
+        max-height: calc(100dvh - 24px);
+    }
+    #multiplayer-menu[data-sport="volleyball"] :is(.mp-left, .mp-right) {
+        padding: clamp(18px, 3vh, 28px);
+    }
+    #multiplayer-menu[data-sport="volleyball"] .mp-left { gap: 12px; }
+    #multiplayer-menu[data-sport="volleyball"] :is(
+        .quick-play-fields,
+        .quick-play-builder > .mp-btn,
+        .mp-lobby-filters,
+        #btn-mp-refresh
+    ) { display: none; }
+    #multiplayer-menu[data-sport="volleyball"] .quick-play-builder { padding: 16px; }
+    #multiplayer-menu[data-sport="volleyball"] .quick-play-heading { margin-bottom: 10px; }
+    #multiplayer-menu[data-sport="volleyball"] .sport-host-gate { margin-top: 0; }
+    #multiplayer-menu[data-sport="volleyball"] .mp-lobby-list[data-lobby-state="sport-gated"] {
+        min-height: 0;
+        margin-bottom: 0;
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -4486,6 +4711,120 @@ body.high-contrast #shop-screen :is(.shop-showcase, .shop-catalog, .shop-card, .
 .cosmetic-practice-actions .btn { min-height: 44px; flex: 1 1 110px; }
 .cosmetic-practice-hud > small { display: block; margin-top: 12px; color: #8bbbc5; line-height: 1.45; }
 body.cosmetic-practice-active #friends-sidebar { display: none !important; }
+
+/* Local Volleyball owns its simulation, court and compact coaching HUD. The
+   Dodgeball combat layer stays mounted but cannot compete for attention/input. */
+body.volleyball-practice-active :is(
+    #hud, #incoming-indicator, #hit-marker, #dmg-direction, #hit-flash,
+    #combo-display, #combo-meter, #perfect-deflect-hud, #celeb-weapon-hud,
+    #round-banner, #countdown, #killcam, #killcam-overlay, #chat-log,
+    #chat-input, #network-diagnostics, #friends-sidebar
+) { display: none !important; }
+
+/* V1 hid the entire gated secondary-action row. V2 deliberately restores only
+   the offline practice route; every network-bearing sibling stays absent. */
+#multiplayer-menu[data-sport="volleyball"] .mp-secondary-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+}
+#multiplayer-menu[data-sport="volleyball"] .mp-secondary-actions > :not(#btn-mp-solo) { display: none; }
+#multiplayer-menu[data-sport="volleyball"] #btn-mp-solo {
+    min-height: 50px;
+    color: #061526;
+    border-color: color-mix(in srgb, var(--screen-accent-soft) 72%, transparent);
+    background: linear-gradient(110deg, var(--screen-accent-soft), #8b7dff 62%, #f071d2);
+    box-shadow: 0 0 24px color-mix(in srgb, var(--screen-accent) 26%, transparent);
+}
+
+.volleyball-practice-hud {
+    position: fixed;
+    z-index: 20;
+    top: max(16px, env(safe-area-inset-top));
+    left: 50%;
+    width: min(620px, calc(100vw - 32px));
+    padding: 10px 12px 12px;
+    color: var(--screen-ink);
+    border: 1px solid color-mix(in srgb, var(--screen-accent-soft) 54%, transparent);
+    border-radius: 16px;
+    background: linear-gradient(145deg, rgba(3, 18, 38, .94), rgba(10, 21, 54, .9));
+    box-shadow: 0 14px 40px rgba(0, 6, 22, .42), inset 0 1px rgba(255,255,255,.08);
+    transform: translateX(-50%);
+    backdrop-filter: blur(14px);
+}
+
+.volleyball-practice-score {
+    display: grid;
+    grid-template-columns: minmax(72px, 1fr) minmax(150px, 1.5fr) minmax(72px, 1fr);
+    align-items: stretch;
+    gap: 8px;
+}
+
+.volleyball-practice-score > span {
+    min-height: 54px;
+    display: grid;
+    place-items: center;
+    align-content: center;
+    border: 1px solid rgba(255,255,255,.1);
+    border-radius: 11px;
+    background: rgba(255,255,255,.045);
+}
+
+.volleyball-practice-score > .is-home { border-color: color-mix(in srgb, var(--screen-accent-soft) 42%, transparent); background: color-mix(in srgb, var(--screen-accent) 22%, transparent); }
+.volleyball-practice-score > .is-away { border-color: rgba(255, 105, 172, .4); background: rgba(126, 29, 80, .22); }
+.volleyball-practice-score small { color: #9fc8d5; font-size: .58rem; font-weight: 850; letter-spacing: .12em; }
+.volleyball-practice-score b { font-size: 1.5rem; line-height: 1; }
+.volleyball-practice-set strong { color: #fff; font-size: .76rem; letter-spacing: .08em; }
+
+.volleyball-practice-command {
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.volleyball-practice-command span { color: var(--screen-accent-soft); font-size: .63rem; font-weight: 900; letter-spacing: .13em; }
+.volleyball-practice-command strong { color: #ffdb69; font-size: .78rem; letter-spacing: .06em; }
+.volleyball-practice-hud p { margin: 8px 0 0; color: #b8d1df; font-size: .69rem; text-align: center; }
+.volleyball-practice-hud p i { margin-inline: 5px; color: #537b91; font-style: normal; }
+.volleyball-practice-hud kbd { padding: 2px 5px; color: var(--screen-ink); border: 1px solid color-mix(in srgb, var(--screen-accent-soft) 34%, transparent); border-radius: 5px; background: rgba(2, 12, 29, .82); font: 800 .62rem/1.2 inherit; }
+
+.volleyball-practice-actions {
+    margin-top: 9px;
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+}
+
+.volleyball-practice-actions button {
+    min-width: 116px;
+    min-height: 36px;
+    padding: 7px 12px;
+    color: var(--screen-ink);
+    border: 1px solid color-mix(in srgb, var(--screen-accent-soft) 30%, transparent);
+    border-radius: 9px;
+    background: rgba(17, 65, 92, .6);
+    font-weight: 800;
+}
+
+.volleyball-practice-actions button:hover,
+.volleyball-practice-actions button:focus-visible { border-color: var(--screen-accent-soft); background: color-mix(in srgb, var(--screen-accent) 30%, rgba(17, 65, 92, .78)); }
+.volleyball-practice-actions button:focus-visible { outline: 2px solid #ffdb69; outline-offset: 2px; }
+
+@media (max-width: 480px) {
+    .volleyball-practice-hud { top: max(8px, env(safe-area-inset-top)); width: calc(100vw - 16px); padding: 8px; border-radius: 13px; }
+    .volleyball-practice-score { grid-template-columns: 64px minmax(120px, 1fr) 64px; gap: 5px; }
+    .volleyball-practice-score > span { min-height: 48px; }
+    .volleyball-practice-score b { font-size: 1.25rem; }
+    .volleyball-practice-command { margin-top: 6px; }
+    .volleyball-practice-hud p { margin-top: 6px; font-size: .61rem; }
+    .volleyball-practice-actions { margin-top: 7px; }
+    .volleyball-practice-actions button { min-width: 0; min-height: 44px; flex: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .volleyball-practice-hud { backdrop-filter: none; }
+}
 
 @media (max-width: 620px) {
     .cosmetic-practice-hud { top: auto; bottom: max(10px, env(safe-area-inset-bottom)); left: 10px; width: calc(100vw - 20px); padding: 14px; }

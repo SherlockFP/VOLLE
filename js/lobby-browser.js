@@ -1,16 +1,19 @@
 const text = value => String(value || '').trim();
 const count = (value, fallback) => Math.max(0, Number.isFinite(Number(value)) ? Number(value) : fallback);
+const sportId = lobby => text(lobby?.sportId).toLowerCase() || 'dodgeball';
 
 export function filterLobbies(lobbies, filters = {}) {
     const mode = text(filters.mode || 'all');
     const map = text(filters.map).toLowerCase();
     const queue = text(filters.queue || 'all');
+    const sport = text(filters.sportId || 'all').toLowerCase();
     const openOnly = filters.openOnly !== false;
     const minOpenSlots = Math.max(1, Math.floor(Number(filters.minOpenSlots) || 1));
     return (Array.isArray(lobbies) ? lobbies : []).filter(lobby => {
         const players = count(lobby?.players, 1);
         const maxPlayers = Math.max(2, count(lobby?.maxPlayers, 8));
         if (openOnly && maxPlayers - players < minOpenSlots) return false;
+        if (sport !== 'all' && sportId(lobby) !== sport) return false;
         if (mode !== 'all' && text(lobby?.mode) !== mode) return false;
         if (map && !text(lobby?.map).toLowerCase().includes(map)) return false;
         if (queue === 'ranked' && lobby?.ranked !== true) return false;

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
+import { resolveSportRoute } from '../js/sports.js';
 
 const mainSource = readFileSync(new URL('../js/main.js', import.meta.url), 'utf8');
 
@@ -42,13 +43,13 @@ function extractAppMethod(name) {
     assert.fail(`App.${name} method body is incomplete`);
 }
 
-function compileAppMethod(name) {
+function compileAppMethod(name, globals = {}) {
     const method = extractAppMethod(name);
-    return runInNewContext(`({ ${method} }).${name}`);
+    return runInNewContext(`({ ${method} }).${name}`, globals);
 }
 
 test('delayed registration for an old room cannot overwrite the current host token', async () => {
-    const registerLobby = compileAppMethod('_registerLobby');
+    const registerLobby = compileAppMethod('_registerLobby', { resolveSportRoute });
     let resolveRequest;
     const request = new Promise(resolve => { resolveRequest = resolve; });
     const installed = [];

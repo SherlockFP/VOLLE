@@ -135,6 +135,10 @@ function makeTrace({ currentSpeed, ping = 0 } = {}) {
     host.broadcast = packet => remoteAnimations.push(packet);
     host.broadcastBinary = buffer => encodedBallStates.push(buffer);
     hostGame.network = host;
+    hostGame._isDeflectFacingBall = compileGameMethod('_isDeflectFacingBall', {
+        DEFLECT_MIN_FACING_DOT: 0.15,
+        Math
+    });
     hostGame.remoteAttack = compileGameMethod('remoteAttack', {
         THREE: { Vector3 },
         performance: { now: () => now },

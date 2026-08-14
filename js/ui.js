@@ -36,8 +36,15 @@ export function getBallHeat(ballSpeed, baseSpeed = BALL_BASE_SPEED) {
     };
 }
 
-export function getBallThreat(isTarget, ballSpeed, distance) {
-    if (!isTarget) return { active: false, level: 'track', eta: Infinity, label: '' };
+export function getBallThreat(isTarget, ballSpeed, distance, direction = 'front', perfectWindow = false) {
+    if (!isTarget) return {
+        active: false,
+        level: 'track',
+        eta: Infinity,
+        label: '',
+        direction: 'front',
+        perfectWindow: false
+    };
     const heat = getBallHeat(ballSpeed);
     const safeDistance = Number.isFinite(distance) ? Math.max(0, distance) : Infinity;
     const eta = heat.speed > 0 ? safeDistance / heat.speed : Infinity;
@@ -46,11 +53,19 @@ export function getBallThreat(isTarget, ballSpeed, distance) {
         : eta <= 0.85 || heat.level === 'danger'
             ? 'danger'
             : 'alert';
+    const safeDirection = direction === 'left' || direction === 'right' || direction === 'rear'
+        ? direction
+        : 'front';
+    const directionLabel = safeDirection === 'rear' ? 'BEHIND' : safeDirection.toUpperCase();
     return {
         active: true,
         level,
         eta,
-        label: Number.isFinite(eta) ? `INCOMING ${eta.toFixed(1)}S` : 'INCOMING'
+        direction: safeDirection,
+        perfectWindow: perfectWindow === true,
+        label: Number.isFinite(eta)
+            ? `INCOMING ${eta.toFixed(1)}S · ${directionLabel}`
+            : `INCOMING · ${directionLabel}`
     };
 }
 
@@ -388,19 +403,43 @@ export class UI {
     }
 
     // Incoming indicator with speed and time-to-impact readability.
-    setPlayerTarget(isTarget, ballSpeed = 0, distance = Infinity) {
+    setPlayerTarget(
+        isTarget,
+        ballSpeed = 0,
+        distance = Infinity,
+        side = 0,
+        direction = 'front',
+        behind = false,
+        offscreen = false,
+        perfectWindow = false
+    ) {
         const el = document.getElementById('incoming-indicator');
         if (!el) return;
-        const threat = getBallThreat(isTarget, ballSpeed, distance);
+        const threat = getBallThreat(isTarget, ballSpeed, distance, direction, perfectWindow);
         const previousLevel = el.dataset.threat;
+        const previousDirection = el.dataset.direction;
         el.classList.toggle('active', threat.active);
         el.classList.toggle('hidden', !threat.active);
         el.dataset.threat = threat.level;
         el.dataset.label = threat.label;
+        el.dataset.direction = threat.direction;
+        el.dataset.behind = String(threat.active && behind === true);
+        el.dataset.offscreen = String(threat.active && offscreen === true);
+        el.dataset.perfect = String(threat.active && threat.perfectWindow);
+        const safeSide = Number.isFinite(side) ? Math.max(-1, Math.min(1, side)) : 0;
+        const eta = Number.isFinite(threat.eta) ? threat.eta : 1.5;
+        const scale = Math.max(0.88, Math.min(1.18, 1.18 - eta * 0.2));
+        const pulse = Math.max(0.34, Math.min(0.82, 0.34 + eta * 0.3));
+        el.style.setProperty('--threat-side', safeSide.toFixed(3));
+        el.style.setProperty('--threat-scale', scale.toFixed(3));
+        el.style.setProperty('--threat-pulse', `${pulse.toFixed(3)}s`);
         el.setAttribute('aria-hidden', String(!threat.active));
-        if (threat.active && previousLevel !== threat.level) {
+        if (!threat.active) {
+            el.setAttribute('aria-label', 'No incoming ball');
+        } else if (previousLevel !== threat.level || previousDirection !== threat.direction) {
             el.setAttribute('role', 'status');
-            el.setAttribute('aria-label', threat.label);
+            const ariaDirection = threat.direction === 'rear' ? 'behind' : threat.direction;
+            el.setAttribute('aria-label', `Incoming ball from ${ariaDirection}`);
         }
     }
 
@@ -618,6 +657,19 @@ export class UI {
             this._messageUntil = 0;
             this._messageTimer = null;
         }, safeDuration);
+        return true;
+    }
+
+    hideMessage() {
+        clearTimeout(this._messageTimer);
+        this._messageTimer = null;
+        this._messageToken = (this._messageToken || 0) + 1;
+        this._messagePriority = 0;
+        this._messageUntil = 0;
+        const el = document.getElementById('game-message');
+        if (!el) return false;
+        el.classList.add('hidden');
+        el.classList.remove('message-anim', 'deflect-normal', 'deflect-great', 'deflect-perfect');
         return true;
     }
 

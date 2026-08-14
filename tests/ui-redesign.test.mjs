@@ -43,7 +43,8 @@ test('quick play, progression, and hero dashboards keep stable hooks', () => {
     }
     assert.doesNotMatch(html, /id="shop-tab-skills"/);
     assert.doesNotMatch(ui, /tab === 'skills'/);
-    assert.match(main, /pickQuickLobby\(lobbies, \{ queue, mode, map, openOnly: true \}\)/);
+    assert.match(main, /filterLobbies\(lobbies, \{ sportId: this\._selectedSportId, openOnly: false \}\)/);
+    assert.match(main, /pickQuickLobby\(routedLobbies, \{ queue, mode, map, openOnly: true \}\)/);
     assert.match(main, /const skillEquip = e\.target\.closest\('\.skill-equip'\)/);
     assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
 });

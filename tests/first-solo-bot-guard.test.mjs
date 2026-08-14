@@ -94,7 +94,7 @@ test('guard is explicitly scoped to the first offline opposing bot without autom
     assert.match(bot, /Math\.random\(\) < this\.mishitRate/, 'guard must not bypass mishit variance');
     assert.match(game, /armFirstSoloBotDeflectGuard\(\) \{\s*this\._firstSoloBotDeflectGuardArmed = true;\s*this\._firstSoloAimFeedbackArmed = true;/);
     assert.match(game, /if \(!this\.network\?\.connected && this\._firstSoloBotDeflectGuardArmed\) \{[\s\S]*?this\.bots\.find\(bot => bot\.team !== this\.player\.team\)[\s\S]*?this\._firstSoloAimFeedbackPending = this\._firstSoloAimFeedbackArmed;[\s\S]*?this\._firstSoloBotDeflectGuardArmed = false;/);
-    assert.match(game, /if \(!skipAimCheck && aimDir\.dot\(ballDir\) < -0\.2\) \{[\s\S]*?this\.player\.attacking = false;[\s\S]*?this\.ui\.showMessage\?\.\('BALL BEHIND — TURN TO FACE IT', 900\);[\s\S]*?this\.audio\.playCue\?\.\('deflect-reject'\);/);
+    assert.match(game, /if \(!this\._isDeflectFacingBall\(aimDir, pos, this\.ball\.position\)\) \{[\s\S]*?this\.player\.attacking = false;[\s\S]*?this\.ui\.showMessage\?\.\('BALL BEHIND — TURN TO FACE IT', 900\);[\s\S]*?this\.audio\.playCue\?\.\('deflect-reject'\);/);
     assert.match(game, /if \(!this\.network\?\.connected\) this\._firstSoloAimFeedbackPending = false;/);
     const guardFn = main.slice(main.indexOf('_armFirstSoloBotGuard()'), main.indexOf('setupMenuHandlers()', main.indexOf('_armFirstSoloBotGuard()')));
     assert.match(guardFn, /this\.game\.armFirstSoloBotDeflectGuard\(\);/);

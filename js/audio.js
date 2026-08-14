@@ -43,6 +43,16 @@ export function scheduleThreatAudio(state, sample) {
 }
 
 export class Audio {
+    // Tiny CC0 layer: each effect is fetched and decoded only after first use.
+    // Synth cues remain the immediate/offline-safe fallback.
+    static KENNEY_CLIPS = Object.freeze({
+        'ui-click': 'assets/cc0/kenney/audio/interface/click_003.ogg',
+        'ui-hover': 'assets/cc0/kenney/audio/interface/tick_002.ogg',
+        'ui-confirm': 'assets/cc0/kenney/audio/interface/confirmation_002.ogg',
+        'deflect-soft': 'assets/cc0/kenney/audio/impact/impactSoft_medium_001.ogg',
+        'deflect-reject': 'assets/cc0/kenney/audio/interface/error_002.ogg'
+    });
+
     constructor() {
         this.ctx = null;
         this.masterGain = null;
@@ -52,6 +62,9 @@ export class Audio {
         this._threatCueGeneration = 0;
         this._contextResumePromise = null;
         this._buffers = {}; // name → AudioBuffer cache
+        this._kenneyBuffers = new Map();
+        this._kenneyLoads = new Map();
+        this._kenneyLastPlayed = Object.create(null);
     }
 
     // ===== Named cue API with retrigger guard and graceful fallback =====
@@ -124,7 +137,10 @@ export class Audio {
     }
 
     init() {
-        if (this.ctx) return;
+        if (this.ctx) {
+            if (this.ctx.state === 'suspended') this._resumeAudioContext();
+            return;
+        }
         try {
             this.ctx = new (window.AudioContext || window.webkitAudioContext)();
         } catch (e) {
@@ -218,6 +234,44 @@ export class Audio {
         return flight;
     }
 
+    _loadKenneyClip(name) {
+        if (this._kenneyBuffers.has(name) || this._kenneyLoads.has(name)) return;
+        const url = Audio.KENNEY_CLIPS[name];
+        if (!url || typeof fetch !== 'function' || !this.ctx?.decodeAudioData) return;
+        const context = this.ctx;
+        const flight = fetch(url)
+            .then(response => response.ok ? response.arrayBuffer() : Promise.reject(new Error(`Kenney audio ${response.status}`)))
+            .then(data => context.decodeAudioData(data))
+            .then(buffer => {
+                if (buffer && this.ctx === context) this._kenneyBuffers.set(name, buffer);
+            })
+            .catch(() => {}) // Procedural audio is the intentional no-network fallback.
+            .finally(() => this._kenneyLoads.delete(name));
+        this._kenneyLoads.set(name, flight);
+    }
+
+    _playKenneyClip(name, gainValue, minGapMs = 50) {
+        if (!this.ctx || !this.masterGain || this.soundVolume <= 0) return false;
+        const buffer = this._kenneyBuffers.get(name);
+        if (!buffer) {
+            this._loadKenneyClip(name);
+            return false;
+        }
+        const now = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+        const lastPlayed = this._kenneyLastPlayed[name];
+        if (Number.isFinite(lastPlayed) && now - lastPlayed < minGapMs) return true;
+        const source = this.ctx.createBufferSource?.();
+        const gain = this.ctx.createGain?.();
+        if (!source || !gain) return false;
+        source.buffer = buffer;
+        gain.gain.value = gainValue;
+        source.connect(gain);
+        gain.connect(this.masterGain);
+        source.start(this.ctx.currentTime);
+        this._kenneyLastPlayed[name] = now;
+        return true;
+    }
+
     _playThreatCueNow(level) {
         const t = this.ctx.currentTime;
         const pulse = (type, frequency, offset, duration, gainValue) => {
@@ -307,6 +361,9 @@ export class Audio {
 
     playDeflect(shot = 'flat') {
         if (!this.ctx) return;
+        // Foley is a quiet body layer; the synth below keeps spike/lob/flat
+        // readable through their distinct pitch, envelope and spike thump.
+        this._playKenneyClip('deflect-soft', shot === 'spike' ? 0.16 : 0.11, 55);
         const t = this.ctx.currentTime;
 
         // Base pitch by shot: spike = punchy/low, lob = soft/high, flat = mid.
@@ -490,12 +547,14 @@ export class Audio {
     // UI click — short tick for menu buttons
     playClick() {
         if (!this.ctx) return;
+        if (this._playKenneyClip('ui-click', 0.24, 45)) return;
         this._osc('square', 800, 0.03, 0.08);
         this._osc('sine', 1200, 0.02, 0.04);
     }
     // UI hover — subtle pip
     playHover() {
         if (!this.ctx) return;
+        if (this._playKenneyClip('ui-hover', 0.1, 70)) return;
         this._osc('sine', 600, 0.015, 0.03);
     }
 
@@ -509,6 +568,7 @@ export class Audio {
     // Quiet low warning for the one-time first-match aim correction.
     playDeflectReject() {
         if (!this.ctx) return;
+        if (this._playKenneyClip('deflect-reject', 0.13, 200)) return;
         this._osc('triangle', 240, 0.07, 0.04);
         this._osc('sine', 160, 0.05, 0.025);
     }
@@ -528,6 +588,7 @@ export class Audio {
 
     // Victory jingle
     playScore() {
+        if (this._playKenneyClip('ui-confirm', 0.3, 500)) return;
         [523, 587, 659, 784, 1047].forEach((f, i) => {
             setTimeout(() => this._osc('sine', f, 0.25, 0.15), i * 80);
         });

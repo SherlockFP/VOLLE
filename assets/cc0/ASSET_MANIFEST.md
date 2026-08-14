@@ -40,3 +40,17 @@ beside each pack.
 
 Kenney attribution is not required for CC0 assets. Sources are retained for
 provenance and future updates.
+
+## Kenney Interface + Impact Sounds
+
+- Sources: https://kenney.nl/assets/interface-sounds and
+  https://kenney.nl/assets/impact-sounds
+- License: CC0 1.0; the original license text is retained as
+  `kenney/audio/LICENSE-interface.txt` and `kenney/audio/LICENSE-impact.txt`.
+- Files: four compact interface cues (`click_003`, `tick_002`,
+  `confirmation_002`, `error_002`) and one soft impact cue
+  (`impactSoft_medium_001`), all `.ogg`.
+- Use: lazy-decoded menu confirmation, hover and reject feedback, plus a
+  low-gain deflect foley layer beneath the existing shot-specific synth.
+  Synthesized cues remain the offline/autoplay fallback, so these assets do not
+  block interaction or require a preload.

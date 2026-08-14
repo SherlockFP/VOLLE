@@ -59,6 +59,8 @@ import {
     updateDraftPick
 } from './competitive-service.js';
 import { filterLobbies, pickQuickLobby, formatLobbyAge, lobbyCapacity } from './lobby-browser.js';
+import { canHostSport, canPlayLocalSport, lobbySportId, resolveSportRoute, sportDefinition, SPORT_IDS } from './sports.js';
+import { createVolleyballPracticeRuntime } from './volleyball-practice-runtime.js';
 import {
     createParty,
     createSocialProfile,
@@ -212,6 +214,9 @@ class App {
         this.mapEditor = null;
         this.replayView = null;
         this._replaySpectatorGame = null;
+        this._selectedSportId = SPORT_IDS.DODGEBALL;
+        this._activeSportSession = null;
+        this._volleyballAimScratch = new THREE.Vector3();
 
         // Init systems
         const container = document.getElementById('game-container');
@@ -442,6 +447,10 @@ class App {
 
             // Console visible → skip all other handlers
             if (this.gameConsole?.visible) return;
+
+            // Sport Select owns its short keyboard route even if a stale game
+            // state would otherwise make the global Tab scoreboard handler win.
+            if (this._handleSportSelectKeydown(e)) return;
 
             if (this.cosmeticPractice?.active && e.code === 'Escape') {
                 e.preventDefault();
@@ -1718,16 +1727,19 @@ class App {
         bind('ftue-welcome-practice', () => this.hideFtueWelcome({ reason: 'skip', trackExit: true }));
 
         const openMultiplayer = () => {
-            // QUICK PLAY opens the multiplayer hub (user decision 2026-07-30): lobby
-            // browser + create/host + join-by-code + Solo vs Bots all live there.
-            // Bot matches are one click further via btn-mp-solo.
             this.ui.showScreen('multiplayerMenu');
-            this._refreshLobbyList();
-            clearInterval(this._mpRefreshTimer);
-            this._mpRefreshTimer = setInterval(() => this._refreshLobbyList(), 5000);
+            this._showSportSelect();
         };
         bind('btn-play-solo', openMultiplayer);
         bind('btn-play', openMultiplayer);
+        document.querySelectorAll('[data-sport-select]').forEach(button => {
+            button.addEventListener('click', () => this._openMultiplayerForSport(button.dataset.sportSelect));
+        });
+        bind('btn-change-sport', () => this._showSportSelect());
+        bind('btn-sport-back', () => {
+            clearInterval(this._mpRefreshTimer);
+            this.ui.showScreen('mainMenu');
+        });
 
         // Multiplayer menü butonları
         bind('btn-mp-create', () => {
@@ -1755,6 +1767,14 @@ class App {
             this.ui.showScreen('joinMenu');
         });
         bind('btn-mp-solo', () => {
+            if (this._selectedSportId === SPORT_IDS.VOLLEYBALL && canPlayLocalSport(this._selectedSportId)) {
+                this._startVolleyballPractice();
+                return;
+            }
+            if (!canHostSport(this._selectedSportId)) {
+                this.ui.showMessage?.('Volleyball core rally is in development.', 2200);
+                return;
+            }
             clearInterval(this._mpRefreshTimer);
             this.game.startSolo();
             this._armFirstSoloBotGuard();
@@ -1763,11 +1783,13 @@ class App {
         bind('btn-mp-quick', () => this._startQuickPlay());
         bind('btn-mp-back', () => {
             clearInterval(this._mpRefreshTimer);
-            this.ui.showScreen('mainMenu');
+            this._showSportSelect();
         });
         bind('btn-mp-refresh', () => {
             this._refreshLobbyList();
         });
+        bind('volleyball-practice-restart', () => this._activeSportSession?.runtime.restart());
+        bind('volleyball-practice-exit', () => this._exitVolleyballPractice());
         ['mp-lobby-mode-filter', 'mp-lobby-map-filter', 'mp-lobby-queue-filter', 'mp-lobby-open-filter'].forEach(id => {
             document.getElementById(id)?.addEventListener('change', () => this._refreshLobbyList());
         });
@@ -2252,7 +2274,8 @@ class App {
             if (!btn) return;
             const inMenu = this.game.state === STATES.MENU || this.game.state === STATES.LOBBY;
             if (inMenu || btn.closest('.panel, .pause-panel, .settings-modal')) {
-                this.audio?.playClick?.();
+                this.audio?.init?.();
+                this.audio?.playCue?.('ui-click');
             }
         }, { passive: true });
 
@@ -3079,10 +3102,12 @@ bind('carousel-next', () => {
 const updateCSLobbyInfo = () => {
             const mapEl = document.getElementById('cs-lobby-map');
             const modeEl = document.getElementById('cs-lobby-mode');
+            const sportEl = document.getElementById('cs-lobby-sport');
     const host = this.isLobbyHost();
     document.getElementById('lobby-screen')?.classList.toggle('lobby-client', !host);
     if (mapEl) mapEl.textContent = this.arena?.config?.name || 'Beach';
     if (modeEl) modeEl.textContent = this.game?.mode?.name || 'Classic';
+    if (sportEl) sportEl.textContent = sportDefinition(this._selectedSportId).name.toUpperCase();
     const modifierSelect = document.getElementById('match-modifier');
     modifierSelect?.querySelectorAll('option[value^="ffa_"]').forEach(option => {
         option.disabled = !this.game?._ffa;
@@ -6291,7 +6316,393 @@ updateCarousel() {
         this.game.scoreboard.reset();
     }
 
-    // --- Lobby Browser API helpers ---
+    // --- Canonical sport route + Lobby Browser API helpers ---
+    _handleSportSelectKeydown(event) {
+        const stage = document.getElementById('sport-select-stage');
+        if (document.body.dataset.screen !== 'multiplayerMenu'
+            || !stage || stage.classList.contains('hidden') || stage.inert) return false;
+        const controls = [
+            ...stage.querySelectorAll('[data-sport-select]'),
+            document.getElementById('btn-sport-back')
+        ].filter(control => control && !control.disabled);
+        if (!controls.length) return false;
+        if (event.code === 'Tab') {
+            event.preventDefault();
+            event.stopPropagation();
+            const current = controls.indexOf(document.activeElement);
+            const next = event.shiftKey
+                ? (current <= 0 ? controls.length - 1 : current - 1)
+                : (current < 0 || current === controls.length - 1 ? 0 : current + 1);
+            controls[next].focus({ preventScroll: true });
+            return true;
+        }
+        if ((event.code === 'Enter' || event.code === 'Space') && controls.includes(document.activeElement)) {
+            event.preventDefault();
+            event.stopPropagation();
+            document.activeElement.click();
+            return true;
+        }
+        return false;
+    }
+
+    _showSportSelect() {
+        clearInterval(this._mpRefreshTimer);
+        const stage = document.getElementById('sport-select-stage');
+        const browser = document.querySelector('#multiplayer-menu .mp-layout');
+        stage?.classList.remove('hidden');
+        stage?.setAttribute('aria-hidden', 'false');
+        if (stage) stage.inert = false;
+        browser?.classList.add('hidden');
+        browser?.setAttribute('aria-hidden', 'true');
+        if (browser) browser.inert = true;
+        document.querySelectorAll('[data-sport-select]').forEach(button => {
+            button.setAttribute('aria-pressed', String(button.dataset.sportSelect === this._selectedSportId));
+        });
+        stage?.focus({ preventScroll: true });
+    }
+
+    _openMultiplayerForSport(sportId) {
+        this._selectedSportId = sportDefinition(sportId).id;
+        this._applySportPresentation();
+        const stage = document.getElementById('sport-select-stage');
+        const browser = document.querySelector('#multiplayer-menu .mp-layout');
+        stage?.classList.add('hidden');
+        stage?.setAttribute('aria-hidden', 'true');
+        if (stage) stage.inert = true;
+        browser?.classList.remove('hidden');
+        browser?.setAttribute('aria-hidden', 'false');
+        if (browser) browser.inert = false;
+        const screen = document.getElementById('multiplayer-menu');
+        if (screen) screen.scrollTop = 0;
+        this._refreshLobbyList();
+        clearInterval(this._mpRefreshTimer);
+        if (canHostSport(this._selectedSportId)) {
+            this._mpRefreshTimer = setInterval(() => this._refreshLobbyList(), 5000);
+        }
+        document.getElementById('btn-change-sport')?.focus({ preventScroll: true });
+    }
+
+    _applySportPresentation() {
+        const sport = sportDefinition(this._selectedSportId);
+        const hostEnabled = canHostSport(sport.id);
+        const localPlayEnabled = canPlayLocalSport(sport.id);
+        const menu = document.getElementById('multiplayer-menu');
+        if (menu) menu.dataset.sport = sport.id;
+        const current = document.getElementById('mp-current-sport');
+        const heading = document.getElementById('mp-lobby-heading');
+        const gate = document.getElementById('sport-host-gate');
+        const status = document.querySelector('#multiplayer-menu .quick-play-status');
+        if (current) current.textContent = sport.name;
+        if (heading) heading.textContent = `Open ${sport.name} Lobbies`;
+        if (status) status.textContent = sport.id === SPORT_IDS.VOLLEYBALL ? 'LOCAL PRACTICE' : sport.status;
+        gate?.classList.toggle('hidden', hostEnabled);
+        ['btn-mp-quick', 'btn-mp-create', 'btn-mp-host-strip', 'btn-mp-solo',
+            'btn-mp-join', 'btn-mp-refresh', 'btn-mp-party-follow'].forEach(id => {
+            const button = document.getElementById(id);
+            if (button) {
+                button.disabled = !hostEnabled;
+                button.inert = !hostEnabled;
+            }
+        });
+        const solo = document.getElementById('btn-mp-solo');
+        if (solo) {
+            const enabled = hostEnabled || localPlayEnabled;
+            solo.disabled = !enabled;
+            solo.inert = !enabled;
+            solo.setAttribute('aria-label', sport.id === SPORT_IDS.VOLLEYBALL
+                ? 'Start local Volleyball practice'
+                : 'Start Dodgeball solo versus bots');
+        }
+        const soloLabel = document.getElementById('btn-mp-solo-label');
+        if (soloLabel) soloLabel.textContent = sport.id === SPORT_IDS.VOLLEYBALL ? 'Local Practice' : 'Solo vs Bots';
+        const queue = document.getElementById('quick-play-queue');
+        const mode = document.getElementById('quick-play-mode');
+        const map = document.getElementById('quick-play-map');
+        if (!hostEnabled && queue) queue.value = 'casual';
+        const directoryControls = [
+            queue, mode, map,
+            document.getElementById('mp-lobby-mode-filter'),
+            document.getElementById('mp-lobby-map-filter'),
+            document.getElementById('mp-lobby-queue-filter'),
+            document.getElementById('mp-lobby-open-filter')
+        ];
+        directoryControls.forEach(control => { if (control) control.disabled = !hostEnabled; });
+        const directory = document.querySelector('#multiplayer-menu .mp-right');
+        if (directory) {
+            directory.inert = !hostEnabled;
+            directory.setAttribute('aria-disabled', String(!hostEnabled));
+        }
+        const lobbySport = document.getElementById('cs-lobby-sport');
+        if (lobbySport) lobbySport.textContent = sport.name.toUpperCase();
+    }
+
+    _createVolleyballInputTarget() {
+        const wrapped = [];
+        const ownedKeys = new Set(['KeyE', 'KeyQ', 'KeyR', 'KeyF', 'KeyB', 'KeyT']);
+        const ownedKey = code => ownedKeys.has(code);
+        const ownedPointer = button => button === 0 || button === 2;
+        return {
+            addEventListener(type, listener) {
+                const capture = event => {
+                    if (type === 'pointerdown' && event.target?.closest?.('#volleyball-practice-hud button')) return;
+                    listener(event);
+                    const owned = type === 'keydown'
+                        ? ownedKey(event.code)
+                        : type === 'pointerdown'
+                            ? ownedPointer(event.button)
+                            : type === 'contextmenu';
+                    if (!owned) return;
+                    event.preventDefault?.();
+                    event.stopImmediatePropagation?.();
+                };
+                wrapped.push({ type, listener, capture });
+                window.addEventListener(type, capture, true);
+            },
+            removeEventListener(type, listener) {
+                const index = wrapped.findIndex(entry => entry.type === type && entry.listener === listener);
+                if (index < 0) return;
+                const entry = wrapped[index];
+                window.removeEventListener(type, entry.capture, true);
+                wrapped.splice(index, 1);
+            },
+            dispose() {
+                for (const entry of wrapped) window.removeEventListener(entry.type, entry.capture, true);
+                wrapped.length = 0;
+            }
+        };
+    }
+
+    _createVolleyballHudAdapter() {
+        const hud = document.getElementById('volleyball-practice-hud');
+        const home = document.getElementById('volleyball-practice-home');
+        const away = document.getElementById('volleyball-practice-away');
+        const sets = document.getElementById('volleyball-practice-sets');
+        const phase = document.getElementById('volleyball-practice-phase');
+        const expected = document.getElementById('volleyball-practice-expected');
+        const write = state => {
+            if (home) home.textContent = String(state.homePoints);
+            if (away) away.textContent = String(state.awayPoints);
+            if (sets) sets.textContent = `SETS ${state.homeSets} - ${state.awaySets}`;
+            if (phase) phase.textContent = String(state.phase || 'serve_setup').replaceAll('_', ' ').toUpperCase();
+            if (expected) expected.textContent = state.expectedAction
+                ? `${String(state.expectedAction).toUpperCase()} READY`
+                : 'TRACK THE BALL';
+        };
+        return {
+            mount(_runtime, state) {
+                hud?.classList.remove('hidden');
+                hud?.setAttribute('aria-hidden', 'false');
+                write(state);
+            },
+            update: write,
+            dispose() {
+                hud?.classList.add('hidden');
+                hud?.setAttribute('aria-hidden', 'true');
+            }
+        };
+    }
+
+    _startVolleyballPractice() {
+        if (this._activeSportSession) return true;
+        if (this._selectedSportId !== SPORT_IDS.VOLLEYBALL || !canPlayLocalSport(this._selectedSportId)) return false;
+        if (this.network?.connected) {
+            this.ui.showMessage?.('Leave the P2P lobby before starting Local Practice.', 2400);
+            return false;
+        }
+        if (this.game.state !== STATES.MENU) {
+            this.ui.showMessage?.('Local Practice can only start from the Volleyball directory.', 2200);
+            return false;
+        }
+
+        clearInterval(this._mpRefreshTimer);
+        this._mpRefreshTimer = null;
+        this._stopBgLoop();
+        const restore = {
+            mapId: this.arena.mapId,
+            modeId: this.game.mode?.id || 'classic',
+            gameState: this.game.state,
+            team: this.player.team,
+            px: this.player.position.x,
+            py: this.player.position.y,
+            pz: this.player.position.z,
+            vx: this.player.velocity.x,
+            vy: this.player.velocity.y,
+            vz: this.player.velocity.z,
+            pitch: this.player.euler.x,
+            yaw: this.player.euler.y,
+            roll: this.player.euler.z
+        };
+        const inputTarget = this._createVolleyballInputTarget();
+        const runtime = createVolleyballPracticeRuntime();
+        const session = {
+            runtime,
+            inputTarget,
+            restore,
+            focused: document.hasFocus?.() !== false,
+            pointerLockRetry: true,
+            hadPointerLock: false,
+            escapeHandler: null,
+            lookHandler: null,
+            mouseDownHandler: null,
+            pointerLockHandler: null,
+            blurHandler: null,
+            focusHandler: null
+        };
+        this._activeSportSession = session;
+
+        this.game.cancelPreGame?.();
+        this.game.cancelGuidedDrill?.();
+        this.game.clearPowerUps?.();
+        this.game.affixes?.clearRound();
+        this.game.chaosManager?.clear();
+        this.game._practiceMode = false;
+        this.game._cosmeticPractice = false;
+        this.game.state = STATES.LOBBY;
+        this.game.selectMode('classic');
+        this.game.selectMap('beach_open');
+        this.ui.hideMessage?.();
+        this.player.setTeam('red');
+        this.player.respawn();
+        this.player.position.set(0, this.player.height, -6.5);
+        this.player.velocity.set(0, 0, 0);
+        this.player.euler.set(0, Math.PI, 0, 'YXZ');
+        this.player.camera.quaternion.setFromEuler(this.player.euler);
+        this.game.ball.deactivate();
+        this.game.setState(STATES.COSMETIC_PRACTICE);
+        this.ui.hideAll();
+        this.ui.hideHUD();
+        this.ui.setPlayerTarget?.(false);
+        document.body.classList.add('volleyball-practice-active');
+        this.player.setHandTemporarilyVisible(false);
+
+        session.escapeHandler = event => {
+            if (!this._activeSportSession) return;
+            if (event.code === 'Tab') {
+                const controls = [
+                    document.getElementById('volleyball-practice-restart'),
+                    document.getElementById('volleyball-practice-exit')
+                ].filter(Boolean);
+                if (!controls.length) return;
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                session.pointerLockRetry = false;
+                if (document.pointerLockElement && document.exitPointerLock) document.exitPointerLock();
+                const current = controls.indexOf(document.activeElement);
+                const next = event.shiftKey
+                    ? (current <= 0 ? controls.length - 1 : current - 1)
+                    : (current + 1) % controls.length;
+                controls[next].focus({ preventScroll: true });
+                return;
+            }
+            if (event.code !== 'Escape') return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            this._exitVolleyballPractice();
+        };
+        session.lookHandler = event => {
+            if (!this._activeSportSession || document.hidden || event.movementX == null) return;
+            this.player.euler.y -= event.movementX * this.player.sensitivity;
+            this.player.euler.x += (this.player.invertY ? 1 : -1) * event.movementY * this.player.sensitivity;
+            this.player.euler.x = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, this.player.euler.x));
+            this.player.camera.quaternion.setFromEuler(this.player.euler);
+        };
+        const canvas = this.renderer.renderer.domElement;
+        session.mouseDownHandler = event => {
+            if (!this._activeSportSession || (event.button !== 0 && event.button !== 2)) return;
+            if (!document.pointerLockElement && event.target === canvas) {
+                session.pointerLockRetry = true;
+                try { canvas.requestPointerLock?.()?.catch?.(() => {}); } catch (_) {}
+            }
+            event.preventDefault();
+            event.stopImmediatePropagation();
+        };
+        session.pointerLockHandler = () => {
+            if (!this._activeSportSession) return;
+            if (document.pointerLockElement === canvas) {
+                session.hadPointerLock = true;
+                session.pointerLockRetry = false;
+            } else {
+                // Pointer lock is also lost during Alt-Tab. Keep the local
+                // session paused and let the next deliberate canvas gesture
+                // reacquire it; Exit/Escape remain the explicit exit owners.
+                session.pointerLockRetry = false;
+            }
+        };
+        session.blurHandler = () => { session.focused = false; };
+        session.focusHandler = () => { session.focused = true; };
+        window.addEventListener('keydown', session.escapeHandler, true);
+        document.addEventListener('mousemove', session.lookHandler, true);
+        window.addEventListener('mousedown', session.mouseDownHandler, true);
+        document.addEventListener('pointerlockchange', session.pointerLockHandler);
+        window.addEventListener('blur', session.blurHandler);
+        window.addEventListener('focus', session.focusHandler);
+
+        let mounted = false;
+        try {
+            mounted = runtime.mount({
+                scene: this.renderer.scene,
+                inputTarget,
+                hudAdapter: this._createVolleyballHudAdapter(),
+                aimProvider: () => this.camera.getWorldDirection(this._volleyballAimScratch).normalize()
+            });
+        } catch (error) {
+            console.error('Volleyball practice mount failed:', error);
+        }
+        if (!mounted) {
+            this._exitVolleyballPractice({ returnToDirectory: true });
+            this.ui.showMessage?.('Local Practice could not start. Try again.', 2200);
+            return false;
+        }
+        try { canvas.requestPointerLock?.()?.catch?.(() => {}); } catch (_) {}
+        return true;
+    }
+
+    _exitVolleyballPractice({ returnToDirectory = true } = {}) {
+        const session = this._activeSportSession;
+        if (!session) return false;
+        this._activeSportSession = null;
+        window.removeEventListener('keydown', session.escapeHandler, true);
+        document.removeEventListener('mousemove', session.lookHandler, true);
+        window.removeEventListener('mousedown', session.mouseDownHandler, true);
+        document.removeEventListener('pointerlockchange', session.pointerLockHandler);
+        window.removeEventListener('blur', session.blurHandler);
+        window.removeEventListener('focus', session.focusHandler);
+        try { session.runtime.dispose(); } catch (error) { console.error('Volleyball practice cleanup failed:', error); }
+        try { session.inputTarget.dispose(); } catch (error) { console.error('Volleyball input cleanup failed:', error); }
+        document.body.classList.remove('volleyball-practice-active');
+        this.player.restoreHandVisibility();
+        this.player.unlock();
+        if (document.pointerLockElement && document.exitPointerLock) document.exitPointerLock();
+
+        const restore = session.restore;
+        this.game.state = STATES.LOBBY;
+        this.game.selectMode(restore.modeId);
+        this.game.selectMap(restore.mapId);
+        this.player.setTeam(restore.team === 'blue' ? 'blue' : 'red');
+        this.player.respawn();
+        this.player.position.set(restore.px, restore.py, restore.pz);
+        this.player.velocity.set(restore.vx, restore.vy, restore.vz);
+        this.player.euler.set(restore.pitch, restore.yaw, restore.roll, 'YXZ');
+        this.player.camera.quaternion.setFromEuler(this.player.euler);
+        this.game.ball.deactivate();
+        this.game.setState(restore.gameState);
+        this.ui.hideHUD();
+        if (returnToDirectory) {
+            this.ui.showScreen('multiplayerMenu');
+            this._openMultiplayerForSport(SPORT_IDS.VOLLEYBALL);
+        }
+        return true;
+    }
+
+    _adoptTrustedLobbySport(route) {
+        if (!route || typeof route !== 'object') return;
+        const trusted = resolveSportRoute(route);
+        const changed = trusted.sportId !== this._selectedSportId;
+        this._selectedSportId = trusted.sportId;
+        this._applySportPresentation();
+        if (changed) this.ui.showMessage?.(`Joined a ${sportDefinition(trusted.sportId).name} lobby.`, 1800);
+    }
+
     // Lobby cross-tab bug audit: this used to swallow every failure into a bare `{}`,
     // so a broken fetch (offline dev server, CORS misconfig, non-2xx response) looked
     // identical to "server has zero lobbies" — nothing in the console, no way to tell
@@ -6311,14 +6722,22 @@ updateCarousel() {
 
     async _registerLobby(code, name, players, map, mode) {
         const ranked = this.game.mode?.id === 'competitive' || this._rankedHosting === true;
+        const sportRoute = resolveSportRoute({
+            sportId: this._selectedSportId,
+            rulesetId: this.game.mode?.id,
+            mapId: this.arena?.mapId
+        });
         const result = await this._lobbyApi('/api/lobbies', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 code, name, hostName: this.game.playerName, players, map, mode,
+                sportId: sportRoute.sportId,
+                rulesetId: sportRoute.rulesetId,
+                mapId: sportRoute.mapId,
                 ranked,
                 averageElo: ranked ? this.store.getElo() : undefined,
-                maxPlayers: 8
+                maxPlayers: sportRoute.maxPlayers
             })
         });
         if (result?.__lobbyApiError || !result?.admissionToken) return false;
@@ -6336,6 +6755,7 @@ updateCarousel() {
             body: JSON.stringify({ admissionToken: proof })
         });
         if (!admitted?.ok) throw new Error('Lobby admission failed. Please try again.');
+        this._adoptTrustedLobbySport?.(admitted);
         return true;
     }
 
@@ -6362,15 +6782,25 @@ updateCarousel() {
                 <h3>${copy.title}</h3>
                 <p>${this._esc(message)}</p>
                 <p class="mp-lobby-empty-code">Have a room code? <button class="mp-lobby-empty-join" type="button">Join by Code</button></p>
-                <button class="btn btn-primary btn-small mp-lobby-empty-cta" type="button">Host a game</button>
+                <button class="btn btn-primary btn-small mp-lobby-empty-cta" type="button" ${canHostSport(this._selectedSportId) ? '' : 'disabled'}>Host a game</button>
                 <small><i></i> Public rooms refresh automatically</small>
             </div>`;
     }
 
     async _refreshLobbyList() {
-        const list = await this._lobbyApi('/api/lobbies', { method: 'GET' });
         const container = document.getElementById('mp-lobby-list');
         if (!container) return;
+        if (!canHostSport(this._selectedSportId)) {
+            container.dataset.lobbyState = 'sport-gated';
+            container.removeAttribute('aria-busy');
+            container.innerHTML = `<div class="mp-sport-gated" role="status">
+                <span class="shell-kicker">VOLLEYBALL V1</span>
+                <h3>Core rally in development</h3>
+                <p>Public rooms open after authoritative serve, receive, set and spike play is ready.</p>
+            </div>`;
+            return;
+        }
+        const list = await this._lobbyApi('/api/lobbies', { method: 'GET' });
         if (list?.__lobbyApiError) {
             this._renderLobbyEmpty(container, 'Lobby service unreachable. Check your connection and try again.', 'error');
             return;
@@ -6383,13 +6813,19 @@ updateCarousel() {
         const mapFilter = document.getElementById('mp-lobby-map-filter');
         const queueFilter = document.getElementById('mp-lobby-queue-filter');
         const openFilter = document.getElementById('mp-lobby-open-filter');
+        const sportLobbies = filterLobbies(list, { sportId: this._selectedSportId, openOnly: false });
+        if (!sportLobbies.length) {
+            this._renderLobbyEmpty(container, `No public ${sportDefinition(this._selectedSportId).name} rooms right now.`);
+            return;
+        }
         if (modeFilter) {
             const selected = modeFilter.value || 'all';
-            const modes = [...new Set(list.map(l => l.mode).filter(Boolean))].sort();
+            const modes = [...new Set(sportLobbies.map(l => l.mode).filter(Boolean))].sort();
             modeFilter.replaceChildren(new Option('All modes', 'all'), ...modes.map(mode => new Option(mode, mode)));
             modeFilter.value = modes.includes(selected) ? selected : 'all';
         }
-        const filtered = filterLobbies(list, {
+        const filtered = filterLobbies(sportLobbies, {
+            sportId: this._selectedSportId,
             mode: modeFilter?.value,
             map: mapFilter?.value,
             queue: queueFilter?.value,
@@ -6404,15 +6840,17 @@ updateCarousel() {
         container.removeAttribute('aria-busy');
         container.innerHTML = filtered.map(l => {
             const { players, maxPlayers } = lobbyCapacity(l);
+            const sport = sportDefinition(lobbySportId(l));
             return `
-            <div class="mp-lobby-card" data-code="${this._esc(l.code)}">
-                <div class="lobby-icon">🏐</div>
+            <div class="mp-lobby-card" data-code="${this._esc(l.code)}" data-sport="${this._esc(sport.id)}">
+                <div class="lobby-icon"><svg class="ui-icon" aria-hidden="true"><use href="#${sport.id === SPORT_IDS.VOLLEYBALL ? 'i-ball' : 'i-target'}"></use></svg></div>
                 <div class="lobby-info">
                     <div class="lobby-name">${this._esc(l.name || 'Lobby')}</div>
                     <div class="lobby-meta">${this._esc(l.hostName)} · ${this._esc(l.map)} · ${this._esc(formatLobbyAge(l.lastSeen ?? l.updatedAt, now))}</div>
                 </div>
+                <div class="lobby-sport-badge">${this._esc(sport.name)}</div>
                 <div class="lobby-mode-badge">MODE: ${this._esc(l.mode || 'Classic')}</div>
-                <div class="lobby-players">👤 ${players}/${maxPlayers}</div>
+                <div class="lobby-players">${players}/${maxPlayers}</div>
                 <button class="btn btn-primary btn-join btn-small">Join</button>
             </div>
         `;
@@ -6428,6 +6866,10 @@ updateCarousel() {
 
     async _startQuickPlay() {
         const button = document.getElementById('btn-mp-quick');
+        if (!canHostSport(this._selectedSportId)) {
+            this.ui.showMessage?.('Volleyball core rally is in development.', 2200);
+            return;
+        }
         const queue = document.getElementById('quick-play-queue')?.value || 'casual';
         const modeId = document.getElementById('quick-play-mode')?.value || 'all';
         const mapId = document.getElementById('quick-play-map')?.value || 'all';
@@ -6451,9 +6893,10 @@ updateCarousel() {
         }
         try {
             const lobbies = await this._lobbyApi('/api/lobbies', { method: 'GET' });
+            const routedLobbies = filterLobbies(lobbies, { sportId: this._selectedSportId, openOnly: false });
             const match = partyQuickPlay
-                ? pickQuickLobby(lobbies, { queue, mode, map, openOnly: true, minOpenSlots: partySize })
-                : pickQuickLobby(lobbies, { queue, mode, map, openOnly: true });
+                ? pickQuickLobby(routedLobbies, { queue, mode, map, openOnly: true, minOpenSlots: partySize })
+                : pickQuickLobby(routedLobbies, { queue, mode, map, openOnly: true });
             if (match) {
                 const joined = await this._quickJoin(match.code, { ...quickDimensions, quickPlayStartedAt });
                 if (partyQuickPlay && joined) await this._publishPartyLobbyTarget(match.code, party);
@@ -6528,6 +6971,10 @@ updateCarousel() {
 
     // Host: sunucu kur (P2P oda aç)
     async _doHostGame() {
+        if (!canHostSport(this._selectedSportId)) {
+            this.ui.showMessage?.('Volleyball core rally is in development.', 2200);
+            return false;
+        }
         try {
             clearInterval(this._lobbyKeepAlive); // önceki varsa durdur
             if (this._lobbyCode) this._unregisterLobby(this._lobbyCode); // eski varsa sil
@@ -7082,8 +7529,10 @@ updateCarousel() {
         for (const id of ['btn-menu-party-follow', 'btn-mp-party-follow', 'btn-join-party-follow']) {
             const action = document.getElementById(id);
             if (!action) continue;
+            const sportGated = id === 'btn-mp-party-follow' && !canHostSport(this._selectedSportId);
             action.hidden = !canFollow;
-            action.disabled = this._partyFollowInFlight;
+            action.disabled = sportGated || this._partyFollowInFlight;
+            action.inert = sportGated;
             action.textContent = this._partyFollowInFlight ? 'Joining squad…' : 'Join squad';
         }
         list.replaceChildren(...members.map(memberId => {
@@ -7618,10 +8067,13 @@ updateCarousel() {
             || this.game.state === STATES.COSMETIC_PRACTICE
             || this.game.state === STATES.SOCIAL_HUB)
             && !pauseOpen && !settingsOpen && !this.chatOpen && !socialChatFocused && !teamPopup;
-        if (canLock && this.game.state !== STATES.COSMETIC_PRACTICE && !document.pointerLockElement) {
+        const canRequestPointerLock = this.game.state !== STATES.COSMETIC_PRACTICE
+            || this._activeSportSession?.pointerLockRetry === true;
+        if (canLock && canRequestPointerLock && !document.pointerLockElement) {
             if (!this._plRetry || performance.now() - this._plRetry > 500) {
                 this._plRetry = performance.now();
                 try { this.renderer.renderer.domElement.requestPointerLock()?.catch?.(() => {}); } catch (_) {}
+                if (this._activeSportSession) this._activeSportSession.pointerLockRetry = false;
             }
         } else if (!canLock && document.pointerLockElement && document.exitPointerLock) {
             document.exitPointerLock();
@@ -7704,7 +8156,16 @@ updateCarousel() {
             this._cosmeticPracticeAvatar.setPoseTime(performance.now() / 1000, reduceMotion);
         }
 
-        if (this.game.state === STATES.COSMETIC_PRACTICE) {
+        if (this._activeSportSession) {
+            if (this._activeSportSession.focused && !pauseOpen && !settingsOpen && !teamPopup) {
+                this.player.update(dt);
+                this.player.position.x = Math.max(-8.65, Math.min(8.65, this.player.position.x));
+                this.player.position.z = Math.max(-8.65, Math.min(-0.35, this.player.position.z));
+                this._updateMovementPolish(false);
+                this._activeSportSession.runtime.update(dt);
+            }
+            this.game.ball.deactivate();
+        } else if (this.game.state === STATES.COSMETIC_PRACTICE) {
             if (!Spectator.active && !teamPopup) this.player.update(dt);
             if (!Spectator.active && !teamPopup) this._updateMovementPolish(false);
             this.game.ball.deactivate();

@@ -72,9 +72,10 @@ test('movement polish prioritizes LONGJUMP over DASH and DASH over bhop/sprint',
 
 test('DASH presentation stays restrained and reduced-motion safe', () => {
     assert.match(css, /\.movement-hud\.dash\s*\{[\s\S]*?border-color:\s*var\(--screen-accent\);[\s\S]*?box-shadow:/);
-    const motionStart = css.indexOf('@media (prefers-reduced-motion: reduce) {');
+    const dashStart = css.indexOf('.movement-hud.dash');
+    const motionStart = css.indexOf('@media (prefers-reduced-motion: reduce) {', dashStart);
     const motionEnd = css.indexOf('\n}\n', motionStart) + 2;
-    assert.ok(motionStart >= 0 && motionEnd > motionStart, 'first reduced-motion block must remain bounded');
+    assert.ok(dashStart >= 0 && motionStart > dashStart && motionEnd > motionStart, 'dash reduced-motion block must remain bounded');
     assert.match(css.slice(motionStart, motionEnd), /\.movement-hud\.dash\s*\{[\s\S]*?box-shadow:\s*0 0 0 1px var\(--screen-accent\);/);
     assert.doesNotMatch(css.slice(css.indexOf('.movement-hud.dash'), css.indexOf('@keyframes movement-bhop-float')), /animation:/);
 });

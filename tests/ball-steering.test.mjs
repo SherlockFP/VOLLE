@@ -116,13 +116,22 @@ test('wide shot creates a deterministic side/back waypoint and switches at targe
 
     assert.deepEqual(first, second);
     assert.notEqual(first.position.x, target.x);
-    assert.ok(Math.abs(first.position.x - target.x) <= 3.25);
+    assert.ok(Math.abs(first.position.x - target.x) <= 4);
     assert.ok(first.position.z <= target.z - 6);
     assert.ok(Math.abs(first.position.z - target.z) > Math.abs(first.position.x - target.x));
     assert.equal(hasCrossedTargetPlane({ x: 0, y: 1, z: -9 }, target, first.planeNormal), false);
     assert.equal(hasCrossedTargetPlane({ x: 0, y: 1, z: -11 }, target, first.planeNormal), true);
     assert.equal(createWideWaypoint(origin, { x: 0, y: 0, z: -1 }, target), null);
     assert.notEqual(createWideWaypoint(origin, { x: 0.4, y: 0, z: -1 }, target), null);
+
+    const aimAt = degrees => {
+        const radians = degrees * Math.PI / 180;
+        return { x: Math.sin(radians), y: 0, z: -Math.cos(radians) };
+    };
+    assert.equal(createWideWaypoint(origin, aimAt(15), target), null,
+        '15 degrees remains the strongest shallow route');
+    assert.notEqual(createWideWaypoint(origin, aimAt(15.1), target), null,
+        'a deliberate aim beyond 15 degrees owns the wide route');
 });
 
 test('control delay preserves initial aim for 0.074 seconds', () => {
@@ -304,38 +313,207 @@ function subtleRouteTrace(angleDegrees, fps) {
     return { route, position };
 }
 
-test('subtle aimed routes preserve zero-degree shots and stay bounded through 10-15 degrees', () => {
+function wideRouteTrace(angleDegrees, fps) {
+    const origin = { x: 0, y: 1, z: 0 };
+    const target = { x: 0, y: 1, z: -10 };
+    const radians = angleDegrees * Math.PI / 180;
+    const aim = { x: Math.sin(radians), y: 0, z: -Math.cos(radians) };
+    const route = createAimRouteOffset(origin, target, aim);
+    const shiftedTarget = { x: target.x + route.x, y: target.y, z: target.z + route.z };
+    const waypoint = createWideWaypoint(origin, aim, target, route);
+    const speed = 17;
+    const position = { x: origin.x, z: origin.z };
+    let velocity = { x: aim.x * speed, z: aim.z * speed };
+    let phase = waypoint ? 'waypoint' : 'torso';
+    let routeOffsetActive = true;
+    let age = 0;
+    let time = 0;
+    let maxLateral = 0;
+
+    while (time < 3 - 1e-12) {
+        const dt = Math.min(1 / fps, 3 - time);
+        const activeDt = steeringActiveDt(age, dt);
+        age += dt;
+        let pursuitTarget = routeOffsetActive ? shiftedTarget : target;
+        if (phase === 'waypoint'
+            && hasCrossedTargetPlane(
+                { x: position.x, y: 1, z: position.z },
+                pursuitTarget,
+                waypoint.planeNormal
+            )) {
+            phase = 'torso';
+            routeOffsetActive = false;
+            pursuitTarget = target;
+        }
+
+        const currentLength = Math.hypot(velocity.x, velocity.z);
+        const current = { x: velocity.x / currentLength, z: velocity.z / currentLength };
+        const torsoDx = target.x - position.x;
+        const torsoDz = target.z - position.z;
+        const torsoDistance = Math.hypot(torsoDx, torsoDz);
+        const torsoDirection = { x: torsoDx / torsoDistance, z: torsoDz / torsoDistance };
+        const alignment = current.x * torsoDirection.x + current.z * torsoDirection.z;
+        const isCircling = torsoDistance < homingRescueRange(speed) && alignment < 0.15;
+        const hasOverstayed = age > 1.15;
+        const directRescue = shouldDirectHomingRescue(torsoDistance, speed, age, alignment);
+        if (isCircling || hasOverstayed) {
+            phase = 'torso';
+            routeOffsetActive = false;
+            pursuitTarget = target;
+        }
+
+        const pursuit = phase === 'waypoint' ? waypoint.position : pursuitTarget;
+        const desiredLength = Math.hypot(pursuit.x - position.x, pursuit.z - position.z);
+        const desired = {
+            x: (pursuit.x - position.x) / desiredLength,
+            z: (pursuit.z - position.z) / desiredLength
+        };
+        let next = current;
+        if (activeDt > 0) {
+            const proximityTurn = 1 - Math.exp(
+                -proximityHomingTurnRate(torsoDistance, age) * activeDt
+            );
+            const rescueTurn = isCircling || hasOverstayed
+                ? 1 - Math.exp(-7 * activeDt)
+                : 0;
+            const turn = Math.max(steeringTurnAlpha(activeDt), proximityTurn, rescueTurn);
+            const direct = isCircling || hasOverstayed ? torsoDirection : desired;
+            next = directRescue
+                ? torsoDirection
+                : {
+                    x: current.x + (direct.x - current.x) * turn,
+                    z: current.z + (direct.z - current.z) * turn
+                };
+            const nextLength = Math.hypot(next.x, next.z);
+            next.x /= nextLength;
+            next.z /= nextLength;
+        }
+
+        const before = { x: position.x, z: position.z };
+        const nextVelocity = { x: next.x * speed, y: 0, z: next.z * speed };
+        const displacement = splitSteeringDisplacement(
+            { x: velocity.x, y: 0, z: velocity.z },
+            nextVelocity,
+            dt,
+            activeDt
+        );
+        position.x += displacement.x;
+        position.z += displacement.z;
+        velocity = { x: nextVelocity.x, z: nextVelocity.z };
+        time += dt;
+        maxLateral = Math.max(maxLateral, Math.abs(position.x));
+
+        if (segmentEntersRadius(
+            { x: before.x - target.x, z: before.z - target.z },
+            { x: position.x - target.x, z: position.z - target.z },
+            1.4
+        )) {
+            return { hitTime: time, maxLateral, speed: Math.hypot(velocity.x, velocity.z) };
+        }
+    }
+
+    return { hitTime: null, maxLateral, speed: Math.hypot(velocity.x, velocity.z) };
+}
+
+function aimedPursuitAt(angleDegrees) {
+    const origin = { x: 0, y: 1, z: 0 };
+    const target = { x: 0, y: 1, z: -10 };
+    const radians = angleDegrees * Math.PI / 180;
+    const aim = { x: Math.sin(radians), y: 0, z: -Math.cos(radians) };
+    const route = createAimRouteOffset(origin, target, aim);
+    const waypoint = createWideWaypoint(origin, aim, target, route);
+    const pursuit = waypoint?.position || {
+        x: target.x + route.x,
+        y: target.y + route.y,
+        z: target.z + route.z
+    };
+    return {
+        distance: Math.hypot(pursuit.x - origin.x, pursuit.z - origin.z),
+        lateral: Math.abs(pursuit.x - target.x),
+        depth: Math.abs(pursuit.z - target.z)
+    };
+}
+
+test('player aim has a deterministic 0/6/10/15-degree expression ladder', () => {
     const origin = { x: 0, y: 1, z: 0 };
     const target = { x: 0, y: 1, z: -10 };
     const direct = createAimRouteOffset(origin, target, { x: 0, y: 0, z: -1 });
     assert.deepEqual(direct, { x: 0, y: 0, z: 0 }, '0-degree aim keeps the exact direct baseline');
 
-    const routes = [10, 12.5, 15].map(angle => {
+    const routes = [6, 10, 15].map(angle => {
         const radians = angle * Math.PI / 180;
         return createAimRouteOffset(origin, target, {
             x: Math.sin(radians), y: 0, z: -Math.cos(radians)
         });
     });
 
-    assert.ok(routes[0].x > 0.19 && routes[0].z < -0.06,
-        `10-degree aim should make a visible side/rear route, got ${JSON.stringify(routes[0])}`);
+    assert.ok(routes[0].x > 0.1,
+        `6-degree aim should preserve a readable side lane, got ${JSON.stringify(routes[0])}`);
+    assert.ok(routes[1].x > 0.29 && routes[1].z < -0.18,
+        `10-degree aim should make a visible side/rear route, got ${JSON.stringify(routes[1])}`);
+    assert.ok(routes[2].x > 0.75 && routes[2].z < -0.52,
+        `15-degree aim should approach the broad lane without snapping, got ${JSON.stringify(routes[2])}`);
     assert.ok(routes[1].x > routes[0].x && routes[1].z < routes[0].z);
     assert.ok(routes[2].x > routes[1].x && routes[2].z < routes[1].z);
     for (const route of routes) {
-        assert.ok(Math.abs(route.x) <= 0.55, `lateral route escaped bound: ${route.x}`);
-        assert.ok(route.z >= -0.48 && route.z <= 0, `rear route escaped bound: ${route.z}`);
+        assert.ok(Math.abs(route.x) <= 0.82, `lateral route escaped bound: ${route.x}`);
+        assert.ok(route.z >= -0.65 && route.z <= 0, `rear route escaped bound: ${route.z}`);
+    }
+
+    const leftAim = { x: -Math.sin(15 * Math.PI / 180), y: 0, z: -Math.cos(15 * Math.PI / 180) };
+    const left = createAimRouteOffset(origin, target, leftAim);
+    assert.ok(Math.abs(left.x + routes[2].x) < 1e-12, 'left/right aim must remain symmetric');
+    assert.equal(left.z, routes[2].z);
+});
+
+test('aim-expression ladder is frame-rate equivalent at 30/60/120/144 FPS', () => {
+    for (const angle of [6, 10, 15]) {
+        const traces = [30, 60, 120, 144].map(fps => subtleRouteTrace(angle, fps));
+        const baseline = traces[1];
+        for (const trace of traces) {
+            assert.deepEqual(trace.route, baseline.route, 'route is chosen once and is frame-rate invariant');
+            assert.ok(Math.abs(trace.position.x - baseline.position.x) < 0.04,
+                `${angle}-degree lateral trace drifted: ${trace.position.x}`);
+            assert.ok(Math.abs(trace.position.z - baseline.position.z) < 0.04,
+                `${angle}-degree forward trace drifted: ${trace.position.z}`);
+        }
     }
 });
 
-test('subtle aimed route trace is frame-rate equivalent at 30/60/120 FPS', () => {
-    const traces = [30, 60, 120].map(fps => subtleRouteTrace(12.5, fps));
-    const baseline = traces[1];
-    for (const trace of traces) {
-        assert.deepEqual(trace.route, baseline.route, 'route is chosen once and is frame-rate invariant');
-        assert.ok(Math.abs(trace.position.x - baseline.position.x) < 0.04,
-            `lateral trace drifted at route rate: ${trace.position.x}`);
-        assert.ok(Math.abs(trace.position.z - baseline.position.z) < 0.04,
-            `forward trace drifted at route rate: ${trace.position.z}`);
+test('wide route grows continuously across the 15-degree ownership boundary', () => {
+    const samples = [14.9, 15, 15.001, 15.1].map(aimedPursuitAt);
+    for (let index = 1; index < samples.length; index++) {
+        const before = samples[index - 1];
+        const after = samples[index];
+        assert.ok(Math.abs(after.distance - before.distance) < 0.03,
+            `pursuit distance snapped at sample ${index}: ${before.distance} -> ${after.distance}`);
+        assert.ok(Math.abs(after.lateral - before.lateral) < 0.03,
+            `lateral lane snapped at sample ${index}: ${before.lateral} -> ${after.lateral}`);
+        assert.ok(after.lateral >= before.lateral,
+            `side expression regressed at sample ${index}: ${before.lateral} -> ${after.lateral}`);
+        assert.ok(after.depth >= before.depth,
+            `rear expression regressed at sample ${index}: ${before.depth} -> ${after.depth}`);
+    }
+});
+
+test('wide side/rear routes stay expressive, speed-locked, and converge within three seconds', () => {
+    for (const angle of [15.1, 18, 30, 60, 90]) {
+        const traces = [30, 60, 120, 144].map(fps => wideRouteTrace(angle, fps));
+        const hitTimes = traces.map(trace => trace.hitTime);
+        const lateralValues = traces.map(trace => trace.maxLateral);
+        for (const trace of traces) {
+            const minimumLateral = angle < 16 ? 0.7 : angle < 25 ? 0.9 : 1.2;
+            assert.ok(trace.maxLateral > minimumLateral,
+                `${angle}-degree route flattened before a readable side lane: ${trace.maxLateral}`);
+            assert.ok(trace.hitTime !== null && trace.hitTime <= 3,
+                `${angle}-degree route did not converge: ${trace.hitTime}`);
+            assert.ok(Math.abs(trace.speed - 17) < 1e-9,
+                `${angle}-degree route changed rally speed: ${trace.speed}`);
+        }
+        assert.ok(Math.max(...hitTimes) - Math.min(...hitTimes) < 0.05,
+            `${angle}-degree route timing drifted across frame rates: ${hitTimes.join(', ')}`);
+        assert.ok(Math.max(...lateralValues) - Math.min(...lateralValues) < 0.3,
+            `${angle}-degree lateral lane drifted across frame rates: ${lateralValues.join(', ')}`);
     }
 });
 
@@ -581,10 +759,17 @@ test('homing age resets with steering so a new target starts a fresh rescue cloc
 });
 
 test('steering measures distance before normalization and clears route offsets for torso rescue', () => {
+    const begin = source.slice(
+        source.indexOf('    _beginPlayerSteering(target, aimDirection) {'),
+        source.indexOf('    _updatePlayerSteering(dt, targetPos, bounceRouteDt = 0) {')
+    );
     const method = source.slice(
         source.indexOf('    _updatePlayerSteering(dt, targetPos, bounceRouteDt = 0) {'),
         source.indexOf('    _clampSpeed() {')
     );
+    assert.match(begin, /const torsoTarget = this\._getTargetPos\(false\);/);
+    assert.match(begin, /createWideWaypoint\(\s*this\.position,\s*aimDirection,\s*torsoTarget,\s*this\._targetRouteOffset\s*\)/,
+        'wide-shot gate must use the unshifted torso direction');
     assert.ok(method.indexOf('const targetDistance = desired.length();') >= 0);
     assert.ok(method.indexOf('const targetDistance = desired.length();') < method.indexOf('desired.normalize();'));
     assert.match(method, /this\._targetRouteOffset = \{ x: 0, y: 0, z: 0 \};/);

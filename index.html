@@ -460,12 +460,35 @@
 
     <!-- ===== MULTIPLAYER MENU (Create / Join + Lobby Browser) ===== -->
     <div id="multiplayer-menu" class="screen hidden">
-        <div class="mp-layout">
+        <section id="sport-select-stage" class="sport-select-stage" aria-labelledby="sport-select-title" tabindex="-1">
+            <header class="sport-select-header">
+                <span class="shell-kicker">QUICK PLAY ROUTE</span>
+                <h1 id="sport-select-title">Choose your sport</h1>
+                <p>Each sport has its own rooms, rules and match flow.</p>
+            </header>
+            <div class="sport-select-grid">
+                <button class="sport-card sport-card-dodgeball" type="button" data-sport-select="dodgeball">
+                    <span class="sport-card-status">LIVE</span>
+                    <span class="sport-card-mark" aria-hidden="true"><svg class="ui-icon"><use href="#i-target"></use></svg></span>
+                    <span class="sport-card-copy"><strong>Dodgeball</strong><small>Deflect, redirect and survive escalating rallies.</small></span>
+                    <span class="sport-card-action">Browse rooms <svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-right"></use></svg></span>
+                </button>
+                <button class="sport-card sport-card-volleyball" type="button" data-sport-select="volleyball">
+                    <span class="sport-card-status is-development">CORE RALLY IN DEVELOPMENT</span>
+                    <span class="sport-card-mark" aria-hidden="true"><svg class="ui-icon"><use href="#i-ball"></use></svg></span>
+                    <span class="sport-card-copy"><strong>Volleyball</strong><small>Serve, receive, set and spike on a locked center court.</small></span>
+                    <span class="sport-card-action">Preview route <svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-right"></use></svg></span>
+                </button>
+            </div>
+            <button id="btn-sport-back" class="btn btn-secondary sport-select-back" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back to Menu</button>
+        </section>
+        <div class="mp-layout hidden" inert aria-hidden="true">
             <div class="mp-left">
                 <header class="mp-command-header">
                     <span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-globe"></use></svg></span>
                     <div><span class="shell-kicker">MATCH COMMAND</span><h1 class="mp-title">Multiplayer</h1><p class="mp-subtitle">Build a route, then enter the arena.</p></div>
                 </header>
+                <button id="btn-change-sport" class="mp-sport-route" type="button"><span>SPORT</span><strong id="mp-current-sport">Dodgeball</strong><small>Change</small></button>
                 <section class="quick-play-builder" aria-labelledby="quick-play-title">
                     <div class="quick-play-heading"><div><span class="shell-kicker">FAST DEPLOY</span><h2 id="quick-play-title">Quick Play</h2></div><span class="quick-play-status">LIVE</span></div>
                     <div class="quick-play-fields">
@@ -474,18 +497,19 @@
                         <label for="quick-play-map"><span>Map</span><select id="quick-play-map"><option value="all">Any map</option><option value="beach">Beach Arena</option><option value="industrial">Factory</option><option value="neon">Neon City</option><option value="circuit_dome">Circuit Dome</option></select></label>
                     </div>
                     <button id="btn-mp-quick" class="btn btn-primary mp-btn"><svg class="ui-icon" aria-hidden="true"><use href="#i-play"></use></svg>Find Match</button>
+                    <p id="sport-host-gate" class="sport-host-gate hidden">Local rally practice is playable now. Public hosting, Join by Code and P2P rewards stay locked until authoritative court play is ready.</p>
                 </section>
                 <div class="mp-secondary-actions">
                     <button id="btn-mp-create" class="btn btn-secondary mp-btn"><svg class="ui-icon" aria-hidden="true"><use href="#i-monitor"></use></svg>Create Lobby</button>
                     <button id="btn-mp-join" class="btn btn-secondary mp-btn"><svg class="ui-icon" aria-hidden="true"><use href="#i-link"></use></svg>Join by Code</button>
-                    <button id="btn-mp-solo" class="btn btn-secondary mp-btn"><svg class="ui-icon" aria-hidden="true"><use href="#i-user"></use></svg>Solo vs Bots</button>
+                    <button id="btn-mp-solo" class="btn btn-secondary mp-btn"><svg class="ui-icon" aria-hidden="true"><use href="#i-user"></use></svg><span id="btn-mp-solo-label">Solo vs Bots</span></button>
                     <button id="btn-mp-party-follow" class="btn btn-primary mp-btn party-follow-action" type="button" hidden>Join squad</button>
                 </div>
                 <button id="btn-mp-back" class="btn btn-secondary mp-btn mp-back"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back to Menu</button>
             </div>
             <div class="mp-right">
                 <div class="mp-lobby-header">
-                    <div><span class="shell-kicker">SERVER BOARD</span><h2>Open Lobbies</h2></div>
+                    <div><span class="shell-kicker">SERVER BOARD</span><h2 id="mp-lobby-heading">Open Dodgeball Lobbies</h2></div>
                     <button id="btn-mp-refresh" class="btn btn-small" type="button" aria-label="Refresh lobby list"><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg></button>
                 </div>
                 <div class="mp-lobby-filters" aria-label="Lobby filters">
@@ -534,7 +558,7 @@
             <div class="cs-lobby-name">
                 <input id="lobby-name-input" class="cs-lobby-name-input" type="text" maxlength="32" placeholder="Lobby Name" value="Lobby" spellcheck="false">
             </div>
-            <div class="cs-top-info"><span id="cs-lobby-mode">Classic</span> — <span id="cs-lobby-map">Beach</span></div>
+            <div class="cs-top-info"><span id="cs-lobby-sport">DODGEBALL</span> · <span id="cs-lobby-mode">Classic</span> — <span id="cs-lobby-map">Beach</span></div>
             <b id="lobby-network-status" aria-live="polite">P2P CONNECTED</b>
             <button id="btn-lobby-back" class="cs-btn-back">← Leave</button>
         </div>
@@ -1563,7 +1587,9 @@
     <!-- Damage / hit flash vignette -->
     <div id="hit-flash"></div>
     <!-- Incoming indicator — red edge glow when ball is coming at you -->
-    <div id="incoming-indicator" class="hidden"></div>
+    <div id="incoming-indicator" class="hidden" aria-hidden="true" aria-label="No incoming ball">
+        <span class="incoming-direction-arrow" aria-hidden="true"></span>
+    </div>
 
     <!-- Celebration weapon HUD -->
     <div id="celeb-weapon-hud" style="display:none"></div>
@@ -1744,6 +1770,23 @@
             <button id="cosmetic-practice-exit" class="btn btn-secondary" type="button">Back to Shop</button>
         </div>
         <small>Walk the studio to inspect lighting and silhouette. Esc returns to Shop.</small>
+    </aside>
+
+    <aside id="volleyball-practice-hud" class="volleyball-practice-hud hidden" role="region" aria-label="Local Volleyball practice status" aria-hidden="true">
+        <header class="volleyball-practice-score" aria-label="Practice score">
+            <span class="is-home"><small>YOU</small><b id="volleyball-practice-home">0</b></span>
+            <span class="volleyball-practice-set"><strong id="volleyball-practice-sets">SETS 0 - 0</strong><small id="volleyball-practice-phase">SERVE SETUP</small></span>
+            <span class="is-away"><small>FEEDER</small><b id="volleyball-practice-away">0</b></span>
+        </header>
+        <div class="volleyball-practice-command">
+            <span>LOCAL PRACTICE</span>
+            <strong id="volleyball-practice-expected" role="status" aria-live="polite">TRACK THE BALL</strong>
+        </div>
+        <p><kbd>E</kbd> timed primary <i aria-hidden="true">·</i> <kbd>R</kbd> receive <i aria-hidden="true">·</i> <kbd>Q</kbd> set <i aria-hidden="true">·</i> <kbd>F</kbd> spike <i aria-hidden="true">·</i> <kbd>B</kbd> block <i aria-hidden="true">·</i> <kbd>Space</kbd> jump</p>
+        <div class="volleyball-practice-actions">
+            <button id="volleyball-practice-restart" type="button"><kbd>T</kbd> Restart</button>
+            <button id="volleyball-practice-exit" type="button"><kbd>Esc</kbd> Exit</button>
+        </div>
     </aside>
 
     <aside id="practice-lab-hud" class="practice-lab-hud hidden" aria-live="polite">

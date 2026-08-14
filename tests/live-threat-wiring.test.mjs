@@ -76,8 +76,11 @@ test('Game wires allocation-safe live threat samples after local and network bal
     assert.match(threat, /this\.player\.position\?\.distanceTo\s*\? this\.player\.position\s*:\s*this\.player\.getPosition\?\.\(\)/);
     assert.match(threat, /ball\.position\.distanceTo\(playerPosition\)/);
     assert.match(threat, /PLAYER_THREAT_SAMPLE_INTERVAL/);
-    assert.match(threat, /this\.ui\?\.setPlayerTarget\?\.\(true, speed, distance\);/);
+    assert.match(threat, /camera\.getWorldDirection\(this\._playerThreatForward\);/);
+    assert.match(threat, /sampleThreatDirection\(\s*this\._playerThreatDirection,/);
+    assert.match(threat, /this\.ui\?\.setPlayerTarget\?\.\(\s*true,\s*speed,\s*distance,/);
+    assert.match(threat, /ball\.perfectWindow > 0 && ball\._perfectWindowTarget === this\.player/);
     assert.match(threat, /this\.audio\?\.updateThreatAudio\?\.\(\{ active: true, speed, distance \}\);/);
     assert.match(threat, /this\.ui\?\.setPlayerTarget\?\.\(false\);[\s\S]*?active: false/);
-    assert.doesNotMatch(threat, /\.clone\(|new THREE\.|ball\.update\(|network\.|damage/);
+    assert.doesNotMatch(threat, /\.clone\(|new THREE\.|\{\s*side:|ball\.update\(|network\.|damage/);
 });

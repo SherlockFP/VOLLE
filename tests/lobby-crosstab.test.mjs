@@ -294,6 +294,7 @@ test('_lobbyApi passes real data through untouched on success and never warns', 
 test('_refreshLobbyList shows "service unreachable" for an API failure, distinct from a genuinely empty board', async () => {
     const messages = [];
     const globals = {
+        canHostSport: () => true,
         document: {
             getElementById: id => (id === 'mp-lobby-list' ? {} : null)
         }
@@ -301,6 +302,7 @@ test('_refreshLobbyList shows "service unreachable" for an API failure, distinct
     const refresh = compileAppMethod('_refreshLobbyList', globals);
 
     const errorApp = {
+        _selectedSportId: 'dodgeball',
         _lobbyApi: async () => ({ __lobbyApiError: true }),
         _renderLobbyEmpty: (container, message) => messages.push(message)
     };
@@ -308,6 +310,7 @@ test('_refreshLobbyList shows "service unreachable" for an API failure, distinct
     assert.match(messages[0], /unreachable/i);
 
     const emptyApp = {
+        _selectedSportId: 'dodgeball',
         _lobbyApi: async () => [],
         _renderLobbyEmpty: (container, message) => messages.push(message)
     };

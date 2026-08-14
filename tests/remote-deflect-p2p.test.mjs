@@ -186,6 +186,10 @@ function hostAttackFixture({ queued = false, alive = true, ballActive = true } =
         audio: { playDeflect() {} },
         rallyCount: 0
     };
+    context._isDeflectFacingBall = compileGameMethod('_isDeflectFacingBall', {
+        DEFLECT_MIN_FACING_DOT: 0.15,
+        Math
+    });
     const method = compileGameMethod('remoteAttack', {
         THREE: { Vector3 },
         performance: { now: () => now },
@@ -230,6 +234,46 @@ test('host accepts two unique remote attacks exactly at the speed-scaled dedup b
 
     assert.equal(fixture.broadcasts.filter(packet => packet.type === 'remoteAttackAnim').length, 2);
     assert.equal(fixture.context.rallyCount, 2);
+});
+
+test('facing gate accepts front and close side catches while rejecting rear swings', () => {
+    const facing = compileGameMethod('_isDeflectFacingBall', {
+        DEFLECT_MIN_FACING_DOT: 0.15,
+        Math
+    });
+    const origin = { x: 0, y: 0, z: 0 };
+    const aim = { x: 0, y: 0, z: -1 };
+    assert.equal(facing.call({}, aim, origin, { x: 0, y: 0, z: -4 }), true, 'front is valid');
+    assert.equal(facing.call({}, aim, origin, { x: 3, y: 0, z: -1 }), true, 'near side remains a skillful catch');
+    assert.equal(facing.call({}, aim, origin, { x: 0, y: 0, z: 4 }), false, 'rear is invalid');
+});
+
+test('facing gate is frame-rate independent at 20, 60, and 144 FPS', () => {
+    const facing = compileGameMethod('_isDeflectFacingBall', {
+        DEFLECT_MIN_FACING_DOT: 0.15,
+        Math
+    });
+    for (const fps of [20, 60, 144]) {
+        assert.equal(
+            facing.call({}, { x: 0, y: 0, z: -1 }, { x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: -4 }),
+            true,
+            `${fps} FPS: same valid front-side deflect`
+        );
+        assert.equal(
+            facing.call({}, { x: 0, y: 0, z: -1 }, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 4 }),
+            false,
+            `${fps} FPS: same rear rejection`
+        );
+    }
+});
+
+test('host rejects a rear remote deflect before it mutates rally state', () => {
+    const fixture = hostAttackFixture();
+    fixture.ball.position.set(0, 0, 4);
+    fixture.attack('rear-attack', { bz: 4 });
+
+    assert.equal(fixture.context.rallyCount, 0);
+    assert.equal(fixture.broadcasts.filter(packet => packet.type === 'remoteAttackAnim').length, 0);
 });
 
 test('host rejects remote attacks inside the dedup window and duplicate attack ids', () => {
@@ -282,6 +326,7 @@ test('host accepts a close high-ping predicted snapshot within its bounded toler
     fixture.attack('high-ping-snapshot', {
         x: 6, y: 0, z: 0,
         bx: 8, by: 0, bz: 0,
+        ax: 1, ay: 0, az: 0,
         ping: 250
     });
 

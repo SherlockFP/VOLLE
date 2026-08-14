@@ -5,6 +5,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { canHostSport, resolveSportRoute, sportDefinition } from '../js/sports.js';
 
 async function mainMenuBlock() {
     const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
@@ -49,7 +50,7 @@ test('multiplayer screen still exposes a reachable host action (btn-mp-create) f
     assert.match(block, /id="btn-mp-solo"/);
 });
 
-test('Quick Play routes into the multiplayer screen with lobby refresh', async () => {
+test('Quick Play opens Sport Select, then a live sport opens its filtered directory', async () => {
     const source = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
     assert.doesNotMatch(source, /bind\('btn-host-game'/);
     assert.doesNotMatch(source, /bind\('btn-join-game'/);
@@ -59,10 +60,26 @@ test('Quick Play routes into the multiplayer screen with lobby refresh', async (
     assert.ok(bindIdx >= 0, 'expected the shared Quick Play route handler in main.js');
     const handlerSlice = source.slice(bindIdx, bindIdx + 900);
     assert.match(handlerSlice, /this\.ui\.showScreen\('multiplayerMenu'\)/);
-    assert.match(handlerSlice, /this\._refreshLobbyList\(\)/);
-    assert.match(handlerSlice, /this\._mpRefreshTimer = setInterval\(\(\) => this\._refreshLobbyList\(\), 5000\)/);
+    assert.match(handlerSlice, /this\._showSportSelect\(\)/);
+    assert.doesNotMatch(handlerSlice, /this\._refreshLobbyList\(\)/,
+        'the public directory must not open before the player chooses a sport');
     assert.match(source, /bind\('btn-play-solo', openMultiplayer\)/);
     assert.match(source, /bind\('btn-play', openMultiplayer\)/);
+
+    const route = resolveSportRoute({ sportId: 'dodgeball', rulesetId: 'classic', mapId: 'beach_open' });
+    assert.equal(sportDefinition(route.sportId).id, 'dodgeball');
+    assert.equal(canHostSport(route.sportId), true);
+    const openIdx = source.indexOf('    _openMultiplayerForSport(sportId) {');
+    const openSlice = source.slice(openIdx, source.indexOf('\n    _applySportPresentation()', openIdx));
+    assert.match(openSlice, /this\._selectedSportId = sportDefinition\(sportId\)\.id/);
+    assert.match(openSlice, /this\._applySportPresentation\(\)/,
+        'sport metadata and host controls must update before the directory appears');
+    assert.match(openSlice, /const stage = document\.getElementById\('sport-select-stage'\)[\s\S]*?stage\?\.classList\.add\('hidden'\)/);
+    assert.match(openSlice, /const browser = document\.querySelector\('#multiplayer-menu \.mp-layout'\)[\s\S]*?browser\?\.classList\.remove\('hidden'\)/);
+    assert.match(openSlice, /this\._refreshLobbyList\(\)/);
+    assert.match(openSlice, /this\._mpRefreshTimer = setInterval\(\(\) => this\._refreshLobbyList\(\), 5000\)/);
+    assert.match(source, /filterLobbies\(list, \{ sportId: this\._selectedSportId, openOnly: false \}\)/,
+        'directory records must be filtered by the stable selected sport id');
 });
 
 test('hosting (_doHostGame) remains wired to the in-screen Create Lobby button, not removed', async () => {

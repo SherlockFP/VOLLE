@@ -37,7 +37,8 @@ test('each menu route delegates to an existing screen flow', () => {
         "bind('btn-shop', () => {",
         "bind('btn-profile', () => this.ui.showProfile());"
     ]) assert.ok(main.includes(source), `missing route handler: ${source}`);
-    assert.match(main, /const openMultiplayer = \(\) => \{[\s\S]*?showScreen\('multiplayerMenu'\)[\s\S]*?_refreshLobbyList\(\)/);
+    assert.match(main, /const openMultiplayer = \(\) => \{[\s\S]*?showScreen\('multiplayerMenu'\)[\s\S]*?_showSportSelect\(\)/);
+    assert.match(main, /_openMultiplayerForSport\(sportId\) \{[\s\S]*?_refreshLobbyList\(\)[\s\S]*?setInterval\(\(\) => this\._refreshLobbyList\(\), 5000\)/);
 });
 
 test('menu uses the shared live renderer, player identity card and social-center party handoff', () => {

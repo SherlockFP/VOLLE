@@ -80,9 +80,12 @@ test('casual party follow target requires the current leader admission and capac
     assert.equal((await api('/api/party/queue-state', { token: member.sessionToken, method: 'POST', body: { partyRevision: party.revision } })).status, 403);
     assert.equal((await api('/api/party/queue-state', { token: leader.sessionToken, method: 'POST', body: { partyRevision: party.revision } })).status, 200);
     assert.equal((await api('/api/lobbies', { token: leader.sessionToken, method: 'POST', body: { code: 'party-target-room', players: 1, maxPlayers: 2, ranked: false } })).status, 200);
-    lobbies.get('party-target-room').memberProfileIds.add('already-admitted-player');
+    const room = lobbies.get('party-target-room');
+    assert.equal(room.maxPlayers, 8, 'canonical Dodgeball route owns lobby capacity');
+    const fillerIds = Array.from({ length: room.maxPlayers - room.memberProfileIds.size }, (_, i) => `already-admitted-${i}`);
+    fillerIds.forEach(id => room.memberProfileIds.add(id));
     assert.equal((await api('/api/party/lobby-target', { token: leader.sessionToken, method: 'POST', body: { partyRevision: party.revision, lobbyCode: 'party-target-room' } })).status, 409, 'occupied room cannot fit the remaining squad member');
-    lobbies.get('party-target-room').memberProfileIds.delete('already-admitted-player');
+    fillerIds.forEach(id => room.memberProfileIds.delete(id));
     const published = await api('/api/party/lobby-target', { token: leader.sessionToken, method: 'POST', body: { partyRevision: party.revision, lobbyCode: 'party-target-room' } });
     assert.equal(published.status, 200);
     const memberIntent = await api('/api/party/lobby-target', { token: member.sessionToken });

@@ -6,7 +6,9 @@ import { ObjectPool } from './objectPool.js';
 export const STEERING_CONTROL_WINDOW = 0.074;
 export const BOUNCE_ROUTE_OWNERSHIP_WINDOW = 0.082;
 const STEERING_TICK = 1 / 66;
-const WIDE_SHOT_DOT = Math.cos(15 * Math.PI / 180);
+const WIDE_SHOT_ANGLE = 15 * Math.PI / 180;
+const WIDE_SHOT_DOT = Math.cos(WIDE_SHOT_ANGLE);
+const FULL_WIDE_SHOT_ANGLE = 25 * Math.PI / 180;
 const SUBTLE_ROUTE_DOT = Math.cos(6 * Math.PI / 180);
 
 const finitePoint = p => p && Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z);
@@ -59,7 +61,7 @@ export function createAimRouteOffset(origin, target, aimDirection) {
     const cross = direct.x * aim.z - direct.z * aim.x;
     const dot = clamp(direct.x * aim.x + direct.z * aim.z, -1, 1);
     // Broad throws own the waypoint path at 15 degrees. Between 6 and 15
-    // degrees, retain the player's deliberate flick with a modest target-side
+    // degrees, retain the player's deliberate flick with a readable target-side
     // and rear pursuit bias instead of flattening it into a frontal line.
     // This is calculated once per player deflect, never in the frame loop.
     const subtleRoute = clamp(
@@ -67,8 +69,8 @@ export function createAimRouteOffset(origin, target, aimDirection) {
         0,
         1
     );
-    const side = clamp(cross * (0.85 + subtleRoute), -0.55, 0.55);
-    const back = clamp((1 - dot) * 0.34 + subtleRoute * 0.2, 0, 0.48);
+    const side = clamp(cross * (1.05 + subtleRoute * 1.95), -0.82, 0.82);
+    const back = clamp((1 - dot) * 0.7 + subtleRoute * 0.52, 0, 0.65);
     return {
         x: -direct.z * side + direct.x * back,
         y: clamp(aimDirection.y * 0.75, -0.5, 0.75),
@@ -213,25 +215,44 @@ export function predictLeadTarget(target, targetVelocity, projectile, projectile
     };
 }
 
-export function createWideWaypoint(origin, aimDirection, target) {
+export function createWideWaypoint(origin, aimDirection, target, routeOffset = null) {
     if (!finitePoint(origin) || !finitePoint(aimDirection) || !finitePoint(target)) return null;
     const directLength = Math.hypot(target.x - origin.x, target.z - origin.z);
     const aimLength = Math.hypot(aimDirection.x, aimDirection.z);
     if (directLength < 0.001 || aimLength < 0.001) return null;
     const direct = { x: (target.x - origin.x) / directLength, z: (target.z - origin.z) / directLength };
     const aim = { x: aimDirection.x / aimLength, z: aimDirection.z / aimLength };
-    if (direct.x * aim.x + direct.z * aim.z >= WIDE_SHOT_DOT) return null;
+    const dot = clamp(direct.x * aim.x + direct.z * aim.z, -1, 1);
+    if (dot >= WIDE_SHOT_DOT) return null;
     const cross = direct.x * aim.z - direct.z * aim.x;
     const sideSign = cross === 0 ? (direct.x >= 0 ? 1 : -1) : Math.sign(cross);
-    // Keep wide throws mostly on the target's forward/back axis. A small lateral
-    // offset makes the route readable without orbiting around the player.
-    const sideDistance = clamp(directLength * 0.16, 1.25, 3.25);
-    const backDistance = clamp(directLength * 0.68, 6, 12);
+    const angle = Math.acos(dot);
+    const wideProgress = clamp(
+        (angle - WIDE_SHOT_ANGLE) / (FULL_WIDE_SHOT_ANGLE - WIDE_SHOT_ANGLE),
+        0,
+        1
+    );
+    const wideStrength = wideProgress * wideProgress * (3 - 2 * wideProgress);
+    // Keep wide throws mostly on the target's forward/back axis. The deliberate
+    // lateral lane stays bounded while the rear waypoint lets skilled players
+    // attack from a readable side/back angle instead of snapping to the chest.
+    // Smoothstep blends 15-25 degrees from the shallow pursuit point to the
+    // full waypoint, preventing a one-pixel camera move from changing lanes.
+    const sideDistance = clamp(directLength * 0.22, 1.5, 4);
+    const backDistance = clamp(directLength * 0.72, 6, 12);
+    const shallow = finitePoint(routeOffset)
+        ? routeOffset
+        : createAimRouteOffset(origin, target, aimDirection);
+    const sideAxis = { x: -direct.z * sideSign, z: direct.x * sideSign };
+    const shallowSide = Math.max(0, shallow.x * sideAxis.x + shallow.z * sideAxis.z);
+    const shallowBack = Math.max(0, shallow.x * direct.x + shallow.z * direct.z);
+    const sideExtra = Math.max(0, sideDistance - shallowSide) * wideStrength;
+    const backExtra = Math.max(0, backDistance - shallowBack) * wideStrength;
     return {
         position: {
-            x: target.x + direct.x * backDistance - direct.z * sideSign * sideDistance,
-            y: target.y,
-            z: target.z + direct.z * backDistance + direct.x * sideSign * sideDistance
+            x: target.x + shallow.x + direct.x * backExtra + sideAxis.x * sideExtra,
+            y: target.y + shallow.y,
+            z: target.z + shallow.z + direct.z * backExtra + sideAxis.z * sideExtra
         },
         planeNormal: { x: direct.x, y: 0, z: direct.z }
     };
@@ -1350,11 +1371,19 @@ export class Ball {
             aimDirection.y / length,
             aimDirection.z / length
         );
+        const torsoTarget = this._getTargetPos(false);
+        this._targetRouteOffset = createAimRouteOffset(this.position, torsoTarget, aimDirection);
         const targetPos = this._getTargetPos();
-        this._targetRouteOffset = createAimRouteOffset(this.position, targetPos, aimDirection);
-        targetPos.copy(this._getTargetPos());
         this._steeringTargetSample = targetPos.clone();
-        const wide = createWideWaypoint(this.position, aimDirection, targetPos);
+        // Classify the shot against the unshifted torso. Using the already
+        // offset pursuit point here silently moved the 15-degree wide-shot gate
+        // several degrees outward and erased deliberate camera aim.
+        const wide = createWideWaypoint(
+            this.position,
+            aimDirection,
+            torsoTarget,
+            this._targetRouteOffset
+        );
         if (wide) {
             this._steeringPhase = 'waypoint';
             this._steeringWaypoint = new THREE.Vector3(wide.position.x, wide.position.y, wide.position.z);

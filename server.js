@@ -108,6 +108,18 @@ const MIME = {
 // --- In-memory lobby registry for the lobby browser (no external deps) ---
 // Hosts register their room code + metadata; clients list + quick-join.
 const lobbies = new Map(); // code -> { code, name, players, map, mode, hostName, updatedAt }
+const LOBBY_SPORTS = Object.freeze({
+    dodgeball: Object.freeze({
+        rulesets: new Set(['classic', 'speedball', 'lowgrav', 'instagib', 'tanky', 'multiball', 'tiny', 'giant', 'freeze', 'hotpotato', 'ffa', 'competitive', 'rally_duel', 'pinball', 'goal_rush']),
+        maps: new Set(['beach', 'beach_open', 'industrial', 'space', 'neon', 'circuit_dome', 'dojo', 'colosseum', 'volcano', 'ice', 'cloud', 'jungle', 'cyber', 'canyon', 'pillar', 'lava', 'crystal', 'mecha', 'atlantis', 'minecraft', 'esport_arena', 'dropworks', 'grand_stadium', 'mega_pinball', 'temple_sym', 'aquarium', 'museum', 'casino', 'subway']),
+        defaultRulesetId: 'classic', defaultMapId: 'beach_open', maxPlayers: 8
+    }),
+    volleyball: Object.freeze({
+        rulesets: new Set(['volleyball_rally_v1']), maps: new Set(['beach_open']),
+        defaultRulesetId: 'volleyball_rally_v1', defaultMapId: 'beach_open', maxPlayers: 8
+    })
+});
+const HOSTABLE_LOBBY_SPORTS = new Set(['dodgeball']);
 const socialHubs = new Map(); // code -> { code, mapId, mapName, hostName, players, updatedAt }
 const SOCIAL_HUB_MAP_NAMES = Object.freeze({
     plaza: 'Neon Clubhouse'
@@ -142,6 +154,23 @@ function pruneLobbies() {
 
 function normalizeLobbyRecord(record, timestamp) {
     return Object.assign({}, record, { updatedAt: timestamp, lastSeen: timestamp });
+}
+
+function normalizeLobbySportPayload(body = {}) {
+    const explicitSport = body.sportId !== undefined && body.sportId !== null && String(body.sportId).trim() !== '';
+    const sportId = explicitSport ? String(body.sportId).trim().toLowerCase() : 'dodgeball';
+    const sport = LOBBY_SPORTS[sportId];
+    if (!sport) return null;
+    const requestedRuleset = String(body.rulesetId || '').trim();
+    const requestedMap = String(body.mapId || '').trim();
+    if (explicitSport && requestedRuleset && !sport.rulesets.has(requestedRuleset)) return null;
+    if (explicitSport && requestedMap && !sport.maps.has(requestedMap)) return null;
+    return {
+        sportId,
+        rulesetId: sport.rulesets.has(requestedRuleset) ? requestedRuleset : sport.defaultRulesetId,
+        mapId: sport.maps.has(requestedMap) ? requestedMap : sport.defaultMapId,
+        maxPlayers: sport.maxPlayers
+    };
 }
 
 function readBody(req, maxLength = 1e4) {
@@ -898,6 +927,16 @@ const server = http.createServer(async (req, res) => {
         if (!b.code) { sendJson(res, { error: 'code required' }, 400); return; }
         const prior = lobbies.get(b.code);
         if (prior && prior.ownerAccountId !== auth.account.id) { sendJson(res, { error: 'lobby unavailable' }, 404); return; }
+        const sportRoute = normalizeLobbySportPayload(b);
+        if (!sportRoute) { sendJson(res, { error: 'invalid sport route' }, 400); return; }
+        if (!HOSTABLE_LOBBY_SPORTS.has(sportRoute.sportId)) {
+            sendJson(res, { error: 'sport core rally is in development' }, 409);
+            return;
+        }
+        if (prior && (prior.sportId || 'dodgeball') !== sportRoute.sportId) {
+            sendJson(res, { error: 'lobby sport is locked' }, 409);
+            return;
+        }
         const memberProfileIds = prior?.memberProfileIds instanceof Set ? new Set(prior.memberProfileIds) : new Set();
         memberProfileIds.add(auth.profile.id);
         const admissionToken = typeof prior?.admissionToken === 'string' ? prior.admissionToken : crypto.randomBytes(32).toString('base64url');
@@ -913,7 +952,10 @@ const server = http.createServer(async (req, res) => {
             mode: b.mode || 'Classic',
             ranked: b.ranked === true,
             averageElo: Math.max(0, Math.min(5000, Number(b.averageElo) || 1000)),
-            maxPlayers: Math.max(2, Math.min(16, Number(b.maxPlayers) || 8))
+            sportId: sportRoute.sportId,
+            rulesetId: sportRoute.rulesetId,
+            mapId: sportRoute.mapId,
+            maxPlayers: sportRoute.maxPlayers
         }, Date.now()));
         sendJson(res, { ok: true, admissionToken });
         return;
@@ -933,7 +975,12 @@ const server = http.createServer(async (req, res) => {
         if (!lobby.memberProfileIds.has(auth.profile.id) && lobby.memberProfileIds.size >= lobby.maxPlayers) { sendJson(res, { error: 'lobby full' }, 409); return; }
         lobby.memberProfileIds.add(auth.profile.id);
         lobby.lastSeen = Date.now();
-        sendJson(res, { ok: true });
+        sendJson(res, {
+            ok: true,
+            sportId: lobby.sportId || 'dodgeball',
+            rulesetId: lobby.rulesetId || 'classic',
+            mapId: lobby.mapId || 'beach_open'
+        });
         return;
     }
     if (urlPath.startsWith('/api/lobbies/') && urlPath.endsWith('/leave') && req.method === 'POST') {
@@ -1057,4 +1104,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { normalizeLobbyRecord, pruneLobbies, lobbies, LOBBY_TTL, server, accounts, social, presence, partyStore, matchAuthority };
+module.exports = { normalizeLobbyRecord, normalizeLobbySportPayload, pruneLobbies, lobbies, LOBBY_TTL, server, accounts, social, presence, partyStore, matchAuthority };
