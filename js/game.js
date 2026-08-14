@@ -287,6 +287,11 @@ export class Game {
 
         // Death particles
         this.deathParticles = [];
+        this._killPresentationKeys = new Set();
+        this._killConfirmationTimer = null;
+        this._killConfirmationUntil = 0;
+        this._deferredMatchMessageTimer = null;
+        this._roundStatusHoldUntil = 0;
 
         // Minimap
         this.minimapCanvas = null;
@@ -1214,6 +1219,13 @@ startGame(skipPreGame = false, matchId = null) {
         this.clearSplitBalls();
         this._clearRockets();
         this._hideKillcam();
+        this._killPresentationKeys.clear();
+        if (this._killConfirmationTimer) clearTimeout(this._killConfirmationTimer);
+        if (this._deferredMatchMessageTimer) clearTimeout(this._deferredMatchMessageTimer);
+        this._killConfirmationTimer = null;
+        this._deferredMatchMessageTimer = null;
+        this._killConfirmationUntil = 0;
+        this._roundStatusHoldUntil = 0;
         // Drop any finisher still mid-flight from the previous round, alongside the other
         // per-round scene teardown above — effects must not survive a scene rebuild.
         window.shaderFinishers?.clear?.();
@@ -2087,9 +2099,13 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         } else if (this.state === STATES.ROUND_END) {
             this.roundRestartTimer -= dt;
             const curSec = Math.ceil(this.roundRestartTimer);
-            if (curSec !== this._lastRoundEndSec) {
+            const copyBlockedUntil = Math.max(
+                this._killConfirmationUntil || 0,
+                this._roundStatusHoldUntil || 0
+            );
+            if (curSec !== this._lastRoundEndSec && performance.now() >= copyBlockedUntil) {
                 this._lastRoundEndSec = curSec;
-                this.ui.showMessage?.(`⏳ Next round in ${curSec}s`, 500);
+                this.ui.showMessage?.(this._roundEndStatusText(curSec), 500);
             }
             const isClient = this.network?.connected && !this.network?.isHost;
             if (!isClient && this.roundRestartTimer <= 0) {
@@ -3272,6 +3288,97 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         return true;
     }
 
+    _applyAuthoritativeHitDamage(hitTarget, dmg) {
+        let lethal = hitTarget.takeDamage(dmg);
+        // Instagib is a mode rule, not merely a large damage number. Player and Bot
+        // takeDamage intentionally apply shield/resistance, so maxHp damage alone can
+        // leave an entity alive. Preserve the one authoritative damage call/stat value,
+        // then enforce the mode's terminal HP invariant without mutating defenses.
+        if (this._oneHitKill && !lethal) {
+            hitTarget.hp = 0;
+            lethal = true;
+        }
+        return lethal || hitTarget.hp <= 0;
+    }
+
+    _authoritativeHitState(hitTarget, isLethal) {
+        return {
+            hp: isLethal ? 0 : hitTarget.hp,
+            alive: !isLethal,
+            lethal: isLethal
+        };
+    }
+
+    _claimKillPresentation(attackerName, victimName, rallyCount = 0) {
+        const key = `${attackerName || 'Unknown'}\u0000${victimName || 'Unknown'}\u0000${rallyCount}`;
+        if (this._killPresentationKeys.has(key)) return false;
+        this._killPresentationKeys.add(key);
+
+        // Let the immediate impact/round-win layer land, then hold a dedicated KO
+        // confirmation long enough to read. Competing match copy is deferred below.
+        const delay = 100;
+        const duration = 900;
+        const now = performance.now();
+        this._killConfirmationUntil = Math.max(this._killConfirmationUntil, now + delay + duration);
+        if (this._killConfirmationTimer) clearTimeout(this._killConfirmationTimer);
+        this._killConfirmationTimer = setTimeout(() => {
+            this._killConfirmationTimer = null;
+            this.ui?.showMessage?.(`KO CONFIRMED - ${victimName || 'Opponent'}`, duration);
+            this.audio?.playCue?.('kill-confirm');
+        }, delay);
+        return true;
+    }
+
+    _presentLethalImpact(hitPos, victimTeam, attackerName, victimName, rallyCount = 0) {
+        if (!this._claimKillPresentation(attackerName, victimName, rallyCount)) return false;
+        this.juice.killBurst(hitPos);
+        this.juice.hitStop(150);
+        this.juice.flash(0.55);
+        this.spawnDeathExplosion(hitPos, victimTeam, false);
+        this.audio.playSfx('tf2_explosion', 0.5);
+        window.addKillFeed?.(attackerName, victimName, '⚔');
+        this.audio.playExplosion();
+        return true;
+    }
+
+    _showMatchMessage(text, duration = 1500) {
+        const now = performance.now();
+        const delay = Math.max(0, (this._killConfirmationUntil || 0) - now);
+        if (delay <= 0) {
+            this.ui?.showMessage?.(text, duration);
+            return true;
+        }
+        if (this._deferredMatchMessageTimer) clearTimeout(this._deferredMatchMessageTimer);
+        this._deferredMatchMessageTimer = setTimeout(() => {
+            this._deferredMatchMessageTimer = null;
+            this.ui?.showMessage?.(text, duration);
+            this._roundStatusHoldUntil = performance.now() + duration;
+        }, delay);
+        return false;
+    }
+
+    _roundEndStatusText(curSec) {
+        const score = {
+            redScore: this.scoreboard.redScore,
+            blueScore: this.scoreboard.blueScore
+        };
+        const overtimeComplete = this._overtimeExtends > 0 && shouldEndOvertime({
+            ...score,
+            roundsExtended: this._overtimeExtends
+        });
+        const goalComplete = this._goalRush
+            && Math.max(score.redScore, score.blueScore) >= this._goalScoreToWin;
+        const regulationComplete = this.scoreboard.isTimeUp() || this.scoreboard.isMaxRounds();
+        const overtimePending = regulationComplete && shouldStartOvertime({
+            ...score,
+            timeUp: this.scoreboard.isTimeUp(),
+            maxRounds: this.scoreboard.isMaxRounds()
+        }) && this._overtimeExtends < 8;
+        return overtimeComplete || goalComplete || (regulationComplete && !overtimePending)
+            ? 'Match complete'
+            : `Next round in ${curSec}s`;
+    }
+
     _doApplyHit(hitTarget, name, scorerName, attacker, shot) {
         if (hitTarget.alive === false) return;
         const isClient = this.network?.connected && !this.network?.isHost;
@@ -3298,7 +3405,8 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         if (this._oneHitKill) dmg = hitTarget.maxHp;
 
         // Client-side prediction: apply state locally, server may correct later
-        const lethal = hitTarget.takeDamage(dmg);
+        const lethal = this._applyAuthoritativeHitDamage(hitTarget, dmg);
+        const isLethal = lethal || hitTarget.hp <= 0;
         const analyticsAttacker = {
             id: attacker?.playerId || attacker?.peerId || scorerName || 'unknown',
             name: scorerName || 'Unknown',
@@ -3355,10 +3463,11 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             const hitPos = hitTarget.getPosition();
             const missTag = hitTarget.consecutiveMisses >= 3 ? ' 💢CRITICAL' : hitTarget.consecutiveMisses >= 1 ? ` (x${hitTarget.consecutiveMisses+1} miss)` : '';
             const perfectTag = this.ball.lastPerfectBy === attacker ? ' ✨PERFECT' : '';
+            const hitState = this._authoritativeHitState(hitTarget, isLethal);
             this.network.broadcast({
                 type: 'playerHit', victimPlayerId, victimPeerId, victimName: name,
-                hp: hitTarget.hp, alive: hitTarget.alive !== false,
-                dmg, lethal: hitTarget.hp <= 0, attackerName: scorerName, victimTeam: hitTarget.team,
+                ...hitState,
+                dmg, attackerName: scorerName, victimTeam: hitTarget.team,
                 hitX: hitPos.x, hitY: hitPos.y, hitZ: hitPos.z,
                 missTag, perfectTag, combo: this.juice.combo,
                 killStreak: this.killStreak, rallyCount: this.rallyCount,
@@ -3371,7 +3480,6 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             ? window.__store?.get?.('equippedWearables')?.impact
             : attacker?.wearableLoadout?.impact;
         spawnImpactCosmetic(this.renderer.scene, impactId, hitPos);
-        const isLethal = lethal || hitTarget.hp <= 0;
         if (isLethal) {
             // Finishers were sold ("A fireworks-grade blast ends the round") but nothing
             // ever called spawnFinisherCosmetic. Same equipped-wearable lookup as the
@@ -3428,40 +3536,33 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         // Kill feed
         const missTag = hitTarget.consecutiveMisses >= 3 ? ' 💢CRITICAL' : hitTarget.consecutiveMisses >= 1 ? ` (x${hitTarget.consecutiveMisses+1} miss)` : '';
         const perfectTag = this.ball.lastPerfectBy === attacker ? ' ✨PERFECT' : '';
-        this.killFeed.unshift({ attacker: scorerName, victim: name, dmg, time: performance.now(), tag: missTag + perfectTag });
-        if (this.killFeed.length > 5) this.killFeed.pop();
-        this.ui.renderKillFeed?.(this.killFeed);
-
-        // Juice effects — ponytail: enhanced impact feel
-        if (isLethal) {
-            this.juice.killBurst(hitPos);
-            // ponytail: extra upward spark fountain for dramatic death
-            this.juice.sparks(hitPos.clone().add(new THREE.Vector3(0, 0.3, 0)), 0xffffff, 8);
-        } else {
-            this.juice.hitBurst(hitPos);
+        const presentedLethal = isLethal
+            ? this._presentLethalImpact(hitPos, hitTarget.team, scorerName, name, this.rallyCount)
+            : false;
+        if (!isLethal || presentedLethal) {
+            this.killFeed.unshift({ attacker: scorerName, victim: name, dmg, time: performance.now(), tag: missTag + perfectTag });
+            if (this.killFeed.length > 5) this.killFeed.pop();
+            this.ui.renderKillFeed?.(this.killFeed);
         }
-        this.juice.shockwave(hitPos, isLethal ? 0xff3333 : 0xff8844);
-        this.juice.hitStop(isLethal ? 150 : 35);
-        this.juice.flash(isLethal ? 0.55 : 0.22);
+
+        // Ordinary impact feedback stays distinct from the shared lethal layer.
+        if (!isLethal) {
+            this.juice.hitBurst(hitPos);
+            this.juice.shockwave(hitPos, 0xff8844);
+            this.juice.hitStop(35);
+            this.juice.flash(0.22);
+        }
 
         // The local victim's damage grunt is shared by normal and lethal hits.
         if (hitTarget === this.player) this.audio.playSfx('tf2_scout_scream', 0.45);
 
-        // Elimination-only presentation. Normal hits retain their hit burst,
-        // shockwave, hit-stop, flash, damage number and playHit below.
-        if (isLethal) {
-            this.spawnDeathExplosion(hitPos, hitTarget.team);
-            this.audio.playSfx('tf2_explosion', 0.5);
-            window.addKillFeed?.(scorerName, name, '⚔');
-            this.audio.playExplosion();
-            if (hitTarget === this.player) {
-                this.audio.playSfx('tf2_you_are_dead', 0.5);
-            }
+        if (isLethal && presentedLethal && hitTarget === this.player) {
+            this.audio.playSfx('tf2_you_are_dead', 0.5);
         }
         this.audio.playHit();
 
         // Hit-flash animation on screen
-        if (isLethal && typeof document !== 'undefined') {
+        if (isLethal && presentedLethal && typeof document !== 'undefined') {
             document.body.classList.add('hit-flash');
             setTimeout(() => document.body.classList.remove('hit-flash'), 20);
         }
@@ -3520,8 +3621,6 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                     this.ui.showCombo(idx, 8.0);
                     this.announce(`🔥 ${comboName}!`, tf2ComboSounds[idx] || null, 0.5, 2500);
                 }
-                const rallyMsg = this.rallyCount > 2 ? ` (${this.rallyCount} rally!)` : '';
-                this.announce(`💥 ${name} KO'd!${rallyMsg}${missTag}${perfectTag}`, null, 0.4, 2000);
                 if (scorerName) this.scoreboard.recordPoint(scorerName, 1);
                 this.scoreboard.recordDeath(name);
                 const assistCandidates = this._deflectHistory.filter(n => n !== scorerName);
@@ -3610,7 +3709,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
 
     // --- DEATH EXPLOSION ---
 
-    spawnDeathExplosion(pos, team) {
+    spawnDeathExplosion(pos, team, pooledBurst = true) {
         // The skin that landed the kill decides the elimination effect (user-requested
         // Valorant behaviour). Read the live ball skin here rather than threading a new
         // argument through all six call sites — same value, no signature churn.
@@ -3620,40 +3719,10 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             scene: this.renderer?.scene,
             camera: this.player?.camera
         });
-        const color = team === 'red' ? 0xff4444 : 0x4488ff;
-        for (let i = 0; i < 20; i++) {
-            const geo = new THREE.BoxGeometry(0.2, 0.2, 0.2);
-            const mat = new THREE.MeshBasicMaterial({
-                color: i % 3 === 0 ? color : 0xffcc44,
-                transparent: true, opacity: 1
-            });
-            const p = new THREE.Mesh(geo, mat);
-            p.position.copy(pos);
-            const vel = new THREE.Vector3(
-                (Math.random() - 0.5) * 12,
-                Math.random() * 10 + 3,
-                (Math.random() - 0.5) * 12
-            );
-            this.renderer.scene.add(p);
-            this.deathParticles.push({ mesh: p, vel, life: 1.5, gravity: -15 });
-        }
-
-        // Star burst
-        for (let i = 0; i < 8; i++) {
-            const geo = new THREE.CircleGeometry(0.3, 5);
-            const mat = new THREE.MeshBasicMaterial({
-                color: 0xffee44, transparent: true, opacity: 0.8, side: THREE.DoubleSide
-            });
-            const s = new THREE.Mesh(geo, mat);
-            s.position.copy(pos);
-            const vel = new THREE.Vector3(
-                (Math.random() - 0.5) * 8,
-                Math.random() * 6 + 2,
-                (Math.random() - 0.5) * 8
-            );
-            this.renderer.scene.add(s);
-            this.deathParticles.push({ mesh: s, vel, life: 1.0, gravity: -8, spin: true });
-        }
+        // Juice owns a bounded particle pool. Callers already using the canonical
+        // lethal presenter pass false so a kill produces one burst, while hazards
+        // and celebration fireworks still get the same pooled visual route.
+        if (pooledBurst) this.juice?.killBurst?.(pos);
     }
 
     updateDeathParticles(dt) {
@@ -5301,28 +5370,30 @@ spawnPowerUp() {
                 this.ui.showHitMarker(data.hitZoneId === 'head');
             }
 
-            // Elimination effects are reserved for an authoritative lethal hit.
-            if (isLethal) {
-                this.spawnDeathExplosion(hitPos, data.victimTeam);
-                this.audio.playSfx('tf2_explosion', 0.5);
-            }
-            if (isLethal) {
-                this.juice.killBurst(hitPos);
-                this.juice.sparks(hitPos.clone().add(new THREE.Vector3(0, 0.3, 0)), 0xffffff, 8);
-            } else {
+            const presentedLethal = isLethal
+                ? this._presentLethalImpact(
+                    hitPos,
+                    data.victimTeam,
+                    data.attackerName,
+                    data.victimName,
+                    data.rallyCount || 0
+                )
+                : false;
+            if (!isLethal) {
                 this.juice.hitBurst(hitPos);
+                this.juice.shockwave(hitPos, 0xff8844);
+                this.juice.hitStop(35);
+                this.juice.flash(0.22);
             }
-            this.juice.shockwave(hitPos, isLethal ? 0xff3333 : 0xff8844);
-            this.juice.shake(isLethal ? 0.6 : 0.25);
-            this.juice.hitStop(isLethal ? 100 : 50);
-            this.juice.flash(isLethal ? 0.4 : 0.2);
             this.audio.playHit();
 
             // Kill feed
             const tag = (data.missTag || '') + (data.perfectTag || '');
-            this.killFeed.unshift({ attacker: data.attackerName, victim: data.victimName, dmg: data.dmg || 0, time: performance.now(), tag });
-            if (this.killFeed.length > 5) this.killFeed.pop();
-            this.ui.renderKillFeed?.(this.killFeed);
+            if (!isLethal || presentedLethal) {
+                this.killFeed.unshift({ attacker: data.attackerName, victim: data.victimName, dmg: data.dmg || 0, time: performance.now(), tag });
+                if (this.killFeed.length > 5) this.killFeed.pop();
+                this.ui.renderKillFeed?.(this.killFeed);
+            }
 
             // Local player hit effects
             if (target === this.player) {
@@ -5368,7 +5439,7 @@ spawnPowerUp() {
         }
 
         // Reconcile: host is authoritative
-        const hostAlive = data.alive !== false;
+        const hostAlive = !isLethal && data.alive !== false;
         if (hostAlive) {
             this._reconcileHostRevive(target, data.hp);
         } else {
@@ -6137,10 +6208,10 @@ spawnPowerUp() {
         this.roundRestartTimer = this.roundRestartDelay;
         this.clearSplitBalls();
         this.chaosManager?.clear();
-        if (data?.winner === 'red') this.ui.showMessage?.('🔴 RED TEAM WINS THE ROUND!', 2000);
-        else if (data?.winner === 'blue') this.ui.showMessage?.('🔵 BLUE TEAM WINS THE ROUND!', 2000);
-        else if (data?.winner === 'ffa' && data.winnerName) this.ui.showMessage?.(`${data.winnerName} WINS THE ROUND!`, 2000);
-        else if (data?.winner === 'draw') this.ui.showMessage?.('⚔️ DOUBLE KO — DRAW!', 2000);
+        if (data?.winner === 'red') this._showMatchMessage('🔴 RED TEAM WINS THE ROUND!', 2000);
+        else if (data?.winner === 'blue') this._showMatchMessage('🔵 BLUE TEAM WINS THE ROUND!', 2000);
+        else if (data?.winner === 'ffa' && data.winnerName) this._showMatchMessage(`${data.winnerName} WINS THE ROUND!`, 2000);
+        else if (data?.winner === 'draw') this._showMatchMessage('⚔️ DOUBLE KO — DRAW!', 2000);
     }
     startRoundFromNetwork(data = {}) {
         if (this.network?.isHost) return;
@@ -6338,7 +6409,7 @@ handleSkillEffect(data = {}) {
     // Host: announcement'ı hem local oynat hem tüm client'lara yayınla.
     // first blood, KO, combo, round/team win gibi juicy mesajlar herkeste çalsın.
     announce(text, sfx, sfxVol = 0.4, duration = 1500) {
-        this.ui?.showMessage?.(text, duration);
+        this._showMatchMessage(text, duration);
         if (sfx && this.audio) this.audio.playSfx(sfx, sfxVol);
         if (this.network?.isHost) {
             this.network.broadcast({ type: 'announce', text, sfx, sfxVol, duration });
@@ -6348,7 +6419,7 @@ handleSkillEffect(data = {}) {
     // Client: host'tan gelen announcement'ı oynat.
     applyAnnounce(data = {}) {
         if (!data || this.network?.isHost) return;
-        this.ui?.showMessage?.(data.text, data.duration || 1500);
+        this._showMatchMessage(data.text, data.duration || 1500);
         if (data.sfx && this.audio) this.audio.playSfx(data.sfx, data.sfxVol || 0.4);
     }
 
