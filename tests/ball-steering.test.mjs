@@ -31,8 +31,19 @@ const {
     steeringDtAfterBounceOwnership,
     steeringTurnAlpha,
     postBounceRouteOwnershipDt,
-    shouldDirectHomingRescue
+    proximityAssistRange,
+    shouldDirectHomingRescue,
+    shouldForceProximityHit
 } = ballModule;
+
+test('aimed proximity assistance stays speed-bounded and only rescues an approaching ball', () => {
+    assert.equal(proximityAssistRange(0), 1.5);
+    assert.equal(proximityAssistRange(2000), 2.5);
+    assert.equal(shouldForceProximityHit({ distance: 0.6, speed: 100, approachDot: 0.1 }), false);
+    assert.equal(shouldForceProximityHit({ distance: 0.6, speed: 100, approachDot: 0.4 }), true);
+    assert.equal(shouldForceProximityHit({ distance: 1.2, speed: 100, approachDot: 0.4, timer: 0.2, threshold: 0.3 }), false);
+    assert.equal(shouldForceProximityHit({ distance: 1.2, speed: 100, approachDot: 0.4, timer: 0.3, threshold: 0.3 }), true);
+});
 
 test('every purchasable ball skin is cosmetic-only and ready for the shop', () => {
     for (const [id, skin] of Object.entries(BALL_SKINS)) {

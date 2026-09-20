@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { filterLobbies, lobbyOpenSlots, pickQuickLobby } from '../js/lobby-browser.js';
+import { filterLobbies, lobbyOpenSlots, pickQuickLobby, isLobbyFresh } from '../js/lobby-browser.js';
 
 const lobbies = [
     { code: 'a', mode: 'Classic', map: 'Beach', players: 3, maxPlayers: 8, ranked: false, updatedAt: 1 },
@@ -28,4 +28,15 @@ test('party quick play only considers rooms with every squad slot available', ()
     assert.equal(lobbyOpenSlots(lobbies[0]), 5);
     assert.deepEqual(filterLobbies(lobbies, { sportId: 'dodgeball', queue: 'casual', minOpenSlots: 6 }).map(lobby => lobby.code), []);
     assert.equal(pickQuickLobby(lobbies, { sportId: 'dodgeball', queue: 'casual', minOpenSlots: 5 }).code, 'a');
+});
+
+test('closed and stale rooms stay out of the public browser', () => {
+    const now = 100000;
+    const rooms = [
+        { code: 'locked', locked: true, players: 1, maxPlayers: 8, updatedAt: now },
+        { code: 'stale', players: 1, maxPlayers: 8, updatedAt: now - 90001 },
+        { code: 'fresh', players: 1, maxPlayers: 8, updatedAt: now }
+    ];
+    assert.equal(isLobbyFresh(rooms[1], now), false);
+    assert.deepEqual(filterLobbies(rooms, { openOnly: true, now }).map(lobby => lobby.code), ['fresh']);
 });

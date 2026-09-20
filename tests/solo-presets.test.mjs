@@ -9,7 +9,7 @@ import {
 
 test('short solo presets expose a distinct, bounded warmup, duel, and pressure route', () => {
     assert.deepEqual(SOLO_PRESETS.map(preset => preset.id), ['warmup', 'rally_duel', 'pressure']);
-    assert.deepEqual(SOLO_PRESETS.map(preset => preset.modeId), ['classic', 'rally_duel', 'instagib']);
+    assert.deepEqual(SOLO_PRESETS.map(preset => preset.modeId), ['instagib', 'rally_duel', 'instagib']);
     assert.deepEqual(SOLO_PRESETS.map(preset => preset.mapId), ['beach_open', 'industrial', 'esport_arena']);
     for (const preset of SOLO_PRESETS) {
         assert.ok(preset.maxRounds >= 3 && preset.maxRounds <= 5);

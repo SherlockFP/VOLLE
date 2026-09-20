@@ -236,15 +236,16 @@ export function createVolleyballController(options = {}) {
         reportFault(VOLLEYBALL_FAULTS.DOUBLE_CONTACT, contact.team);
         return { accepted: false, fault: VOLLEYBALL_FAULTS.DOUBLE_CONTACT };
       }
-      if (controlledSelfSet) state.controlledSelfSetUsed = true;
-
       if (contactConsumesTeamHit(contact.type)) {
-        state.teamContacts++;
-        if (state.teamContacts > config.maxContacts) {
+        // Rejected contacts retain the last accepted count/history so fault and
+        // score snapshots obey the same bounds as live-rally snapshots.
+        if (state.teamContacts >= config.maxContacts) {
           reportFault(VOLLEYBALL_FAULTS.FOUR_HITS, contact.team);
           return { accepted: false, fault: VOLLEYBALL_FAULTS.FOUR_HITS };
         }
+        state.teamContacts++;
       }
+      if (controlledSelfSet) state.controlledSelfSetUsed = true;
       state.lastContactPlayerId = contact.playerId;
       state.lastContactType = contact.type;
       return { accepted: true, fault: null, teamContacts: state.teamContacts };

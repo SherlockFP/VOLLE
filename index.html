@@ -20,6 +20,7 @@
     <link rel="stylesheet" href="css/solo-paths.css?v=1">
     <link rel="stylesheet" href="css/arena-interface.css?v=1">
     <link rel="stylesheet" href="css/menu-rework.css?v=1">
+    <link rel="stylesheet" href="css/shop-studio.css?v=1">
     <script type="importmap">
     {
         "imports": {
@@ -1036,13 +1037,26 @@
                         <div id="shop-selected-product-visual" class="shop-selected-product-visual" aria-hidden="true"></div>
                         <div class="shop-showcase-fallback" aria-hidden="true"><i></i><b></b><span></span></div>
                         <span class="shop-live-badge"><i aria-hidden="true"></i>Live 3D</span>
-                        <span class="shop-rotate-hint">Drag to rotate</span>
+                        <span class="shop-rotate-hint">Drag or use arrow keys</span>
+                        <div id="shop-preview-controls" class="shop-preview-controls">
+                            <div class="shop-pose-buttons" role="group" aria-label="Preview animation">
+                                <button type="button" data-shop-animation="idle" aria-pressed="true">Idle</button>
+                                <button type="button" data-shop-animation="run" aria-pressed="false">Run</button>
+                                <button type="button" data-shop-animation="celebrate" aria-pressed="false">Celebrate</button>
+                            </div>
+                            <div class="shop-view-buttons" role="group" aria-label="Preview camera">
+                                <button id="shop-auto-rotate" type="button" aria-pressed="true" aria-label="Automatic rotation">Rotate</button>
+                                <button id="shop-reset-view" type="button" aria-label="Reset preview to front view">Front view</button>
+                            </div>
+                        </div>
                     </div>
                     <div class="shop-selected-detail">
                         <span id="shop-selected-kicker" class="shell-kicker">CURRENT LOOK</span>
                         <h2 id="shop-selected-name">Custom Canvas</h2>
                         <p id="shop-selected-meta">Classic model · Equipped</p>
+                        <p id="shop-selected-description" class="shop-selected-description"></p>
                         <p id="shop-showcase-status" class="shop-showcase-status" role="status" aria-live="polite">Your equipped skin is ready.</p>
+                        <p id="shop-selected-balance" class="shop-selected-balance"></p>
                         <button id="shop-selected-action" class="btn btn-primary shop-selected-action" type="button" disabled>Equipped</button>
                         <button id="btn-shop-practice" class="btn btn-primary shop-practice-cta" type="button" data-shop-practice="avatar" data-id="default"><svg class="ui-icon" aria-hidden="true"><use href="#i-target"></use></svg><span>Try in Practice Range</span></button>
                     </div>
@@ -1057,6 +1071,7 @@
                         <label><span>Rarity</span><select id="shop-rarity"><option value="all">All rarities</option><option value="common">Common</option><option value="rare">Rare</option><option value="epic">Epic</option><option value="legendary">Legendary</option></select></label>
                         <label><span>Sort</span><select id="shop-sort"><option value="featured">Featured</option><option value="price-low">Price: low to high</option><option value="price-high">Price: high to low</option><option value="name">Name: A–Z</option></select></label>
                         <label id="shop-slot-label" hidden><span>Equipment slot</span><select id="shop-slot"><option value="all">All equipment</option></select></label>
+                        <label id="shop-collection-label" hidden><span>Collection</span><select id="shop-collection"><option value="all">All collections</option></select></label>
                     </div>
                     <div class="shop-filters" id="shop-filters" role="group" aria-label="Filter shop items">
                         <button type="button" class="shop-filter-chip selected" data-filter="all" aria-pressed="true">All</button>
@@ -1076,7 +1091,7 @@
             <footer class="shop-footer">
                 <div class="shop-footer-brand"><span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-shop"></use></svg></span><strong>Shop</strong></div>
                 <button id="btn-shop-back" class="btn btn-secondary shell-back"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back to menu</button>
-                <span class="shop-note">Select any item to preview. Owned items equip instantly.</span>
+                <span class="shop-note">Preview your look. Buy once, then choose Equip when ready.</span>
                 <div class="shop-footer-wallet"><div id="shop-earn-slot"></div><span class="meta-stat" aria-label="Current credit balance"><svg class="ui-icon" aria-hidden="true"><use href="#i-coins"></use></svg><strong id="shop-coins">0</strong><small>credits</small></span></div>
             </footer>
         </div>
@@ -1520,7 +1535,7 @@
             <small id="movement-trial-detail">0/0m</small>
         </div>
         <!-- Spectator target and camera controls -->
-        <section id="spectator-info" class="hidden hud-spectator-info" aria-label="Spectator controls" aria-live="polite">
+        <section id="spectator-info" class="hidden hud-spectator-info" data-spectator-ui aria-label="Spectator controls" aria-live="polite">
             <header class="spectator-status-row"><span>SPECTATING</span><b id="spectator-mode-label">CHASE CAM</b></header>
             <div class="spectator-target-row">
                 <button id="spectator-prev-target" type="button" aria-label="Previous player"><svg class="ui-icon" aria-hidden="true"><use href="#i-prev"></use></svg></button>
@@ -1645,7 +1660,7 @@
     <div id="killcam-overlay"><div class="killcam-killer"></div></div>
 
     <!-- ===== REPLAY PLAYBACK CONTROLS ===== -->
-    <div id="replay-controls" class="replay-controls hidden" role="region" aria-label="Replay playback controls">
+    <div id="replay-controls" class="replay-controls hidden" data-spectator-ui role="region" aria-label="Replay playback controls">
         <div class="replay-controls-top">
             <span class="replay-live-mark"><i aria-hidden="true"></i>REPLAY</span>
             <output id="replay-time" class="replay-time" aria-live="off">00:00 / 00:00</output>
@@ -1669,6 +1684,7 @@
                     <option value="2">2x</option>
                 </select>
             </label>
+            <button id="replay-toggle-loop" class="replay-control-btn replay-loop" type="button" aria-pressed="false" aria-label="Enable replay loop" title="Loop disabled">LOOP</button>
             <label class="replay-select-wrap replay-camera-wrap" for="replay-camera-mode">
                 <span>Camera</span>
                 <select id="replay-camera-mode">
@@ -1790,7 +1806,7 @@
     <dialog id="solo-paths" class="solo-paths" aria-labelledby="solo-paths-title">
         <header><div><span class="solo-kicker">YOUR NEXT MATCH</span><h2 id="solo-paths-title">Find your rhythm.</h2><p>Choose a short solo match. One opponent. A clear challenge.</p></div><button class="solo-close" id="solo-paths-close" type="button" aria-label="Close solo match chooser">×</button></header>
         <div class="solo-path-grid" aria-label="Solo match presets">
-            <button type="button" class="solo-path-card" data-solo-preset="warmup" aria-pressed="true"><span class="solo-path-icon" aria-hidden="true">◎</span><strong>Warm-up</strong><small>Find your timing against a forgiving opponent. Classic health rules.</small><span class="solo-path-tag">EASY · CLASSIC</span></button>
+            <button type="button" class="solo-path-card" data-solo-preset="warmup" aria-pressed="true"><span class="solo-path-icon" aria-hidden="true">◎</span><strong>Warm-up</strong><small>Find your timing against a forgiving opponent. One clean hit ends the round.</small><span class="solo-path-tag">EASY · ONE SHOT</span></button>
             <button type="button" class="solo-path-card" data-solo-preset="rally_duel" aria-pressed="false"><span class="solo-path-icon" aria-hidden="true">↔</span><strong>Rally Duel</strong><small>Equal stats. No powers. Win with timing, direction and movement.</small><span class="solo-path-tag">MEDIUM · 1 VS 1</span></button>
             <button type="button" class="solo-path-card" data-solo-preset="pressure" aria-pressed="false"><span class="solo-path-icon" aria-hidden="true">ϟ</span><strong>Under Pressure</strong><small>One hit ends the round. Stay calm as the ball gets faster.</small><span class="solo-path-tag">HARD · INSTAGIB</span></button>
         </div>

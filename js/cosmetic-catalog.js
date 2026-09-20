@@ -116,6 +116,17 @@ export const COSMETICS = Object.freeze({
     backpack_tidal_drift_float: item('backpack_tidal_drift_float', 'backpack', 'Tidal Drift Float Pack', 380, 'epic', ['#74e4cf', '#313c8a'], 'supplies', 'Tidal Drift court supplies ride in a compact indigo float pack.'),
     pet_tidal_drift_ray: item('pet_tidal_drift_ray', 'pet', 'Tidal Drift Ray', 460, 'legendary', ['#74e4cf', '#313c8a'], 'axolotl', 'A Tidal Drift mint-and-indigo companion glides at your side.'),
 
+    // Direct shop collections: every silhouette has a matching model and SVG icon.
+    hat_court_carnival_visor: item('hat_court_carnival_visor', 'hat', 'Court Carnival Visor', 240, 'rare', ['#ffc857', '#c84c87'], 'sport_visor', 'Court Carnival open-top sports visor with a broad forward brim.'),
+    backpack_court_carnival_popcorn: item('backpack_court_carnival_popcorn', 'backpack', 'Court Carnival Popcorn Pack', 320, 'rare', ['#ffc857', '#c84c87'], 'popcorn', 'Court Carnival striped popcorn tub with a crown of fluffy kernels.'),
+    shoes_court_carnival_rally: item('shoes_court_carnival_rally', 'shoes', 'Court Carnival Rally Shoes', 220, 'rare', ['#ffc857', '#c84c87'], 'court_sneakers', 'Court Carnival low-top sneakers with white laces, bright soles and heel tabs.'),
+    cape_court_carnival_pennants: item('cape_court_carnival_pennants', 'cape', 'Court Carnival Pennant Cape', 240, 'rare', ['#ffc857', '#c84c87'], 'pennants', 'Two Court Carnival split-tail ribbons sway beneath a festival clasp.'),
+
+    hat_orbital_club_antennas: item('hat_orbital_club_antennas', 'hat', 'Orbital Club Antennas', 260, 'rare', ['#c5ee72', '#6848b8'], 'antennas', 'Orbital Club headband with two gently bobbing signal bulbs.'),
+    pet_orbital_club_satellite: item('pet_orbital_club_satellite', 'pet', 'Orbital Club Mini Satellite', 420, 'epic', ['#c5ee72', '#6848b8'], 'satellite', 'An Orbital Club companion with twin solar arrays and a small signal dish.'),
+    backpack_orbital_club_star: item('backpack_orbital_club_star', 'backpack', 'Orbital Club Star Pack', 360, 'epic', ['#c5ee72', '#6848b8'], 'star_pack', 'Orbital Club five-point star backpack with a round pocket and swinging charm.'),
+    wings_orbital_club_comet: item('wings_orbital_club_comet', 'wings', 'Orbital Club Comet Wings', 480, 'epic', ['#c5ee72', '#6848b8'], 'comet_fins', 'Orbital Club swept comet fins with bright inset panels and a gentle idle flap.'),
+
     finisher_confetti: item('finisher_confetti', 'finisher', 'Victory Confetti', 260, 'rare', ['#ffe14a', '#ff4d8f'], 'confetti', 'Eliminations burst into golden confetti.'),
     finisher_shatter: item('finisher_shatter', 'finisher', 'Shatter Point', 300, 'rare', ['#e8ffff', '#48a9ff'], 'shatter', 'Opponents crack apart like frozen glass.'),
     finisher_lightning: item('finisher_lightning', 'finisher', 'Thunderstrike', 400, 'epic', ['#fff257', '#3570ff'], 'lightning', 'A bolt seals the elimination in light.'),

@@ -58,7 +58,7 @@ import {
     rankQueueCandidates,
     updateDraftPick
 } from './competitive-service.js';
-import { filterLobbies, pickQuickLobby, formatLobbyAge, lobbyCapacity } from './lobby-browser.js';
+import { filterLobbies, pickQuickLobby, formatLobbyAge, lobbyCapacity, isLobbyFresh } from './lobby-browser.js';
 import { canHostSport, canPlayLocalSport, lobbySportId, resolveSportRoute, sportDefinition, SPORT_IDS } from './sports.js';
 import { createVolleyballPracticeRuntime } from './volleyball-practice-runtime.js';
 import { volleyballCoachCue, volleyballDrillProgress } from './volleyball-coach.js';
@@ -417,6 +417,10 @@ class App {
         // Spectate click — left=next, right=prev (no context menu)
         document.addEventListener('mousedown', e => {
             if (Spectator.active) {
+                // Replay and spectator HUD controls must receive their own click
+                // event. The old global target-cycle handler prevented the click
+                // default on buttons, making pause/seek/exit appear dead.
+                if (e.target?.closest?.('[data-spectator-ui]')) return;
                 Spectator.handlePointerButton(e);
                 return;
             }
@@ -512,6 +516,12 @@ class App {
                 }
                 if (e.code === 'BracketRight') { Spectator.cycleTarget(); return; }
                 if (e.code === 'BracketLeft') { Spectator.prevTarget(); return; }
+                if (e.code === 'KeyL' && Replay.playing) {
+                    e.preventDefault();
+                    Replay.toggleLoop();
+                    this._updateReplayControls();
+                    return;
+                }
                 if (e.code === 'KeyF') { Spectator.setFreeCam(!Spectator.freeCam); return; }
                 if (e.code === 'KeyM' && !Replay.playing) { e.preventDefault(); this.toggleTeamPopup(); return; }
                 // ESC falls through to the normal pause/settings flow.
@@ -1845,6 +1855,10 @@ class App {
 
         bind('replay-toggle-pause', () => {
             Replay.togglePause();
+            this._updateReplayControls();
+        });
+        bind('replay-toggle-loop', () => {
+            Replay.toggleLoop();
             this._updateReplayControls();
         });
         bind('replay-prev', () => Spectator.prevTarget());
@@ -3329,23 +3343,37 @@ updateCSLobbyInfo();
             // Shop buy buttons
             const liveOfferBtn = e.target.closest('.live-offer-buy');
             if (liveOfferBtn) {
+                if (liveOfferBtn.disabled || this._shopPurchaseInFlight) return;
+                this._shopPurchaseInFlight = true;
+                liveOfferBtn.disabled = true;
+                liveOfferBtn.setAttribute('aria-busy', 'true');
+                try {
                 const ok = await this.store.purchaseLiveOffer(liveOfferBtn.dataset.offerId);
                 if (ok) {
                     this.productAnalytics.track('shop_purchase_success', { itemType: 'live_offer', itemId: liveOfferBtn.dataset.offerId });
                     this.ui.showMessage?.('Live deal purchased!');
-                    await this.store.refreshLiveMarket();
-                    this.ui.renderShop(this.store, 'live');
+                    await this._refreshShopLiveMarket();
                     this.refreshMetaStats();
                 } else {
                     this.productAnalytics.track('shop_purchase_failure', { itemType: 'live_offer', itemId: liveOfferBtn.dataset.offerId, reason: 'unavailable' });
                     this.ui.showMessage?.('Live deal is unavailable, owned, or you need more coins.');
                 }
+                } finally {
+                    this._shopPurchaseInFlight = false;
+                    liveOfferBtn.disabled = false;
+                    liveOfferBtn.removeAttribute('aria-busy');
+                }
                 return;
             }
             const buyBtn = e.target.closest('.shop-buy');
             if (buyBtn) {
+                if (buyBtn.disabled || this._shopPurchaseInFlight) return;
                 const type = buyBtn.dataset.type;
                 const id = buyBtn.dataset.id;
+                this._shopPurchaseInFlight = true;
+                buyBtn.disabled = true;
+                buyBtn.setAttribute('aria-busy', 'true');
+                try {
                 if (type === 'boost') {
                     const ok = this.store.buyAndActivateXpBoost();
                     this.productAnalytics.track(ok ? 'shop_purchase_success' : 'shop_purchase_failure', {
@@ -3362,16 +3390,18 @@ updateCSLobbyInfo();
                     this.productAnalytics.track('shop_purchase_success', { itemType: type, itemId: id });
                     this.ui.showMessage?.('Purchased!');
                     const activeTab = document.querySelector('.shop-tab.selected')?.dataset.tab || 'chars';
-                    if (type === 'avatar') this.ui._shopPreviewAvatar = id;
-                    if (type === 'char') this.ui._shopPreviewCharacter = id;
-                    this.ui.renderShop(this.store, activeTab);
-                    if (type === 'avatar' && AVATAR_SKINS[id]) this.ui._setShopShowcase(this.store, AVATAR_SKINS[id], true, true);
-                    if (type === 'char' && CHARACTERS[id]) this.ui._setShopCharacterDetail(this.store, CHARACTERS[id], true);
+                    if (document.body.dataset.screen === 'shop') this.ui.renderShop(this.store, activeTab);
                     this.refreshMetaStats();
                 } else {
                     this.productAnalytics.track('shop_purchase_failure', { itemType: type, itemId: id, reason: 'unavailable' });
                     this.ui.showMessage?.('Not enough coins or owned!');
                 }
+                } finally {
+                    this._shopPurchaseInFlight = false;
+                    buyBtn.removeAttribute('aria-busy');
+                    if (buyBtn.dataset.id === id && buyBtn.dataset.type === type && buyBtn.classList.contains('shop-buy')) buyBtn.disabled = false;
+                }
+                return;
             }
             const skillEquip = e.target.closest('.skill-equip');
             if (skillEquip) {
@@ -3454,7 +3484,7 @@ updateCSLobbyInfo();
                 this.refreshMetaStats();
             }
             const ballInspect = e.target.closest('.ball-inspect');
-            if (ballInspect) {
+            if (ballInspect && !ballInspect.closest('#shop-grid')) {
                 const card = ballInspect.closest('.ball-skin, .inventory-card');
                 const inspecting = card?.classList.toggle('inspecting') === true;
                 ballInspect.setAttribute('aria-pressed', String(inspecting));
@@ -3618,8 +3648,12 @@ updateCSLobbyInfo();
                 tabBtn.classList.add('selected');
                 this.ui.renderShop(this.store, tabBtn.dataset.tab);
                 if (tabBtn.dataset.tab === 'live') {
-                    void this.store.refreshLiveMarket().then(() => this.ui.renderShop(this.store, 'live'));
+                    void this._refreshShopLiveMarket();
                 }
+            }
+            if (e.target.closest('.shop-live-retry')) {
+                void this._refreshShopLiveMarket();
+                return;
             }
             const caseClose = e.target.closest('#case-inspector-close');
             if (caseClose || (e.target.id === 'case-inspector')) {
@@ -4298,7 +4332,7 @@ updateCSLobbyInfo();
             complete: () => this._exitReplay()
         });
         this._updateReplayControls();
-        this.ui.showMessage?.('Replay: [ ] target, F camera, WASD freecam, ESC exit', 2400);
+        this.ui.showMessage?.('Replay: [ ] target, F camera, L loop, WASD freecam, ESC exit', 2400);
     }
 
     _exitReplay(showList = true) {
@@ -4323,6 +4357,14 @@ updateCSLobbyInfo();
             toggle.setAttribute('aria-label', label);
             toggle.title = label;
             toggle.querySelector('use')?.setAttribute('href', state.paused ? '#i-play' : '#i-pause');
+        }
+        const loop = document.getElementById('replay-toggle-loop');
+        if (loop) {
+            loop.classList.toggle('is-active', state.loop);
+            loop.setAttribute('aria-pressed', String(state.loop));
+            loop.setAttribute('aria-label', state.loop ? 'Disable replay loop' : 'Enable replay loop');
+            loop.title = state.loop ? 'Loop enabled' : 'Loop disabled';
+            loop.textContent = state.loop ? 'LOOP ON' : 'LOOP';
         }
         const seek = document.getElementById('replay-seek');
         if (seek && state.duration > 0 && document.activeElement !== seek) {
@@ -5297,6 +5339,17 @@ updateCarousel() {
         this.ui._closeExclusive('settings');
     }
 
+    async _refreshShopLiveMarket() {
+        const retry = document.querySelector('.shop-live-retry');
+        if (retry) { retry.disabled = true; retry.textContent = 'Refreshing…'; }
+        const ready = await this.store.refreshLiveMarket();
+        // Refresh the cache without taking over a tab the player switched to.
+        if (document.body.dataset.screen === 'shop' && document.querySelector('.shop-tab.selected')?.dataset.tab === 'live') {
+            this.ui.renderShop(this.store, 'live');
+        }
+        return ready;
+    }
+
     // Practice range — bot yok, sınırsız top, spawn/taşı.
     _initShopShowcase() {
         const canvas = document.getElementById('shop-showcase-canvas');
@@ -5307,13 +5360,36 @@ updateCarousel() {
                 skinId: this.store.get('equippedAvatarSkin'),
                 autoStart: false
             });
+            const stage = document.getElementById('shop-showcase-stage');
+            stage?.classList.add('has-webgl-preview');
+            canvas.addEventListener('webglcontextlost', () => stage?.classList.remove('has-webgl-preview'), { signal: this._mainAbort.signal });
+            canvas.addEventListener('webglcontextrestored', () => stage?.classList.add('has-webgl-preview'), { signal: this._mainAbort.signal });
         } catch (error) {
             const status = document.getElementById('shop-showcase-status');
             if (status) status.textContent = '3D preview unavailable. Catalog controls remain active.';
         }
         this.shopShowcase?.setFrameLimit(this.store.get('fpsLimit'));
+        const controls = document.getElementById('shop-preview-controls');
+        controls?.addEventListener('click', event => {
+            const button = event.target.closest('[data-shop-animation]');
+            if (button) {
+                const selected = this.shopShowcase?.setAnimation(button.dataset.shopAnimation);
+                controls.querySelectorAll('[data-shop-animation]').forEach(control => control.setAttribute('aria-pressed', String(control.dataset.shopAnimation === selected)));
+            }
+            if (event.target.closest('#shop-auto-rotate') && this.shopShowcase) {
+                const enabled = this.shopShowcase.setAutoRotate(!this.shopShowcase.autoRotate);
+                document.getElementById('shop-auto-rotate')?.setAttribute('aria-pressed', String(enabled));
+            }
+            if (event.target.closest('#shop-reset-view') && this.shopShowcase) {
+                this.shopShowcase.setAutoRotate(false);
+                document.getElementById('shop-auto-rotate')?.setAttribute('aria-pressed', 'false');
+                this.shopShowcase.resetView();
+            }
+        }, { signal: this._mainAbort.signal });
         window.addEventListener('warrball:shop-preview', event => {
             const detail = event.detail;
+            if (detail?.type === 'ball') this.shopShowcase?.stop();
+            else if (document.body.dataset.screen === 'shop') this.shopShowcase?.start();
             if (detail?.type !== 'ball') this._disposeCosmeticPreview(document.getElementById('shop-selected-product-visual'));
             if (detail?.type === 'avatar' && AVATAR_SKINS[detail.id]) {
                 this._syncShopShowcase(detail.id);
@@ -5360,7 +5436,7 @@ updateCarousel() {
         applyEntityCosmetics(avatar, loadout);
         this.shopShowcase.avatar.onPoseTime = seconds => updateEntityCosmetics(avatar, seconds);
         if (focusType && ['cape', 'wings', 'backpack', 'banner'].includes(focusType)) this.shopShowcase._yaw = 0;
-        else if (!focusType) this.shopShowcase._yaw = Math.PI;
+        else this.shopShowcase._yaw = Math.PI;
         this.shopShowcase._renderFrame?.();
         return true;
     }
@@ -6357,7 +6433,8 @@ updateCarousel() {
         clearInterval(this._lobbyKeepAlive);
         this._stopBgLoop();
         this._cleanupListeners();
-        if (!this.network?.isHost && this._lobbyCode) this._lobbyApi(`/api/lobbies/${encodeURIComponent(this._lobbyCode)}/leave`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+        if (this.network?.isHost && this._lobbyCode) void this._unregisterLobby(this._lobbyCode);
+        else if (this._lobbyCode) this._lobbyApi(`/api/lobbies/${encodeURIComponent(this._lobbyCode)}/leave`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
         this._lobbyCode = null;
         this._exitPracticeSession();
         document.getElementById('practice-lab-hud')?.classList.add('hidden');
@@ -6844,6 +6921,7 @@ updateCarousel() {
                 rulesetId: sportRoute.rulesetId,
                 mapId: sportRoute.mapId,
                 ranked,
+                locked: Boolean(this.network?.lobbyPassword || this._localLobbyPassword),
                 averageElo: ranked ? this.store.getElo() : undefined,
                 maxPlayers: sportRoute.maxPlayers
             })
@@ -6921,7 +6999,8 @@ updateCarousel() {
         const mapFilter = document.getElementById('mp-lobby-map-filter');
         const queueFilter = document.getElementById('mp-lobby-queue-filter');
         const openFilter = document.getElementById('mp-lobby-open-filter');
-        const sportLobbies = filterLobbies(list, { sportId: this._selectedSportId, openOnly: false });
+        const sportLobbies = filterLobbies(list, { sportId: this._selectedSportId, openOnly: false })
+            .filter(lobby => isLobbyFresh(lobby));
         if (!sportLobbies.length) {
             this._renderLobbyEmpty(container, `No public ${sportDefinition(this._selectedSportId).name} rooms right now.`);
             return;
@@ -7085,7 +7164,7 @@ updateCarousel() {
         }
         try {
             clearInterval(this._lobbyKeepAlive); // önceki varsa durdur
-            if (this._lobbyCode) this._unregisterLobby(this._lobbyCode); // eski varsa sil
+            if (this._lobbyCode) await this._unregisterLobby(this._lobbyCode); // eski varsa sil
             const name = document.getElementById('player-name-input')?.value || 'Host';
             this.game.playerName = name;
             const code = await this.network.hostGame(name);

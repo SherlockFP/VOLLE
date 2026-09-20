@@ -13,7 +13,7 @@ const PRESETS = Object.freeze({
     [SOLO_PRESET_IDS.WARMUP]: Object.freeze({
         id: SOLO_PRESET_IDS.WARMUP,
         name: 'Warmup',
-        modeId: 'classic',
+        modeId: 'instagib',
         mapId: 'beach_open',
         botDifficulty: 'easy',
         maxRounds: 3,

@@ -11,10 +11,11 @@ import {
 } from '../js/cosmetic-catalog.js';
 
 // Solar Circuit adds cape/shoes/hat/wings/backpack/gloves; Tidal Drift adds
-// cape/pet/shoes/hat/wings/backpack. Dark Eater still adds cape/aura/trail.
+// cape/pet/shoes/hat/wings/backpack. Court Carnival adds hat/backpack/shoes/cape;
+// Orbital Club adds hat/pet/backpack/wings. Dark Eater still adds cape/aura/trail.
 const EXPECTED_COUNTS = {
-    cape: 9, pet: 7, shoes: 8, aura: 7, impact: 6,
-    hat: 10, mask: 6, wings: 8, backpack: 7, banner: 4, trail: 7, finisher: 5,
+    cape: 10, pet: 8, shoes: 9, aura: 7, impact: 6,
+    hat: 12, mask: 6, wings: 9, backpack: 9, banner: 4, trail: 7, finisher: 5,
     gloves: 4
 };
 

@@ -955,7 +955,8 @@ const server = http.createServer(async (req, res) => {
             sportId: sportRoute.sportId,
             rulesetId: sportRoute.rulesetId,
             mapId: sportRoute.mapId,
-            maxPlayers: sportRoute.maxPlayers
+            maxPlayers: sportRoute.maxPlayers,
+            locked: b.locked === true
         }, Date.now()));
         sendJson(res, { ok: true, admissionToken });
         return;

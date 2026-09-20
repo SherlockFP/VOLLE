@@ -125,7 +125,7 @@
     background: none; box-shadow: 0 0 0 60px color-mix(in srgb, var(--menu-cyan) 3%, transparent), 0 0 0 120px color-mix(in srgb, var(--menu-cyan) 2%, transparent);
 }
 #main-menu .ow-showcase::after { display: none; }
-#main-menu .ow-hero-stage { inset: 3% 0 2%; border-radius: 0; filter: none; overflow: hidden; }
+#main-menu .ow-hero-stage { inset: 3% 0 2%; border-radius: 0; filter: none; overflow: hidden; transform: translateX(-4%); }
 #main-menu .ow-splash, #main-menu:has(.friends-sidebar:not(.collapsed)) .ow-showcase .ow-splash {
     position: absolute; z-index: 3; inset: 28px auto auto 30px;
     max-width: calc(100% - 64px); display: flex; flex-direction: column;
@@ -140,8 +140,8 @@
 #main-menu .ow-mode-chip span { color: #10202a; background: var(--menu-gold); font-size: .58rem; }
 #main-menu .ow-mode-chip b { color: var(--menu-muted); font-size: .6rem; }
 #main-menu .menu-player-card { left: 20px; right: 20px; bottom: 20px; min-width: 0; padding: 12px 14px; border-radius: 12px; background: var(--menu-panel); backdrop-filter: none; box-shadow: none; }
-#main-menu .friends-sidebar { top: 146px; right: 36px; bottom: 38px; width: 330px; border-radius: 14px; background: var(--menu-panel); backdrop-filter: none; box-shadow: 0 16px 48px #0008; }
-#main-menu .friends-sidebar.collapsed { top: 150px; right: 38px; bottom: auto; width: 174px; height: 48px; min-height: 48px; max-height: 48px; border-radius: 10px; transform: none; box-shadow: none; }
+#main-menu .friends-sidebar { top: 146px; right: 18px; bottom: 38px; width: 330px; border-radius: 14px; background: var(--menu-panel); backdrop-filter: none; box-shadow: 0 16px 48px #0008; }
+#main-menu .friends-sidebar.collapsed { top: 150px; right: 20px; bottom: auto; width: 174px; height: 48px; min-height: 48px; max-height: 48px; border-radius: 10px; transform: none; box-shadow: none; }
 #main-menu .friends-sidebar.collapsed .friends-sidebar-header { min-width: 0; min-height: 46px; padding: 4px 7px; gap: 5px; }
 #main-menu .friends-sidebar.collapsed .fbar-title-icon, #main-menu .friends-sidebar.collapsed .fbar-title small { display: none; }
 #main-menu .friends-sidebar.collapsed .fbar-title { display: grid; }
@@ -187,7 +187,7 @@
     #main-menu .ow-tabs { display: grid; height: auto; min-height: 89px; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; overflow: visible; }
     #main-menu .ow-tab { min-width: 0; min-height: 42px; padding: 7px 4px; font-size: .64rem; border-color: var(--menu-line); }
     #main-menu .ow-showcase { grid-column: 1; grid-row: 2; min-height: 250px; height: 250px; border-radius: 14px; }
-    #main-menu .ow-hero-stage { inset: -10% -18% 4% 28%; }
+    #main-menu .ow-hero-stage { inset: -10% -18% 4% 28%; transform: translateX(-2%); }
     #main-menu .ow-splash, #main-menu:has(.friends-sidebar:not(.collapsed)) .ow-showcase .ow-splash { inset: 24px auto auto 18px; max-width: 210px; gap: 8px; }
     #main-menu .ow-splash .ow-kicker { max-width: 135px; font-size: .5rem; line-height: 1.6; }
     #main-menu .ow-logo { font-size: 3.8rem; }

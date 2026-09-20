@@ -56,6 +56,8 @@ export class SpectatorClass {
         this.yaw = 0
         this.pitch = 0
         this.keys = {}
+        this._lastMouseX = null
+        this._lastMouseY = null
         this._bound = false
         this._pings = []
     }
@@ -83,6 +85,8 @@ export class SpectatorClass {
         this._detachInput()
         this._clearPings()
         this.keys = {}
+        this._lastMouseX = null
+        this._lastMouseY = null
         if (wasActive) {
             this.onStop?.(reason)
             this._notify()
@@ -319,9 +323,29 @@ export class SpectatorClass {
     _attachInput() {
         if (this._bound || typeof document === 'undefined') return
         this._onMouseMove = event => {
-            if (event.movementX == null) return
-            this.yaw -= event.movementX * 0.0025
-            this.pitch = clamp(this.pitch - event.movementY * 0.0025, -Math.PI / 2 + 0.05, Math.PI / 2 - 0.05)
+            if (event.target?.closest?.('[data-spectator-ui]')) {
+                const x = Number(event.clientX)
+                const y = Number(event.clientY)
+                if (Number.isFinite(x)) this._lastMouseX = x
+                if (Number.isFinite(y)) this._lastMouseY = y
+                return
+            }
+            const locked = typeof document !== 'undefined' && document.pointerLockElement
+            let dx = 0
+            let dy = 0
+            if (locked) {
+                dx = finite(event.movementX)
+                dy = finite(event.movementY)
+            } else {
+                const x = Number(event.clientX)
+                const y = Number(event.clientY)
+                if (Number.isFinite(x) && Number.isFinite(this._lastMouseX)) dx = x - this._lastMouseX
+                if (Number.isFinite(y) && Number.isFinite(this._lastMouseY)) dy = y - this._lastMouseY
+                this._lastMouseX = Number.isFinite(x) ? x : this._lastMouseX
+                this._lastMouseY = Number.isFinite(y) ? y : this._lastMouseY
+            }
+            this.yaw -= dx * 0.0025
+            this.pitch = clamp(this.pitch - dy * 0.0025, -Math.PI / 2 + 0.05, Math.PI / 2 - 0.05)
         }
         this._onKeyDown = event => { this.keys[(event.key || '').toLowerCase()] = true }
         this._onKeyUp = event => { this.keys[(event.key || '').toLowerCase()] = false }
@@ -341,6 +365,8 @@ export class SpectatorClass {
         document.removeEventListener('contextmenu', this._onContext)
         this._bound = false
         this.keys = {}
+        this._lastMouseX = null
+        this._lastMouseY = null
     }
 
     async _handleContextMenu(event) {

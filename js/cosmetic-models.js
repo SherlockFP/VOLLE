@@ -9,11 +9,10 @@ import { disposeObject3D } from './weapon-models.js';
 // Derived cosmetic anchor positions from rig geometry constants, so future head resizes
 // automatically track instead of silently floating gear. All Y values are absolute world positions.
 // joints.head = HIPS_WORLD_Y + 0.80, head mesh top = joints.head + HEAD_MESH_LOCAL_Y + HEAD_HALF_DEPTH
-const HEAD_SOCKET_WORLD_Y = HIPS_WORLD_Y + 0.80 + HEAD_SOCKET_LOCAL_Y;  // 2.16
-const HEAD_MESH_WORLD_Y = HIPS_WORLD_Y + 0.80 + HEAD_MESH_LOCAL_Y;  // 1.94
-const HEAD_TOP_WORLD_Y = HEAD_MESH_WORLD_Y + HEAD_HALF_DEPTH;  // 2.10
-const FACE_SOCKET_WORLD_Y = HIPS_WORLD_Y + 0.80 + FACE_SOCKET_LOCAL_Y;  // 1.74
-const FACE_PLANE_WORLD_Z = -FACE_SOCKET_LOCAL_Z;  // 0.24 (from rig convention)
+const HEAD_SOCKET_WORLD_Y = HIPS_WORLD_Y + 0.80 + HEAD_SOCKET_LOCAL_Y;  // 2.00
+const HEAD_MESH_WORLD_Y = HIPS_WORLD_Y + 0.80 + HEAD_MESH_LOCAL_Y;  // 1.75
+const HEAD_TOP_WORLD_Y = HEAD_MESH_WORLD_Y + HEAD_HALF_DEPTH;  // 2.00
+const FACE_SOCKET_WORLD_Y = HIPS_WORLD_Y + 0.80 + FACE_SOCKET_LOCAL_Y;  // 1.75
 
 export { HEAD_SOCKET_WORLD_Y, HEAD_MESH_WORLD_Y, HEAD_TOP_WORLD_Y, FACE_SOCKET_WORLD_Y };
 
@@ -33,6 +32,17 @@ const part = (geometry, color, x = 0, y = 0, z = 0) => {
     return mesh;
 };
 
+// Built only when equipping; flat silhouettes share the same small polygon path.
+function polygonGeometry(points, depth = 0) {
+    const shape = new THREE.Shape();
+    shape.moveTo(points[0][0], points[0][1]);
+    for (let index = 1; index < points.length; index++) shape.lineTo(points[index][0], points[index][1]);
+    shape.closePath();
+    return depth > 0
+        ? new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false, steps: 1, curveSegments: 1 })
+        : new THREE.ShapeGeometry(shape);
+}
+
 function addEyes(group, y = 0.05, z = 0.19) {
     const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
     for (const x of [-0.09, 0.09]) {
@@ -44,6 +54,27 @@ function addEyes(group, y = 0.05, z = 0.19) {
 
 function createCape(item) {
     const group = new THREE.Group();
+    if (item.style === 'pennants') {
+        group.add(part(new THREE.BoxGeometry(0.62, 0.075, 0.065), item.colors[1], 0, 1.5, 0.25));
+        const ribbons = [];
+        for (const x of [-0.16, 0.16]) {
+            const ribbon = new THREE.Mesh(
+                polygonGeometry([[-0.14, 0], [0.14, 0], [0.12, -0.82], [0, -0.68], [-0.12, -0.82]]),
+                new THREE.MeshStandardMaterial({ color: item.colors[0], roughness: 0.7, side: THREE.DoubleSide })
+            );
+            ribbon.position.set(x, 1.48, 0.25);
+            ribbon.rotation.x = 0.12;
+            ribbon.add(part(new THREE.OctahedronGeometry(0.07), item.colors[1], 0, -0.22, 0.025));
+            group.add(ribbon);
+            ribbons.push(ribbon);
+        }
+        group.userData.silhouette = 'pennants';
+        group.userData.update = time => {
+            ribbons[0].rotation.x = 0.12 + Math.sin(time * 3.2) * 0.08;
+            ribbons[1].rotation.x = 0.12 - Math.sin(time * 3.2) * 0.08;
+        };
+        return group;
+    }
     const cape = new THREE.Mesh(
         new THREE.PlaneGeometry(0.72, 1.05, 1, 4),
         new THREE.MeshStandardMaterial({
@@ -91,7 +122,27 @@ function createCape(item) {
 function createPet(item) {
     const group = new THREE.Group();
     const petMat = material(item.colors[0], item.colors[1]);
-    if (item.style === 'drone') {
+    if (item.style === 'satellite') {
+        group.add(new THREE.Mesh(new THREE.BoxGeometry(0.27, 0.27, 0.25), petMat));
+        group.add(part(new THREE.BoxGeometry(0.65, 0.035, 0.035), item.colors[0]));
+        const panels = [];
+        for (const x of [-0.32, 0.32]) {
+            const panel = part(new THREE.BoxGeometry(0.28, 0.25, 0.035), item.colors[1], x, 0, 0);
+            for (const cellX of [-0.07, 0.07]) {
+                panel.add(part(new THREE.BoxGeometry(0.012, 0.23, 0.008), item.colors[0], cellX, 0, 0.022));
+            }
+            panel.add(part(new THREE.BoxGeometry(0.26, 0.012, 0.008), item.colors[0], 0, 0, 0.022));
+            group.add(panel);
+            panels.push(panel);
+        }
+        group.add(part(new THREE.CylinderGeometry(0.015, 0.015, 0.13, 5), item.colors[1], 0, 0.2, 0));
+        group.add(part(new THREE.ConeGeometry(0.085, 0.06, 8), item.colors[0], 0, 0.285, 0));
+        group.userData.silhouette = 'satellite';
+        group.userData.update = time => {
+            panels[0].rotation.y = Math.sin(time * 2.2) * 0.16;
+            panels[1].rotation.y = -panels[0].rotation.y;
+        };
+    } else if (item.style === 'drone') {
         group.add(new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 8), petMat));
         const ring = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.025, 6, 20), basic(item.colors[1]));
         ring.rotation.x = Math.PI / 2;
@@ -103,7 +154,7 @@ function createPet(item) {
     } else {
         group.add(new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.34, 0.38), petMat));
     }
-    addEyes(group, item.style === 'snow' ? 0.28 : 0.04, item.style === 'snow' ? 0.13 : 0.2);
+    addEyes(group, item.style === 'snow' ? 0.28 : 0.04, item.style === 'snow' || item.style === 'satellite' ? 0.13 : 0.2);
     if (['dragon', 'bee'].includes(item.style)) {
         const wingMat = new THREE.MeshBasicMaterial({ color: item.colors[1], transparent: true, opacity: 0.72, side: THREE.DoubleSide });
         for (const x of [-0.27, 0.27]) {
@@ -132,6 +183,18 @@ function createPet(item) {
 function createShoes(item) {
     const group = new THREE.Group();
     for (const x of [-0.15, 0.15]) {
+        if (item.style === 'court_sneakers') {
+            group.add(part(new THREE.BoxGeometry(0.27, 0.06, 0.41), item.colors[1], x, 0.03, -0.075));
+            group.add(part(new THREE.BoxGeometry(0.26, 0.15, 0.36), item.colors[0], x, 0.125, -0.07));
+            group.add(part(new THREE.BoxGeometry(0.26, 0.08, 0.11), '#fff6e5', x, 0.1, -0.225));
+            group.add(part(new THREE.BoxGeometry(0.08, 0.12, 0.035), item.colors[1], x, 0.22, 0.125));
+            group.add(part(new THREE.BoxGeometry(0.13, 0.12, 0.045), item.colors[1], x, 0.235, -0.035));
+            for (const z of [-0.095, -0.165]) {
+                group.add(part(new THREE.BoxGeometry(0.18, 0.023, 0.023), '#fff6e5', x, 0.21, z));
+            }
+            group.userData.silhouette = 'court_sneakers';
+            continue;
+        }
         const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.18, 0.38), material(item.colors[0], item.colors[1]));
         shoe.position.set(x, 0.03, -0.08);
         group.add(shoe);
@@ -185,33 +248,61 @@ function createHat(item) {
     const group = new THREE.Group();
     const primary = material(item.colors[0], item.colors[1]);
     if (item.style === 'crown') {
-        group.add(part(new THREE.CylinderGeometry(0.24, 0.26, 0.16, 8), item.colors[0], 0, 2.06, 0));
+        group.add(part(new THREE.CylinderGeometry(0.24, 0.26, 0.16, 8), item.colors[0], 0, 0.1, 0));
         for (let index = 0; index < 5; index++) {
             const angle = index / 5 * Math.PI * 2;
-            group.add(part(new THREE.OctahedronGeometry(0.05), item.colors[1], Math.cos(angle) * 0.22, 2.16, Math.sin(angle) * 0.22));
+            group.add(part(new THREE.OctahedronGeometry(0.05), item.colors[1], Math.cos(angle) * 0.22, 0.2, Math.sin(angle) * 0.22));
         }
     } else if (item.style === 'halo') {
         const ring = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.028, 6, 20), basic(item.colors[0]));
         ring.rotation.x = Math.PI / 2;
-        ring.position.y = 2.24;
+        ring.position.y = 0.28;
         group.add(ring);
     } else if (item.style === 'helm') {
-        group.add(part(new THREE.BoxGeometry(0.46, 0.3, 0.46), item.colors[0], 0, 2.0, 0));
-        group.add(part(new THREE.BoxGeometry(0.08, 0.16, 0.05), item.colors[1], 0, 1.9, 0.22));
+        group.add(part(new THREE.BoxGeometry(0.46, 0.3, 0.46), item.colors[0], 0, 0.04, 0));
+        group.add(part(new THREE.BoxGeometry(0.08, 0.16, 0.05), item.colors[1], 0, -0.06, -0.22));
     } else if (item.style === 'wizard') {
-        group.add(part(new THREE.ConeGeometry(0.26, 0.55, 8), item.colors[0], 0, 2.28, 0));
-        group.add(part(new THREE.OctahedronGeometry(0.045), item.colors[1], 0.14, 2.34, 0.05));
+        group.add(part(new THREE.ConeGeometry(0.26, 0.55, 8), item.colors[0], 0, 0.32, 0));
+        group.add(part(new THREE.OctahedronGeometry(0.045), item.colors[1], 0.14, 0.38, 0.05));
     } else if (item.style === 'horns') {
-        group.add(part(new THREE.BoxGeometry(0.42, 0.08, 0.1), item.colors[1], 0, 2.02, 0));
-        for (const x of [-0.16, 0.16]) group.add(part(new THREE.ConeGeometry(0.06, 0.24, 5), item.colors[0], x, 2.14, 0.02));
+        group.add(part(new THREE.BoxGeometry(0.42, 0.08, 0.1), item.colors[1], 0, 0.06, 0));
+        for (const x of [-0.16, 0.16]) group.add(part(new THREE.ConeGeometry(0.06, 0.24, 5), item.colors[0], x, 0.18, 0.02));
     } else if (item.style === 'pixel') {
         for (let index = 0; index < 4; index++) {
             group.add(part(new THREE.BoxGeometry(0.14, 0.14, 0.14), index % 2 ? item.colors[1] : item.colors[0],
-                -0.13 + (index % 2) * 0.26, 2.04 + Math.floor(index / 2) * 0.14, 0));
+                -0.13 + (index % 2) * 0.26, 0.08 + Math.floor(index / 2) * 0.14, 0));
         }
     } else if (item.style === 'beanie') {
         group.add(new THREE.Mesh(new THREE.SphereGeometry(0.27, 9, 7, 0, Math.PI * 2, 0, Math.PI * 0.6), primary));
-        group.add(part(new THREE.SphereGeometry(0.06, 7, 6), item.colors[1], 0, 2.22, 0));
+        group.add(part(new THREE.SphereGeometry(0.06, 7, 6), item.colors[1], 0, 0.3, 0));
+    } else if (item.style === 'sport_visor' || item.style === 'antennas') {
+        // Open square band clears the voxel head; there is no hidden dome/crown.
+        const bandWidth = HEAD_SIZE + 0.05;
+        for (const z of [-bandWidth / 2, bandWidth / 2]) {
+            group.add(part(new THREE.BoxGeometry(bandWidth, 0.09, 0.03), item.colors[1], 0, 0, z));
+        }
+        for (const x of [-bandWidth / 2, bandWidth / 2]) {
+            group.add(part(new THREE.BoxGeometry(0.03, 0.09, bandWidth), item.colors[1], x, 0, 0));
+        }
+        if (item.style === 'sport_visor') {
+            group.add(part(new THREE.CylinderGeometry(0.31, 0.32, 0.045, 8, 1, false, Math.PI / 2, Math.PI), item.colors[0], 0, -0.045, -0.24));
+            group.add(part(new THREE.BoxGeometry(0.12, 0.05, 0.025), item.colors[0], 0, 0.005, -0.3));
+        } else {
+            const stalks = [];
+            for (const x of [-0.22, 0.22]) {
+                const stalk = new THREE.Group();
+                stalk.position.set(x, 0.04, 0);
+                stalk.add(part(new THREE.CylinderGeometry(0.018, 0.022, 0.22, 5), item.colors[1], 0, 0.11, 0));
+                stalk.add(part(new THREE.SphereGeometry(0.075, 8, 6), item.colors[0], 0, 0.26, 0));
+                group.add(stalk);
+                stalks.push(stalk);
+            }
+            group.userData.update = time => {
+                stalks[0].rotation.z = Math.sin(time * 3) * 0.12;
+                stalks[1].rotation.z = -stalks[0].rotation.z;
+            };
+        }
+        group.userData.silhouette = item.style;
     } else if (item.style === 'cap') {
         // Anchored to the generic dome's space (local y 0), with the brim behind
         // the head so it reads as a backwards cap instead of another plain dome.
@@ -222,7 +313,7 @@ function createHat(item) {
         // itself is moved into the head socket's authored-space offset below.
         group.add(new THREE.Mesh(new THREE.SphereGeometry(0.255, 9, 7, 0, Math.PI * 2, 0, Math.PI * 0.5), primary));
         const band = new THREE.Mesh(new THREE.TorusGeometry(0.255, 0.025, 5, 14, Math.PI), basic(item.colors[1]));
-        band.rotation.z = Math.PI;
+        // The half-ring arches over the head; flipping it sends the band through the face.
         band.position.set(0, 0.015, 0);
         group.add(band);
         for (const x of [-0.275, 0.275]) {
@@ -232,13 +323,13 @@ function createHat(item) {
     } else {
         group.add(new THREE.Mesh(new THREE.SphereGeometry(0.27, 9, 7, 0, Math.PI * 2, 0, Math.PI * 0.55), primary));
     }
-    // Hats attach to the head socket. Most are positioned relative to the head mesh top (HEAD_TOP_WORLD_Y).
+    // Every hat child uses this one head-top origin, including the legacy styles.
     group.position.y = HEAD_TOP_WORLD_Y - 0.04;  // empirically tuned baseline
     return group;
 }
 function createMask(item) {
     const group = new THREE.Group();
-    // Masks sit on the face socket, which is centered on the head front plane (local z = -FACE_SOCKET_LOCAL_Z).
+    // Masks sit on the face socket at the head front plane; local -Z faces forward.
     // Relative positions use the face-relative origin (0, 0, 0).
     if (item.style === 'visor') {
         group.add(part(new THREE.BoxGeometry(0.32, 0.09, 0.06), item.colors[0], 0, 0.02, 0));
@@ -265,13 +356,10 @@ function createMask(item) {
         group.add(part(new THREE.BoxGeometry(0.28, 0.16, 0.1), item.colors[0], 0, 0, 0));
         group.add(part(new THREE.BoxGeometry(0.3, 0.05, 0.1), item.colors[1], 0, 0.08, 0));
     }
-    // Masks attach to the face socket in the rig, which is at the head front plane. The socketLocalOffset
-    // function in applyEntityCosmetics computes the offset from the entity.group origin (feet, y=0) to
-    // the face socket position, and subtracts it — so this y=FACE_SOCKET_WORLD_Y works after that adjustment.
-    // But since attachToRig now handles the offset, we can just use 0 here and let socketLocalOffset subtract
-    // the actual socket position. Actually, no — let me keep it simple: the group position gets offset-adjusted,
-    // so we position the model where it looks right in the authored space (entity.group origin at feet).
+    // Supply both coordinates in feet-origin authored space before the socket offset
+    // is removed. Leaving Z at zero buries the mask inside the voxel head.
     group.position.y = FACE_SOCKET_WORLD_Y;
+    group.position.z = FACE_SOCKET_LOCAL_Z;
     return group;
 }
 
@@ -280,6 +368,31 @@ function createWings(item) {
     const wingMat = new THREE.MeshStandardMaterial({
         color: item.colors[0], emissive: item.colors[1], emissiveIntensity: 0.2, roughness: 0.6, side: THREE.DoubleSide
     });
+    if (item.style === 'comet_fins') {
+        const fins = [];
+        for (const side of [-1, 1]) {
+            const fin = new THREE.Mesh(polygonGeometry([
+                [0, 0.08], [side * 0.28, 0.4], [side * 0.52, 0.29],
+                [side * 0.25, -0.32], [side * 0.04, -0.16]
+            ]), wingMat);
+            fin.position.set(side * 0.2, 1.38, 0.26);
+            fin.rotation.set(0, -side * 0.25, -side * 0.18);
+            const inset = part(polygonGeometry([
+                [side * 0.1, 0.08], [side * 0.28, 0.3], [side * 0.4, 0.25], [side * 0.2, -0.12]
+            ]), item.colors[1], 0, 0, 0.008);
+            inset.material.side = THREE.DoubleSide;
+            fin.add(inset);
+            group.add(fin);
+            fins.push(fin);
+        }
+        group.userData.silhouette = 'comet_fins';
+        group.userData.update = time => {
+            const flap = Math.sin(time * 3.4) * 0.14;
+            fins[0].rotation.y = 0.25 + flap;
+            fins[1].rotation.y = -0.25 - flap;
+        };
+        return group;
+    }
     // Dragon shares the membrane cone with bat/demon; its spines are added below.
     const geometry = item.style === 'bat' || item.style === 'demon' || item.style === 'dragon'
         ? new THREE.ConeGeometry(0.4, 0.7, 4, 1, true)
@@ -318,7 +431,42 @@ function createWings(item) {
 function createBackpack(item) {
     const group = new THREE.Group();
     const bodyMat = material(item.colors[0], item.colors[1]);
-    if (item.style === 'jetpack' || item.style === 'rocket') {
+    if (item.style === 'popcorn') {
+        const tub = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.23, 0.4, 4, 1, false, Math.PI / 4), bodyMat);
+        tub.position.set(0, 1.17, 0.35);
+        group.add(tub);
+        group.add(part(new THREE.BoxGeometry(0.45, 0.045, 0.45), item.colors[1], 0, 1.38, 0.35));
+        for (const x of [-0.1, 0.1]) {
+            const stripe = part(new THREE.BoxGeometry(0.045, 0.35, 0.018), item.colors[1], x, 1.18, 0.54);
+            stripe.rotation.x = 0.12;
+            group.add(stripe);
+        }
+        for (const [x, y, z] of [[-0.13, 1.44, 0.36], [0, 1.46, 0.42], [0.13, 1.44, 0.36], [-0.07, 1.5, 0.24], [0.08, 1.5, 0.25]]) {
+            group.add(part(new THREE.SphereGeometry(0.085, 7, 5), '#fff6e5', x, y, z));
+        }
+        group.userData.silhouette = 'popcorn';
+    } else if (item.style === 'star_pack') {
+        const points = [];
+        for (let index = 0; index < 10; index++) {
+            const angle = Math.PI / 2 + index * Math.PI / 5;
+            const radius = index % 2 ? 0.15 : 0.32;
+            points.push([Math.cos(angle) * radius, Math.sin(angle) * radius]);
+        }
+        const star = new THREE.Mesh(polygonGeometry(points, 0.16), bodyMat);
+        star.position.set(0, 1.2, 0.21);
+        group.add(star);
+        const pocket = part(new THREE.CylinderGeometry(0.105, 0.105, 0.04, 10), item.colors[1], 0, 1.19, 0.39);
+        pocket.rotation.x = Math.PI / 2;
+        group.add(pocket);
+        group.add(part(new THREE.BoxGeometry(0.18, 0.045, 0.065), item.colors[1], 0, 1.51, 0.29));
+        const charm = part(new THREE.OctahedronGeometry(0.055), item.colors[1], 0.3, 1.03, 0.31);
+        group.add(charm);
+        group.userData.silhouette = 'star_pack';
+        group.userData.update = time => {
+            charm.position.y = 1.03 + Math.sin(time * 2.8) * 0.035;
+            charm.rotation.z = Math.sin(time * 2.8) * 0.25;
+        };
+    } else if (item.style === 'jetpack' || item.style === 'rocket') {
         for (const x of [-0.14, 0.14]) {
             group.add(part(new THREE.CylinderGeometry(0.09, 0.1, 0.5, 8), item.colors[0], x, 1.25, 0.26));
             group.add(part(new THREE.ConeGeometry(0.09, 0.14, 8), item.colors[1], x, 0.96, 0.26));
@@ -346,7 +494,9 @@ function createBackpack(item) {
         // end caps, a front pocket, and a broad court-ready carry strap.
         group.add(part(new THREE.BoxGeometry(0.48, 0.34, 0.28), item.colors[0], 0, 1.18, 0.28));
         for (const x of [-0.25, 0.25]) {
-            group.add(part(new THREE.CylinderGeometry(0.14, 0.14, 0.035, 8), item.colors[1], x, 1.18, 0.28));
+            const endCap = part(new THREE.CylinderGeometry(0.14, 0.14, 0.035, 8), item.colors[1], x, 1.18, 0.28);
+            endCap.rotation.z = Math.PI / 2;
+            group.add(endCap);
         }
         group.add(part(new THREE.BoxGeometry(0.24, 0.16, 0.035), item.colors[1], 0, 1.14, 0.438));
         group.add(part(new THREE.BoxGeometry(0.30, 0.055, 0.04), item.colors[1], 0, 1.4, 0.28));
@@ -546,13 +696,11 @@ function attachToRig(entity, model, type) {
     if (type === 'gloves') {
         const { handL, handR } = rig.sockets;
         if (!handL || !handR) return null;
-        // Clone before offsetting the left glove so both sides start in model-local space.
+        // Gloves are authored in hand-local space, unlike the feet-origin models.
+        // Subtracting the socket offset here placed both gloves at the player's feet.
         const rightClone = model.clone(true);
         const leftClone = model;
-        leftClone.position.sub(socketLocalOffset(entity, handL, offset));
         handL.add(leftClone);
-        rightClone.position.set(0, 0, 0);
-        rightClone.position.sub(socketLocalOffset(entity, handR, offset));
         // Mirror the right glove by negating x positions of children
         for (const child of rightClone.children) {
             child.position.x = -child.position.x;

@@ -39,13 +39,26 @@ export function matchesShopFilter(filterId, card = {}) {
 
 // Shared by the catalog controls and tests. Search treats user text as text,
 // including punctuation and accents; it is never turned into markup or a regexp.
-export function matchesShopQuery(card = {}, { query = '', rarity = 'all', slot = 'all' } = {}) {
+export function matchesShopQuery(card = {}, { query = '', rarity = 'all', slot = 'all', collection = 'all' } = {}) {
     if (rarity !== 'all' && card.rarity !== rarity) return false;
     if (slot !== 'all' && card.category !== slot) return false;
+    if (collection !== 'all' && card.collection !== collection) return false;
     const normalize = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
     const terms = normalize(query).trim().split(/\s+/).filter(Boolean);
     const haystack = normalize(`${card.name || ''} ${card.description || ''} ${card.category || ''} ${card.rarity || ''}`);
     return terms.every(term => haystack.includes(term));
+}
+
+export const SHOP_COLLECTIONS = Object.freeze([
+    Object.freeze({ id: 'court-carnival', label: 'Court Carnival', prefix: 'Court Carnival ', isNew: true }),
+    Object.freeze({ id: 'orbital-club', label: 'Orbital Club', prefix: 'Orbital Club ', isNew: true }),
+    Object.freeze({ id: 'solar-circuit', label: 'Solar Circuit', prefix: 'Solar Circuit ', isNew: false }),
+    Object.freeze({ id: 'tidal-drift', label: 'Tidal Drift', prefix: 'Tidal Drift ', isNew: false }),
+    Object.freeze({ id: 'dark-eater', label: 'Dark Eater', prefix: 'Dark Eater ', isNew: false })
+]);
+
+export function shopCollectionForItem(item = {}) {
+    return SHOP_COLLECTIONS.find(collection => String(item.name || '').startsWith(collection.prefix)) || null;
 }
 
 export function compareShopItems(a, b, order = 'featured') {

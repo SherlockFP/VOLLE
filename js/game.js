@@ -1,7 +1,7 @@
 // game.js — Full game: chat, team switch, death fx, minimap, aim deflection,
 // damage ramp, skill system, map ban, damage meter, portal handling.
 import * as THREE from 'three';
-import { Ball, networkBallStep, chargeProfile, CHARGE_OVERCHARGE_SECONDS, ballHeatLevel, BALL_HEAT_TIERS } from './ball.js';
+import { Ball, networkBallStep, chargeProfile, CHARGE_OVERCHARGE_SECONDS, ballHeatLevel, BALL_HEAT_TIERS, proximityAssistRange } from './ball.js';
 import { Bot } from './bot.js';
 import { Scoreboard } from './scoreboard.js';
 import { calcDamage, missRampDamage } from './characters.js';
@@ -58,6 +58,10 @@ import {
 import { shouldSpawnMatchTrophy, resolveTrophySpot, trophyTeardownPlan } from './arena-decor.js';
 
 const BASE_HIT_DAMAGE = 25;
+// A whiffed deflect carries a small self-damage penalty so button mashing has a
+// cost. Instagib keeps its one-clean-hit identity by turning that penalty into
+// the same lethal damage as an incoming ball.
+const MISSED_DEFLECT_DAMAGE = 12;
 // Kill-confirm "hot ball" window (docs/V3_UX_ROADMAP.md 3.2) — shooter's next
 // connecting hit gets a small damage bump for a few seconds after a kill.
 const KILL_CONFIRM_DURATION = 3.5;           // seconds
@@ -2579,7 +2583,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                     const dx2 = ballPos.x - px, dz2 = ballPos.z - pz, dy2 = ballPos.y - py;
                     const proxDistSq = dx2 * dx2 + dy2 * dy2 + dz2 * dz2;
                     // ponytail: expanded proximity range for fast balls
-                    const effectiveRange = this.ball._proximityRange + Math.min(this.ball.currentSpeed * 0.002, 1.5);
+                    const effectiveRange = proximityAssistRange(this.ball.currentSpeed, this.ball._proximityRange);
                     if (proxDistSq < effectiveRange * effectiveRange) {
                         this.handleHit(target);
                         return;
@@ -2770,6 +2774,29 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         this._localDeflectAttemptWindow = 0;
     }
 
+    _applyMissedDeflectPenalty() {
+        const player = this.player;
+        if (!player?.alive || this.state !== STATES.PLAYING) return false;
+        const damage = this._oneHitKill
+            ? Math.max(1, Number(player.maxHp) || Number(player.hp) || 1)
+            : MISSED_DEFLECT_DAMAGE;
+        const lethal = player.takeDamage?.(damage) === true || player.hp <= 0;
+        player.drawHpBar?.();
+        if (!lethal) return false;
+        player.die?.();
+        player.alive = false;
+        this._predictedLocalDeath = Boolean(this.network?.connected && !this.network?.isHost);
+        this.ball?.deactivate?.();
+        this.ui.flashHit?.();
+        this._killcamDeathPos = player.getPosition?.();
+        this._showKillcam?.('Missed deflect');
+        if (this._checkTeamElimination?.()) {
+            this.setState(STATES.ROUND_END);
+            this.roundRestartTimer = this.roundRestartDelay;
+        }
+        return true;
+    }
+
     // A swing is only eligible when this local player is the live assigned
     // target. The result is intentionally presentation-only: it cannot affect
     // ball steering, stamina, hit validation, damage, cooldowns or P2P state.
@@ -2838,6 +2865,11 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             : null;
         const isEarly = reliableEta !== null && reliableEta > this._localDeflectAttemptWindow;
         this._clearLocalDeflectAttempt();
+        this._applyMissedDeflectPenalty?.();
+        this.onReplayEvent?.({
+            type: 'missDeflect',
+            data: { early: isEarly, lethal: this.player?.alive === false }
+        });
         this.ui.showMessage?.(
             isEarly ? 'EARLY — WAIT FOR THE BALL' : 'MISSED DEFLECT — TIME IT CLOSER',
             650,

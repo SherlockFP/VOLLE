@@ -13,3 +13,6 @@ data/product-analytics.json
 
 # Local development QA logs and temporary probes.
 .qa/
+
+# Local rollback checkpoints; keep large working snapshots out of commits.
+checkpoints/

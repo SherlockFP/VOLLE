@@ -1,6 +1,13 @@
 const text = value => String(value || '').trim();
 const count = (value, fallback) => Math.max(0, Number.isFinite(Number(value)) ? Number(value) : fallback);
 const sportId = lobby => text(lobby?.sportId).toLowerCase() || 'dodgeball';
+export const LOBBY_STALE_MS = 90000;
+
+export function isLobbyFresh(lobby, now = Date.now(), maxAgeMs = LOBBY_STALE_MS) {
+    const seen = Number(lobby?.lastSeen ?? lobby?.updatedAt);
+    const current = Number.isFinite(Number(now)) ? Number(now) : Date.now();
+    return !Number.isFinite(seen) || current - seen <= maxAgeMs;
+}
 
 export function filterLobbies(lobbies, filters = {}) {
     const mode = text(filters.mode || 'all');
@@ -10,6 +17,9 @@ export function filterLobbies(lobbies, filters = {}) {
     const openOnly = filters.openOnly !== false;
     const minOpenSlots = Math.max(1, Math.floor(Number(filters.minOpenSlots) || 1));
     return (Array.isArray(lobbies) ? lobbies : []).filter(lobby => {
+        if (lobby?.locked === true && filters.includeLocked !== true) return false;
+        if ((filters.maxAgeMs != null || filters.now != null)
+            && !isLobbyFresh(lobby, filters.now, Number(filters.maxAgeMs ?? LOBBY_STALE_MS))) return false;
         const players = count(lobby?.players, 1);
         const maxPlayers = Math.max(2, count(lobby?.maxPlayers, 8));
         if (openOnly && maxPlayers - players < minOpenSlots) return false;

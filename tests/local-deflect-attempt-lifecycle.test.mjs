@@ -6,6 +6,7 @@ import { compileGameMethod, extractGameMethod } from './game-source.mjs';
 const STATES = { PLAYING: 'PLAYING', PAUSED: 'PAUSED', ROUND_END: 'ROUND_END' };
 const clearAttempt = compileGameMethod('_clearLocalDeflectAttempt');
 const markHit = compileGameMethod('_markLocalDeflectAttemptHit');
+const applyPenalty = compileGameMethod('_applyMissedDeflectPenalty', { STATES, MISSED_DEFLECT_DAMAGE: 12 });
 const updateAttempt = compileGameMethod('_updateLocalDeflectAttempt', { STATES, Math });
 const gameSource = readFileSync(new URL('../js/game.js', import.meta.url), 'utf8');
 
@@ -41,6 +42,7 @@ function createFixture({ distance = 4, speed = 20, attackDuration = 0.3 } = {}) 
         _localDeflectAttemptWindow: 0,
         _clearLocalDeflectAttempt: clearAttempt,
         _markLocalDeflectAttemptHit: markHit,
+        _applyMissedDeflectPenalty: applyPenalty,
         _updateLocalDeflectAttempt: updateAttempt
     };
 }
@@ -131,4 +133,28 @@ test('successful local handling resolves the attempt while remote echo stays pre
     const echo = extractGameMethod('handleRemoteAttackAnim');
     assert.doesNotMatch(echo, /_updateLocalDeflectAttempt|_markLocalDeflectAttemptHit|showMessage/);
     assert.match(gameSource, /'MISSED DEFLECT — TIME IT CLOSER',\s+650,\s+\{ priority: 0, tone: 'deflect-miss' \}/);
+});
+
+test('a missed deflect costs health and keeps one-shot lethal', () => {
+    const normal = createFixture();
+    normal.player.hp = 100;
+    normal.player.maxHp = 100;
+    normal.player.takeDamage = amount => {
+        normal.player.hp = Math.max(0, normal.player.hp - amount);
+        return normal.player.hp <= 0;
+    };
+    assert.equal(normal._applyMissedDeflectPenalty(), false);
+    assert.equal(normal.player.hp, 88);
+
+    const oneShot = createFixture();
+    oneShot._oneHitKill = true;
+    oneShot.player.hp = 1;
+    oneShot.player.maxHp = 1;
+    oneShot.player.takeDamage = amount => {
+        oneShot.player.hp = Math.max(0, oneShot.player.hp - amount);
+        return oneShot.player.hp <= 0;
+    };
+    oneShot.player.die = () => { oneShot.player.alive = false; };
+    assert.equal(oneShot._applyMissedDeflectPenalty(), true);
+    assert.equal(oneShot.player.alive, false);
 });

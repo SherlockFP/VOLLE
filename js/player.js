@@ -689,7 +689,14 @@ export class Player {
             }
         }, { signal });
         document.addEventListener('pointerlockchange', () => {
+            const wasLocked = this.locked;
             this.locked = document.pointerLockElement === this.renderer.domElement;
+            if (wasLocked && !this.locked) this._clearInputState();
+        }, { signal });
+        document.addEventListener('focusin', e => {
+            // Chat also works without pointer lock; old holds must not keep moving
+            // or charging while subsequent text keydowns are correctly ignored.
+            if (isEditableTarget(e.target)) this._clearInputState();
         }, { signal });
         window.addEventListener('blur', () => this._clearInputState(), { signal });
         document.addEventListener('visibilitychange', () => {

@@ -162,6 +162,27 @@ test('playback pause, speed, seek, completion, and escape stop are deterministic
     assert.equal(replay.stopPlayback(), false)
 })
 
+test('replay loop restarts at zero without firing completion', () => {
+    const clock = fakeClock()
+    const replay = new ReplayClass(clock)
+    let loops = 0
+    let completed = 0
+    const data = {
+        duration: 100,
+        events: [{ t: 0, type: 'hit', data: { id: 1 } }, { t: 100, type: 'hit', data: { id: 2 } }]
+    }
+    replay.play(data, { loop: () => { loops++ }, complete: () => { completed++ } }, { loop: true })
+    clock.advance(100)
+    assert.equal(replay.playing, true)
+    assert.equal(replay.getPlaybackState().time, 0)
+    assert.equal(loops, 1)
+    assert.equal(completed, 0)
+    assert.equal(replay.toggleLoop(), false)
+    clock.advance(100)
+    assert.equal(replay.playing, false)
+    assert.equal(completed, 1)
+})
+
 test('recordSnapshot throttles and records canonical players', () => {
     const clock = fakeClock()
     const replay = new ReplayClass(clock)

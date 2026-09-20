@@ -143,6 +143,13 @@ export function createReplayHighlights(replay, limit = 3) {
                 label: event.data?.eliminated ? 'Elimination' : `${event.data.damage} Damage`
             }];
         }
+        if (event.type === 'missDeflect') {
+            return [{
+                at: event.t,
+                score: event.data?.lethal ? 85 : 28,
+                label: event.data?.lethal ? 'Missed Deflect · Elimination' : 'Missed Deflect'
+            }];
+        }
         if (event.type === 'rocketJump') {
             return [{ at: event.t, score: 45 + finite(event.data?.strength) * 20, label: 'Rocket Jump' }];
         }
@@ -208,6 +215,7 @@ export class ReplayClass {
         this.paused = false
         this.rafId = 0
         this.playbackSpeed = 1
+        this.loop = false
         this.playbackTime = 0
         this._playStart = 0
         this._playIdx = 0
@@ -260,6 +268,7 @@ export class ReplayClass {
         this._callbacks = callbacks || {}
         this._duration = Math.max(finite(replay?.duration), this._playEvents.at(-1)?.t || 0)
         this.playbackSpeed = clamp(finite(options.speed, 1), 0.05, 16)
+        this.loop = Boolean(options.loop)
         this.playbackTime = clamp(finite(options.startTime), 0, this._duration)
         const startsMidReplay = options.startTime != null && this.playbackTime > 0
         this._playIdx = startsMidReplay ? lowerBound(this._playEvents, this.playbackTime) : 0
@@ -294,6 +303,14 @@ export class ReplayClass {
         this._renderInterpolatedSnapshot()
         this._callbacks.time?.(this.playbackTime, this.getPlaybackState())
         if (this._playIdx >= this._playEvents.length && this.playbackTime >= this._duration) {
+            if (this.loop && this._duration > 0) {
+                this.playbackTime = 0
+                this._playIdx = 0
+                this._playStart = now
+                this._callbacks.loop?.(this.getPlaybackState())
+                this._schedule()
+                return
+            }
             const complete = this._callbacks.complete
             this.stopPlayback()
             complete?.()
@@ -371,6 +388,16 @@ export class ReplayClass {
         return this.playbackSpeed
     }
 
+    setLoop(enabled) {
+        this.loop = Boolean(enabled)
+        this._callbacks.loopChange?.(this.loop, this.getPlaybackState())
+        return this.loop
+    }
+
+    toggleLoop() {
+        return this.setLoop(!this.loop)
+    }
+
     getPlaybackState() {
         return {
             playing: this.playing,
@@ -378,6 +405,7 @@ export class ReplayClass {
             time: this.playbackTime,
             duration: this._duration,
             speed: this.playbackSpeed,
+            loop: this.loop,
             index: this._playIdx
         }
     }

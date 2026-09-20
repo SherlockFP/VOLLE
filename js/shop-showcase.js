@@ -13,6 +13,13 @@ const IDLE_FRAME_INTERVAL_MS = 1000 / 60;
 const MAX_DECORATIVE_FPS = 60;
 const MAX_PIXEL_RATIO = 2;
 const MAX_BACKING_PIXELS = 1280 * 900;
+export const SHOWCASE_ANIMATIONS = Object.freeze(['idle', 'run', 'celebrate']);
+const SHOWCASE_POSE_PARAMS = Object.freeze({ speed: 12 });
+
+export function normalizeShowcaseAnimation(id) {
+    return SHOWCASE_ANIMATIONS.includes(id) ? id : 'idle';
+}
+
 const CHARACTER_SHAPES = Object.freeze({
     rally: Object.freeze({ width: 1, height: 1, depth: 1, shoulder: 1 }),
     tank: Object.freeze({ width: 1.18, height: .96, depth: 1.14, shoulder: 1.18 }),
@@ -112,6 +119,7 @@ export function getShowcaseCharacterShape(characterId = DEFAULT_STATE.characterI
 // palette/shape, this file just wraps it for the shop preview's API + idle sway.
 export function createShowcaseAvatar(options = {}) {
     const rig = createCharacterRig({ characterId: options.characterId, skinId: options.skinId });
+    const restingPose = neutralPose();
     const root = new THREE.Group();
     root.name = 'warrball-showcase-avatar';
     root.userData.showcaseAvatar = true;
@@ -137,11 +145,14 @@ export function createShowcaseAvatar(options = {}) {
             rig.setCharacter(next.characterId);
             return api.state;
         },
-        // ponytail: showcase only ever shows an idle stance -- drive poseFor('idle', ...) straight
-        // into rig.applyPose rather than pulling in the full createCharacterAnimator controller.
-        setPoseTime(seconds = 0, reducedMotion = false) {
+        // The preview reuses the shared rig's looping poses. The optional mode keeps
+        // the existing practice/avatar callers on idle without another controller.
+        setPoseTime(seconds = 0, reducedMotion = false, animationId = 'idle') {
+            if (root.userData.disposed) return;
             const time = Number.isFinite(seconds) ? seconds : 0;
-            const pose = reducedMotion ? neutralPose() : poseFor('idle', time, {});
+            const mode = normalizeShowcaseAnimation(animationId);
+            const pose = reducedMotion ? restingPose
+                : poseFor(mode === 'celebrate' ? 'victory' : mode, time, SHOWCASE_POSE_PARAMS);
             rig.applyPose(pose);
             // Frozen at t=0 under reduced motion so socketed cosmetics cannot animate
             // while the rig itself is held in a neutral pose.
@@ -213,13 +224,12 @@ export class ShopShowcaseRenderer {
         if ('toneMappingExposure' in this.renderer) this.renderer.toneMappingExposure = 1.08;
 
         this.scene = new THREE.Scene();
-        // ponytail: rig avatar stands ~2.16 tall (feet at local y=0) vs. the old hand-built box avatar's
-        // ~3.45 -- camera distance/target and floor alignment scaled down to match (~0.63x).
-        // options.camera lets a wider mount (e.g. the menu hero) pull back without a second renderer.
+        // The full-body framing leaves room for larger rigs and raised celebration
+        // hands. Explicit menu/editor camera overrides retain their own framing.
         const framing = options.camera || {};
-        const position = framing.position || [0, 1.3, 4.5];
-        const target = framing.target || [0, 1.0, 0];
-        this.camera = new THREE.PerspectiveCamera(Number.isFinite(framing.fov) ? framing.fov : 31, 1, .1, 50);
+        const position = framing.position || [0, 1.55, 6.1];
+        const target = framing.target || [0, 1.35, 0];
+        this.camera = new THREE.PerspectiveCamera(Number.isFinite(framing.fov) ? framing.fov : 34, 1, .1, 50);
         this.camera.position.set(position[0], position[1], position[2]);
         this.camera.lookAt(target[0], target[1], target[2]);
         this.avatar = createShowcaseAvatar(options);
@@ -237,14 +247,18 @@ export class ShopShowcaseRenderer {
         // actual front-facing rest pose (the old -.26 showed its back first).
         this._yaw = Math.PI;
         this._pitch = -.02;
+        this._animation = 'idle';
+        this._autoRotate = true;
         this._dragging = false;
-        this._lastPointer = null;
+        this._pointerId = null;
+        this._lastPointer = { x: 0, y: 0 };
         this._running = false;
         this._disposed = false;
         this._elapsed = 0;
         this._lastFrame = null;
         this._nextDrawAt = null;
         this._frameLimit = MAX_DECORATIVE_FPS;
+        this._pendingSize = null;
 
         this._motionQuery = this._window?.matchMedia?.('(prefers-reduced-motion: reduce)') || null;
         this._forcedReducedMotion = false;
@@ -314,56 +328,82 @@ export class ShopShowcaseRenderer {
     }
 
     refreshTheme() {
+        if (this._disposed) return;
         this._applyStageTheme();
         this._renderFrame();
     }
 
     _bindEvents() {
         this._onPointerDown = event => {
-            if (this._disposed) return;
+            if (!this._running || this._disposed || this._document?.hidden || this._dragging) return;
+            if (event.isPrimary === false || (event.button !== undefined && event.button !== 0)) return;
+            if (!Number.isFinite(event.clientX) || !Number.isFinite(event.clientY)) return;
             this._dragging = true;
-            this._lastPointer = { x: event.clientX, y: event.clientY };
-            this.canvas.setPointerCapture?.(event.pointerId);
+            this._pointerId = event.pointerId;
+            this._lastPointer.x = event.clientX;
+            this._lastPointer.y = event.clientY;
+            try {
+                this.canvas.setPointerCapture?.(event.pointerId);
+            } catch {
+                // A released pointer or a detached canvas cannot own a new drag.
+                this._endDrag(false);
+            }
         };
         this._onPointerMove = event => {
-            if (!this._dragging || !this._lastPointer) return;
+            if (!this._running || this._disposed || this._document?.hidden) return;
+            if (!this._dragging || event.pointerId !== this._pointerId) return;
+            if (!Number.isFinite(event.clientX) || !Number.isFinite(event.clientY)) return;
             this._yaw += (event.clientX - this._lastPointer.x) * .012;
             this._pitch = Math.max(-.18, Math.min(.18, this._pitch + (event.clientY - this._lastPointer.y) * .006));
-            this._lastPointer = { x: event.clientX, y: event.clientY };
+            this._lastPointer.x = event.clientX;
+            this._lastPointer.y = event.clientY;
             this._renderFrame();
         };
         this._onPointerUp = event => {
-            this._dragging = false;
-            this._lastPointer = null;
-            this.canvas.releasePointerCapture?.(event.pointerId);
+            if (event.pointerId === this._pointerId) this._endDrag();
         };
+        this._onLostPointerCapture = event => {
+            if (event.pointerId === this._pointerId) this._endDrag(false);
+        };
+        this._onBlur = () => this._endDrag();
         this._onKeyDown = event => {
+            if (!this._running || this._disposed || this._document?.hidden || event.defaultPrevented) return;
+            // A canvas key bubbles through its mount; only the nearest listener owns it.
+            if (this.mount !== this.canvas && event.currentTarget === this.mount && event.target === this.canvas) return;
             const step = event.shiftKey ? .3 : .16;
             if (event.key === 'ArrowLeft') this._yaw -= step;
             else if (event.key === 'ArrowRight') this._yaw += step;
             else if (event.key === 'ArrowUp') this._pitch = Math.max(-.18, this._pitch - step * .45);
             else if (event.key === 'ArrowDown') this._pitch = Math.min(.18, this._pitch + step * .45);
             else if (event.key === 'Home') {
-                this._yaw = Math.PI;
-                this._pitch = -.02;
+                event.preventDefault?.();
+                this.resetView();
+                return;
             } else return;
             event.preventDefault?.();
             this._renderFrame();
         };
         this._onMotionChange = event => {
             this.reducedMotion = Boolean(event.matches) || this._forcedReducedMotion;
-            this.avatar.setPoseTime(this._elapsed, this.reducedMotion);
             this._refreshLoop();
             this._renderFrame();
         };
         this._onThemeChange = () => this.refreshTheme();
-        this._onVisibilityChange = () => this._refreshLoop();
+        this._onVisibilityChange = () => {
+            if (this._document?.hidden) this._endDrag();
+            this._refreshLoop();
+            this._renderFrame();
+        };
         this._onResize = () => this.resize();
 
         this.canvas.addEventListener?.('pointerdown', this._onPointerDown);
         this.canvas.addEventListener?.('pointermove', this._onPointerMove);
         this.canvas.addEventListener?.('pointerup', this._onPointerUp);
         this.canvas.addEventListener?.('pointercancel', this._onPointerUp);
+        this.canvas.addEventListener?.('lostpointercapture', this._onLostPointerCapture);
+        this._window?.addEventListener?.('pointerup', this._onPointerUp);
+        this._window?.addEventListener?.('pointercancel', this._onPointerUp);
+        this._window?.addEventListener?.('blur', this._onBlur);
         this.mount.addEventListener?.('keydown', this._onKeyDown);
         if (this.mount !== this.canvas) this.canvas.addEventListener?.('keydown', this._onKeyDown);
         if (this._motionQuery?.addEventListener) this._motionQuery.addEventListener('change', this._onMotionChange);
@@ -375,21 +415,37 @@ export class ShopShowcaseRenderer {
         this._resizeObserver = ResizeObserverClass ? new ResizeObserverClass(this._onResize) : null;
         this._resizeObserver?.observe?.(this.mount);
         this._animate = time => {
-            const now = Math.max(0, Number(time) || 0);
+            // A queued frame can arrive after stop/visibility/reduced-motion changes.
+            if (!this._running || this._disposed || this.reducedMotion || this._document?.hidden) return;
+            if (!Number.isFinite(time) || time < 0 || (this._lastFrame !== null && time < this._lastFrame)) return;
+            const now = time;
             const frameInterval = 1000 / this._frameLimit;
             const frameMs = this._lastFrame === null ? frameInterval : Math.max(0, now - this._lastFrame);
             const delta = this._lastFrame === null ? 0 : Math.min(.05, frameMs / 1000);
             this._lastFrame = now;
             this._elapsed += delta;
-            if (!this._dragging && !this.reducedMotion) this._yaw += delta * .18;
-            this.avatar.setPoseTime(this._elapsed, this.reducedMotion);
+            if (!this._dragging && this._autoRotate) this._yaw += delta * .18;
             if (this._dragging) return;
             if (this._nextDrawAt !== null && now + Math.min(frameInterval / 2, frameMs / 2) + .001 < this._nextDrawAt) return;
-            if (this._nextDrawAt === null) this._nextDrawAt = now;
-            do this._nextDrawAt += frameInterval;
-            while (this._nextDrawAt <= now);
+            const scheduled = this._nextDrawAt ?? now;
+            // Skip missed deadlines in constant time after a debugger pause or stall.
+            this._nextDrawAt = scheduled + Math.max(1, Math.floor((now - scheduled) / frameInterval) + 1) * frameInterval;
             this._renderFrame();
         };
+    }
+
+    _endDrag(releaseCapture = true) {
+        const pointerId = this._pointerId;
+        this._dragging = false;
+        this._pointerId = null;
+        if (!releaseCapture || pointerId === null) return;
+        try {
+            if (!this.canvas.hasPointerCapture || this.canvas.hasPointerCapture(pointerId)) {
+                this.canvas.releasePointerCapture?.(pointerId);
+            }
+        } catch {
+            // Pointer capture may already be gone after cancellation or DOM removal.
+        }
     }
 
     _resetAnimationClock() {
@@ -404,9 +460,45 @@ export class ShopShowcaseRenderer {
     }
 
     _renderFrame() {
-        if (this._disposed) return;
+        if (!this._running || this._disposed || this._document?.hidden) return;
+        if (this._pendingSize) {
+            const size = this._pendingSize;
+            this.renderer.setPixelRatio?.(size.pixelRatio);
+            this.renderer.setSize(size.width, size.height, false);
+            this._pendingSize = null;
+        }
+        this.avatar.setPoseTime(this._elapsed, this.reducedMotion, this._animation);
         this.avatar.root.rotation.set(this._pitch, this._yaw, 0);
         this.renderer.render(this.scene, this.camera);
+    }
+
+    get animation() { return this._animation; }
+    get autoRotate() { return this._autoRotate; }
+
+    // Re-selecting the current mode keeps its phase; changing modes starts at t=0.
+    setAnimation(id) {
+        if (this._disposed) return this._animation;
+        const mode = normalizeShowcaseAnimation(id);
+        if (mode === this._animation) return mode;
+        this._animation = mode;
+        this._elapsed = 0;
+        this._resetAnimationClock();
+        this._renderFrame();
+        return mode;
+    }
+
+    setAutoRotate(flag) {
+        if (!this._disposed) this._autoRotate = Boolean(flag);
+        return this._autoRotate;
+    }
+
+    resetView() {
+        if (this._disposed) return false;
+        this._endDrag();
+        this._yaw = Math.PI;
+        this._pitch = -.02;
+        this._renderFrame();
+        return true;
     }
 
     // The shop canvas is presentation only; retain responsiveness while keeping its
@@ -453,9 +545,9 @@ export class ShopShowcaseRenderer {
     // In-app accessibility setting, OR-ed with the OS prefers-reduced-motion query so
     // neither source can silently re-enable idle motion for the other.
     setReducedMotion(flag) {
+        if (this._disposed) return this.reducedMotion;
         this._forcedReducedMotion = Boolean(flag);
         this.reducedMotion = this._forcedReducedMotion || Boolean(this._motionQuery?.matches);
-        this.avatar.setPoseTime(this._elapsed, this.reducedMotion);
         this._refreshLoop();
         this._renderFrame();
         return this.reducedMotion;
@@ -463,15 +555,19 @@ export class ShopShowcaseRenderer {
 
     start() {
         if (this._disposed) return false;
-        this._running = true;
-        this._resetAnimationClock();
+        if (!this._running) {
+            this._running = true;
+            this._resetAnimationClock();
+        }
         this._refreshLoop();
         this._renderFrame();
         return true;
     }
 
     stop() {
+        if (this._disposed) return true;
         this._running = false;
+        this._endDrag();
         this._refreshLoop();
         return true;
     }
@@ -485,12 +581,13 @@ export class ShopShowcaseRenderer {
         let ratio = Math.min(MAX_PIXEL_RATIO, Math.max(1, rawDpr));
         const totalPixels = nextWidth * nextHeight * ratio * ratio;
         if (totalPixels > MAX_BACKING_PIXELS) ratio *= Math.sqrt(MAX_BACKING_PIXELS / totalPixels);
-        this.renderer.setPixelRatio?.(ratio);
-        this.renderer.setSize(nextWidth, nextHeight, false);
+        const size = Object.freeze({ width: nextWidth, height: nextHeight, pixelRatio: ratio });
+        // Keep inactive previews from reallocating/clearing GPU buffers on window resize.
+        this._pendingSize = size;
         this.camera.aspect = nextWidth / nextHeight;
         this.camera.updateProjectionMatrix();
         this._renderFrame();
-        return Object.freeze({ width: nextWidth, height: nextHeight, pixelRatio: ratio });
+        return size;
     }
 
     dispose() {
@@ -501,6 +598,10 @@ export class ShopShowcaseRenderer {
         this.canvas.removeEventListener?.('pointermove', this._onPointerMove);
         this.canvas.removeEventListener?.('pointerup', this._onPointerUp);
         this.canvas.removeEventListener?.('pointercancel', this._onPointerUp);
+        this.canvas.removeEventListener?.('lostpointercapture', this._onLostPointerCapture);
+        this._window?.removeEventListener?.('pointerup', this._onPointerUp);
+        this._window?.removeEventListener?.('pointercancel', this._onPointerUp);
+        this._window?.removeEventListener?.('blur', this._onBlur);
         this.mount.removeEventListener?.('keydown', this._onKeyDown);
         if (this.mount !== this.canvas) this.canvas.removeEventListener?.('keydown', this._onKeyDown);
         if (this._motionQuery?.removeEventListener) this._motionQuery.removeEventListener('change', this._onMotionChange);

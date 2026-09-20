@@ -5,6 +5,9 @@ import { ObjectPool } from './objectPool.js';
 
 export const STEERING_CONTROL_WINDOW = 0.074;
 export const BOUNCE_ROUTE_OWNERSHIP_WINDOW = 0.082;
+export const PLAYER_AIM_STEERING_FACTOR = 0.58;
+export const PLAYER_AIM_PROXIMITY_FACTOR = 0.78;
+export const PROXIMITY_APPROACH_DOT = 0.18;
 const STEERING_TICK = 1 / 66;
 const WIDE_SHOT_ANGLE = 15 * Math.PI / 180;
 const WIDE_SHOT_DOT = Math.cos(WIDE_SHOT_ANGLE);
@@ -30,6 +33,24 @@ export function proximityHomingTurnRate(distance, homingAge = 0) {
 export function homingRescueRange(speed) {
     const safeSpeed = Number.isFinite(speed) ? Math.max(0, speed) : 0;
     return clamp(safeSpeed * 0.055, 3.5, 6);
+}
+
+// Keep the safety net close enough to catch tunnelling fast balls without making
+// every near miss a guaranteed hit. A genuine tangent can still circle once and
+// enter this lane on the return pass.
+export function proximityAssistRange(speed, baseRange = 1.5) {
+    const safeSpeed = Number.isFinite(speed) ? Math.max(0, speed) : 0;
+    return Math.max(0, baseRange) + Math.min(safeSpeed * 0.0015, 1.0);
+}
+
+export function shouldForceProximityHit({ distance, speed, approachDot, timer = 0, threshold = 0.3, hitRange = 0.7 } = {}) {
+    if (![distance, speed, approachDot, timer, threshold, hitRange].every(Number.isFinite)) return false;
+    if (approachDot < PROXIMITY_APPROACH_DOT) return false;
+    const near = distance <= hitRange && speed > 80;
+    const delayed = distance < proximityAssistRange(speed, hitRange + 0.8)
+        && distance > hitRange
+        && timer >= threshold;
+    return near || delayed;
 }
 
 export function shouldDirectHomingRescue(distance, speed, homingAge, alignment) {
@@ -1050,16 +1071,28 @@ export class Ball {
                 ? this.velocity.clone().normalize().dot(toTarget.normalize())
                 : 0;
             // Wider proximity range for fast balls — prevents orbiting at high speed
-            const effectiveProxRange = this._proximityRange + Math.min(this.currentSpeed * 0.002, 1.5);
+            const effectiveProxRange = proximityAssistRange(this.currentSpeed, this._proximityRange);
             if (proxDist < effectiveProxRange && proxDist > this.hitRange) {
                 this._proximityTimer += dt;
                 // Faster trigger at high speed — 0.2s instead of 0.4s
                 const threshold = clamp(0.42 - this.currentSpeed * 0.0024, 0.18, 0.38);
-                if (this._proximityTimer >= threshold && approachDot > -0.15) {
+                if (shouldForceProximityHit({
+                    distance: proxDist,
+                    speed: this.currentSpeed,
+                    approachDot,
+                    timer: this._proximityTimer,
+                    threshold,
+                    hitRange: this.hitRange
+                })) {
                     this._forceHit = true;
                     this._proximityTimer = 0;
                 }
-            } else if (proxDist <= this.hitRange && this.currentSpeed > 80 && approachDot > -0.15) {
+            } else if (shouldForceProximityHit({
+                distance: proxDist,
+                speed: this.currentSpeed,
+                approachDot,
+                hitRange: this.hitRange
+            })) {
                 // Ball is within hit range and moving fast → force hit immediately (tunneling fix)
                 this._forceHit = true;
             } else {
@@ -1454,9 +1487,11 @@ export class Ball {
         const rescueTurn = hasOverstayed || isCircling
             ? 1 - Math.exp(-7 * steeringDt)
             : 0;
+        const aimFactor = this.aimed ? PLAYER_AIM_STEERING_FACTOR : 1;
+        const proximityFactor = this.aimed ? PLAYER_AIM_PROXIMITY_FACTOR : 1;
         const turn = Math.max(
-            steeringTurnAlpha(steeringDt, this.deflections),
-            proximityTurn,
+            steeringTurnAlpha(steeringDt, this.deflections) * aimFactor,
+            proximityTurn * proximityFactor,
             rescueTurn
         );
         const next = directRescue ? torsoDirection : current.lerp(direct, turn);

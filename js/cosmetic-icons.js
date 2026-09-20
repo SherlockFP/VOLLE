@@ -8,12 +8,15 @@ const ICON_TYPES = new Set([
     'backpack', 'banner', 'trail', 'finisher', 'gloves'
 ]);
 const ICON_STYLE_VARIANTS = Object.freeze({
-    hat: new Set(['headset']),
-    backpack: new Set(['court_bag']),
+    hat: new Set(['headset', 'sport_visor', 'antennas']),
+    backpack: new Set(['court_bag', 'popcorn', 'star_pack']),
+    cape: new Set(['pennants']),
+    shoes: new Set(['court_sneakers']),
+    wings: new Set(['comet_fins']),
     // Both catalog axolotls use the block body and side-gill mesh in
     // cosmetic-models.js.  Giving that mesh a matching shop silhouette avoids
     // promising a generic round companion for the Tidal Drift Ray.
-    pet: new Set(['axolotl'])
+    pet: new Set(['axolotl', 'satellite'])
 });
 
 export const COSMETIC_ICON_TYPES = Object.freeze([...ICON_TYPES]);
@@ -62,10 +65,30 @@ function addTypeShapes(svg, doc, type, style, primary, secondary) {
     const stroke = { stroke: secondary, 'stroke-width': 3, 'stroke-linejoin': 'round' };
     switch (type) {
         case 'cape':
+            if (style === 'pennants') {
+                shape(svg, doc, 'path', { d: 'M20 24H44L41 80L32 68L23 80ZM52 24H76L73 80L64 68L55 80Z', fill: primary, ...stroke });
+                shape(svg, doc, 'rect', { x: 17, y: 18, width: 62, height: 8, rx: 3, fill: secondary });
+                shape(svg, doc, 'path', { d: 'M32 35L38 42L32 49L26 42ZM64 35L70 42L64 49L58 42Z', fill: secondary });
+                break;
+            }
             shape(svg, doc, 'path', { d: 'M25 17H71L77 74L48 64L19 74Z', fill: primary, ...stroke });
             shape(svg, doc, 'path', { d: 'M32 24L48 57L64 24', fill: 'none', stroke: secondary, 'stroke-width': 4, 'stroke-linecap': 'round' });
             break;
         case 'pet':
+            if (style === 'satellite') {
+                line(svg, doc, 16, 51, 80, 51, primary, 5);
+                for (const x of [10, 65]) {
+                    shape(svg, doc, 'rect', { x, y: 37, width: 21, height: 29, fill: secondary, stroke: primary, 'stroke-width': 2 });
+                    line(svg, doc, x + 10, 38, x + 10, 65, primary, 2);
+                    line(svg, doc, x + 1, 51, x + 20, 51, primary, 2);
+                }
+                line(svg, doc, 48, 37, 48, 24, secondary, 3);
+                shape(svg, doc, 'path', { d: 'M36 20H60L48 28Z', fill: primary, ...stroke });
+                shape(svg, doc, 'rect', { x: 35, y: 36, width: 26, height: 29, rx: 3, fill: primary, ...stroke });
+                shape(svg, doc, 'circle', { cx: 42, cy: 48, r: 3, fill: '#fff6e5' });
+                shape(svg, doc, 'circle', { cx: 54, cy: 48, r: 3, fill: '#fff6e5' });
+                break;
+            }
             if (style === 'axolotl') {
                 shape(svg, doc, 'path', { d: 'M20 43H68L80 52L68 61H20Z', fill: primary, ...stroke });
                 shape(svg, doc, 'path', { d: 'M24 42L17 29L29 34M24 61L17 74L29 69M63 42L70 29L76 37M63 61L70 74L76 66', fill: primary, ...stroke });
@@ -77,6 +100,16 @@ function addTypeShapes(svg, doc, type, style, primary, secondary) {
             shape(svg, doc, 'circle', { cx: 38, cy: 50, r: 4, fill: secondary }); shape(svg, doc, 'circle', { cx: 59, cy: 50, r: 4, fill: secondary });
             break;
         case 'shoes':
+            if (style === 'court_sneakers') {
+                for (const x of [9, 51]) {
+                    shape(svg, doc, 'path', { d: `M${x + 3} 42H${x + 18}L${x + 24} 54L${x + 33} 58V70H${x}V52Z`, fill: primary, ...stroke });
+                    line(svg, doc, x + 1, 72, x + 33, 72, secondary, 5);
+                    line(svg, doc, x + 2, 44, x + 2, 37, secondary, 4);
+                    line(svg, doc, x + 12, 50, x + 22, 50, '#fff6e5', 3);
+                    line(svg, doc, x + 15, 56, x + 26, 56, '#fff6e5', 3);
+                }
+                break;
+            }
             shape(svg, doc, 'path', { d: 'M12 59H42L48 72H12Z', fill: primary, ...stroke });
             shape(svg, doc, 'path', { d: 'M50 59H78L84 72H50Z', fill: primary, ...stroke });
             line(svg, doc, 18, 65, 40, 65, secondary, 3); line(svg, doc, 56, 65, 78, 65, secondary, 3);
@@ -91,6 +124,20 @@ function addTypeShapes(svg, doc, type, style, primary, secondary) {
             shape(svg, doc, 'circle', { cx: 48, cy: 48, r: 9, fill: secondary });
             break;
         case 'hat':
+            if (style === 'sport_visor') {
+                shape(svg, doc, 'ellipse', { cx: 48, cy: 39, rx: 26, ry: 10, fill: 'none', stroke: secondary, 'stroke-width': 8 });
+                shape(svg, doc, 'path', { d: 'M23 44C31 52 65 52 73 44L84 59C70 78 26 78 12 59Z', fill: primary, ...stroke });
+                shape(svg, doc, 'rect', { x: 43, y: 39, width: 10, height: 7, rx: 2, fill: primary });
+                break;
+            }
+            if (style === 'antennas') {
+                shape(svg, doc, 'ellipse', { cx: 48, cy: 59, rx: 29, ry: 10, fill: 'none', stroke: secondary, 'stroke-width': 7 });
+                line(svg, doc, 24, 53, 28, 28, secondary, 4);
+                line(svg, doc, 72, 53, 68, 28, secondary, 4);
+                shape(svg, doc, 'circle', { cx: 28, cy: 24, r: 9, fill: primary, ...stroke });
+                shape(svg, doc, 'circle', { cx: 68, cy: 24, r: 9, fill: primary, ...stroke });
+                break;
+            }
             if (style === 'headset') {
                 shape(svg, doc, 'path', { d: 'M24 53V43C24 17 72 17 72 43V53', fill: 'none', stroke: secondary, 'stroke-width': 7, 'stroke-linecap': 'round' });
                 shape(svg, doc, 'path', { d: 'M28 47H39V65H28ZM57 47H68V65H57Z', fill: primary, ...stroke });
@@ -107,11 +154,34 @@ function addTypeShapes(svg, doc, type, style, primary, secondary) {
             shape(svg, doc, 'path', { d: 'M38 62H58', stroke: secondary, 'stroke-width': 4, 'stroke-linecap': 'round' });
             break;
         case 'wings':
+            if (style === 'comet_fins') {
+                shape(svg, doc, 'path', { d: 'M44 43L27 17L9 26L25 79L42 64ZM52 43L69 17L87 26L71 79L54 64Z', fill: primary, ...stroke });
+                shape(svg, doc, 'path', { d: 'M36 45L25 29L19 33L28 63ZM60 45L71 29L77 33L68 63Z', fill: secondary });
+                break;
+            }
             shape(svg, doc, 'path', { d: 'M46 47C28 17 10 17 14 67C24 61 34 62 46 78Z', fill: primary, ...stroke });
             shape(svg, doc, 'path', { d: 'M50 47C68 17 86 17 82 67C72 61 62 62 50 78Z', fill: primary, ...stroke });
             line(svg, doc, 28, 41, 42, 56, secondary, 3); line(svg, doc, 68, 41, 54, 56, secondary, 3);
             break;
         case 'backpack':
+            if (style === 'popcorn') {
+                shape(svg, doc, 'path', { d: 'M23 37H73L65 80H31Z', fill: primary, ...stroke });
+                line(svg, doc, 37, 43, 40, 75, secondary, 5);
+                line(svg, doc, 59, 43, 56, 75, secondary, 5);
+                for (const [cx, cy] of [[29, 33], [43, 32], [64, 33], [37, 22], [56, 23]]) {
+                    shape(svg, doc, 'circle', { cx, cy, r: 10, fill: '#fff6e5', stroke: secondary, 'stroke-width': 2 });
+                }
+                line(svg, doc, 23, 40, 73, 40, secondary, 5);
+                break;
+            }
+            if (style === 'star_pack') {
+                shape(svg, doc, 'path', { d: 'M40 21V16H56V21', fill: 'none', stroke: secondary, 'stroke-width': 4 });
+                shape(svg, doc, 'path', { d: 'M48 18L58 37L81 40L64 56L68 80L48 68L28 80L32 56L15 40L38 37Z', fill: primary, ...stroke });
+                shape(svg, doc, 'circle', { cx: 48, cy: 52, r: 10, fill: secondary });
+                line(svg, doc, 72, 59, 78, 66, secondary, 3);
+                shape(svg, doc, 'path', { d: 'M79 65L85 72L79 79L73 72Z', fill: secondary });
+                break;
+            }
             if (style === 'court_bag') {
                 shape(svg, doc, 'rect', { x: 16, y: 36, width: 64, height: 31, rx: 13, fill: primary, ...stroke });
                 shape(svg, doc, 'circle', { cx: 19, cy: 52, r: 12, fill: secondary, stroke: primary, 'stroke-width': 3 });

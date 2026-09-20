@@ -14,7 +14,7 @@ import { Arena } from './arena.js';
 import { COSMETICS, COSMETIC_TYPES, cosmeticsByType } from './cosmetic-catalog.js';
 import { accountRankLabel, accountRankShort, levelProgress, prestigeTitle } from './prestige.js';
 import { Store } from './store.js';
-import { matchesShopFilter, matchesShopQuery, compareShopItems, deriveShopCardState } from './shop-clarity.js';
+import { matchesShopFilter, matchesShopQuery, compareShopItems, deriveShopCardState, SHOP_COLLECTIONS, shopCollectionForItem } from './shop-clarity.js';
 import { characterPortraitPath, shopNameFitTier, knifeTeamRestriction, isKnifeEquippedAny } from './shop-ux2.js';
 import { classifyDamageTier, nextPoolCursor, damageJitterFor, comboTier } from './combat-fx.js';
 import { rewardRowState, tierCardState } from './battlepass.js';
@@ -2099,6 +2099,18 @@ export class UI {
             });
         }
         if (slot && tab !== 'wearables') slot.value = 'all';
+        const collectionLabel = document.getElementById('shop-collection-label');
+        if (collectionLabel) collectionLabel.hidden = tab !== 'wearables';
+        const collection = document.getElementById('shop-collection');
+        if (collection && collection.options.length === 1) {
+            SHOP_COLLECTIONS.forEach(entry => {
+                const option = document.createElement('option');
+                option.value = entry.id;
+                option.textContent = `${entry.label}${entry.isNew ? ' · NEW' : ''}`;
+                collection.appendChild(option);
+            });
+        }
+        if (collection && tab !== 'wearables') collection.value = 'all';
     }
 
     _syncShopFilters(tab) {
@@ -2119,6 +2131,28 @@ export class UI {
             chip.disabled = !enabled;
             chip.setAttribute('aria-hidden', String(!enabled));
         });
+    }
+
+    _setShopProductCopy(store, { description = '', price = 0, owned = false, equipped = false, type = 'character' } = {}) {
+        const copy = document.getElementById('shop-selected-description');
+        if (copy) copy.textContent = description;
+        const balance = Number(store.get('currency')) || 0;
+        const state = deriveShopCardState({ price, owned, equipped, currency: balance });
+        const note = document.getElementById('shop-selected-balance');
+        if (note) {
+            note.textContent = owned ? 'In your collection' : `${price} credits · Balance ${balance}${state.shortfall ? ` · Need ${state.shortfall} more` : ''}`;
+            note.dataset.shortfall = String(state.shortfall > 0);
+        }
+        const action = document.getElementById('shop-selected-action');
+        if (action) {
+            action.disabled = equipped || state.shortfall > 0;
+            action.setAttribute('aria-label', action.textContent);
+            action.title = state.shortfall ? `Earn ${state.shortfall} more credits to buy this item.` : '';
+        }
+        const controls = document.getElementById('shop-preview-controls');
+        if (controls) controls.hidden = type === 'ball';
+        const hint = document.querySelector('#shop-showcase-stage .shop-rotate-hint');
+        if (hint) hint.textContent = type === 'ball' ? 'Animated model preview' : 'Drag or use arrow keys';
     }
 
     _setShopShowcase(store, skin, previewing = false, announce = false, dispatchPreview = true) {
@@ -2181,6 +2215,7 @@ export class UI {
         });
 
         const detail = Object.freeze({ type: 'avatar', id: selected.id, skin: selected, equipped, owned, previewing });
+        this._setShopProductCopy(store, { description: selected.description || 'A full character skin. Try its silhouette in motion or take it to the Practice Range.', price: selected.price, owned, equipped });
         if (stage?.dispatchEvent && typeof CustomEvent !== 'undefined') {
             stage.dispatchEvent(new CustomEvent('shop-preview-change', { bubbles: true, detail }));
         }
@@ -2227,6 +2262,7 @@ export class UI {
             action.classList.toggle('shop-buy', !equipped && !owned);
             action.setAttribute('aria-label', action.textContent);
         }
+        this._setShopProductCopy(store, { description: item.description, price: item.price, owned, equipped });
         document.querySelectorAll('.wearable-inspect').forEach(control => {
             const selected = control.dataset.id === item.id;
             control.setAttribute('aria-pressed', String(selected));
@@ -2238,6 +2274,7 @@ export class UI {
 
     _setShopBallShowcase(store, item, announce = false) {
         if (!item?.id) return false;
+        this._shopPreviewBall = item.id;
         const owned = store.ownsBall(item.id);
         const equipped = store.get('equippedBall') === item.id;
         const stage = document.getElementById('shop-showcase-stage');
@@ -2269,7 +2306,12 @@ export class UI {
             action.classList.toggle('shop-equip', !equipped && owned);
             action.classList.toggle('shop-buy', !equipped && !owned);
         }
-        document.querySelectorAll('.ball-inspect').forEach(control => control.setAttribute('aria-pressed', String(control.dataset.id === item.id)));
+        this._setShopProductCopy(store, { description: item.description || 'A cosmetic ball finish. Ball speed, collision size and deflect timing stay the same.', price: item.price || 150, owned, equipped, type: 'ball' });
+        document.querySelectorAll('#shop-grid .ball-inspect').forEach(control => {
+            const selected = control.dataset.id === item.id;
+            control.setAttribute('aria-pressed', String(selected));
+            control.closest('.shop-card')?.classList.toggle('is-previewing', selected);
+        });
         if (typeof window !== 'undefined' && window.dispatchEvent && typeof CustomEvent !== 'undefined') {
             window.dispatchEvent(new CustomEvent('warrball:shop-preview', {
                 detail: Object.freeze({ type: 'ball', id: item.id, ball: item, source: 'shop' })
@@ -2335,6 +2377,7 @@ export class UI {
             if (control.matches('button')) control.setAttribute('aria-pressed', String(isSelected));
         });
         const detail = Object.freeze({ type: 'character', id: selected.id, character: selected, equipped, owned, previewing: true });
+        this._setShopProductCopy(store, { description: selected.desc, price: selected.price, owned, equipped });
         if (stage?.dispatchEvent && typeof CustomEvent !== 'undefined') {
             stage.dispatchEvent(new CustomEvent('shop-preview-change', { bubbles: true, detail }));
         }
@@ -2373,8 +2416,18 @@ export class UI {
         if (state.dim) {
             const note = document.createElement('div');
             note.className = 'shop-shortfall-note';
-            note.textContent = `${state.shortfall} coin short`;
+            note.textContent = `Need ${state.shortfall} more credits`;
             card.appendChild(note);
+        }
+        card.querySelectorAll('.shop-buy, .live-offer-buy').forEach(button => {
+            button.disabled = state.shortfall > 0;
+            if (state.shortfall) button.title = `Earn ${state.shortfall} more credits to buy this item.`;
+        });
+        if (!owned && (card.dataset.shopPreview === 'character' || card.dataset.shopPreview === 'avatar')) {
+            const cost = document.createElement('span');
+            cost.className = 'shop-card-price';
+            cost.textContent = `${price} credits`;
+            card.appendChild(cost);
         }
         return state;
     }
@@ -2386,6 +2439,7 @@ export class UI {
         const query = document.getElementById('shop-search')?.value || '';
         const rarity = document.getElementById('shop-rarity')?.value || 'all';
         const slot = document.getElementById('shop-slot')?.value || 'all';
+        const collection = document.getElementById('shop-collection')?.value || 'all';
         const sort = document.getElementById('shop-sort')?.value || 'featured';
         let visible = 0;
         const entries = Array.from(grid?.querySelectorAll('.shop-card') || [], card => {
@@ -2397,9 +2451,10 @@ export class UI {
                 name: card.querySelector('.char-name')?.textContent || '',
                 description: card.querySelector('.char-desc')?.textContent || '',
                 rarity: card.dataset.shopRarity || card.querySelector('.skin-rarity, .ball-rarity')?.textContent || 'common',
+                collection: card.dataset.shopCollection || '',
                 order: Number(card.dataset.catalogOrder) || 0
             };
-            const matches = matchesShopFilter(id, descriptor) && matchesShopQuery(descriptor, { query, rarity, slot });
+            const matches = matchesShopFilter(id, descriptor) && matchesShopQuery(descriptor, { query, rarity, slot, collection });
             card.classList.toggle('shop-card-filtered-out', !matches);
             if (matches) visible++;
             return { card, ...descriptor };
@@ -2423,6 +2478,7 @@ export class UI {
         if (count) count.textContent = `${visible} / ${entries.length} items`;
         const empty = document.getElementById('shop-no-results');
         if (empty) empty.hidden = visible > 0 || entries.length === 0;
+        if (grid) grid.scrollTop = 0;
         document.querySelectorAll('#shop-filters .shop-filter-chip').forEach(chip => {
             const selected = chip.dataset.filter === id;
             chip.classList.toggle('selected', selected);
@@ -2436,6 +2492,19 @@ export class UI {
         const coinsEl = document.getElementById('shop-coins');
         if (coinsEl) coinsEl.textContent = store.get('currency');
         if (!grid) return;
+        const sameTab = this._shopTab === tab;
+        const scrollTop = sameTab ? grid.scrollTop : 0;
+        const previewCosmetic = this._shopPreviewCosmetic;
+        if (!sameTab) {
+            const search = document.getElementById('shop-search');
+            if (search) search.value = '';
+            ['shop-rarity', 'shop-slot', 'shop-collection'].forEach(id => {
+                const control = document.getElementById(id);
+                if (control) control.value = 'all';
+            });
+            this._shopFilterId = 'all';
+        }
+        this._shopTab = tab;
         if (typeof window !== 'undefined' && window.dispatchEvent && typeof CustomEvent !== 'undefined') {
             window.dispatchEvent(new CustomEvent('warrball:shop-preview-reset'));
         }
@@ -2455,13 +2524,11 @@ export class UI {
                 ? new Date(market.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                 : '';
             if (!market.offers?.length) {
-                grid.innerHTML = '<p class="shop-empty">Loading today\'s deals...</p>';
+                grid.innerHTML = '<div class="shop-empty"><strong>Live deals are unavailable</strong><p>The regular collections are ready to browse.</p><button type="button" class="btn btn-secondary btn-small shop-live-retry">Retry live deals</button></div>';
                 const countEl = document.getElementById('shop-catalog-count');
-                if (countEl) countEl.textContent = 'Updating offers';
-                grid.setAttribute?.('aria-busy', 'true');
-                return;
+                if (countEl) countEl.textContent = 'No live offers';
             }
-            market.offers.forEach(offer => {
+            (market.offers || []).forEach(offer => {
                 const item = offer.kind === 'cosmetic' ? COSMETICS[offer.itemId] : BALL_SKINS[offer.itemId];
                 if (!item) return;
                 const owned = offer.kind === 'cosmetic'
@@ -2475,7 +2542,12 @@ export class UI {
                 card.innerHTML = `<div class="live-deal-badge">-${offer.discount}% TODAY</div>${visual}<div class="char-name">${item.name}</div><div class="char-desc">Rotates at ${until || 'midnight'}.</div>${owned ? '' : `<button class="btn btn-primary btn-small live-offer-buy" data-offer-id="${offer.id}"><s>${offer.basePrice}</s> Buy — ${offer.price}</button>`}`;
                 if (offer.kind === 'cosmetic') appendCosmeticIcon(card.querySelector('.cosmetic-preview'), item);
                 const preview = card.querySelector('.ball-preview');
-                if (preview) preview.dataset.effect = item.effect || 'core';
+                if (preview) {
+                    preview.dataset.effect = item.effect || 'core';
+                    preview.dataset.shape = item.shape || 'sphere';
+                    preview.style.setProperty('--ball-color', `#${item.color.toString(16).padStart(6, '0')}`);
+                    preview.style.setProperty('--ball-glow', `#${item.glow.toString(16).padStart(6, '0')}`);
+                }
                 this._decorateShopCard(card, { category: offer.kind === 'cosmetic' ? 'cosmetic' : 'ball', rarity: item.rarity, price: offer.price, owned, currency: coinBalance });
                 grid.appendChild(card);
             });
@@ -2498,16 +2570,17 @@ export class UI {
                     this._shopPreviewCharacter = c.id;
                     this._setShopCharacterDetail(store, c, true);
                 });
-                this._decorateShopCard(card, { category: 'character', price: c.price, owned, currency: coinBalance });
+                this._decorateShopCard(card, { category: 'character', price: c.price, owned, equipped: c.id === store.get('selectedChar'), currency: coinBalance });
                 grid.appendChild(card);
             });
             this._shopPreviewCharacter = selectedCharacter.id;
             this._setShopCharacterDetail(store, selectedCharacter);
         } else if (tab === 'balls') {
-            let selectedBall = null;
+            const preferredBall = this._shopPreviewBall || store.get('equippedBall');
+            let selectedBall = preferredBall !== 'classic' && BALL_SKINS[preferredBall] ? { ...BALL_SKINS[preferredBall], id: preferredBall } : null;
             Object.entries(BALL_SKINS).forEach(([id, b]) => {
                 if (id === 'classic') return;
-                if (!selectedBall || store.get('equippedBall') === id) selectedBall = { ...b, id };
+                if (!selectedBall) selectedBall = { ...b, id };
                 const owned = store.ownsBall(id);
                 const card = document.createElement('div');
                 card.className = `shop-card ball-skin rarity-${b.rarity || 'common'} ${owned ? 'owned' : ''}`;
@@ -2580,7 +2653,12 @@ export class UI {
             this._setShopShowcase(store, selectedSkin, false);
         } else if (tab === 'wearables') {
             const equipped = store.get('equippedWearables') || {};
-            Object.entries(COSMETIC_TYPES).forEach(([type, label]) => {
+            const fresh = Object.values(COSMETICS).filter(item => shopCollectionForItem(item)?.isNew);
+            const groups = [
+                ['new', 'New arrivals · Court Carnival + Orbital Club', fresh],
+                ...Object.entries(COSMETIC_TYPES).map(([type, label]) => [type, label, cosmeticsByType(type).filter(item => !shopCollectionForItem(item)?.isNew)])
+            ];
+            groups.forEach(([type, label, items]) => {
                 const heading = document.createElement('h3');
                 heading.className = 'cosmetic-category-title';
                 heading.textContent = label;
@@ -2592,16 +2670,19 @@ export class UI {
                     heading.appendChild(clear);
                 }
                 grid.appendChild(heading);
-                cosmeticsByType(type).forEach(item => {
+                items.forEach(item => {
                     const owned = store.ownsCosmetic(item.id);
-                    const active = equipped[type] === item.id;
+                    const active = equipped[item.type] === item.id;
                     const card = document.createElement('article');
                     card.className = `shop-card cosmetic-card rarity-${item.rarity} ${owned ? 'owned' : ''} ${active ? 'equipped' : ''}`;
                     card.dataset.cosmeticId = item.id;
+                    const collection = shopCollectionForItem(item);
+                    card.dataset.shopCollection = collection?.id || '';
+                    if (collection?.isNew) card.dataset.newArrival = 'true';
                     card.style.setProperty('--cosmetic-primary', item.colors[0]);
                     card.style.setProperty('--cosmetic-secondary', item.colors[1]);
                     const preview = document.createElement('div');
-                    preview.className = `cosmetic-preview cosmetic-preview-${type}`;
+                    preview.className = `cosmetic-preview cosmetic-preview-${item.type}`;
                     preview.dataset.style = item.style;
                     appendCosmeticIcon(preview, item);
                     preview.setAttribute('aria-hidden', 'true');
@@ -2635,6 +2716,8 @@ export class UI {
                     grid.appendChild(card);
                 });
             });
+            const selectedCosmetic = COSMETICS[previewCosmetic] || fresh[0];
+            if (selectedCosmetic) this._dispatchCosmeticPreview(selectedCosmetic);
         } else if (tab === 'boosts') {
             const card = document.createElement('div');
             card.className = 'shop-card';
@@ -2666,13 +2749,15 @@ export class UI {
                 const chip = e.target.closest('.shop-filter-chip');
                 if (chip) this._applyShopFilter(chip.dataset.filter);
             });
-            ['shop-search', 'shop-rarity', 'shop-sort', 'shop-slot'].forEach(id => {
+            ['shop-search', 'shop-rarity', 'shop-sort', 'shop-slot', 'shop-collection'].forEach(id => {
                 document.getElementById(id)?.addEventListener(id === 'shop-search' ? 'input' : 'change', () => this._applyShopFilter(this._shopFilterId));
             });
             document.getElementById('shop-clear-filters')?.addEventListener('click', () => {
                 document.getElementById('shop-search').value = '';
                 document.getElementById('shop-rarity').value = 'all';
                 document.getElementById('shop-slot').value = 'all';
+                const collection = document.getElementById('shop-collection');
+                if (collection) collection.value = 'all';
                 document.getElementById('shop-sort').value = 'featured';
                 this._applyShopFilter('all');
                 document.getElementById('shop-search').focus();
@@ -2680,6 +2765,7 @@ export class UI {
             this._shopFiltersBound = true;
         }
         this._applyShopFilter(this._shopFilterId || 'all');
+        grid.scrollTop = scrollTop;
     }
 
     updateContractTracker(daily, store) {

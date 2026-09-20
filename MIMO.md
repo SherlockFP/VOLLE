@@ -20,6 +20,23 @@
   available because the package was not cached and the environment rejected the
   network escalation.
 
+## 2026-09-20 One-shot, replay and lobby feel pass
+
+- Solo warm-up now uses the intended one-shot ruleset. A missed local deflect costs
+  12 HP in normal modes and is lethal in one-shot, with feedback and replay event
+  capture for the miss.
+- Aimed ball steering is softer while close-range rescue remains bounded and only
+  force-confirms an actually approaching fast ball. Replay playback now supports
+  loop mode, keyboard `L`, and miss highlights.
+- Replay mouse look works without pointer lock and replay/spectator controls keep
+  their click events instead of being mistaken for target-cycle clicks.
+- Lobby registration carries the locked state, closed/stale rooms are hidden from
+  public browsing, and hosts unregister when returning to the menu.
+- Validation for this pass: focused replay/ball/lobby/deflect/menu checks pass;
+  all 110 JavaScript files pass direct syntax checks. The full suite remains
+  baseline-validated at 1,793/1,793; the all-in-one isolation-free runner has
+  unrelated shared-global failures on this host.
+
 ---
 
 ## 2026-09-20 Court Skills gameplay expansion
