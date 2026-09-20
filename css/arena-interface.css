@@ -66,37 +66,7 @@
 .screen :is(button, input, select, summary):focus-visible,
 #unified-settings :is(button, input, select):focus-visible { outline: 3px solid var(--ui-focus); outline-offset: 3px; }
 
-/* Settings reads as a control desk, with a fixed title and one scroll area. */
-#unified-settings { background: #030a13c9; backdrop-filter: none; }
-#unified-settings .settings-modal {
-    width: min(1020px, calc(100vw - 32px)); max-height: calc(100dvh - 32px);
-    border: 1px solid var(--arena-line); border-radius: 20px;
-    background: var(--arena-panel) !important; backdrop-filter: none;
-    box-shadow: 0 25px 70px #0008;
-}
-#unified-settings .settings-header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 18px; padding: 18px 22px; border-color: var(--arena-line); background: var(--arena-panel); }
-#unified-settings .settings-title-icon { color: var(--arena-accent); background: var(--arena-card); border-color: var(--arena-line); border-radius: 11px; }
-#unified-settings .settings-title h2 { color: var(--arena-ink); -webkit-text-fill-color: currentColor; font-size: 1.35rem; letter-spacing: -.03em; }
-#unified-settings .settings-kicker { color: var(--arena-accent); letter-spacing: .16em; font-size: .58rem; }
-#unified-settings .settings-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; padding: 4px; border: 1px solid var(--arena-line); border-radius: 11px; background: var(--arena-base); }
-#unified-settings .settings-tab { min-height: 40px; padding: 7px 10px; border-radius: 7px; color: var(--arena-muted); font-size: .72rem; }
-#unified-settings .settings-tab.selected { color: var(--arena-accent); background: var(--arena-card); box-shadow: none; }
-#unified-settings .settings-tab::after { display: none; }
-#unified-settings .settings-close-btn { width: 42px; height: 42px; border-radius: 10px; color: var(--arena-muted); background: var(--arena-card); border-color: var(--arena-line); }
-#unified-settings .settings-scroll { padding: 22px; background: var(--arena-base); min-height: 0; scrollbar-width: thin; scrollbar-color: var(--ui-border) transparent; }
-#unified-settings .settings-section { width: 100%; max-width: none; margin: 0; padding: 20px; border: 1px solid var(--arena-line); border-radius: 14px; background: var(--arena-panel) !important; box-shadow: none; }
-#unified-settings .settings-section-heading { padding-bottom: 15px; margin-bottom: 10px; border-bottom: 1px solid var(--arena-line); }
-#unified-settings .settings-section-heading h3 { font-size: 1.3rem; color: var(--arena-ink); }
-#unified-settings .settings-section-heading p { color: var(--arena-muted); font-size: .77rem; line-height: 1.55; }
-#unified-settings .settings-row, #unified-settings [data-settings-section="controls"] .settings-row {
-    min-height: 60px; padding: 12px; margin: 0 0 7px; border: 1px solid var(--arena-line) !important;
-    border-radius: 10px; background: var(--arena-card) !important; box-shadow: none;
-}
-#unified-settings .settings-row > label:first-child { color: var(--arena-ink); font-size: .78rem; }
-#unified-settings :is(.settings-row-desc, .settings-hint) { color: var(--arena-muted); font-size: .67rem; line-height: 1.5; }
-#unified-settings .settings-subgroup-label { color: var(--arena-accent); border: 0; padding: 8px 0; margin-top: 15px; letter-spacing: .14em; }
-#unified-settings .settings-row :is(select, input[type="number"]) { min-height: 40px; border-radius: 8px; color: var(--arena-ink); background: var(--arena-base); border-color: var(--arena-line); }
-#unified-settings .settings-reset-btn { min-height: 36px; border-radius: 8px; font-size: .65rem; }
+/* Settings layout is owned by settings-workbench.css. */
 
 /* Sport selection and lobby: the existing compact chat/map layout is retained. */
 #multiplayer-menu .sport-select-stage { border-color: var(--arena-line); border-radius: 20px; background: var(--arena-panel); box-shadow: none; backdrop-filter: none; }
@@ -187,18 +157,6 @@
     .screen .shell-header h1 { font-size: 1.65rem; }
     .screen .shell-title p { font-size: .74rem; }
     .screen .shell-back { width: 100%; }
-    #unified-settings .settings-modal { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); border-radius: 15px; }
-    #unified-settings .settings-header { grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; padding: 14px; }
-    #unified-settings .settings-title { grid-column: 1; grid-row: 1; }
-    #unified-settings .settings-saved-indicator { grid-column: 2; grid-row: 1; }
-    #unified-settings .settings-close-btn { grid-column: 3; grid-row: 1; }
-    #unified-settings .settings-tabs { grid-column: 1 / -1; grid-row: 2; }
-    #unified-settings .settings-tab { padding-inline: 5px; font-size: .62rem; }
-    #unified-settings .settings-scroll { padding: 10px; }
-    #unified-settings .settings-section { padding: 12px; }
-    #unified-settings .settings-section-heading { flex-wrap: wrap; gap: 10px; }
-    #unified-settings .settings-row, #unified-settings [data-settings-section="controls"] .settings-row { padding: 10px; }
-    #unified-settings .settings-row select { max-width: 100%; }
     #screen-profile .profile-container { width: calc(100vw - 20px); padding: 20px; border-radius: 15px; }
     #practice-menu-screen .practice-mode-grid { grid-template-columns: 1fr; gap: 10px; margin-block: 18px; }
     #practice-menu-screen .practice-mode-card { min-height: 150px; padding: 20px; }

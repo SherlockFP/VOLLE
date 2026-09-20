@@ -73,6 +73,7 @@ const SHA256_K = Uint32Array.of(
 );
 const RESUME_TOKEN_MAX_LENGTH = TARGET_ID_MAX_BYTES;
 const RESUME_HANDSHAKE_TTL_MS = 5000;
+const RECONNECT_TIMEOUT_MS = 5000;
 const PROTOCOL_CAPABILITIES = Object.freeze({
     positionV2: true,
     migrationVotes: true
@@ -561,6 +562,7 @@ export class Network {
         this._manualDisconnect = false;
         this._reconnectAttempts = 0;
         this._reconnectTimer = null;
+        this._reconnectAttempt = null;
         this._signalReconnectAttempts = 0;
         this._signalReconnectTimer = null;
         this._peerOpened = false;
@@ -636,6 +638,7 @@ export class Network {
     }
 
     async hostGame(playerName) {
+        this._cancelReconnect();
         this._resetLobbyAdmissionProof();
         this.playerName = playerName;
         this.isHost = true;
@@ -675,6 +678,7 @@ export class Network {
     }
 
     async _joinGame(roomCode, playerName, password = '') {
+        this._cancelReconnect();
         this._resetLobbyAdmissionProof();
         this.playerName = playerName;
         this.isHost = false;
@@ -730,7 +734,7 @@ export class Network {
     // Route incoming connections: new player join (host) vs P2P mesh (non-host peers)
     _scheduleReconnect() {
         if (this._manualDisconnect || this.isHost || !this.peer
-            || this._reconnectTimer || this._migrationActive) return;
+            || this._reconnectTimer || this._reconnectAttempt || this._migrationActive) return;
         const attempt = ++this._reconnectAttempts;
         if (attempt > 3) {
             this._beginHostMigration();
@@ -744,28 +748,89 @@ export class Network {
     }
 
     _reconnectOnce() {
-        if (this._manualDisconnect || !this.peer || !this.hostRoomCode) return;
-        const conn = this.peer.connect(this.hostRoomCode, {
-            metadata: {
-                name: this.playerName,
-                password: this.joinPassword,
-                playerId: this.playerId,
-                capabilities: PROTOCOL_CAPABILITIES
+        if (this._manualDisconnect || this.isHost || this._migrationActive
+            || this._reconnectAttempt || !this.peer || !this.hostRoomCode) return;
+        const peer = this.peer;
+        const roomCode = this.hostRoomCode;
+        let conn;
+        let timer;
+        let pending = true;
+        let closed = false;
+        const sameSession = () => this.peer === peer && this.hostRoomCode === roomCode
+            && !this._manualDisconnect && !this.isHost && !this._migrationActive;
+        const closeConnection = () => {
+            try { conn?.close(); } catch (_) {}
+        };
+        const cleanup = () => {
+            if (!pending) return;
+            pending = false;
+            clearTimeout(timer);
+            removeConnectionListener(peer, 'error', onPeerError);
+            if (this._reconnectAttempt === attempt) this._reconnectAttempt = null;
+        };
+        const finish = retry => {
+            if (closed) return;
+            const active = this._reconnectAttempt === attempt || this.hostConn === conn;
+            closed = true;
+            cleanup();
+            if (this.connections.get(roomCode) === conn) this.connections.delete(roomCode);
+            if (this.hostConn === conn) this.hostConn = null;
+            closeConnection();
+            if (retry && active && sameSession()) this._scheduleReconnect();
+        };
+        const onPeerError = err => {
+            // PeerJS reports EXPIRE on Peer, not DataConnection. Ignore errors
+            // for mesh peers sharing this broker; the deadline covers silence.
+            if (err?.type === 'peer-unavailable'
+                && (err.peer === roomCode || err.message === `Could not connect to peer ${roomCode}`)) {
+                finish(true);
             }
-        });
+        };
+        const attempt = { cancel: () => finish(false) };
+        this._reconnectAttempt = attempt;
+        peer.on('error', onPeerError);
+        timer = setTimeout(() => finish(true), RECONNECT_TIMEOUT_MS);
+        try {
+            conn = peer.connect(roomCode, {
+                metadata: {
+                    name: this.playerName,
+                    password: this.joinPassword,
+                    playerId: this.playerId,
+                    capabilities: PROTOCOL_CAPABILITIES
+                }
+            });
+        } catch (_) {
+            finish(true);
+            return;
+        }
+        // connect() can fail synchronously through Peer or return no transport
+        // while signalling reconnects. Neither may strand the retry loop.
+        if (!conn || closed) {
+            finish(true);
+            closeConnection();
+            return;
+        }
         conn.on('open', () => {
+            if (closed) { closeConnection(); return; }
+            if (!sameSession()) { finish(false); return; }
+            if (!pending) return;
+            cleanup();
             this._reconnectAttempts = 0;
             this.hostConn = conn;
-            this.connections.set(this.hostRoomCode, conn);
+            this.connections.set(roomCode, conn);
             this.setupDataHandlers(conn);
             this.onReconnectState?.('connected', 0);
         });
-        conn.on('close', () => {
-            if (this.connections.get(this.hostRoomCode) === conn) this.connections.delete(this.hostRoomCode);
-            if (this.hostConn === conn) this.hostConn = null;
-            this._scheduleReconnect();
-        });
-        conn.on('error', () => this._scheduleReconnect());
+        // Keep these transport-local guards after cleanup: late open/error/close
+        // events cannot resurrect an expired attempt or schedule another retry.
+        conn.on('close', () => finish(true));
+        conn.on('error', () => finish(true));
+    }
+
+    _cancelReconnect() {
+        clearTimeout(this._reconnectTimer);
+        this._reconnectTimer = null;
+        this._reconnectAttempt?.cancel();
     }
 
     _onIncomingConnection(conn) {
@@ -1421,6 +1486,7 @@ export class Network {
             || !Number.isSafeInteger(attempt)
             || attempt < 0
             || attempt >= HOST_MIGRATION_MAX_ATTEMPTS) return;
+        this._cancelReconnect();
         this._migrationActive = true;
         this._clearMigrationTimers();
         const candidates = this._migrationCandidates().filter(candidate =>
@@ -3039,6 +3105,7 @@ case 'modeChange':
         this._resetLobbyAdmissionProof();
         this._ensureIdentityMaps();
         this._manualDisconnect = true;
+        this._cancelReconnect();
         if (this._signalReconnectTimer) {
             clearTimeout(this._signalReconnectTimer);
             this._signalReconnectTimer = null;
@@ -3047,10 +3114,6 @@ case 'modeChange':
         this._gameStartRetryTimers = [];
         this._latestGameStart = null;
         this._clearMigrationTimers();
-        if (this._reconnectTimer) {
-            clearTimeout(this._reconnectTimer);
-            this._reconnectTimer = null;
-        }
         const conns = [...this.connections.values()];
         conns.forEach(conn => conn.close());
         this.connections.clear();

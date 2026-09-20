@@ -119,6 +119,26 @@ test('finishing a purchase after leaving the shop does not rebuild its preview',
     assert.equal(fixture.equips(), 0);
 });
 
+test('XP checkout waits for the server and late failure cannot announce success or change tabs', async () => {
+    const fixture = purchaseFixture(async () => true);
+    fixture.button.dataset.type = 'boost';
+    fixture.button.dataset.id = 'xp-15';
+    let resolve;
+    const messages = [];
+    fixture.app.ui.showMessage = message => messages.push(message);
+    fixture.app.store.buyAndActivateXpBoost = () => new Promise(done => { resolve = done; });
+    const pending = fixture.click();
+    assert.equal(messages.length, 0, 'a Promise is not a successful purchase');
+    assert.equal(fixture.button.disabled, true);
+    fixture.document.body.dataset.screen = 'mainMenu';
+    fixture.app.store.lastBattlepassError = 'Service unavailable';
+    resolve(false);
+    await pending;
+    assert.deepEqual(messages, ['Service unavailable']);
+    assert.equal(fixture.renders(), 0);
+    assert.equal(fixture.button.disabled, false);
+});
+
 test('a late live-market response cannot steal another category or reopen a closed shop', async () => {
     for (const state of [{ screen: 'shop', tab: 'balls' }, { screen: 'mainMenu', tab: 'live' }]) {
         let resolve;

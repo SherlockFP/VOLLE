@@ -5,11 +5,10 @@ import { ObjectPool } from './objectPool.js';
 
 export const STEERING_CONTROL_WINDOW = 0.074;
 export const BOUNCE_ROUTE_OWNERSHIP_WINDOW = 0.082;
-// Player reflections keep their authored heading long enough to be dodged. The
-// target still supplies a readable return arc, but it must not magnetize the
-// ball back onto the torso a few frames after a miss.
-export const PLAYER_AIM_STEERING_FACTOR = 0.22;
-export const PLAYER_AIM_PROXIMITY_FACTOR = 0.30;
+// Player reflections keep the authored heading briefly, then recover toward
+// the target strongly enough to finish instead of circling the defender.
+export const PLAYER_AIM_STEERING_FACTOR = 0.58;
+export const PLAYER_AIM_PROXIMITY_FACTOR = 0.78;
 export const PROXIMITY_APPROACH_DOT = 0.18;
 const STEERING_TICK = 1 / 66;
 const WIDE_SHOT_ANGLE = 15 * Math.PI / 180;
@@ -64,12 +63,12 @@ export function shouldDirectHomingRescue(distance, speed, homingAge, alignment) 
     return isCircling || (hasOverstayed && (isClose || alignment < 0.15));
 }
 
-// Aimed shots get a short orbit watchdog in addition to the wider miss grace.
+// Aimed shots get a short orbit watchdog in addition to the normal rescue lane.
 // This keeps a tangent reflection expressive without allowing a bounce-locked
 // route to circle the defender forever.
 export function shouldBreakAimedOrbit(distance, speed, steeringAge, alignment) {
     if (![distance, speed, steeringAge, alignment].every(Number.isFinite)) return false;
-    const rescueRange = Math.min(homingRescueRange(speed), 2.4);
+    const rescueRange = homingRescueRange(speed);
     return steeringAge > 0.9
         && distance < Math.max(rescueRange, 4.2)
         && alignment < 0.12;
@@ -1084,17 +1083,15 @@ export class Ball {
             const approachDot = this.velocity.lengthSq() > 0.001 && toTarget.lengthSq() > 0.001
                 ? this.velocity.clone().normalize().dot(toTarget.normalize())
                 : 0;
-            // Aimed reflections get a smaller, stricter safety net. They may
-            // curve back after a pass, but a tangent should remain a dodgeable
-            // pass instead of becoming an instant torso hit.
-            const proximityBaseRange = this.aimed ? 0.9 : this._proximityRange;
-            const effectiveProxRange = proximityAssistRange(this.currentSpeed, proximityBaseRange);
-            const minApproachDot = this.aimed ? 0.30 : PROXIMITY_APPROACH_DOT;
+            // Reflections use the same close safety lane as regular homing. The
+            // approach gate still prevents a ball travelling away from the
+            // defender from being converted into a forced hit.
+            const effectiveProxRange = proximityAssistRange(this.currentSpeed, this._proximityRange);
+            const minApproachDot = PROXIMITY_APPROACH_DOT;
             if (proxDist < effectiveProxRange && proxDist > this.hitRange) {
                 this._proximityTimer += dt;
                 // Faster trigger at high speed — 0.2s instead of 0.4s
-                const threshold = clamp(0.42 - this.currentSpeed * 0.0024, 0.18, 0.38)
-                    + (this.aimed ? 0.12 : 0);
+                const threshold = clamp(0.42 - this.currentSpeed * 0.0024, 0.18, 0.38);
                 if (shouldForceProximityHit({
                     distance: proxDist,
                     speed: this.currentSpeed,
@@ -1482,17 +1479,13 @@ export class Ball {
         const toTorso = new THREE.Vector3().subVectors(torsoPos, this.position);
         const torsoDistance = toTorso.length();
         const torsoDirection = torsoDistance > 0.001 ? toTorso.normalize() : desired;
-        // Reflected shots get a longer return window so a bad read can pass
-        // beside the defender before the ball bends back. Bots/incoming balls
-        // keep the tighter terminal rescue used by the existing modes.
-        const rescueAge = this.aimed ? 1.7 : 1.15;
+        // Keep the terminal rescue clock short enough to prevent a reflected
+        // ball from spending a full extra loop around its target.
+        const rescueAge = 1.15;
         const hasOverstayed = this._steeringAge > rescueAge;
         const alignment = current.dot(torsoDirection);
-        const rescueRange = this.aimed
-            ? Math.min(homingRescueRange(this.currentSpeed), 2.4)
-            : homingRescueRange(this.currentSpeed);
-        const isCircling = torsoDistance < rescueRange
-            && alignment < (this.aimed ? 0.05 : 0.15);
+        const rescueRange = homingRescueRange(this.currentSpeed);
+        const isCircling = torsoDistance < rescueRange && alignment < 0.15;
         // A tangent player shot can orbit just outside the close rescue lane.
         // Give that state a shorter orbit watchdog while preserving the longer
         // grace period for a clean wide pass.

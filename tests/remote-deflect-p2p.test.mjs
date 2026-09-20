@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { compileGameMethod, extractGameMethod } from './game-source.mjs';
-import { scaleDedupWindowMs } from '../js/combat.js';
+import { scaleDedupWindowMs, scaleLethalGraceMs } from '../js/combat.js';
+
+const STATES = { PLAYING: 'PLAYING', COUNTDOWN: 'COUNTDOWN' };
 
 class Vector3 {
     constructor(x = 0, y = 0, z = 0) {
@@ -34,14 +36,23 @@ class Vector3 {
 
 function fakeTimers() {
     const pending = [];
+    let nextId = 0;
     return {
         setTimeout(callback, delay = 0) {
-            pending.push({ callback, delay });
-            return pending.length;
+            const id = ++nextId;
+            pending.push({ callback, delay, id });
+            return id;
+        },
+        clearTimeout(id) {
+            const timer = pending.find(item => item.id === id);
+            if (timer) timer.cancelled = true;
         },
         runAll() {
             pending.sort((a, b) => a.delay - b.delay);
-            while (pending.length) pending.shift().callback();
+            while (pending.length) {
+                const timer = pending.shift();
+                if (!timer.cancelled) timer.callback();
+            }
         },
         pending
     };
@@ -169,6 +180,7 @@ function hostAttackFixture({ queued = false, alive = true, ballActive = true } =
         setTarget() {}
     };
     const context = {
+        state: STATES.PLAYING,
         network: { isHost: true, broadcast: packet => broadcasts.push(packet) },
         remotePlayers: new Map([['remote-player', player]]),
         ball,
@@ -177,6 +189,8 @@ function hostAttackFixture({ queued = false, alive = true, ballActive = true } =
         _lastRemoteAttack: null,
         _pendingLethalHit: null,
         _pendingLethalVictim: null,
+        _pendingLethalExpiresAt: 0,
+        _doApplyHit(target) { target.alive = false; target.hp = 0; ball.active = false; },
         getAimedEnemy: () => null,
         _claimOpeningOwner() {},
         _pushDeflectHistory() {},
@@ -191,15 +205,24 @@ function hostAttackFixture({ queued = false, alive = true, ballActive = true } =
         Math
     });
     const method = compileGameMethod('remoteAttack', {
+        STATES,
         THREE: { Vector3 },
         performance: { now: () => now },
         setTimeout: timers.setTimeout,
-        clearTimeout() {},
+        clearTimeout: timers.clearTimeout,
         scaleDedupWindowMs,
         normalizeNetcode: value => value,
         rewindSnapshot: () => null,
         normalizeGameplayDeflectTimingError: value => value,
         resolvePerfectDeflect: ({ chain }) => ({ tier: 'normal', chain })
+    });
+    const handleHit = compileGameMethod('handleHit', {
+        BASE_HIT_DAMAGE: 25,
+        performance: { now: () => now },
+        resolveKillerName: () => 'Attacker',
+        scaleLethalGraceMs,
+        setTimeout: timers.setTimeout,
+        clearTimeout: timers.clearTimeout
     });
     const attack = (attackId, overrides = {}) => method.call(context, 'remote-player', {
         attackId,
@@ -222,6 +245,7 @@ function hostAttackFixture({ queued = false, alive = true, ballActive = true } =
         broadcasts,
         timers,
         attack,
+        armLethalHit() { handleHit.call(context, player); },
         setNow(value) { now = value; }
     };
 }
@@ -299,17 +323,71 @@ test('host rejects a queued remote player before mutating attack state', () => {
     assert.equal(fixture.timers.pending.length, 0);
 });
 
-test('host keeps late-deflect grace behavior for inactive ball and dead remote player', () => {
-    const fixture = hostAttackFixture({ alive: false, ballActive: false });
+test('a valid late deflect cancels the real pending hit inside its original grace window', () => {
+    const fixture = hostAttackFixture();
+    fixture.armLethalHit();
+    assert.equal(fixture.context._pendingLethalExpiresAt, 1080);
+    fixture.setNow(1079);
     fixture.attack('late-deflect');
 
     assert.equal(fixture.player.alive, true);
     assert.equal(fixture.player.hp, fixture.player.maxHp);
     assert.equal(fixture.player.group.visible, true);
     assert.equal(fixture.ball.active, true);
-    assert.equal(fixture.ball.mesh.visible, true);
-    assert.equal(fixture.ball.state, 'rally');
-    assert.equal(fixture.broadcasts.filter(packet => packet.type === 'playerHit').length, 1);
+    assert.equal(fixture.context._pendingLethalHit, null);
+    assert.equal(fixture.context._pendingLethalVictim, null);
+    assert.equal(fixture.context._pendingLethalExpiresAt, 0);
+    assert.equal(fixture.broadcasts.filter(packet => packet.type === 'playerHit').length, 0, 'no death or revival occurred');
+    assert.equal(fixture.broadcasts.filter(packet => packet.type === 'remoteAttackAnim').length, 1);
+    fixture.timers.runAll();
+    assert.equal(fixture.player.alive, true, 'the cancelled lethal callback cannot kill the deflector');
+});
+
+test('a suspended timer cannot extend the late-deflect deadline by minutes', () => {
+    const fixture = hostAttackFixture();
+    fixture.armLethalHit();
+    fixture.setNow(60000);
+    fixture.attack('expired-grace');
+    assert.equal(fixture.context.rallyCount, 0);
+    assert.equal(fixture.broadcasts.length, 0);
+    assert.equal(fixture.context._remoteAttackIds, undefined);
+    assert.equal(fixture.timers.pending.length, 1);
+    fixture.timers.runAll();
+    assert.equal(fixture.player.alive, false);
+    assert.equal(fixture.ball.active, false);
+});
+
+test('a committed death or an inactive ball cannot be revived by an attack packet', () => {
+    for (const options of [{ alive: false }, { ballActive: false }, { alive: false, ballActive: false }]) {
+        const fixture = hostAttackFixture(options);
+        fixture.attack('stale-attack');
+        assert.equal(fixture.player.alive, options.alive !== false);
+        assert.equal(fixture.ball.active, options.ballActive !== false);
+        assert.equal(fixture.context.rallyCount, 0);
+        assert.equal(fixture.broadcasts.length, 0);
+        assert.equal(fixture.timers.pending.length, 0);
+    }
+});
+
+test('out-of-round attacks do not mutate input, cooldowns, dedup state or ball state', () => {
+    for (const state of ['MENU', 'LOBBY', 'COUNTDOWN', 'PAUSED', 'ROUND_END', 'GAME_OVER', 'CELEBRATION']) {
+        const fixture = hostAttackFixture();
+        fixture.context.state = state;
+        fixture.attack('wrong-state', { ax: 1, az: 0 });
+        assert.equal(fixture.player.aimDir.z, -1);
+        assert.equal(fixture.context._remoteAttackIds, undefined);
+        assert.equal(fixture.context.rallyCount, 0);
+        assert.equal(fixture.broadcasts.length, 0);
+        assert.equal(fixture.timers.pending.length, 0);
+    }
+});
+
+test('an explicitly active countdown warm-up ball still permits a remote deflect', () => {
+    const fixture = hostAttackFixture();
+    fixture.context.state = STATES.COUNTDOWN;
+    fixture.ball._warmup = true;
+    fixture.attack('warmup-attack');
+    assert.equal(fixture.context.rallyCount, 1);
     assert.equal(fixture.broadcasts.filter(packet => packet.type === 'remoteAttackAnim').length, 1);
 });
 

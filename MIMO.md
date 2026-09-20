@@ -4,6 +4,28 @@
 > **Status:** Active Gauntlet development. Canonical cycle order and exit gates live in `docs/GAUNTLET_CYCLES.md`.
 > **Tech Stack:** Three.js + PeerJS + vanilla JS (ES modules), browser-based 3D dodgeball.
 
+## 2026-09-20 Gameplay audit and Graphics settings
+
+- Settings now has explicit fixed header/tabs/footer rows and one bounded content
+  scroll area. Graphics separates image quality from display/frame rate; audio is
+  grouped in Controls. Native settings/preset contracts remain intact. Keyboard tabs,
+  focus containment/return, reset and Done are supported. The inert VSync preference
+  was replaced by truthful browser-sync guidance.
+- Fixed never-ready bot abilities, remote skill cooldown lifecycle, dead-player skill
+  requests, expired remote deflect resurrection and client-authored host life state.
+  Multiplayer missed swings are consistently feedback-only on both host and guest;
+  offline penalties retain authoritative Instagib semantics.
+- Reconnect deadlines prevent indefinite silent attempts. Renderer and composer DPR
+  stay synchronized; Low quality cannot have bloom re-enabled by a map override.
+- XP boosts now debit and persist through authenticated server checkout with replay-safe
+  retries and server-clock expiry. Practice Ladder identifies simulated/local opponents,
+  and diagnostics use raw frame time and report unmeasured loss as N/A.
+- Validation: **1,917/1,917 tests**, **110 syntax-clean JS files**, **39 browser settings checks**, four viewport sizes
+  plus 120% UI scale. Browser settings use the actual markup/CSS/controller in an isolated
+  fixture; real-account purchase E2E, NAT/TURN soak and GPU speedup remain unmeasured.
+  Details and remaining authority/result-settlement gaps:
+  `vault/sessions/2026-09-20-game-audit-settings.md`.
+
 ## 2026-09-20 Shop Studio and input reliability
 
 - Shop now separates the 3D stage from animation controls and product details,
@@ -49,11 +71,12 @@
 
 ## 2026-09-20 One-shot, replay and lobby feel pass
 
-- Solo warm-up now uses the intended one-shot ruleset. A missed local deflect costs
-  12 HP in normal modes and is lethal in one-shot, with feedback and replay event
-  capture for the miss.
-- Aimed ball steering is softer while close-range rescue remains bounded and only
-  force-confirms an actually approaching fast ball. Replay playback now supports
+- Solo warm-up now uses the intended one-shot ruleset. An early local deflect read
+  is feedback-only; a late or uncertain miss costs 12 HP in normal modes and keeps
+  the one-shot penalty, with feedback and replay event capture for the miss.
+- Aimed ball steering now recovers with the stronger authored homing values again;
+  close-range rescue still requires an approaching ball and the orbit watchdog
+  prevents a tangent return from circling forever. Replay playback now supports
   loop mode, keyboard `L`, and miss highlights.
 - Replay mouse look works without pointer lock and replay/spectator controls keep
   their click events instead of being mistaken for target-cycle clicks.
@@ -66,10 +89,10 @@
 
 ## 2026-09-20 Dodgeball reflection tuning
 
-- Player aimed returns now preserve their authored heading longer, use a smaller
-  proximity safety net, require a stronger approach vector for forced hits, and
-  delay terminal return rescue. A bad reflection can pass the defender's side and
-  bend back later instead of snapping straight onto the torso.
+- Player aimed returns now use the previous stronger steering/proximity factors and
+  full close safety lane, while retaining the approach gate and terminal watchdog.
+  This stops the current weak homing pass from orbiting the defender without
+  turning an outgoing ball into a forced hit.
 - Added an aimed orbit watchdog: a tangent shot that remains in the defender's
   orbit for 0.9 seconds can reclaim a steering slice even during repeated bounce
   ownership, so it cannot circle forever. The main menu presentation was restored

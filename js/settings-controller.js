@@ -5,6 +5,7 @@ export function selectSettingsTab(tabs, sections, requested) {
     const active = tab.dataset.tab === selected;
     tab.classList.toggle('selected', active);
     tab.setAttribute?.('aria-selected', String(active));
+    tab.tabIndex = active ? 0 : -1;
   });
   sections.forEach(section => {
     section.hidden = section.dataset.settingsSection !== selected;
@@ -15,21 +16,64 @@ export function selectSettingsTab(tabs, sections, requested) {
 export function initSettingsTabs(root = document) {
   const tabs = [...root.querySelectorAll('.settings-tab')];
   const sections = [...root.querySelectorAll('[data-settings-section]')];
-  const listeners = tabs.map(tab => {
-    const listener = () => selectSettingsTab(tabs, sections, tab.dataset.tab);
-    tab.addEventListener('click', listener);
-    return [tab, listener];
+  const scroll = root.querySelector?.('.settings-scroll');
+  const tablist = root.querySelector?.('.settings-tabs');
+  tablist?.setAttribute('role', 'tablist');
+  if (tablist && !tablist.getAttribute('aria-label') && !tablist.getAttribute('aria-labelledby')) {
+    tablist.setAttribute('aria-label', 'Settings categories');
+  }
+  tabs.forEach(tab => {
+    if (!tab.id) tab.id = `settings-tab-${tab.dataset.tab}`;
+    tab.setAttribute('role', 'tab');
+    const section = sections.find(section => section.dataset.settingsSection === tab.dataset.tab);
+    if (!section) return;
+    if (!section.id) section.id = `settings-panel-${tab.dataset.tab}`;
+    tab.setAttribute('aria-controls', section.id);
+    section.setAttribute('role', 'tabpanel');
+    section.setAttribute('aria-labelledby', tab.id);
   });
-  selectSettingsTab(tabs, sections, tabs[0]?.dataset.tab);
+  let selected = selectSettingsTab(tabs, sections, tabs[0]?.dataset.tab);
+  const select = id => {
+    const next = selectSettingsTab(tabs, sections, id);
+    if (next !== selected && scroll) scroll.scrollTop = 0;
+    selected = next;
+    return selected;
+  };
+  const listeners = tabs.map((tab, index) => {
+    const onClick = () => select(tab.dataset.tab);
+    const onKeyDown = event => {
+      // Only the focused tab owns these keys; ranges, selects and text fields
+      // inside panels keep their native keyboard behavior.
+      if (event.target !== tab || event.defaultPrevented || event.isComposing
+        || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      let next;
+      switch (event.key) {
+        case 'ArrowRight': next = (index + 1) % tabs.length; break;
+        case 'ArrowLeft': next = (index - 1 + tabs.length) % tabs.length; break;
+        case 'Home': next = 0; break;
+        case 'End': next = tabs.length - 1; break;
+        default: return;
+      }
+      event.preventDefault();
+      select(tabs[next].dataset.tab);
+      tabs[next].focus();
+    };
+    tab.addEventListener('click', onClick);
+    tab.addEventListener('keydown', onKeyDown);
+    return [tab, onClick, onKeyDown];
+  });
   // main.js calls initSettingsTabs(document) exactly once and never gets a
   // second call site for reset-buttons/saved-indicator wiring, so both live
   // here rather than needing a main.js edit to add one.
   const resetButtons = initSettingsResetButtons(root);
   const savedIndicator = initSettingsSavedIndicator(root);
   return {
-    select: id => selectSettingsTab(tabs, sections, id),
+    select,
     destroy: () => {
-      listeners.forEach(([tab, listener]) => tab.removeEventListener('click', listener));
+      listeners.forEach(([tab, onClick, onKeyDown]) => {
+        tab.removeEventListener('click', onClick);
+        tab.removeEventListener('keydown', onKeyDown);
+      });
       resetButtons?.destroy();
       savedIndicator?.destroy();
     }

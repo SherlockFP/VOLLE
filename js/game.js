@@ -11,7 +11,7 @@ import { applyMode, GAME_MODES } from './gamemodes.js';
 import { ChaosManager, CHAOS_MODES } from './chaos.js';
 import { EmoteSystem } from './emotes.js';
 import { AffixManager } from './affixes.js';
-import { SKILLS, useSkill, ULTIMATES, perfectDeflectCooldownCut } from './skills.js';
+import { SKILLS, useSkill, tickSkillCooldowns, ULTIMATES, perfectDeflectCooldownCut } from './skills.js';
 import { isNewerSequence } from './network.js';
 import { resolveKillerName, segmentIntersectsSphere, sweptHitStepCount, scaleDedupWindowMs, scaleLethalGraceMs, decayKillConfirmEntries } from './combat.js';
 import { comboTier, comboPitchRate } from './combat-fx.js';
@@ -58,9 +58,9 @@ import {
 import { shouldSpawnMatchTrophy, resolveTrophySpot, trophyTeardownPlan } from './arena-decor.js';
 
 const BASE_HIT_DAMAGE = 25;
-// A whiffed deflect carries a small self-damage penalty so button mashing has a
-// cost. Instagib keeps its one-clean-hit identity by turning that penalty into
-// the same lethal damage as an incoming ball.
+// Offline whiffs carry self-damage. Multiplayer misses stay feedback-only until
+// every swing has a host-validated intent; successful-contact packets alone cannot
+// authorize miss damage fairly for both the host and its guests.
 const MISSED_DEFLECT_DAMAGE = 12;
 // Kill-confirm "hot ball" window (docs/V3_UX_ROADMAP.md 3.2) — shooter's next
 // connecting hit gets a small damage bump for a few seconds after a kill.
@@ -216,6 +216,7 @@ export class Game {
         applyEntityCosmetics(this.localCosmeticEntity, null);
         this._pendingLethalHit = null;
         this._pendingLethalVictim = null;
+        this._pendingLethalExpiresAt = 0;
         this._incomingSettlementTimer = 0;
         this._predictedLocalDeath = false;
         this.rockets = [];
@@ -916,6 +917,7 @@ startGame(skipPreGame = false, matchId = null) {
         this.bots.forEach(b => { b._spawnIndex = spawnIdx[b.team]++; });
         this.remotePlayers.forEach(p => {
             this.scoreboard.addPlayer(p.name, p.team, { peerId: p.peerId });
+            p.skillCooldowns = {};
             p._spawnIndex = spawnIdx[p.team]++;
             const spawn = this.arena.getPlayerSpawn(p.team, p._spawnIndex);
             p.position.copy(spawn);
@@ -1221,6 +1223,10 @@ startGame(skipPreGame = false, matchId = null) {
 
     startRound({ fromNetwork = false } = {}) {
         this.ui.hideMatchIntro();
+        if (this._pendingLethalHit) clearTimeout(this._pendingLethalHit);
+        this._pendingLethalHit = null;
+        this._pendingLethalVictim = null;
+        this._pendingLethalExpiresAt = 0;
         this.clearBlackHoles();
         this.clearSplitBalls();
         this._clearRockets();
@@ -1288,6 +1294,7 @@ startGame(skipPreGame = false, matchId = null) {
             if (!p.alive) {
                 p.alive = true;
                 p.hp = p.maxHp;
+                p.skillCooldowns = {};
                 const spawn = this.arena.getPlayerSpawn(p.team);
                 p.position.copy(spawn);
                 p.group.position.copy(p.position).add(new THREE.Vector3(0, -1.2, 0));
@@ -1588,6 +1595,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             interpAlpha: 1,
             velocity: new THREE.Vector3(), radius: 0.7, alive: true,
             hp: 100, maxHp: 100, shield: 0, consecutiveMisses: 0,
+            skillCooldowns: {},
             runeBonuses: {}, deflectPower: 1, passive: 'none', totalDamageDealt: 0,
             attacking: false, attackTimer: 0, aimDir: new THREE.Vector3(0, 0, -1),
             labelSprite, avatar: avatarDataUrl || null, avatarModel: normalizeAvatarModel(avatarModel),
@@ -1617,7 +1625,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 this.animator?.play('hit');
                 return this.hp <= 0;
             },
-            revive() { this.alive = true; this.hp = this.maxHp; this.consecutiveMisses = 0; this.group.visible = true; },
+            revive() { this.alive = true; this.hp = this.maxHp; this.consecutiveMisses = 0; this.skillCooldowns = {}; this.group.visible = true; },
             setTeam(nextTeam) {
                 this.team = nextTeam;
                 this._teamColor = nextTeam === 'red' ? 0xcc3333 : 0x3355cc;
@@ -2274,6 +2282,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
     }
 
     updatePlaying(dt) {
+        this._updateRemoteSkillCooldowns(dt);
         this.scoreboard.updateTimer(dt);
         if ((!this.network?.connected || this.network?.isHost) && this._updateHotPotato(dt)) return;
         if (this.scoreboard.isTimeUp()) {
@@ -2779,16 +2788,16 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
 
     _applyMissedDeflectPenalty() {
         const player = this.player;
-        if (!player?.alive || this.state !== STATES.PLAYING) return false;
+        if (!player?.alive || this.state !== STATES.PLAYING || this.network?.connected) return false;
         const damage = this._oneHitKill
             ? Math.max(1, Number(player.maxHp) || Number(player.hp) || 1)
             : MISSED_DEFLECT_DAMAGE;
-        const lethal = player.takeDamage?.(damage) === true || player.hp <= 0;
+        const lethal = this._applyAuthoritativeHitDamage(player, damage);
         player.drawHpBar?.();
         if (!lethal) return false;
         player.die?.();
         player.alive = false;
-        this._predictedLocalDeath = Boolean(this.network?.connected && !this.network?.isHost);
+        this._predictedLocalDeath = false;
         this.ball?.deactivate?.();
         this.ui.flashHit?.();
         this._killcamDeathPos = player.getPosition?.();
@@ -2801,8 +2810,8 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
     }
 
     // A swing is only eligible when this local player is the live assigned
-    // target. The result is intentionally presentation-only: it cannot affect
-    // ball steering, stamina, hit validation, damage, cooldowns or P2P state.
+    // target. Multiplayer stays presentation-only; the offline penalty uses the
+    // same authoritative damage helper and Instagib invariant as a ball hit.
     _updateLocalDeflectAttempt(dt) {
         const ball = this.ball;
         const player = this.player;
@@ -2868,7 +2877,11 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             : null;
         const isEarly = reliableEta !== null && reliableEta > this._localDeflectAttemptWindow;
         this._clearLocalDeflectAttempt();
-        this._applyMissedDeflectPenalty?.();
+        // A readable early read is feedback, not a failed contact. Applying the
+        // one-shot penalty here made a safe pre-swing kill the defender before
+        // the ball was even in deflect range. Only a late/uncertain whiff costs
+        // health; one-shot remains lethal for that genuine miss.
+        if (!isEarly) this._applyMissedDeflectPenalty?.();
         this.onReplayEvent?.({
             type: 'missDeflect',
             data: { early: isEarly, lethal: this.player?.alive === false }
@@ -3296,9 +3309,11 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 if (this._pendingLethalHit) clearTimeout(this._pendingLethalHit);
                 this._pendingLethalVictim = hitTarget;
                 const graceMs = scaleLethalGraceMs(80, hitTarget._lastPing);
+                this._pendingLethalExpiresAt = performance.now() + graceMs;
                 this._pendingLethalHit = setTimeout(() => {
                     this._pendingLethalHit = null;
                     this._pendingLethalVictim = null;
+                    this._pendingLethalExpiresAt = 0;
                     this._ballTarget = null;
                     this._ballTargetTime = 0;
                     this._ballPredicting = false;
@@ -3319,6 +3334,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         clearTimeout(this._pendingLethalHit);
         this._pendingLethalHit = null;
         this._pendingLethalVictim = null;
+        this._pendingLethalExpiresAt = 0;
         return true;
     }
 
@@ -4850,9 +4866,13 @@ spawnPowerUp() {
         p.lastPacketTime = performance.now();
         p.group.rotation.y = data.ry || 0;
         p.team = data.team || p.team;
-        p.alive = data.alive !== false;
+        // Position packets are movement reports, not authority to heal or revive.
+        // Guests still reconcile the host's snapshots; the host keeps its own life state.
+        if (!this.network?.isHost) {
+            if (typeof data.alive === 'boolean') p.alive = data.alive;
+            p.hp = data.hp ?? p.hp;
+        }
         p.group.visible = p.alive;
-        p.hp = data.hp ?? p.hp;
         if (data.charId && data.charId !== p.charId) {
             p.charId = data.charId;
             p.rig?.setCharacter(data.charId);
@@ -4867,7 +4887,7 @@ spawnPowerUp() {
             const now = performance.now();
             const lastSeen = this._peerLastSeen?.get(playerId) || 0;
             if (now - lastSeen > 500) {
-                this.network.broadcast({ ...data, type: 'position', playerId, peerId });
+                this.network.broadcast({ ...data, type: 'position', playerId, peerId, hp: p.hp, alive: p.alive });
             }
             if (!this._peerLastSeen) this._peerLastSeen = new Map();
             this._peerLastSeen.set(playerId, now);
@@ -4972,6 +4992,8 @@ spawnPowerUp() {
 
     remoteAttack(playerId, data = {}, peerId = data.peerId || playerId) {
         if (!this.network?.isHost) return;
+        const warmup = this.state === STATES.COUNTDOWN && this.ball?._warmup === true;
+        if (this.state !== STATES.PLAYING && !warmup) return;
         // Network validates this before dispatch, but keep the authority boundary safe
         // for direct/replayed calls too. A partial vector would otherwise poison
         // Vector3.normalize() and let an untrusted snapshot move the host ball.
@@ -4999,9 +5021,14 @@ spawnPowerUp() {
             p.position.set(data.x, data.y, data.z);
             p.targetPos?.set(data.x, data.y, data.z);
         }
-        if (p.queuedForNextRound) return;
+        if (p.queuedForNextRound || p.alive === false || !this.ball.active) return;
 
         const now = performance.now();
+        // A late contact may cancel this player's still-pending hit, never undo
+        // a committed death. Bound it by the original deadline even if a browser
+        // delays the timer callback while its tab is suspended.
+        if (this._pendingLethalHit && this._pendingLethalVictim === p
+            && !(now <= this._pendingLethalExpiresAt)) return;
         if (data.attackId) {
             if (!this._remoteAttackIds) this._remoteAttackIds = new Map();
             if (this._remoteAttackIds.has(data.attackId)) return;
@@ -5062,22 +5089,7 @@ spawnPowerUp() {
                 clearTimeout(this._pendingLethalHit);
                 this._pendingLethalHit = null;
                 this._pendingLethalVictim = null;
-            }
-            if (!p.alive) {
-                p.alive = true;
-                p.hp = p.maxHp;
-                p.group.visible = true;
-                this.network.broadcast({
-                    type: 'playerHit', victimPlayerId: playerId, victimPeerId: p.peerId, victimName: p.name,
-                    hp: p.hp, alive: true, dmg: 0, lethal: false,
-                    hitX: p.position.x, hitY: p.position.y, hitZ: p.position.z,
-                    victimTeam: p.team
-                });
-            }
-            if (!this.ball.active) {
-                this.ball.active = true;
-                this.ball.mesh.visible = true;
-                this.ball.state = 'rally';
+                this._pendingLethalExpiresAt = 0;
             }
             p.attacking = true;
             p.attackType = data.action === 'stab' ? 'stab' : 'slash';
@@ -5135,13 +5147,20 @@ spawnPowerUp() {
         setTimeout(() => { if (p) p.attacking = false; }, 300);
     }
 
+    _updateRemoteSkillCooldowns(dt) {
+        if (!this.network?.isHost || this.state !== STATES.PLAYING || !Number.isFinite(dt) || dt <= 0) return;
+        for (const player of this.remotePlayers.values()) {
+            if (player.alive && !player.queuedForNextRound) tickSkillCooldowns(player, dt);
+        }
+    }
+
     // Host: client gönderdiği skill intent'i authoritative işler.
     // Topu/hedefi/oyuncuyu değiştirir, sonra efekti tüm client'lara yayınlar.
     handleSkillUse(playerId, data = {}) {
-        if (!this.network?.isHost) return;
+        if (!this.network?.isHost || this.state !== STATES.PLAYING) return;
         if (this._skillsDisabled) return;
         const p = this.remotePlayers.get(playerId);
-        if (!p || p.queuedForNextRound || !data.skill) return;
+        if (!p || !p.alive || p.queuedForNextRound || typeof data.skill !== 'string') return;
         const skillId = data.skill;
         if (skillId === 'soldier_rocket') {
             const now = performance.now();
@@ -5157,6 +5176,9 @@ spawnPowerUp() {
             });
             return;
         }
+        // Gameplay loadouts are not synchronized yet. Validate the real catalog
+        // and cooldown without inventing a default slot that rejects valid skills.
+        if (!Object.hasOwn(SKILLS, skillId)) return;
         const target = this.ball.targetPlayer;
         // Remote player bir Player instance'ı değil — useSkill fonksiyonunu doğrudan çağır.
         const ok = useSkill(p, skillId, { ball: this.ball, target, game: this });

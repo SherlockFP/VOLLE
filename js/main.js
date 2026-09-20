@@ -74,7 +74,7 @@ import {
 } from './social-service.js';
 import { normalizeNetcode } from './experimental-netcode.js';
 import { RuntimeLog } from './runtime-safety.js';
-import { AfkMonitor, RollingNetworkMonitor, ModerationReportQueue } from './release-safety.js';
+import { AfkMonitor, formatNetworkDiagnostics, ModerationReportQueue } from './release-safety.js';
 import {
     migrateCosmeticLoadout,
     normalizeCosmeticLoadout
@@ -182,7 +182,6 @@ class App {
         });
         RuntimeLog.install(window);
         this.afkMonitor = new AfkMonitor();
-        this.networkHealth = new RollingNetworkMonitor();
         this.reportQueue = new ModerationReportQueue();
         this.socialProfile = createSocialProfile(this.store.get('socialProfile'));
         this.party = this.socialProfile.party || createParty(this.store.get('playerName') || 'Player');
@@ -1161,7 +1160,6 @@ class App {
 
         const values = {
             'setting-fps-limit': this.store.get('fpsLimit') ?? 0,
-            'setting-vsync': this.store.get('vsync') === false ? 'off' : 'on',
             'setting-quality': settings.quality || 'medium',
             'setting-auto-quality': settings.autoQuality !== false,
             'setting-public-diagnostics': settings.publicDiagnostics !== false,
@@ -2850,11 +2848,6 @@ bind('carousel-next', () => {
             const output = document.getElementById('setting-render-scale-value');
             if (output) output.textContent = `${Math.round(scale * 100)}%`;
         });
-        // VSync
-        bindSetting('setting-vsync', e => {
-            this.store.set('vsync', e.target.value === 'on');
-            this.ui.showMessage?.(`VSync: ${e.target.value} (reload to take full effect)`, 2000);
-        });
         // FPS limit
         bindSetting('setting-fps-limit', e => {
             const limit = parseInt(e.target.value);
@@ -3377,12 +3370,17 @@ updateCSLobbyInfo();
                 buyBtn.setAttribute('aria-busy', 'true');
                 try {
                 if (type === 'boost') {
-                    const ok = this.store.buyAndActivateXpBoost();
+                    const ok = await this.store.buyAndActivateXpBoost();
                     this.productAnalytics.track(ok ? 'shop_purchase_success' : 'shop_purchase_failure', {
                         itemType: 'boost', itemId: id, reason: ok ? 'success' : 'unavailable'
                     });
-                    this.ui.showMessage?.(ok ? '1.5x XP boost active for 1 hour!' : 'Not enough coins or boost active!');
-                    this.ui.renderShop(this.store, 'boosts');
+                    const active = this.store.getShopXpBoostState?.().active;
+                    this.ui.showMessage?.(ok
+                        ? (active ? 'XP boost confirmed. Your remaining time is shown in Shop.' : 'Purchase recovered. That boost has already expired.')
+                        : (this.store.lastBattlepassError || 'Not enough credits or an XP boost is already active.'));
+                    if (document.body.dataset.screen === 'shop' && document.querySelector('.shop-tab.selected')?.dataset.tab === 'boosts') {
+                        this.ui.renderShop(this.store, 'boosts');
+                    }
                     this.refreshMetaStats();
                     return;
                 }
@@ -3791,8 +3789,17 @@ updateCSLobbyInfo();
         // Click backdrop to close settings modal
         const settingsOverlay = document.getElementById('unified-settings');
         if (settingsOverlay) {
+            document.getElementById('btn-settings-done')?.addEventListener('click', () => this.closeSettingsModal());
             settingsOverlay.addEventListener('click', (e) => {
                 if (e.target === settingsOverlay) this.closeSettingsModal();
+            });
+            settingsOverlay.addEventListener('keydown', event => {
+                if (event.key !== 'Tab' || settingsOverlay.classList.contains('hidden')) return;
+                const controls = [...settingsOverlay.querySelectorAll('button, input, select, [tabindex="0"]')]
+                    .filter(control => !control.disabled && control.tabIndex >= 0 && control.getClientRects().length);
+                const first = controls[0], last = controls[controls.length - 1];
+                if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+                else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
             });
         }
     }
@@ -5325,7 +5332,11 @@ updateCarousel() {
         this.ui.hideScoreboard();
         this.ui._openExclusive('settings', () => this.closeSettingsModal());
         const modal = document.getElementById('unified-settings');
-        if (modal) modal.classList.remove('hidden');
+        if (modal) {
+            if (modal.classList.contains('hidden')) this._settingsReturnFocus = document.activeElement;
+            modal.classList.remove('hidden');
+            modal.querySelector('.settings-tab.selected')?.focus({ preventScroll: true });
+        }
         this.applyCrosshair?.(0);
         // ponytail: round/match ayarları sadece lobi sahibinde değişebilir
         const host = this.isLobbyHost();
@@ -5340,8 +5351,11 @@ updateCarousel() {
 
     closeSettingsModal() {
         const modal = document.getElementById('unified-settings');
+        const wasOpen = modal && !modal.classList.contains('hidden');
         if (modal) modal.classList.add('hidden');
         this.ui._closeExclusive('settings');
+        if (wasOpen && this._settingsReturnFocus?.isConnected) this._settingsReturnFocus.focus?.({ preventScroll: true });
+        this._settingsReturnFocus = null;
     }
 
     async _refreshShopLiveMarket() {
@@ -8214,7 +8228,8 @@ updateCarousel() {
         }
         this._lastFrameTime = _now;
         requestAnimationFrame(this._nextFrame);
-        const dt = Math.min(this.clock.getDelta(), 0.05);
+        const frameSeconds = this.clock.getDelta();
+        const dt = Math.min(frameSeconds, 0.05);
 
         this._voiceSyncTimer = (this._voiceSyncTimer || 0) - dt;
         if (this._voiceSyncTimer <= 0) {
@@ -8228,15 +8243,8 @@ updateCarousel() {
             const value = document.getElementById('network-diagnostics-value');
             if (value) {
                 const diag = this.network?.getDiagnostics?.();
-                const fps = Math.round(1 / Math.max(dt, 0.001));
-                const health = this.networkHealth.addSample({
-                    expectedPackets: Math.max(1, diag?.received || 1),
-                    receivedPackets: Math.max(1, diag?.received || 1),
-                    desyncMs: Math.abs(this.network?.getClockOffset?.() || 0)
-                });
-                value.textContent = diag?.peers
-                    ? `${fps} FPS | ${Math.round(diag.ping || 0)}ms | ${(health.packetLoss * 100).toFixed(0)}% LOSS | ${diag.peers}P`
-                    : `${fps} FPS | LOCAL`;
+                const fps = Number.isFinite(frameSeconds) && frameSeconds > 0 ? Math.round(1 / frameSeconds) : 0;
+                value.textContent = formatNetworkDiagnostics(frameSeconds, diag);
                 value.parentElement?.classList.toggle('hidden', this.game.state === STATES.MENU || this.game.state === STATES.LOBBY || this.game.state === STATES.GAME_OVER || this.store.get('settings').publicDiagnostics === false);
                 const fpsCounter = document.getElementById('fps-counter');
                 if (fpsCounter && this.game._showFps) fpsCounter.textContent = `${fps} FPS`;

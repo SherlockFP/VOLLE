@@ -1,6 +1,14 @@
 # STATUS — 2026-09-20
 
-> Güncel çalışma: [[sessions/2026-09-20-shop-studio]]. Ayrıntılı proje geçmişi `MIMO.md` içinde.
+> Güncel çalışma: [[sessions/2026-09-20-game-audit-settings]]. Önceki mağaza turu: [[sessions/2026-09-20-shop-studio]]. Ayrıntılı proje geçmişi `MIMO.md` içinde.
+
+## En yeni tamamlanan çalışma
+- Grafik ayarları: sabit başlık/sekmeler/Done, tek içerik kaydırması, kalite ve ekran grupları; ses ayarları Controls içinde. Mobil sıra/taşma ve slider-değer çakışması düzeltildi; klavye sekmeleri ve odak yönetimi eklendi.
+- Bot yetenekleri ve uzaktaki oyuncuların bekleme süreleri çalışıyor; ölü/gecikmiş istekler maç durumunu bozamıyor. Host, hareket paketinden HP/dirilme kabul etmiyor. P2P kaçırılan vuruşları iki tarafta da yalnız geri bildirim; gerçek hasar host tarafından veriliyor.
+- Yeniden bağlantı girişimleri 5 saniyede sonlanıyor; düşük kalite gerçek çizim hedeflerine uygulanıyor, harita bloom'u tekrar açamıyor.
+- XP artırıcı sunucu satın alma/kalıcılık/tekrar deneme ile çalışıyor. Sıralama yerel ve örnek rakiplerini açıkça etiketliyor; FPS/kayıp ölçümleri yanıltıcı değer göstermiyor.
+- Son tam test **1917/1917**. Ayarlar tarayıcı **39 kontrol**, dört boyut + %120 ölçek. Gerçek hesap satın alma E2E, uzun P2P oturumu ve GPU hız artışı bu turda ölçülmedi.
+- Öncelikli kalan işler: eksik rakip sonuç bildiriminin maç/ödül kilidi, doğrulanmış yetenek ekipmanı metadatası, mesh kaynak denetimi ve gerçek oyunculu oyun hissi testi.
 
 ## Son tamamlanan çalışma
 - Mağazada okunabilir ürün detayları, koleksiyon/slot filtreleri, kalıcı seçim ve kaydırma, mobil alt menü, Idle/Run/Celebrate önizleme kontrolleri.

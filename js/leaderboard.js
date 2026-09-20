@@ -5,6 +5,19 @@ import { Store } from './store.js';
 const LEADERBOARD_KEY = 'dodgball_leaderboard_v1';
 const FAKE_COUNT = 50;
 
+export function normalizeLeaderboardPlayers(value) {
+    if (!Array.isArray(value)) return null;
+    return value.slice(0, 200).filter(player => player && typeof player.name === 'string'
+        && player.name.trim() && Number.isFinite(player.elo) && player.elo >= 0 && player.elo <= 5000)
+        .map(player => ({
+            name: player.name.trim().slice(0, 40), elo: Math.round(player.elo),
+            weeklyElo: Number.isFinite(player.weeklyElo) && player.weeklyElo >= 0 && player.weeklyElo <= 5000
+                ? Math.round(player.weeklyElo) : Math.round(player.elo),
+            classId: typeof player.classId === 'string' ? player.classId.slice(0, 32) : '',
+            fake: player.fake === true
+        }));
+}
+
 const ADJ = ['Neon','Quick','Shadow','Silent','Crimson','Iron','Frozen','Wild','Dark','Blaze',
              'Swift','Toxic','Lucky','Ghost','Mega','Turbo','Hyper','Sly','Vivid','Nimble'];
 const NOUN = ['Fox','Tiger','Wolf','Hawk','Bear','Lion','Viper','Drake','Phantom','Wraith',
@@ -48,7 +61,7 @@ class LeaderboardClass {
             const classes = ['scout', 'soldier', 'tank'];
             this.players = this.players.map((player, index) => ({
                 ...player,
-                weeklyElo: Number(player.weeklyElo) || Math.max(0, player.elo - (index * 17 % 220)),
+                weeklyElo: Number.isFinite(player.weeklyElo) ? player.weeklyElo : Math.max(0, player.elo - (index * 17 % 220)),
                 classId: player.classId || classes[index % classes.length]
             }));
         }
@@ -57,7 +70,7 @@ class LeaderboardClass {
     _load() {
         try {
             const raw = localStorage.getItem(LEADERBOARD_KEY);
-            return raw ? JSON.parse(raw) : null;
+            return raw ? normalizeLeaderboardPlayers(JSON.parse(raw)) : null;
         } catch { return null; }
     }
 
@@ -68,7 +81,7 @@ class LeaderboardClass {
     // Merge the real player (from store) by ELO so they show at the right rank.
     _merged() {
         const elo = Store?.getElo?.() ?? 1000;
-        return [...this.players, { name: 'You', elo, fake: false }];
+        return [...this.players, { name: 'You', elo, fake: false, isYou: true }];
     }
 
     getTop(n = 10) {
@@ -95,11 +108,11 @@ class LeaderboardClass {
     }
 
     // 1-indexed rank a player with this ELO would hold.
-    getPlayerRank(elo) {
-        const sorted = this._merged().sort((a, b) => b.elo - a.elo);
+    getPlayerRank(elo, filter = 'global', options = {}) {
+        const sorted = this.getFiltered(filter, { ...options, limit: Infinity });
         let rank = 1;
         for (const p of sorted) {
-            if (p.elo > elo) rank++;
+            if (p.displayElo > elo) rank++;
             else break;
         }
         return rank;

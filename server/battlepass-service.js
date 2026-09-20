@@ -3,6 +3,7 @@
 const MAX_TIER = 50;
 const SEASON_DURATION_MS = 56 * 24 * 60 * 60 * 1000;
 const PREMIUM_PASS_PRICE = 950;
+const SHOP_XP_BOOST = Object.freeze({ id: 'xp-15', boostId: 'shop-xp-15', price: 120, multiplier: 1.5, durationMs: 60 * 60 * 1000 });
 const MATCH_XP = Object.freeze({ win: 100, loss: 80, draw: 80 });
 
 function xpForTier(tier) { return 100 + (Math.max(1, Math.min(MAX_TIER, Math.floor(Number(tier) || 1))) - 1) * 20; }
@@ -86,4 +87,4 @@ function claim(progress, tier, track, catalog) {
     return { progress: { ...progress, [claimedField]: [...progress[claimedField], tier] }, reward, replayed: false };
 }
 
-module.exports = { MATCH_XP, MAX_TIER, PREMIUM_PASS_PRICE, SEASON_DURATION_MS, addXp, claim, createProgress, normalizeProgress, rollover, rewardFor, xpForTier };
+module.exports = { MATCH_XP, MAX_TIER, PREMIUM_PASS_PRICE, SHOP_XP_BOOST, SEASON_DURATION_MS, addXp, claim, createProgress, normalizeProgress, rollover, rewardFor, xpForTier };

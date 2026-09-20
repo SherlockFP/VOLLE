@@ -16,6 +16,7 @@ const {
 const {
     MATCH_XP,
     PREMIUM_PASS_PRICE,
+    SHOP_XP_BOOST,
     addXp: addBattlepassXp,
     claim: claimBattlepassReward,
     createProgress: createBattlepassProgress,
@@ -666,6 +667,7 @@ class ProfileStore {
     }
 
     purchase(record, kind, id, requestId = '', priceOverride = null) {
+        if (kind === 'xpboost') return this.purchaseXpBoost(record, id, requestId);
         if (kind === 'skill' || kind === 'rune') return { status: 403, error: 'skills and runes are earned through Arena Cache cards' };
         if (kind === 'knife') return { status: 404, error: 'item not found' };
         const catalogPrice = CATALOG[kind]?.[id];
@@ -704,6 +706,42 @@ class ProfileStore {
         record.updatedAt = Date.now();
         this._save();
         return { status: 200, profile: this._public(record), replayed: false };
+    }
+
+    purchaseXpBoost(record, id, requestId, now = Date.now()) {
+        if (!record || id !== SHOP_XP_BOOST.id) return { status: 404, error: 'XP boost unavailable' };
+        if (typeof requestId !== 'string' || !/^[A-Za-z0-9._:-]{8,80}$/.test(requestId)) {
+            return { status: 400, error: 'XP boost purchase requires a valid request id' };
+        }
+        const receipts = Array.isArray(record.purchaseReceipts) ? record.purchaseReceipts : [];
+        const prior = receipts.find(receipt => receipt.requestId === requestId);
+        if (prior) {
+            if (prior.kind !== 'xpboost' || prior.id !== id) return { status: 409, error: 'idempotency key conflict' };
+            return { status: 200, replayed: true, profile: this._public(record, now) };
+        }
+        const active = normalizeBattlepassActiveBoost(record.battlepassActiveBoost);
+        if (active && active.expiresAt > now) return { status: 409, error: 'An XP boost is already active. Wait until it expires.' };
+        if (!Number.isFinite(record.currency) || record.currency < SHOP_XP_BOOST.price) {
+            return { status: 409, error: 'Not enough credits for this XP boost' };
+        }
+        const previous = {
+            currency: record.currency, battlepassActiveBoost: record.battlepassActiveBoost,
+            purchaseReceipts: record.purchaseReceipts, economyRevision: record.economyRevision, updatedAt: record.updatedAt
+        };
+        record.currency -= SHOP_XP_BOOST.price;
+        record.battlepassActiveBoost = {
+            boostId: SHOP_XP_BOOST.boostId, multiplier: SHOP_XP_BOOST.multiplier,
+            activatedAt: now, expiresAt: now + SHOP_XP_BOOST.durationMs
+        };
+        record.purchaseReceipts = [...receipts, { requestId, kind: 'xpboost', id, price: SHOP_XP_BOOST.price, createdAt: now }].slice(-100);
+        record.economyRevision = Math.max(0, Number(record.economyRevision) || 0) + 1;
+        record.updatedAt = now;
+        try { this._save(); }
+        catch {
+            Object.assign(record, previous);
+            return { status: 503, error: 'XP boost could not be saved. Please retry.' };
+        }
+        return { status: 200, replayed: false, profile: this._public(record, now) };
     }
 
     equipCosmetics(record, loadout) {

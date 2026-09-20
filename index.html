@@ -20,6 +20,7 @@
     <link rel="stylesheet" href="css/solo-paths.css?v=1">
     <link rel="stylesheet" href="css/arena-interface.css?v=1">
     <link rel="stylesheet" href="css/shop-studio.css?v=1">
+    <link rel="stylesheet" href="css/settings-workbench.css?v=1">
     <script type="importmap">
     {
         "imports": {
@@ -666,20 +667,20 @@
 
     <!-- ===== UNIFIED SETTINGS MODAL (overlays main menu and lobby) ===== -->
     <div id="unified-settings" class="settings-overlay hidden">
-        <div class="settings-modal">
+        <div class="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-dialog-title">
             <div class="settings-header">
                 <div class="settings-title">
                     <span class="settings-title-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-settings"></use></svg></span>
-                    <div><span class="settings-kicker">SYSTEM</span><h2>Settings</h2></div>
-                </div>
-                <div class="settings-tabs">
-                    <button class="settings-tab selected" data-tab="controls" role="tab"><svg class="ui-icon" aria-hidden="true"><use href="#i-target"></use></svg>Controls</button>
-                    <button class="settings-tab" data-tab="video" role="tab"><svg class="ui-icon" aria-hidden="true"><use href="#i-monitor"></use></svg>Video</button>
-                    <button class="settings-tab" data-tab="game" role="tab"><svg class="ui-icon" aria-hidden="true"><use href="#i-ball"></use></svg>Game</button>
-                    <button class="settings-tab" data-tab="access" role="tab"><svg class="ui-icon" aria-hidden="true"><use href="#i-access"></use></svg>Access</button>
+                    <div><span class="settings-kicker">YOUR SETUP</span><h2 id="settings-dialog-title">Settings</h2></div>
                 </div>
                 <span id="settings-saved-indicator" class="settings-saved-indicator" aria-hidden="true">Saved</span>
                 <button id="btn-settings-close" class="settings-close-btn" aria-label="Close settings"><svg class="ui-icon" aria-hidden="true"><use href="#i-close"></use></svg></button>
+            </div>
+            <div class="settings-tabs" role="tablist" aria-label="Settings categories">
+                <button class="settings-tab selected" data-tab="controls" role="tab"><svg class="ui-icon" aria-hidden="true"><use href="#i-target"></use></svg>Controls</button>
+                <button class="settings-tab" data-tab="video" role="tab"><svg class="ui-icon" aria-hidden="true"><use href="#i-monitor"></use></svg>Graphics</button>
+                <button class="settings-tab" data-tab="game" role="tab"><svg class="ui-icon" aria-hidden="true"><use href="#i-ball"></use></svg>Game</button>
+                <button class="settings-tab" data-tab="access" role="tab" aria-label="Accessibility"><svg class="ui-icon" aria-hidden="true"><use href="#i-access"></use></svg>Access</button>
             </div>
             <div class="settings-scroll">
                 <!-- Controls -->
@@ -705,13 +706,24 @@
                         <small class="settings-row-desc">Flips the vertical look axis (push down to look up).</small>
                     </div>
                     <div class="settings-subgroup-label">Audio</div>
+                    <div class="settings-row settings-row-scale">
+                        <label for="setting-master-volume">Master Volume</label>
+                        <input type="range" id="setting-master-volume" min="0" max="100" value="100" step="5" aria-label="Master volume">
+                        <output id="setting-master-volume-value" for="setting-master-volume">100%</output>
+                        <small class="settings-row-desc">Overall volume for music and sound effects.</small>
+                    </div>
+                    <div class="settings-row settings-row-toggle">
+                        <label for="setting-mute">Mute All Audio</label>
+                        <label class="toggle-switch"><input type="checkbox" id="setting-mute" aria-label="Mute all audio"><span class="toggle-slider"></span></label>
+                        <small class="settings-row-desc">Silences audio while preserving your volume settings.</small>
+                    </div>
                     <div class="settings-row"><label>Music</label><input type="range" id="setting-music-volume" min="0" max="100" value="2"><small class="settings-row-desc">Background music playback volume.</small></div>
                     <div class="settings-row"><label>Sound</label><input type="range" id="setting-sound-volume" min="0" max="100" value="50"><small class="settings-row-desc">Sound effect volume (hits, throws, UI).</small></div>
                     <div class="settings-subgroup-label">Camera</div>
-                    <div class="settings-row">
-                        <label>Field of View (FOV)</label>
+                    <div class="settings-row settings-row-scale">
+                        <label for="setting-fov">Field of View (FOV)</label>
                         <input type="range" id="setting-fov" min="60" max="110" value="75" step="5">
-                        <span id="fov-value" style="font-weight:700;color:var(--accent);min-width:40px;text-align:right;">75°</span>
+                        <output id="fov-value" for="setting-fov">75°</output>
                         <small class="settings-row-desc">Camera field of view in degrees. Higher sees more, feels faster.</small>
                     </div>
                     <div class="settings-subgroup-label">Crosshair</div>
@@ -790,42 +802,34 @@
                 <!-- Display -->
                 <div class="settings-section" data-settings-section="video">
                     <div class="settings-section-heading">
-                        <div><span class="settings-kicker">DISPLAY</span><h3>Video</h3></div>
+                        <div><span class="settings-kicker">VIDEO & PERFORMANCE</span><h3>Graphics</h3></div>
                         <div class="settings-section-heading-side">
-                            <p>Balance clarity and frame rate.</p>
+                            <p>Set your balance of detail and responsiveness.</p>
                             <button type="button" class="settings-reset-btn btn btn-secondary btn-small" data-reset-tab="video">Reset to defaults</button>
                         </div>
                     </div>
-                    <div class="settings-row"><label>VSync</label><select id="setting-vsync"><option value="off">Off</option><option value="on" selected>On</option></select><small class="settings-row-desc">Caps frame rate to your monitor refresh rate to prevent tearing.</small></div>
-                    <div class="settings-row"><label>FPS Limit</label><select id="setting-fps-limit"><option value="0">Unlimited</option><option value="30">30</option><option value="60" selected>60</option><option value="120">120</option><option value="144">144</option><option value="240">240</option></select><small class="settings-row-desc">Hard cap on rendered frames per second.</small></div>
-                    <div class="settings-row"><label>Quality</label><select id="setting-quality"><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option></select><small class="settings-row-desc">Overall graphics preset (shadows, effects, texture detail).</small></div>
-                    <div class="settings-row settings-row-toggle">
-                        <label>Auto Quality <span class="settings-hint">Reduce effects before frame rate drops</span></label>
-                        <label class="toggle-switch"><input type="checkbox" id="setting-auto-quality" checked><span class="toggle-slider"></span></label>
-                        <small class="settings-row-desc">Lowers effects automatically before frame rate drops.</small>
-                    </div>
-                    <div class="settings-subgroup-label">Display</div>
-                    <div class="settings-row"><label>Resolution</label><select id="setting-resolution"><option value="1280x720">1280×720</option><option value="1366x768">1366×768</option><option value="1600x900">1600×900</option><option value="1920x1080" selected>1920×1080</option><option value="2560x1440">2560×1440</option><option value="3840x2160">3840×2160</option></select><small class="settings-row-desc">Render output resolution.</small></div>
-                    <div class="settings-row settings-row-scale">
-                        <label for="setting-render-scale">Resolution Scale <span class="settings-hint">Lower for more FPS</span></label>
-                        <input type="range" id="setting-render-scale" min="50" max="150" value="100" step="5">
-                        <output id="setting-render-scale-value" for="setting-render-scale">100%</output>
-                        <small class="settings-row-desc">Renders below native resolution for extra FPS, then upscales.</small>
-                    </div>
-                    <div class="settings-subgroup-label">Audio</div>
-                    <div class="settings-row settings-row-scale">
-                        <label for="setting-master-volume">Master Volume</label>
-                        <input type="range" id="setting-master-volume" min="0" max="100" value="100" step="5" aria-label="Master volume">
-                        <output id="setting-master-volume-value" for="setting-master-volume">100%</output>
-                        <small class="settings-row-desc">Overall volume applied on top of music and sound.</small>
-                    </div>
-                    <div class="settings-row settings-row-toggle">
-                        <label for="setting-mute">Mute All Audio</label>
-                        <label class="toggle-switch">
-                            <input type="checkbox" id="setting-mute" aria-label="Mute all audio">
-                            <span class="toggle-slider"></span>
-                        </label>
-                        <small class="settings-row-desc">Silences music and sound without changing their sliders.</small>
+                    <div class="graphics-settings-grid">
+                        <section class="settings-group" aria-labelledby="graphics-quality-title">
+                            <header><span class="settings-group-number">01</span><div><h4 id="graphics-quality-title">Image quality</h4><p>Detail, effects and rendering cost.</p></div></header>
+                            <div class="settings-row"><label for="setting-quality">Quality preset</label><select id="setting-quality"><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option></select><small class="settings-row-desc">Low disables shadows and bloom. Higher presets add visual detail.</small></div>
+                            <div class="settings-row settings-row-scale">
+                                <label for="setting-render-scale">Resolution scale</label>
+                                <input type="range" id="setting-render-scale" min="50" max="150" value="100" step="5">
+                                <output id="setting-render-scale-value" for="setting-render-scale">100%</output>
+                                <small class="settings-row-desc">Lower values reduce rendering load. The quality preset also limits the final resolution.</small>
+                            </div>
+                            <div class="settings-row settings-row-toggle">
+                                <label for="setting-auto-quality">Adaptive quality</label>
+                                <label class="toggle-switch"><input type="checkbox" id="setting-auto-quality" checked><span class="toggle-slider"></span></label>
+                                <small class="settings-row-desc">Allows the game to reduce effects when performance is under pressure.</small>
+                            </div>
+                        </section>
+                        <section class="settings-group" aria-labelledby="graphics-display-title">
+                            <header><span class="settings-group-number">02</span><div><h4 id="graphics-display-title">Display & frame rate</h4><p>Choose your rendering target.</p></div></header>
+                            <div class="settings-row"><label for="setting-resolution">Resolution</label><select id="setting-resolution"><option value="1280x720">1280×720</option><option value="1366x768">1366×768</option><option value="1600x900">1600×900</option><option value="1920x1080" selected>1920×1080</option><option value="2560x1440">2560×1440</option><option value="3840x2160">3840×2160</option></select><small class="settings-row-desc">Sets the game rendering target. Menu text stays sharp.</small></div>
+                            <div class="settings-row"><label for="setting-fps-limit">FPS limit</label><select id="setting-fps-limit"><option value="0">Unlimited</option><option value="30">30 FPS</option><option value="60" selected>60 FPS</option><option value="120">120 FPS</option><option value="144">144 FPS</option><option value="240">240 FPS</option></select><small class="settings-row-desc">Maximum game rendering rate. Decorative menu previews are limited to 60 FPS.</small></div>
+                            <div class="graphics-sync-note"><svg class="ui-icon" aria-hidden="true"><use href="#i-monitor"></use></svg><div><strong>Display sync is browser-managed</strong><p>Use the FPS limit above to control how often the game renders.</p></div></div>
+                        </section>
                     </div>
                 </div>
                 <!-- Gameplay -->
@@ -969,6 +973,7 @@
                     <div class="settings-row"><label>Color Vision</label><select id="setting-color-blind"><option value="none">Default</option><option value="deuteranopia">Deuteranopia</option><option value="protanopia">Protanopia</option><option value="tritanopia">Tritanopia</option></select><small class="settings-row-desc">Adjusts colors for common color vision deficiencies.</small></div>
                 </div>
             </div>
+            <footer class="settings-footer"><span>Changes apply and save automatically.</span><button id="btn-settings-done" class="btn btn-primary" type="button">Done <kbd>Esc</kbd></button></footer>
         </div>
     </div>
 
@@ -1306,8 +1311,8 @@
     <!-- ===== LEADERBOARD ===== -->
     <div id="leaderboard-screen" class="screen hidden">
         <div class="panel wide-panel leaderboard-shell">
-            <header class="leaderboard-header"><div><span class="shell-kicker">GLOBAL LADDER</span><h1>Leaderboard</h1><p>Live ELO standings across every completed match.</p></div><span class="leaderboard-mark" aria-hidden="true">ELO</span></header>
-            <div id="leaderboard-filters" class="leaderboard-filters"><button class="selected" data-filter="global">Global</button><button data-filter="weekly">Weekly</button><button data-filter="friends">Friends</button><button data-filter="class">My class</button></div>
+            <header class="leaderboard-header"><div><span class="shell-kicker">LOCAL COMPARISON</span><h1>Practice Ladder</h1><p>Your ELO beside simulated opponents and saved local records. This is not a live global ranking.</p></div><span class="leaderboard-mark" aria-hidden="true">ELO</span></header>
+            <div id="leaderboard-filters" class="leaderboard-filters"><button class="selected" data-filter="global">All comparisons</button><button data-filter="weekly">Weekly sample</button><button data-filter="friends">Saved friends</button><button data-filter="class">My class</button></div>
             <div class="leaderboard-table-wrap"><table class="scoreboard-table" id="leaderboard-table">
             <thead><tr><th>#</th><th>Player</th><th>ELO</th><th>Rank</th></tr></thead>
                 <tbody id="leaderboard-body"></tbody></table></div>

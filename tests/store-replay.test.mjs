@@ -14,6 +14,11 @@ const { ReplayClass } = await import('../js/replay.js');
 const { CHARACTERS } = await import('../js/characters.js');
 const { FREE_TRACK, PREMIUM_TRACK, xpForTier, SEASON_DURATION_MS } = await import('../js/battlepass.js');
 
+test('new local profiles use the dot crosshair by default', () => {
+    Store.reset();
+    assert.equal(Store.get('crosshairSettings').style, 'dot');
+});
+
 test('every class is available without a currency purchase', () => {
     Store.reset();
     assert.deepEqual(new Set(Store.get('unlockedChars')), new Set(Object.keys(CHARACTERS)));

@@ -9,6 +9,7 @@ export const MAX_TIER = 50;
 export const SEASON_DURATION_MS = 56 * 24 * 60 * 60 * 1000;
 export const FIRST_SEASON_ID = 1;
 export const PREMIUM_PASS_PRICE = 950;
+export const SHOP_XP_BOOST = Object.freeze({ id: 'xp-15', boostId: 'shop-xp-15', price: 120, multiplier: 1.5, durationMs: 60 * 60 * 1000 });
 
 // ponytail: duplicated from js/ball.js BALL_SKINS (id -> coin price) instead of
 // imported, because ball.js pulls in THREE which plain `node --test` can't resolve.

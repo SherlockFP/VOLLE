@@ -95,13 +95,11 @@ export class Renderer {
         this._targetResolution = Number.isFinite(width) && Number.isFinite(height)
             ? { width: Math.max(320, width), height: Math.max(240, height) }
             : null;
-        this._applyPixelRatio();
         this.updateSize(this._viewport.width, this._viewport.height);
     }
 
     setRenderScale(scale = 1) {
         this._renderScale = Math.min(1.5, Math.max(0.5, Number(scale) || 1));
-        this._applyPixelRatio();
         this.updateSize(this._viewport.width, this._viewport.height);
     }
 
@@ -113,7 +111,11 @@ export class Renderer {
             )
             : window.devicePixelRatio;
         const ratio = Math.min(this._qualityPixelRatioCap, targetRatio * this._renderScale);
-        this.renderer.setPixelRatio(Math.max(0.1, ratio));
+        const pixelRatio = Math.max(0.1, ratio);
+        this.renderer.setPixelRatio(pixelRatio);
+        // Composer caches DPR independently; resizing its CSS dimensions alone
+        // leaves scene and bloom targets at the previous quality's resolution.
+        this._composer?.setPixelRatio(pixelRatio);
     }
 
     bloomStrength(v) {
@@ -154,7 +156,8 @@ export class Renderer {
     _applyBloomStrength() {
         if (!this._bloom) return;
         const quality = Renderer.QUALITY_PRESETS[this._quality]?.bloom ?? 0;
-        const strength = this._hubPerformanceMode ? 0 : (this._bloomProfile.strength ?? quality);
+        const strength = this._hubPerformanceMode || quality === 0
+            ? 0 : (this._bloomProfile.strength ?? quality);
         this._bloom.strength = strength;
         this._bloom.enabled = strength > 0;
     }

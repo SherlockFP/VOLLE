@@ -72,6 +72,15 @@ export class AfkMonitor {
     }
 }
 
+export function formatNetworkDiagnostics(frameSeconds, diagnostics = {}) {
+    const fps = Number.isFinite(frameSeconds) && frameSeconds > 0 ? Math.round(1 / frameSeconds) : 0;
+    if (!(diagnostics?.peers > 0)) return `${fps} FPS | LOCAL`;
+    const ping = Number.isFinite(diagnostics.ping) ? `${Math.round(Math.max(0, diagnostics.ping))}ms` : 'PING N/A';
+    const loss = Number.isFinite(diagnostics.packetLoss) && diagnostics.packetLoss >= 0 && diagnostics.packetLoss <= 1
+        ? `${Math.round(diagnostics.packetLoss * 100)}% LOSS` : 'LOSS N/A';
+    return `${fps} FPS | ${ping} | ${loss} | ${diagnostics.peers}P`;
+}
+
 export class RollingNetworkMonitor {
     constructor(options = {}) {
         this.windowMs = boundedInteger(options.windowMs, 10_000, 1_000, 300_000);

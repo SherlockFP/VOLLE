@@ -17,6 +17,7 @@ import {
     applyXpBoost,
     createSocialState,
     getActiveCosmeticTrials,
+    getActiveXpBoost,
     grantXpBoost,
     startCosmeticTrial
 } from './social.js';
@@ -28,6 +29,7 @@ import {
     FREE_TRACK as BATTLEPASS_FREE_TRACK,
     PREMIUM_TRACK as BATTLEPASS_PREMIUM_TRACK,
     PREMIUM_PASS_PRICE,
+    SHOP_XP_BOOST,
     addXp as addBattlepassXp,
     applySeasonRollover as applyBattlepassSeasonRollover,
     claimReward as claimBattlepassRewardPure,
@@ -192,7 +194,7 @@ const DEFAULTS = {
     movementTrials: { best: {}, rewarded: [] },
     customMaps: [],
     crosshairSettings: {
-        style: 'cross',
+        style: 'dot',
         color: '#36d8ca',
         size: 12,
         gap: 6,
@@ -1043,7 +1045,13 @@ class StoreClass {
     }
 
     buyAndActivateXpBoost() {
-        const price = 120;
+        if (this.remoteReady) return this._purchaseXpBoostRemote();
+        if (this.remoteAccountId || account.getToken()) {
+            this.lastBattlepassError = 'Reconnect your account before buying an XP boost';
+            return false;
+        }
+        this.lastBattlepassError = '';
+        const price = SHOP_XP_BOOST.price;
         if (this.data.currency < price) return false;
         const userId = this._socialUserId();
         const boostId = `boost-${Date.now()}`;
@@ -1052,8 +1060,8 @@ class StoreClass {
                 userId,
                 boostId,
                 quantity: 1,
-                multiplier: 1.5,
-                durationMs: 60 * 60 * 1000
+                multiplier: SHOP_XP_BOOST.multiplier,
+                durationMs: SHOP_XP_BOOST.durationMs
             });
             social = activateXpBoost(social, { userId, boostId, activatedAt: Date.now() });
             this.data.socialState = social;
@@ -1066,7 +1074,72 @@ class StoreClass {
         }
     }
 
+    async _purchaseXpBoostRemote() {
+        const token = this.sessionToken;
+        const scope = this.remoteAccountId || token;
+        if (this._xpBoostFlight?.scope === scope) return this._xpBoostFlight.promise;
+        this.lastBattlepassError = '';
+        const storageKey = `volle.xp-boost-purchase:${scope}`;
+        let requestId = '';
+        try { requestId = globalThis.sessionStorage?.getItem(storageKey) || ''; } catch {}
+        if (!/^[A-Za-z0-9._:-]{8,80}$/.test(requestId)) {
+            const nonce = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+            requestId = `xp-boost:${nonce}`.slice(0, 80);
+        }
+        if (this._xpBoostRequest?.scope === scope) requestId = this._xpBoostRequest.id;
+        this._xpBoostRequest = { scope, id: requestId };
+        try { globalThis.sessionStorage?.setItem(storageKey, requestId); } catch {}
+        const clearRequest = () => {
+            if (this._xpBoostRequest?.scope === scope && this._xpBoostRequest.id === requestId) this._xpBoostRequest = null;
+            try { globalThis.sessionStorage?.removeItem(storageKey); } catch {}
+        };
+        const operation = (async () => {
+            try {
+                const response = await fetch('/api/profile/purchase', {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'Idempotency-Key': requestId },
+                    body: JSON.stringify({ kind: 'xpboost', id: SHOP_XP_BOOST.id, requestId })
+                });
+                const result = await response.json();
+                if (!response.ok) {
+                    if (isDefinitiveCaseOpenRejection(response.status)) clearRequest();
+                    if (this.sessionToken === token) this.lastBattlepassError = result.error || 'XP boost unavailable';
+                    return false;
+                }
+                if (!result.profile) throw new Error('Missing purchase receipt');
+                clearRequest();
+                if (!this.remoteReady || this.sessionToken !== token || (this.remoteAccountId || token) !== scope) return false;
+                this._applyRemoteProfile(result.profile);
+                this.lastXpBoostPurchase = { replayed: result.replayed === true };
+                return true;
+            } catch {
+                // Preserve the request across a lost response: the server may have charged already.
+                if (this.sessionToken === token) this.lastBattlepassError = 'Could not confirm the XP boost. Retry to recover your purchase.';
+                return false;
+            }
+        })();
+        this._xpBoostFlight = { scope, promise: operation };
+        try { return await operation; }
+        finally { if (this._xpBoostFlight?.promise === operation) this._xpBoostFlight = null; }
+    }
+
+    getShopXpBoostState(now = Date.now()) {
+        const active = this.remoteReady ? this.getBattlepassBoostState(now).active
+            : getActiveXpBoost(this.data.socialState, this._socialUserId(), now);
+        return {
+            ...SHOP_XP_BOOST,
+            active: active ? { ...active, remainingMs: Math.max(0, active.expiresAt - now) } : null,
+            accountRequired: !this.remoteReady && Boolean(this.remoteAccountId || account.getToken()),
+            affectsBattlepass: this.remoteReady
+        };
+    }
+
     boostedXp(baseXp) {
+        if (this.remoteReady) {
+            const active = this.getBattlepassBoostState().active;
+            const multiplier = active?.boostId === SHOP_XP_BOOST.boostId ? SHOP_XP_BOOST.multiplier : 1;
+            return Math.floor((Number.isFinite(baseXp) ? Math.max(0, baseXp) : 0) * multiplier);
+        }
         return applyXpBoost(this.data.socialState, {
             userId: this._socialUserId(),
             baseXp: Math.max(0, Math.floor(baseXp)),

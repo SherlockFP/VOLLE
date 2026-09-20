@@ -7,6 +7,7 @@ const STATES = { PLAYING: 'PLAYING', PAUSED: 'PAUSED', ROUND_END: 'ROUND_END' };
 const clearAttempt = compileGameMethod('_clearLocalDeflectAttempt');
 const markHit = compileGameMethod('_markLocalDeflectAttemptHit');
 const applyPenalty = compileGameMethod('_applyMissedDeflectPenalty', { STATES, MISSED_DEFLECT_DAMAGE: 12 });
+const applyDamage = compileGameMethod('_applyAuthoritativeHitDamage');
 const updateAttempt = compileGameMethod('_updateLocalDeflectAttempt', { STATES, Math });
 const gameSource = readFileSync(new URL('../js/game.js', import.meta.url), 'utf8');
 
@@ -15,6 +16,9 @@ function createFixture({ distance = 4, speed = 20, attackDuration = 0.3 } = {}) 
     const cues = [];
     const player = {
         alive: true,
+        hp: 100,
+        maxHp: 100,
+        takeDamage(amount) { this.hp = Math.max(0, this.hp - amount); return this.hp <= 0; },
         attacking: true,
         knifeAttackType: 'slash',
         attackCooldown: attackDuration,
@@ -43,6 +47,7 @@ function createFixture({ distance = 4, speed = 20, attackDuration = 0.3 } = {}) 
         _clearLocalDeflectAttempt: clearAttempt,
         _markLocalDeflectAttemptHit: markHit,
         _applyMissedDeflectPenalty: applyPenalty,
+        _applyAuthoritativeHitDamage: applyDamage,
         _updateLocalDeflectAttempt: updateAttempt
     };
 }
@@ -89,6 +94,8 @@ test('a reliable arrival beyond the swing window reports exactly one EARLY cue a
         const fixture = createFixture({ distance: 20, speed: 20, attackDuration: 0.3 });
         runUntilWindowEnds(fixture, fps);
         assertFeedback(fixture, 'EARLY — WAIT FOR THE BALL');
+        assert.equal(fixture.player.hp, 100, `${fps} FPS early read must not self-damage`);
+        assert.equal(fixture.player.alive, true, `${fps} FPS early read must stay alive`);
         fixture._updateLocalDeflectAttempt(1 / fps);
         assert.equal(fixture.messages.length, 1, `${fps} FPS does not leave a stale/spam attempt`);
     }
@@ -133,6 +140,7 @@ test('successful local handling resolves the attempt while remote echo stays pre
     const echo = extractGameMethod('handleRemoteAttackAnim');
     assert.doesNotMatch(echo, /_updateLocalDeflectAttempt|_markLocalDeflectAttemptHit|showMessage/);
     assert.match(gameSource, /'MISSED DEFLECT — TIME IT CLOSER',\s+650,\s+\{ priority: 0, tone: 'deflect-miss' \}/);
+    assert.match(gameSource, /if \(!isEarly\) this\._applyMissedDeflectPenalty\?\.\(\);/);
 });
 
 test('a missed deflect costs health and keeps one-shot lethal', () => {

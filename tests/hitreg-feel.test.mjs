@@ -110,6 +110,7 @@ test('repeated capsule contact keeps one lethal grace deadline and resolves once
     const applied = [];
     const handleHit = compileGameMethod('handleHit', {
         BASE_HIT_DAMAGE: 25,
+        performance: { now: () => 1000 },
         resolveKillerName: () => 'Attacker',
         scaleLethalGraceMs,
         setTimeout: timers.setTimeout,
@@ -136,10 +137,12 @@ test('repeated capsule contact keeps one lethal grace deadline and resolves once
     assert.equal(timers.pending.length, 1);
     assert.equal(timers.clears, 0);
     assert.equal(game._pendingLethalHit, deadline);
+    assert.equal(game._pendingLethalExpiresAt, 1120);
     timers.runAll();
     assert.equal(applied.length, 1);
     assert.equal(game._pendingLethalHit, null);
     assert.equal(game._pendingLethalVictim, null);
+    assert.equal(game._pendingLethalExpiresAt, 0);
 });
 
 // ---------------------------------------------------------------------------

@@ -40,8 +40,8 @@ const {
 } = ballModule;
 
 test('aimed proximity assistance stays speed-bounded and only rescues an approaching ball', () => {
-    assert.ok(PLAYER_AIM_STEERING_FACTOR <= 0.25);
-    assert.ok(PLAYER_AIM_PROXIMITY_FACTOR <= 0.35);
+    assert.equal(PLAYER_AIM_STEERING_FACTOR, 0.58);
+    assert.equal(PLAYER_AIM_PROXIMITY_FACTOR, 0.78);
     assert.equal(proximityAssistRange(0), 1.5);
     assert.equal(proximityAssistRange(2000), 2.5);
     assert.equal(shouldForceProximityHit({ distance: 0.6, speed: 100, approachDot: 0.1 }), false);
@@ -52,9 +52,9 @@ test('aimed proximity assistance stays speed-bounded and only rescues an approac
 });
 
 test('aimed misses keep a side lane before the delayed return rescue', () => {
-    assert.match(source, /const rescueAge = this\.aimed \? 1\.7 : 1\.15;/);
-    assert.match(source, /const minApproachDot = this\.aimed \? 0\.30 : PROXIMITY_APPROACH_DOT;/);
-    assert.match(source, /this\.aimed\s*\? Math\.min\(homingRescueRange\(this\.currentSpeed\), 2\.4\)/);
+    assert.match(source, /const rescueAge = 1\.15;/);
+    assert.match(source, /const minApproachDot = PROXIMITY_APPROACH_DOT;/);
+    assert.match(source, /const rescueRange = homingRescueRange\(this\.currentSpeed\);/);
     assert.match(source, /const forceAimedRescue = this\.aimed && \(hasOverstayed \|\| aimedOrbiting\);/);
     assert.match(source, /const steeringDt = directRescue \|\| forceAimedRescue/);
     assert.match(source, /const next = directRescue && !this\.aimed \? torsoDirection : current\.lerp\(direct, turn\);/);

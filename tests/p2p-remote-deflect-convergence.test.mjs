@@ -112,6 +112,7 @@ function makeTrace({ currentSpeed, ping = 0 } = {}) {
         }
     };
     const hostGame = {
+        state: 'PLAYING',
         remotePlayers: new Map([['remote-player', remote]]),
         ball: hostBall,
         experimentalNetcode: { enabled: false },
@@ -140,6 +141,7 @@ function makeTrace({ currentSpeed, ping = 0 } = {}) {
         Math
     });
     hostGame.remoteAttack = compileGameMethod('remoteAttack', {
+        STATES: { PLAYING: 'PLAYING', COUNTDOWN: 'COUNTDOWN' },
         THREE: { Vector3 },
         performance: { now: () => now },
         setTimeout: (callback, delay = 0) => timers.push({ callback, delay }),

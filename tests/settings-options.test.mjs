@@ -412,11 +412,12 @@ function section(tab) {
     return markup.slice(start, nextSection === -1 ? undefined : nextSection);
 }
 
-test('Video tab exposes master volume + mute controls with aria-labels', () => {
-    const video = section('video');
-    assert.match(video, /id="setting-master-volume"[^>]*aria-label="Master volume"/);
-    assert.match(video, /id="setting-master-volume-value"/);
-    assert.match(video, /id="setting-mute"[^>]*aria-label="Mute all audio"/);
+test('Controls groups master volume and mute with the other audio controls', () => {
+    const controls = section('controls');
+    assert.match(controls, /id="setting-master-volume"[^>]*aria-label="Master volume"/);
+    assert.match(controls, /id="setting-master-volume-value"/);
+    assert.match(controls, /id="setting-mute"[^>]*aria-label="Mute all audio"/);
+    assert.doesNotMatch(section('video'), /id="setting-master-volume"|id="setting-mute"/);
 });
 
 test('Game tab exposes a killfeed toggle with an aria-label', () => {

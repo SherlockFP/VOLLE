@@ -17,7 +17,7 @@ import { Store } from './store.js';
 import { matchesShopFilter, matchesShopQuery, compareShopItems, deriveShopCardState, SHOP_COLLECTIONS, shopCollectionForItem } from './shop-clarity.js';
 import { characterPortraitPath, shopNameFitTier, knifeTeamRestriction, isKnifeEquippedAny } from './shop-ux2.js';
 import { classifyDamageTier, nextPoolCursor, damageJitterFor, comboTier } from './combat-fx.js';
-import { rewardRowState, tierCardState } from './battlepass.js';
+import { rewardRowState, tierCardState, SHOP_XP_BOOST } from './battlepass.js';
 import { buildRewardSummary, rewardStepDelays } from './match-analytics.js';
 import { Daily } from './daily.js';
 
@@ -2488,8 +2488,43 @@ export class UI {
         });
     }
 
+    _setShopBoostShowcase(store) {
+        const boost = store.getShopXpBoostState?.() || { ...SHOP_XP_BOOST, active: null, affectsBattlepass: false };
+        const active = boost.active;
+        const description = boost.affectsBattlepass
+            ? '1.5x Player XP and Battle Pass match XP for 60 minutes. No credit, rank or combat advantage.'
+            : '1.5x Player XP for 60 minutes in local play. No credit, rank or combat advantage.';
+        const expiry = active ? new Date(active.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+        const statusText = active
+            ? `${active.multiplier}x XP active · ${Math.ceil(active.remainingMs / 60000)} min remaining · Ends ${expiry}`
+            : boost.accountRequired ? 'Reconnect your account to buy this boost.'
+                : 'Starts immediately after purchase. The timer also runs while you are away.';
+        const labels = {
+            'shop-selected-kicker': 'MATCH PROGRESSION',
+            'shop-selected-name': 'Arena XP Boost',
+            'shop-selected-meta': active ? 'Boost active' : '1.5x XP · 60 minutes',
+            'shop-showcase-status': statusText
+        };
+        for (const [id, text] of Object.entries(labels)) {
+            const element = document.getElementById(id);
+            if (element) element.textContent = text;
+        }
+        const action = document.getElementById('shop-selected-action');
+        if (action) {
+            action.className = `btn btn-primary shop-selected-action${active || boost.accountRequired ? '' : ' shop-buy'}`;
+            action.dataset.type = 'boost';
+            action.dataset.id = SHOP_XP_BOOST.id;
+            action.textContent = active ? 'Boost active' : boost.accountRequired ? 'Reconnect to purchase' : `Buy and activate — ${SHOP_XP_BOOST.price}`;
+        }
+        this._setShopProductCopy(store, { description, price: SHOP_XP_BOOST.price, owned: Boolean(active), equipped: Boolean(active) || boost.accountRequired });
+        const practice = document.getElementById('btn-shop-practice');
+        if (practice) { practice.hidden = true; practice.disabled = true; }
+        return { boost, description, statusText };
+    }
+
     // ===== SHOP EKRANI =====
     renderShop(store, tab = 'chars') {
+        clearTimeout(this._shopBoostExpiryTimer);
         const grid = document.getElementById('shop-grid');
         const coinsEl = document.getElementById('shop-coins');
         if (coinsEl) coinsEl.textContent = store.get('currency');
@@ -2723,11 +2758,22 @@ export class UI {
             const selectedCosmetic = COSMETICS[previewCosmetic] || fresh[0];
             if (selectedCosmetic) this._dispatchCosmeticPreview(selectedCosmetic);
         } else if (tab === 'boosts') {
+            const { boost, description, statusText } = this._setShopBoostShowcase(store);
             const card = document.createElement('div');
-            card.className = 'shop-card';
-            card.innerHTML = '<div class="skill-emoji">XP</div><div class="char-name">Arcade XP Boost</div><div class="char-desc">1.5x match XP for 60 minutes.</div><button class="btn btn-primary btn-small shop-buy" data-type="boost" data-id="xp-15">Buy — 120</button>';
-            this._decorateShopCard(card, { category: 'boost', price: 120, owned: false, currency: coinBalance });
+            card.className = 'shop-card xp-boost-card';
+            card.innerHTML = '<div class="skill-emoji" aria-hidden="true">1.5×</div><div class="char-name">Arena XP Boost</div><div class="char-desc"></div><p class="shop-boost-status" role="status"></p><button class="btn btn-primary btn-small" data-type="boost" data-id="xp-15"></button>';
+            card.querySelector('.char-desc').textContent = description;
+            card.querySelector('.shop-boost-status').textContent = statusText;
+            const buy = card.querySelector('button');
+            const blocked = Boolean(boost.active) || boost.accountRequired || coinBalance < SHOP_XP_BOOST.price;
+            buy.disabled = blocked;
+            buy.classList.toggle('shop-buy', !boost.active && !boost.accountRequired);
+            buy.textContent = boost.active ? 'Boost active' : boost.accountRequired ? 'Reconnect to purchase' : `Buy and activate — ${SHOP_XP_BOOST.price}`;
+            this._decorateShopCard(card, { category: 'boost', price: SHOP_XP_BOOST.price, owned: Boolean(boost.active), currency: coinBalance });
             grid.appendChild(card);
+            if (boost.active) this._shopBoostExpiryTimer = setTimeout(() => {
+                if (document.body.dataset.screen === 'shop' && this._shopTab === 'boosts') this.renderShop(store, 'boosts');
+            }, Math.min(2147483647, Math.max(1, boost.active.remainingMs + 25)));
         } else if (tab === 'cases') {
             Object.values(CASES).forEach(box => {
                 const card = document.createElement('article');
@@ -3531,20 +3577,19 @@ export class UI {
         const tbody = document.getElementById('leaderboard-body');
         if (!tbody) return;
         tbody.innerHTML = '';
-        const top = Leaderboard.getFiltered(filter, {
-            limit: 20,
+        const options = {
             friends: store.get('socialProfile')?.friends || [],
             classId: store.get('selectedChar')
-        });
+        };
+        const top = Leaderboard.getFiltered(filter, { ...options, limit: 20 });
         const myElo = store.getElo();
-        const myName = 'You';
         top.forEach((p, i) => {
             const displayElo = p.displayElo ?? p.elo;
             const rank = getRank(displayElo);
-            const isMe = p.name === myName;
+            const isMe = p.isYou === true;
             const row = document.createElement('tr');
             row.className = isMe ? 'is-you' : '';
-            const cells = [i + 1, `${p.name}${isMe ? ' (You)' : ''}`, displayElo, `${rank.emoji} ${rank.name}`];
+            const cells = [i + 1, `${p.name}${isMe ? '' : p.fake ? ' · Bot sample' : ' · Local record'}`, displayElo, `${rank.emoji} ${rank.name}`];
             cells.forEach((value, index) => {
                 const cell = document.createElement('td');
                 cell.textContent = String(value);
@@ -3556,7 +3601,7 @@ export class UI {
         const playerRank = document.getElementById('leaderboard-your-rank');
         if (playerRank) {
             const rank = getRank(myElo);
-            playerRank.innerHTML = `<span>YOUR POSITION</span><strong>#${Leaderboard.getPlayerRank(myElo)}</strong><b style="color:${rank.color}">${rank.emoji} ${rank.name}</b><em>${myElo} ELO</em>`;
+            playerRank.innerHTML = `<span>POSITION IN THIS LOCAL VIEW</span><strong>#${Leaderboard.getPlayerRank(myElo, filter, options)}</strong><b style="color:${rank.color}">${rank.emoji} ${rank.name}</b><em>${myElo} ELO</em>`;
         }
     }
 
