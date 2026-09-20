@@ -9,6 +9,10 @@ import { poseFor, neutralPose } from './character-pose.js';
 // bindings are live and initialized before either module body runs createCharacterRig()/createShowcaseAvatar().
 
 const DEFAULT_STATE = Object.freeze({ characterId: 'rally', skinId: 'default' });
+const IDLE_FRAME_INTERVAL_MS = 1000 / 60;
+const MAX_DECORATIVE_FPS = 60;
+const MAX_PIXEL_RATIO = 2;
+const MAX_BACKING_PIXELS = 1280 * 900;
 const CHARACTER_SHAPES = Object.freeze({
     rally: Object.freeze({ width: 1, height: 1, depth: 1, shoulder: 1 }),
     tank: Object.freeze({ width: 1.18, height: .96, depth: 1.14, shoulder: 1.18 }),
@@ -239,6 +243,8 @@ export class ShopShowcaseRenderer {
         this._disposed = false;
         this._elapsed = 0;
         this._lastFrame = null;
+        this._nextDrawAt = null;
+        this._frameLimit = MAX_DECORATIVE_FPS;
 
         this._motionQuery = this._window?.matchMedia?.('(prefers-reduced-motion: reduce)') || null;
         this._forcedReducedMotion = false;
@@ -369,26 +375,49 @@ export class ShopShowcaseRenderer {
         this._resizeObserver = ResizeObserverClass ? new ResizeObserverClass(this._onResize) : null;
         this._resizeObserver?.observe?.(this.mount);
         this._animate = time => {
-            const seconds = (Number(time) || 0) / 1000;
-            const delta = this._lastFrame === null ? 0 : Math.min(.05, Math.max(0, seconds - this._lastFrame));
-            this._lastFrame = seconds;
+            const now = Math.max(0, Number(time) || 0);
+            const frameInterval = 1000 / this._frameLimit;
+            const frameMs = this._lastFrame === null ? frameInterval : Math.max(0, now - this._lastFrame);
+            const delta = this._lastFrame === null ? 0 : Math.min(.05, frameMs / 1000);
+            this._lastFrame = now;
             this._elapsed += delta;
             if (!this._dragging && !this.reducedMotion) this._yaw += delta * .18;
             this.avatar.setPoseTime(this._elapsed, this.reducedMotion);
+            if (this._dragging) return;
+            if (this._nextDrawAt !== null && now + Math.min(frameInterval / 2, frameMs / 2) + .001 < this._nextDrawAt) return;
+            if (this._nextDrawAt === null) this._nextDrawAt = now;
+            do this._nextDrawAt += frameInterval;
+            while (this._nextDrawAt <= now);
             this._renderFrame();
         };
+    }
+
+    _resetAnimationClock() {
+        this._lastFrame = null;
+        this._nextDrawAt = null;
     }
 
     _refreshLoop() {
         const shouldAnimate = this._running && !this._disposed && !this.reducedMotion && !this._document?.hidden;
         this.renderer.setAnimationLoop?.(shouldAnimate ? this._animate : null);
-        if (!shouldAnimate) this._lastFrame = null;
+        if (!shouldAnimate) this._resetAnimationClock();
     }
 
     _renderFrame() {
         if (this._disposed) return;
         this.avatar.root.rotation.set(this._pitch, this._yaw, 0);
         this.renderer.render(this.scene, this.camera);
+    }
+
+    // The shop canvas is presentation only; retain responsiveness while keeping its
+    // automatic draws within the shared 60 FPS ceiling.
+    setFrameLimit(fps) {
+        const requested = Math.floor(Number(fps));
+        this._frameLimit = Number.isFinite(requested)
+            ? Math.max(1, Math.min(MAX_DECORATIVE_FPS, requested))
+            : MAX_DECORATIVE_FPS;
+        this._resetAnimationClock();
+        return this._frameLimit;
     }
 
     setCharacter(characterId) {
@@ -435,6 +464,7 @@ export class ShopShowcaseRenderer {
     start() {
         if (this._disposed) return false;
         this._running = true;
+        this._resetAnimationClock();
         this._refreshLoop();
         this._renderFrame();
         return true;
@@ -451,7 +481,10 @@ export class ShopShowcaseRenderer {
         const bounds = this.mount.getBoundingClientRect?.() || {};
         const nextWidth = Math.max(1, Math.round(Number(width) || bounds.width || this.mount.clientWidth || 1));
         const nextHeight = Math.max(1, Math.round(Number(height) || bounds.height || this.mount.clientHeight || nextWidth));
-        const ratio = Math.min(2, Math.max(1, Number(this._window?.devicePixelRatio) || 1));
+        const rawDpr = Number(this._window?.devicePixelRatio) || 1;
+        let ratio = Math.min(MAX_PIXEL_RATIO, Math.max(1, rawDpr));
+        const totalPixels = nextWidth * nextHeight * ratio * ratio;
+        if (totalPixels > MAX_BACKING_PIXELS) ratio *= Math.sqrt(MAX_BACKING_PIXELS / totalPixels);
         this.renderer.setPixelRatio?.(ratio);
         this.renderer.setSize(nextWidth, nextHeight, false);
         this.camera.aspect = nextWidth / nextHeight;

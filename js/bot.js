@@ -84,6 +84,21 @@ export function shouldHoldDeflectPosition(deflectDecided, willDeflect) {
     return deflectDecided === true && willDeflect === true;
 }
 
+// An assigned target alone is not a threat: after a bounce or a stale target
+// hand-off the ball can still be moving away from the bot. Starting a deflect
+// telegraph in that state looks like a fake read to the player. `dx/dy/dz`
+// point from the bot's defense point to the ball, so a negative radial velocity
+// means the ball is closing in. This is intentionally a decision-entry gate;
+// once a readable telegraph has started, steering noise cannot retract it.
+export function isIncomingDefenseThreat(ball, dx, dy, dz, distance) {
+    const velocity = ball?.velocity;
+    if (!velocity || !Number.isFinite(distance) || distance <= 1e-4
+        || !Number.isFinite(velocity.x) || !Number.isFinite(velocity.y) || !Number.isFinite(velocity.z)) {
+        return false;
+    }
+    return (velocity.x * dx + velocity.y * dy + velocity.z * dz) / distance < -0.001;
+}
+
 export class Bot {
     constructor(renderer, arena, name, team, difficulty = 'medium') {
         this.renderer = renderer;
@@ -560,6 +575,10 @@ export class Bot {
         const dz = ball.position.z - this.position.z;
         const dist = Math.hypot(dx, dy, dz);
         const alertRange = ball.currentSpeed * (this.reactionTime + this.windUpTime) + ball.attackRange;
+        if (!this._deflectDecided && !isIncomingDefenseThreat(ball, dx, dy, dz, dist)) {
+            this._resetDefenseIntent();
+            return 'none';
+        }
         if (dist > alertRange) {
             if ((this._defenseIntent === 'dodge-left' || this._defenseIntent === 'dodge-right')
                 && this._defenseDodgeLatch > 0) {

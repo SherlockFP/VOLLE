@@ -151,8 +151,9 @@ test('showScreen resets the exclusive-overlay slot when navigating between full 
     ui._exclusiveOverlay = { name: 'pause', closeFn: () => {} };
     const previousDocument = globalThis.document;
     globalThis.document = {
-        body: { dataset: {} },
-        getElementById: () => null
+        body: { dataset: {}, classList: { remove: () => {} } },
+        getElementById: () => null,
+        querySelectorAll: () => []
     };
     try {
         ui.showScreen('mainMenu');

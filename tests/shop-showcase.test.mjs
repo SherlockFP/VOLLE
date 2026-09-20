@@ -136,7 +136,11 @@ test('renderer supports canvas mounts, keyboard rotation, reactive reduced motio
 
     assert.equal(canvas.getAttribute('role'), 'img');
     assert.match(canvas.getAttribute('aria-label'), /arrow keys/i);
-    assert.deepEqual(renderer.resize(), { width: 640, height: 480, pixelRatio: 2 });
+    const previewSize = renderer.resize();
+    assert.equal(previewSize.width, 640);
+    assert.equal(previewSize.height, 480);
+    assert.ok(previewSize.pixelRatio <= 2);
+    assert.ok(previewSize.width * previewSize.height * previewSize.pixelRatio * previewSize.pixelRatio <= 1280 * 900 + 1);
     assert.equal(renderer.camera.aspect, 4 / 3);
     assert.equal(renderer.start(), true);
     assert.equal(typeof renderer.renderer.loop, 'function');

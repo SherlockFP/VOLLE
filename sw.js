@@ -4,7 +4,7 @@
 // PeerJS/WebRTC signaling and /api/* calls are never intercepted — P2P
 // networking and the account/lobby backend must always hit the network live.
 // New deploy? bump CACHE_V1 so clients drop the stale shell.
-const CACHE_V1 = 'warrball-shell-v1';
+const CACHE_V1 = 'volle-shell-v4';
 
 const SHELL_URLS = [
     './',
@@ -15,6 +15,12 @@ const SHELL_URLS = [
     'css/ui-shell.css',
     'css/polish.css',
     'css/auth.css',
+    'css/season-polish.css',
+    'css/court-skills.css',
+    'css/cosmetic-icons.css',
+    'css/solo-paths.css',
+    'css/arena-interface.css',
+    'css/menu-rework.css',
     'vendor/three/three.module.js',
     'vendor/peerjs/peerjs.min.js'
 ];

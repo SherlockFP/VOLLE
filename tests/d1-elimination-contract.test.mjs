@@ -171,6 +171,7 @@ test('local and P2P lethal routes share one exactly-once readable KO presenter',
         window: { addKillFeed: () => calls.push('external-feed') }
     });
     const game = {
+        playerName: 'Attacker',
         _killPresentationKeys: new Set(),
         _killConfirmationTimer: null,
         _killConfirmationUntil: 0,

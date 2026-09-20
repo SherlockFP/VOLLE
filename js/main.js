@@ -61,6 +61,9 @@ import {
 import { filterLobbies, pickQuickLobby, formatLobbyAge, lobbyCapacity } from './lobby-browser.js';
 import { canHostSport, canPlayLocalSport, lobbySportId, resolveSportRoute, sportDefinition, SPORT_IDS } from './sports.js';
 import { createVolleyballPracticeRuntime } from './volleyball-practice-runtime.js';
+import { volleyballCoachCue, volleyballDrillProgress } from './volleyball-coach.js';
+import { createVolleyballPracticeRecordStore } from './volleyball-records.js';
+import { applySoloPreset, getSoloPreset } from './solo-presets.js';
 import {
     createParty,
     createSocialProfile,
@@ -668,6 +671,7 @@ class App {
         this.gameConsole.init(this.game);
         this.game.console = this.gameConsole; // game loop can check visibility
 
+        this._nextFrame = () => this.loop();
         this.loop();
     }
 
@@ -1144,6 +1148,8 @@ class App {
         document.body.dataset.colorBlind = settings.colorBlind || 'none';
 
         const values = {
+            'setting-fps-limit': this.store.get('fpsLimit') ?? 0,
+            'setting-vsync': this.store.get('vsync') === false ? 'off' : 'on',
             'setting-quality': settings.quality || 'medium',
             'setting-auto-quality': settings.autoQuality !== false,
             'setting-public-diagnostics': settings.publicDiagnostics !== false,
@@ -1732,6 +1738,48 @@ class App {
         };
         bind('btn-play-solo', openMultiplayer);
         bind('btn-play', openMultiplayer);
+        bind('btn-menu-volleyball', () => {
+            this._selectedSportId = SPORT_IDS.VOLLEYBALL;
+            this._startVolleyballPractice();
+        });
+        const soloDialog = document.getElementById('solo-paths');
+        let soloPresetId = 'warmup';
+        const selectSoloPreset = id => {
+            const preset = getSoloPreset(id);
+            if (!preset) return;
+            soloPresetId = id;
+            soloDialog?.querySelectorAll('[data-solo-preset]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.soloPreset === id)));
+            const detail = document.getElementById('solo-paths-detail');
+            if (detail) detail.textContent = `${preset.maxRounds} rounds · ${preset.timeLimit / 60} minute round limit · ${preset.botDifficulty} opponent. Review your court in the lobby.`;
+        };
+        soloDialog?.querySelectorAll('[data-solo-preset]').forEach(button => button.addEventListener('click', () => selectSoloPreset(button.dataset.soloPreset)));
+        bind('btn-menu-bots', () => {
+            if (this.network?.connected) return;
+            selectSoloPreset(soloPresetId);
+            soloDialog?.showModal();
+        });
+        bind('solo-paths-close', () => soloDialog?.close());
+        bind('solo-paths-start', () => {
+            if (this.network?.connected || this.game.state !== STATES.MENU) return;
+            clearInterval(this._mpRefreshTimer);
+            this._selectedSportId = SPORT_IDS.DODGEBALL;
+            this._soloPresetRestoreDifficulty ??= this.game.botDifficulty;
+            this.game.startSolo();
+            const result = applySoloPreset(this.game, soloPresetId);
+            if (!result.accepted) {
+                this.ui.showMessage?.('Could not prepare this solo match.', 2000);
+                return;
+            }
+            soloDialog?.close();
+            this._armFirstSoloBotGuard();
+            this.ui.showScreen('lobby');
+        });
+        window.addEventListener('warrball:screen', event => {
+            if (event.detail?.screen === 'mainMenu' && this._soloPresetRestoreDifficulty != null) {
+                this.game.setBotDifficulty(this._soloPresetRestoreDifficulty);
+                this._soloPresetRestoreDifficulty = null;
+            }
+        }, { signal: this._mainAbort.signal });
         document.querySelectorAll('[data-sport-select]').forEach(button => {
             button.addEventListener('click', () => this._openMultiplayerForSport(button.dataset.sportSelect));
         });
@@ -2795,6 +2843,7 @@ bind('carousel-next', () => {
         bindSetting('setting-fps-limit', e => {
             const limit = parseInt(e.target.value);
             this.store.set('fpsLimit', limit);
+            for (const preview of [this.menuHero, this.menuStage, this.shopShowcase, this.avatarStage3D]) preview?.setFrameLimit?.(limit);
             this.ui.showMessage?.(`FPS limit: ${limit || 'Unlimited'}`, 1500);
         });
         // Bot difficulty
@@ -4478,6 +4527,7 @@ updateCSLobbyInfo();
         } catch (error) {
             this.avatarStage3D = null;
         }
+        this.avatarStage3D?.setFrameLimit(this.store.get('fpsLimit'));
         return this.avatarStage3D;
     }
 
@@ -4953,11 +5003,18 @@ updateCSLobbyInfo();
             container.appendChild(renderer.domElement);
             let frame = 0;
             let disposed = false;
-            const render = () => {
+            let lastFrame = 0;
+            const reducedMotion = this.store.get('settings')?.reduceMotion === true
+                || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+            const render = (now = performance.now()) => {
                 if (disposed || !container.isConnected) return;
-                model.rotation[previewSpinAxis] += .012;
-                renderer.render(scene, camera);
-                frame = requestAnimationFrame(render);
+                if (!document.hidden && (!lastFrame || now - lastFrame >= 1000 / Math.min(60, this.store.get('fpsLimit') || 60) - .1)) {
+                    const delta = lastFrame ? Math.min(.05, (now - lastFrame) / 1000) : 0;
+                    lastFrame = now;
+                    if (!reducedMotion) model.rotation[previewSpinAxis] += delta * .72;
+                    renderer.render(scene, camera);
+                }
+                if (!reducedMotion) frame = requestAnimationFrame(render);
             };
             const dispose = () => {
                 if (disposed) return;
@@ -5254,8 +5311,10 @@ updateCarousel() {
             const status = document.getElementById('shop-showcase-status');
             if (status) status.textContent = '3D preview unavailable. Catalog controls remain active.';
         }
+        this.shopShowcase?.setFrameLimit(this.store.get('fpsLimit'));
         window.addEventListener('warrball:shop-preview', event => {
             const detail = event.detail;
+            if (detail?.type !== 'ball') this._disposeCosmeticPreview(document.getElementById('shop-selected-product-visual'));
             if (detail?.type === 'avatar' && AVATAR_SKINS[detail.id]) {
                 this._syncShopShowcase(detail.id);
                 this.productAnalytics.track('shop_inspect', { shopTab: 'avatars', itemType: 'avatar', itemId: detail.id });
@@ -5280,11 +5339,18 @@ updateCarousel() {
             }
         }, { signal: this._mainAbort.signal });
         window.addEventListener('warrball:shop-preview-reset', () => {
+            this._disposeCosmeticPreview(document.getElementById('shop-selected-product-visual'));
             this._applyShopShowcaseCosmetics(this.store.get('equippedWearables'));
             this.ui._resetShopCosmeticShowcase?.(this.store);
         }, { signal: this._mainAbort.signal });
         window.addEventListener('warrball:screen', event => {
-            if (event.detail?.screen !== 'shop') this._applyShopShowcaseCosmetics(this.store.get('equippedWearables'));
+            if (event.detail?.screen === 'shop') {
+                this.shopShowcase?.start();
+            } else {
+                this.shopShowcase?.stop();
+                this._applyShopShowcaseCosmetics(this.store.get('equippedWearables'));
+                this._disposeCosmeticPreview(document.getElementById('shop-selected-product-visual'));
+            }
         }, { signal: this._mainAbort.signal });
     }
 
@@ -5439,6 +5505,7 @@ updateCarousel() {
         } catch (error) {
             return;
         }
+        this.menuHero.setFrameLimit(this.store.get('fpsLimit'));
         showcase?.setAttribute('data-live', 'on');
         window.addEventListener('warrball:screen', event => {
             if (event.detail?.screen === 'mainMenu') {
@@ -5463,6 +5530,7 @@ updateCarousel() {
             try {
                 this.menuStage = createMenuStage({ canvas, window, document, autoStart: false });
                 this.menuStage.setReducedMotion(!!this.store.get('settings').reduceMotion);
+                this.menuStage.setFrameLimit(this.store.get('fpsLimit'));
             } catch (error) {
                 this.menuStage = null;
             }
@@ -5523,6 +5591,7 @@ updateCarousel() {
         this._syncCosmeticPracticeCommerce();
         const snapshot = this.cosmeticPractice.open(skinId, 'shop');
         this.shopShowcase?.stop();
+        this._disposeCosmeticPreview(document.getElementById('shop-selected-product-visual'));
         this.game.cancelGuidedDrill();
         this.game.clearPowerUps?.();
         this.game.affixes?.clearRound();
@@ -6479,7 +6548,31 @@ updateCarousel() {
         const sets = document.getElementById('volleyball-practice-sets');
         const phase = document.getElementById('volleyball-practice-phase');
         const expected = document.getElementById('volleyball-practice-expected');
+        const fields = {};
+        for (const name of ['coach-key', 'coach-title', 'coach-copy', 'contact-feedback', 'drill-step', 'drill-title', 'drill-count', 'contact-count', 'rally-best', 'drill-fill', 'drill-instruction', 'elapsed', 'personal-best', 'completion-summary']) {
+            fields[name] = document.getElementById(`volleyball-${name}`);
+        }
+        const setText = (name, text) => {
+            const node = fields[name];
+            if (node && node.textContent !== String(text)) node.textContent = String(text);
+        };
+        let lastContactSerial = 0;
+        let storage = null;
+        try { storage = window.localStorage; } catch { /* Practice remains available without storage. */ }
+        const recordStore = createVolleyballPracticeRecordStore(storage);
+        let records = recordStore.read();
+        let completionSaved = false;
+        const formatTime = value => Number.isFinite(value) ? `${Math.floor(value / 60)}:${String(Math.floor(value % 60)).padStart(2, '0')}` : '—';
         const write = state => {
+            if (!state.drillComplete) completionSaved = false;
+            if (state.drillComplete && state.completionElapsedSeconds != null && !completionSaved) {
+                records = recordStore.recordCompletion({ completionElapsedSeconds: state.completionElapsedSeconds, longestRally: state.drillLongestRally }).records;
+                completionSaved = true;
+            }
+            hud?.classList.toggle('drill-complete', state.drillComplete === true);
+            setText('elapsed', formatTime(state.completionElapsedSeconds ?? state.elapsedSeconds ?? 0));
+            setText('personal-best', formatTime(records.bestCompletionSeconds));
+            setText('completion-summary', state.drillComplete ? `All four goals complete in ${formatTime(state.completionElapsedSeconds)}. Press T to beat your time, or keep the rally going.` : 'Finish all four goals to set a local best.');
             if (home) home.textContent = String(state.homePoints);
             if (away) away.textContent = String(state.awayPoints);
             if (sets) sets.textContent = `SETS ${state.homeSets} - ${state.awaySets}`;
@@ -6487,6 +6580,21 @@ updateCarousel() {
             if (expected) expected.textContent = state.expectedAction
                 ? `${String(state.expectedAction).toUpperCase()} READY`
                 : 'TRACK THE BALL';
+            const cue = volleyballCoachCue(state);
+            setText('coach-key', cue[0]);
+            setText('coach-title', cue[1]);
+            setText('coach-copy', cue[2]);
+            setText('drill-step', state.drillComplete ? 'COMPLETE' : `${Math.min(4, (state.drillStage || 0) + 1)} / 4`);
+            setText('drill-title', state.drillLabel || 'Build your serve');
+            setText('drill-instruction', state.drillInstruction || 'Use E or primary attack to serve.');
+            setText('drill-count', state.drillComplete ? 'Court skills complete — keep your rally going!' : `${state.drillProgress || 0} / ${state.drillTarget || 3}`);
+            setText('contact-count', state.drillSuccessfulContacts || 0);
+            setText('rally-best', state.drillLongestRally || 0);
+            if (fields['drill-fill']) fields['drill-fill'].style.width = `${volleyballDrillProgress(state)}%`;
+            if (state.drillContactSerial !== lastContactSerial) {
+                lastContactSerial = state.drillContactSerial || 0;
+                setText('contact-feedback', lastContactSerial ? `${String(state.drillLastContact).toUpperCase()} · CLEAN CONTACT` : 'Ready for your first contact');
+            }
         };
         return {
             mount(_runtime, state) {
@@ -8004,12 +8112,14 @@ updateCarousel() {
 
     loop() {
         const _now = performance.now();
-        if (!shouldRenderFrame(this.store.get('fpsLimit') || 0, this._lastFrameTime || 0, _now)) {
-            requestAnimationFrame(() => this.loop());
+        const requestedFps = this.store.get('fpsLimit') || 0;
+        const frameLimit = this.game.state === STATES.MENU ? Math.min(requestedFps || 60, 60) : requestedFps;
+        if (!shouldRenderFrame(frameLimit, this._lastFrameTime || 0, _now)) {
+            requestAnimationFrame(this._nextFrame);
             return;
         }
         this._lastFrameTime = _now;
-        requestAnimationFrame(() => this.loop());
+        requestAnimationFrame(this._nextFrame);
         const dt = Math.min(this.clock.getDelta(), 0.05);
 
         this._voiceSyncTimer = (this._voiceSyncTimer || 0) - dt;
@@ -8033,7 +8143,7 @@ updateCarousel() {
                 value.textContent = diag?.peers
                     ? `${fps} FPS | ${Math.round(diag.ping || 0)}ms | ${(health.packetLoss * 100).toFixed(0)}% LOSS | ${diag.peers}P`
                     : `${fps} FPS | LOCAL`;
-                value.parentElement?.classList.toggle('hidden', this.store.get('settings').publicDiagnostics === false);
+                value.parentElement?.classList.toggle('hidden', this.game.state === STATES.MENU || this.game.state === STATES.LOBBY || this.game.state === STATES.GAME_OVER || this.store.get('settings').publicDiagnostics === false);
                 const fpsCounter = document.getElementById('fps-counter');
                 if (fpsCounter && this.game._showFps) fpsCounter.textContent = `${fps} FPS`;
             }
@@ -8227,7 +8337,7 @@ updateCarousel() {
 
         // Replay kaydı — deflect olayları
         if (this.game.state === STATES.PLAYING && Replay.recording) {
-            Replay.recordSnapshot({
+            if (Replay.isSnapshotDue()) Replay.recordSnapshot({
                 ball: this.game.ball.position,
                 player: {
                     id: 'local',
@@ -8418,6 +8528,11 @@ updateCarousel() {
 
         // Menu background — show arena with slow cinematic camera
         if (this.game.state === STATES.MENU) {
+            // These opaque screens own a separate live showcase. The full arena,
+            // shadows and bloom underneath them cannot contribute a visible pixel.
+            if (['mainMenu', 'shop', 'avatar'].includes(document.body.dataset.screen)) return;
+            if (!shouldRenderFrame(30, this._lastMenuRender || 0, _now)) return;
+            this._lastMenuRender = _now;
             const t = performance.now() / 1000;
             // Look at center of court from a cinematic angle
             const dist = 50;
@@ -8469,34 +8584,49 @@ updateCarousel() {
 // Menu particle background — canvas-based floating dots
 function initMenuParticles() {
     const c = document.getElementById('menu-particles');
-    if (!c) return;
-    const ctx = c.getContext('2d');
-    let w, h, particles = [], running = true;
+    const ctx = c?.getContext('2d');
+    if (!ctx) return;
+    const particles = [];
+    const motion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+    let w = 1, h = 1, frame = 0, lastFrame = 0, running = false;
     function resize() { w = c.width = window.innerWidth; h = c.height = window.innerHeight; }
-    window.addEventListener('resize', resize);
     resize();
-    for (let i = 0; i < 60; i++) {
-        particles.push({
-            x: Math.random() * w, y: Math.random() * h,
-            vx: (Math.random() - 0.5) * 0.3, vy: (Math.random() - 0.5) * 0.3,
-            r: 1 + Math.random() * 2, a: 0.2 + Math.random() * 0.5
-        });
-    }
-    function draw() {
+    for (let i = 0; i < 40; i++) particles.push({
+        x: Math.random() * w, y: Math.random() * h,
+        vx: (Math.random() - .5) * 18, vy: (Math.random() - .5) * 18,
+        r: 1 + Math.random() * 2, color: `rgba(255,180,100,${.2 + Math.random() * .5})`
+    });
+    function draw(now) {
         if (!running) return;
+        frame = requestAnimationFrame(draw);
+        if (lastFrame && now - lastFrame < 1000 / 30 - .1) return;
+        const dt = lastFrame ? Math.min(.05, (now - lastFrame) / 1000) : 0;
+        lastFrame = now;
         ctx.clearRect(0, 0, w, h);
         for (const p of particles) {
-            p.x += p.vx; p.y += p.vy;
+            p.x += p.vx * dt; p.y += p.vy * dt;
             if (p.x < 0) p.x = w; if (p.x > w) p.x = 0;
             if (p.y < 0) p.y = h; if (p.y > h) p.y = 0;
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-            ctx.fillStyle = `rgba(255,180,100,${p.a})`;
-            ctx.fill();
+            ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+            ctx.fillStyle = p.color; ctx.fill();
         }
-        requestAnimationFrame(draw);
     }
-    draw();
+    function refresh() {
+        const active = document.body.dataset.screen === 'mainMenu'
+            && !document.hidden && !motion?.matches && !document.body.classList.contains('reduce-motion');
+        c.style.display = active ? '' : 'none';
+        if (running === active) return;
+        running = active;
+        cancelAnimationFrame(frame);
+        lastFrame = 0;
+        if (active) frame = requestAnimationFrame(draw);
+    }
+    window.addEventListener('resize', resize);
+    window.addEventListener('warrball:screen', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    motion?.addEventListener?.('change', refresh);
+    new MutationObserver(refresh).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    refresh();
 }
 
 // Boot

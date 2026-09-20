@@ -430,6 +430,7 @@ export class Game {
     }
 
     announceStreak(streak, killer) {
+        if (killer !== this.player) return;
         const labels = { 2: 'DOUBLE KILL!', 3: 'TRIPLE KILL!', 4: 'QUADRA KILL!', 5: 'PENTA KILL!' };
         const classes = { 2: 'double', 3: 'triple', 4: 'quadra', 5: 'penta' };
         if (streak >= 5 && this.isTeamAce(killer)) {
@@ -480,6 +481,7 @@ export class Game {
     }
 
     startSolo() {
+        this.ui.setRoomCode?.('LOCAL');
         this._practiceMode = false;
         document.querySelectorAll('#btn-add-bot-red, #btn-add-bot-blue').forEach(button => {
             button.disabled = false;
@@ -2168,14 +2170,11 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
 
     getCompetitiveHUDState() {
         const rules = this.competitiveRules;
-        const configuredMaxRounds = Number(this.mode?.mutators?.maxRounds);
         return {
             active: Boolean(rules),
             mode: this.mode?.name || '',
             round: this.scoreboard.roundNum,
-            maxRounds: Number.isFinite(configuredMaxRounds)
-                ? configuredMaxRounds
-                : this.scoreboard.maxRounds,
+            maxRounds: this.scoreboard.maxRounds,
             overtime: this._overtime || this._overtimeExtends > 0,
             suddenDeath: this._suddenDeathAnnounced === true,
             tiebreakRound: this._overtimeExtends,
@@ -3314,8 +3313,15 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         if (this._killPresentationKeys.has(key)) return false;
         this._killPresentationKeys.add(key);
 
-        // Let the immediate impact/round-win layer land, then hold a dedicated KO
-        // confirmation long enough to read. Competing match copy is deferred below.
+        const localName = this.playerName || this.player?.name;
+        const isLocalVictim = !!localName && victimName === localName;
+        const isLocalKiller = !isLocalVictim && !!localName && attackerName === localName;
+        // World effects and the match feed are shared, but personal confirmation is
+        // not. A client who did not score or die should keep its match-status lane.
+        if (!isLocalVictim && !isLocalKiller) return true;
+
+        // Let the immediate impact/round-win layer land, then hold personal result
+        // copy long enough to read. Competing match copy is deferred below.
         const delay = 100;
         const duration = 900;
         const now = performance.now();
@@ -3323,6 +3329,11 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         if (this._killConfirmationTimer) clearTimeout(this._killConfirmationTimer);
         this._killConfirmationTimer = setTimeout(() => {
             this._killConfirmationTimer = null;
+            if (isLocalVictim) {
+                const knownAttacker = attackerName && attackerName !== 'Unknown' && attackerName !== 'Environment';
+                this.ui?.showMessage?.(knownAttacker ? `ELIMINATED BY ${attackerName}` : 'ELIMINATED', duration);
+                return;
+            }
             this.ui?.showMessage?.(`KO CONFIRMED - ${victimName || 'Opponent'}`, duration);
             this.audio?.playCue?.('kill-confirm');
         }, delay);
@@ -3429,10 +3440,12 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             });
         }
         if (isClient && lethal && hitTarget === this.player) this._predictedLocalDeath = true;
-        if (lethal) this.killStreak++;
-        if (lethal && typeof window !== 'undefined' && window.comboStreakDisplay) {
-            window.comboStreakDisplay(true);
+        if (lethal && hitTarget === this.player) {
+            this.killStreak = 0;
+            if (this.ui) this.ui._comboPinnedUntil = 0;
+            this.ui.showCombo?.(0);
         }
+        if (lethal && attacker === this.player && hitTarget !== this.player) this.killStreak++;
         // Ball affix on-hit effect (e.g. burn)
         if (this.ball?._affixOnHit) {
             this.ball._affixOnHit(hitTarget);
@@ -3615,7 +3628,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 const tf2ComboSounds = ['', 'tf2_domination', 'tf2_crit', 'tf2_victory', 'tf2_victory', 'tf2_victory', 'tf2_victory'];
                 const idx = Math.min(this.killStreak, 6);
                 const comboName = comboNames[idx] || '';
-                if (comboName) {
+                if (comboName && attacker === this.player && hitTarget !== this.player) {
                     this._playComboSound(comboSounds[idx], comboPitchRate(comboTier(idx)));
                     if (tf2ComboSounds[idx]) this.audio.playSfx(tf2ComboSounds[idx], 0.5, comboPitchRate(comboTier(idx)));
                     this.ui.showCombo(idx, 8.0);
@@ -5354,6 +5367,11 @@ spawnPowerUp() {
 
         const isClient = this.network?.connected && !this.network?.isHost;
         const isLethal = data.lethal || data.alive === false;
+        if (isLethal && target === this.player) {
+            this.killStreak = 0;
+            if (this.ui) this.ui._comboPinnedUntil = 0;
+            this.ui.showCombo?.(0);
+        }
 
         // Client: play effects for every playerHit (host already played them)
         if (isClient && data.hitX !== undefined) {

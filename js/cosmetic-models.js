@@ -217,6 +217,18 @@ function createHat(item) {
         // the head so it reads as a backwards cap instead of another plain dome.
         group.add(new THREE.Mesh(new THREE.SphereGeometry(0.27, 9, 7, 0, Math.PI * 2, 0, Math.PI * 0.5), primary));
         group.add(part(new THREE.BoxGeometry(0.3, 0.045, 0.22), item.colors[1], 0, -0.01, 0.24));
+    } else if (item.style === 'headset') {
+        // Head-mounted styles use the same local y≈0 baseline as cap. The group
+        // itself is moved into the head socket's authored-space offset below.
+        group.add(new THREE.Mesh(new THREE.SphereGeometry(0.255, 9, 7, 0, Math.PI * 2, 0, Math.PI * 0.5), primary));
+        const band = new THREE.Mesh(new THREE.TorusGeometry(0.255, 0.025, 5, 14, Math.PI), basic(item.colors[1]));
+        band.rotation.z = Math.PI;
+        band.position.set(0, 0.015, 0);
+        group.add(band);
+        for (const x of [-0.275, 0.275]) {
+            group.add(part(new THREE.BoxGeometry(0.055, 0.14, 0.2), item.colors[1], x, -0.045, 0));
+        }
+        group.userData.silhouette = 'sport-headset';
     } else {
         group.add(new THREE.Mesh(new THREE.SphereGeometry(0.27, 9, 7, 0, Math.PI * 2, 0, Math.PI * 0.55), primary));
     }
@@ -329,6 +341,16 @@ function createBackpack(item) {
         for (const x of [-0.13, 0.13]) {
             group.add(part(new THREE.BoxGeometry(0.05, 0.46, 0.26), item.colors[1], x, 1.2, 0.27));
         }
+    } else if (item.style === 'court_bag') {
+        // A low-poly duffel instead of another rectangular tech pack: one body,
+        // end caps, a front pocket, and a broad court-ready carry strap.
+        group.add(part(new THREE.BoxGeometry(0.48, 0.34, 0.28), item.colors[0], 0, 1.18, 0.28));
+        for (const x of [-0.25, 0.25]) {
+            group.add(part(new THREE.CylinderGeometry(0.14, 0.14, 0.035, 8), item.colors[1], x, 1.18, 0.28));
+        }
+        group.add(part(new THREE.BoxGeometry(0.24, 0.16, 0.035), item.colors[1], 0, 1.14, 0.438));
+        group.add(part(new THREE.BoxGeometry(0.30, 0.055, 0.04), item.colors[1], 0, 1.4, 0.28));
+        group.userData.silhouette = 'court-bag';
     } else {
         const body = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.5, 0.24), bodyMat);
         body.position.set(0, 1.2, 0.26);
@@ -579,7 +601,10 @@ export function applyEntityCosmetics(entity, value) {
         entity.cosmeticsRoot.remove(child);
         disposeObject3D(child);
     }
-    for (const model of entity._rigCosmetics || []) disposeObject3D(model);
+    for (const model of entity._rigCosmetics || []) {
+        model.parent?.remove(model);
+        disposeObject3D(model);
+    }
     entity._rigCosmetics = [];
     for (const type of WEARABLE_SLOT_TYPES) {
         const item = COSMETICS[loadout[type]];

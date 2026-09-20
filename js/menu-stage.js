@@ -150,6 +150,8 @@ const ORBIT_PERIOD_SECONDS = 90;
 const ORBIT_RADIUS = 34;
 const ORBIT_HEIGHT = 15;
 const MAX_PIXEL_RATIO = 1.5;
+const IDLE_FRAME_INTERVAL_MS = 1000 / 60;
+const MAX_DECORATIVE_FPS = 60;
 // Backing-buffer budget independent of devicePixelRatio -- a 4K display gets scaled back
 // down to this pixel count instead of paying full native resolution for a decorative pass.
 const MAX_BACKING_PIXELS = 1280 * 900;
@@ -199,6 +201,8 @@ export class MenuStageRenderer {
 
         this._elapsed = 0;
         this._lastFrame = null;
+        this._nextDrawAt = null;
+        this._frameLimit = MAX_DECORATIVE_FPS;
         this._running = false;
         this._disposed = false;
 
@@ -369,10 +373,16 @@ export class MenuStageRenderer {
         this._themeObserver?.observe?.(root, { attributes: true, attributeFilter: ['data-theme'] });
 
         this._animate = time => {
-            const seconds = (Number(time) || 0) / 1000;
-            const delta = this._lastFrame === null ? 0 : Math.min(.1, Math.max(0, seconds - this._lastFrame));
-            this._lastFrame = seconds;
+            const now = Math.max(0, Number(time) || 0);
+            const frameInterval = 1000 / this._frameLimit;
+            const frameMs = this._lastFrame === null ? frameInterval : Math.max(0, now - this._lastFrame);
+            const delta = this._lastFrame === null ? 0 : Math.min(.1, frameMs / 1000);
+            this._lastFrame = now;
             this._elapsed += delta;
+            if (this._nextDrawAt !== null && now + Math.min(frameInterval / 2, frameMs / 2) + .001 < this._nextDrawAt) return;
+            if (this._nextDrawAt === null) this._nextDrawAt = now;
+            do this._nextDrawAt += frameInterval;
+            while (this._nextDrawAt <= now);
             this._advance(this._elapsed);
             this._renderFrame();
         };
@@ -421,15 +431,31 @@ export class MenuStageRenderer {
         }
     }
 
+    _resetAnimationClock() {
+        this._lastFrame = null;
+        this._nextDrawAt = null;
+    }
+
     _refreshLoop() {
         const shouldAnimate = this._running && !this._disposed && !this.reducedMotion && !this._document?.hidden;
         this.renderer.setAnimationLoop?.(shouldAnimate ? this._animate : null);
-        if (!shouldAnimate) this._lastFrame = null;
+        if (!shouldAnimate) this._resetAnimationClock();
     }
 
     _renderFrame() {
         if (this._disposed) return;
         this.renderer.render(this.scene, this.camera);
+    }
+
+    // Decorative scenes never exceed 60 FPS. Changing the cap starts a fresh cadence so
+    // a paused high-rate clock cannot delay the first frame at the new budget.
+    setFrameLimit(fps) {
+        const requested = Math.floor(Number(fps));
+        this._frameLimit = Number.isFinite(requested)
+            ? Math.max(1, Math.min(MAX_DECORATIVE_FPS, requested))
+            : MAX_DECORATIVE_FPS;
+        this._resetAnimationClock();
+        return this._frameLimit;
     }
 
     // In-app accessibility setting, OR-ed with the OS prefers-reduced-motion query (same
@@ -446,6 +472,7 @@ export class MenuStageRenderer {
     start() {
         if (this._disposed) return false;
         this._running = true;
+        this._resetAnimationClock();
         if (this.reducedMotion) this._advance(this._elapsed);
         this._refreshLoop();
         this._renderFrame();

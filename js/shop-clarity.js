@@ -37,6 +37,24 @@ export function matchesShopFilter(filterId, card = {}) {
     }
 }
 
+// Shared by the catalog controls and tests. Search treats user text as text,
+// including punctuation and accents; it is never turned into markup or a regexp.
+export function matchesShopQuery(card = {}, { query = '', rarity = 'all', slot = 'all' } = {}) {
+    if (rarity !== 'all' && card.rarity !== rarity) return false;
+    if (slot !== 'all' && card.category !== slot) return false;
+    const normalize = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const terms = normalize(query).trim().split(/\s+/).filter(Boolean);
+    const haystack = normalize(`${card.name || ''} ${card.description || ''} ${card.category || ''} ${card.rarity || ''}`);
+    return terms.every(term => haystack.includes(term));
+}
+
+export function compareShopItems(a, b, order = 'featured') {
+    if (order === 'price-low') return a.price - b.price || a.order - b.order;
+    if (order === 'price-high') return b.price - a.price || a.order - b.order;
+    if (order === 'name') return a.name.localeCompare(b.name) || a.order - b.order;
+    return a.order - b.order;
+}
+
 export function deriveShopCardState({ price = 0, owned = false, equipped = false, currency = 0 } = {}) {
     const affordable = owned || isShopItemAffordable(price, currency);
     const cost = Number.isFinite(price) ? Math.max(0, Math.round(price)) : 0;

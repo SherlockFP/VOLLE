@@ -57,7 +57,7 @@ test('competitive HUD is wired to the authoritative game HUD payload', async () 
     const css = await readFile(new URL('../css/polish.css', import.meta.url), 'utf8');
     assert.match(html, /id="hud-competitive-status"[\s\S]*?aria-live="polite"/);
     assert.match(ui, /this\.updateCompetitiveHUD\(competitive\);/);
-    assert.match(ui, /showHUD\(\)\s*\{\s*this\.updateCompetitiveHUD\(\);/);
+    assert.match(ui, /showHUD\(\)\s*\{\s*document\.body\.classList\.add\('match-ui-active'\);\s*this\.updateCompetitiveHUD\(\);/);
     assert.match(game, /competitive: this\.getCompetitiveHUDState\(\)/);
     assert.match(game, /overtimeExtends: this\._overtimeExtends/);
     assert.match(game, /overtimeTimer: this\._overtimeTimer/);
@@ -68,4 +68,17 @@ test('competitive HUD is wired to the authoritative game HUD payload', async () 
     assert.match(css, /@media \(max-width: 420px\)[\s\S]*?\.hud-competitive-status/);
     assert.match(css, /@media \(max-width: 700px\)[\s\S]*?\.hud-speed-text\s*\{[\s\S]*?display: none/);
     assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
+});
+
+test('competitive HUD uses the running match limit instead of the mode default', async () => {
+    const { compileGameMethod } = await import('./game-source.mjs');
+    const getState = compileGameMethod('getCompetitiveHUDState');
+    const payload = getState.call({
+        competitiveRules: { abilities: false, runes: false, passives: false, powerUps: false },
+        mode: { name: 'Rally Duel', mutators: { maxRounds: 5 } },
+        scoreboard: { roundNum: 1, maxRounds: 3 },
+        _overtime: false, _overtimeExtends: 0
+    });
+    assert.equal(payload.maxRounds, 3);
+    assert.equal(getCompetitiveHUDView(payload).roundLabel, 'ROUND 1/3');
 });

@@ -99,6 +99,23 @@ export const COSMETICS = Object.freeze({
     gloves_prism: item('gloves_prism', 'gloves', 'Prism Weave', 420, 'epic', ['#42266f', '#e279ff'], 'prism', 'Iridescent weave flashes through every deflect motion.'),
     gloves_crown: item('gloves_crown', 'gloves', 'Crownline Gauntlets', 620, 'legendary', ['#30204f', '#ffd66b'], 'royal', 'Champion gauntlets with articulated gold knuckle plates.'),
 
+    // Solar Circuit and Tidal Drift are shop collections, not case drops: both
+    // palettes remain readable against either team color and every name carries
+    // its collection word for the catalog search.
+    hat_solar_circuit_headset: item('hat_solar_circuit_headset', 'hat', 'Solar Circuit Headset', 340, 'epic', ['#f6af32', '#142a4b'], 'headset', 'Solar Circuit court comms with amber ear cups and a navy headband.'),
+    gloves_solar_circuit_grips: item('gloves_solar_circuit_grips', 'gloves', 'Solar Circuit Grips', 300, 'rare', ['#f6af32', '#142a4b'], 'kinetic', 'Solar Circuit palms tuned for quick court deflects.'),
+    cape_solar_circuit_streamer: item('cape_solar_circuit_streamer', 'cape', 'Solar Circuit Streamer', 360, 'rare', ['#f6af32', '#142a4b'], 'circuit', 'Solar Circuit warm amber fabric with a clean navy rally stripe.'),
+    wings_solar_circuit_panels: item('wings_solar_circuit_panels', 'wings', 'Solar Circuit Panels', 440, 'epic', ['#f6af32', '#142a4b'], 'circuit', 'Solar Circuit panel wings light up for a fast-break silhouette.'),
+    shoes_solar_circuit_sprints: item('shoes_solar_circuit_sprints', 'shoes', 'Solar Circuit Sprints', 340, 'epic', ['#f6af32', '#142a4b'], 'electric', 'Solar Circuit court shoes with amber launch markers.'),
+    backpack_solar_circuit_court_bag: item('backpack_solar_circuit_court_bag', 'backpack', 'Solar Circuit Court Bag', 420, 'epic', ['#f6af32', '#142a4b'], 'court_bag', 'Solar Circuit duffel packed for the next amber-and-navy match.'),
+
+    hat_tidal_drift_cap: item('hat_tidal_drift_cap', 'hat', 'Tidal Drift Cap', 280, 'rare', ['#74e4cf', '#313c8a'], 'cap', 'Tidal Drift mint cap with an indigo back brim.'),
+    cape_tidal_drift_swell: item('cape_tidal_drift_swell', 'cape', 'Tidal Drift Swell', 300, 'rare', ['#74e4cf', '#313c8a'], 'frost', 'Tidal Drift fabric folds like a cool mint wave.'),
+    wings_tidal_drift_sails: item('wings_tidal_drift_sails', 'wings', 'Tidal Drift Sails', 380, 'epic', ['#74e4cf', '#313c8a'], 'paper', 'Tidal Drift sail wings catch every indigo crosscourt turn.'),
+    shoes_tidal_drift_skimmers: item('shoes_tidal_drift_skimmers', 'shoes', 'Tidal Drift Skimmers', 300, 'rare', ['#74e4cf', '#313c8a'], 'cloud', 'Tidal Drift mint soles skim lightly across the court.'),
+    backpack_tidal_drift_float: item('backpack_tidal_drift_float', 'backpack', 'Tidal Drift Float Pack', 380, 'epic', ['#74e4cf', '#313c8a'], 'supplies', 'Tidal Drift court supplies ride in a compact indigo float pack.'),
+    pet_tidal_drift_ray: item('pet_tidal_drift_ray', 'pet', 'Tidal Drift Ray', 460, 'legendary', ['#74e4cf', '#313c8a'], 'axolotl', 'A Tidal Drift mint-and-indigo companion glides at your side.'),
+
     finisher_confetti: item('finisher_confetti', 'finisher', 'Victory Confetti', 260, 'rare', ['#ffe14a', '#ff4d8f'], 'confetti', 'Eliminations burst into golden confetti.'),
     finisher_shatter: item('finisher_shatter', 'finisher', 'Shatter Point', 300, 'rare', ['#e8ffff', '#48a9ff'], 'shatter', 'Opponents crack apart like frozen glass.'),
     finisher_lightning: item('finisher_lightning', 'finisher', 'Thunderstrike', 400, 'epic', ['#fff257', '#3570ff'], 'lightning', 'A bolt seals the elimination in light.'),

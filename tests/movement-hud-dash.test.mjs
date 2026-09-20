@@ -3,11 +3,13 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const rootDir = new URL('../', import.meta.url);
-const [main, ui, css] = await Promise.all([
+const [main, ui, rawCss] = await Promise.all([
     readFile(new URL('js/main.js', rootDir), 'utf8'),
     readFile(new URL('js/ui.js', rootDir), 'utf8'),
     readFile(new URL('css/polish.css', rootDir), 'utf8')
 ]);
+
+const css = rawCss.replace(/\r\n/g, '\n');
 
 function makeElement() {
     const classes = new Set();

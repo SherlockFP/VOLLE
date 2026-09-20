@@ -1,0 +1,116 @@
+/* VOLLE: navigation and collection polish. Loaded after the legacy theme stack. */
+.ow-bot-play {
+    width: 100%; min-height: 64px; display: grid;
+    grid-template-columns: 28px minmax(0, 1fr) 18px; align-items: center; gap: 12px;
+    padding: 10px 14px; border: 1px solid rgba(100, 232, 214, .5);
+    color: #e9ffff; background: linear-gradient(110deg, #133c43, #10232f);
+    text-align: left; font: inherit; cursor: pointer;
+}
+.ow-bot-play b { display: block; font-size: .9rem; letter-spacing: .05em; }
+.ow-bot-play small { display: block; color: #a0c7ca; margin-top: 4px; font-size: .72rem; }
+.ow-bot-play:hover { background: linear-gradient(110deg, #1b5357, #142e41); border-color: #88ffee; }
+.ow-bot-play:focus-visible { outline: 3px solid #a4fff1; outline-offset: 3px; }
+
+/* A collapsed rail is a control, not an empty opaque panel covering the hero. */
+@media (min-width: 761px) {
+    #main-menu .friends-sidebar.collapsed {
+        width: 184px; height: 58px; min-height: 58px; max-height: 58px;
+        right: 20px; bottom: auto; transform: none; border-radius: 12px;
+        overflow: hidden;
+    }
+    #main-menu .friends-sidebar.collapsed .friends-sidebar-header { width: 100%; min-width: 0; }
+    #main-menu .friends-sidebar.collapsed .friends-sidebar-body { display: none; }
+    #main-menu .ow-splash { right: 24px; }
+}
+
+/* Combat lives only in a match. Timed effects cannot escape into another screen. */
+body:not(.match-ui-active) :is(#combo-display, #combo-counter, #combo-meter,
+    #streak-banner, #damage-flash, #round-banner, #killcam, #killcam-overlay,
+    #damage-numbers, #damage-number-container, #incoming-indicator, #hit-marker,
+    #combo-edge-glow, #damage-direction-container, #perfect-deflect-hud) {
+    display: none !important;
+}
+body:not(.match-ui-active) :is(.damage-number, .dmg-num) { display: none !important; }
+body[data-screen="mainMenu"] #network-diagnostics,
+body[data-screen="shop"] #network-diagnostics,
+body[data-screen="lobby"] #network-diagnostics { display: none !important; }
+
+.shop-discovery { display: grid; grid-template-columns: minmax(150px, 1fr) 124px 160px; gap: 8px; min-width: 0; }
+.shop-discovery label { min-width: 0; display: grid; gap: 5px; }
+.shop-discovery label > span { color: #a5c9d2; font-size: .65rem; letter-spacing: .06em; font-weight: 800; }
+.shop-discovery :is(input, select) {
+    width: 100%; min-width: 0; height: 40px; padding: 8px 10px;
+    color: #efffff; background: #091e2b; border: 1px solid #345463; border-radius: 8px;
+    font: inherit; font-size: .76rem;
+}
+.shop-discovery input::placeholder { color: #85a7b4; }
+.shop-discovery :is(input, select):focus-visible { outline: 2px solid #62f1dc; outline-offset: 1px; }
+.shop-discovery #shop-slot-label { grid-column: 1 / -1; grid-template-columns: auto minmax(150px, 1fr); align-items: center; }
+.shop-discovery #shop-slot-label[hidden], .shop-no-results[hidden], .cosmetic-category-title[hidden] { display: none !important; }
+#shop-screen .shop-catalog { grid-template-rows: auto auto auto minmax(0, 1fr); }
+#shop-screen .shop-grid { min-height: 0; }
+#shop-screen .shop-catalog:has(.shop-no-results:not([hidden])) { grid-template-rows: auto auto auto auto minmax(0, 1fr); }
+.shop-no-results { padding: 22px 12px; text-align: center; border: 1px dashed #385563; border-radius: 12px; color: #e9ffff; }
+.shop-no-results p { color: #a5c9d2; font-size: .8rem; margin: 8px 0 14px; }
+#shop-screen .shop-catalog-count { white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* Explicit image bounds prevent intrinsic square images overflowing a short
+   portrait row and being clipped out of their own preview on compact desktops. */
+#shop-screen .shop-character-select .shop-portrait { position: relative; min-height: 0; }
+#shop-screen .shop-character-select .shop-portrait img {
+    position: absolute; inset: 0; width: 100%; height: 100%; min-height: 0;
+    object-fit: cover; object-position: center 28%;
+}
+#shop-screen .shop-card.shop-dim { opacity: 1; filter: none; }
+#shop-screen .shop-shortfall-note { color: #b4c8d3; font-size: .72rem; }
+#shop-screen .cosmetic-card > .cosmetic-preview { transform: none; }
+
+@media (min-width: 981px) and (max-height: 800px) {
+    #shop-screen { --shop-character-art-height: 112px; --shop-character-description-height: 36px; --shop-character-row-gaps: 18px; --shop-character-card-padding: 24px; }
+    #shop-screen .shop-card[data-shop-preview="character"] { padding: 12px; }
+    #shop-screen .shop-card { min-height: 260px; }
+    #shop-screen .shop-discovery :is(input, select) { height: 36px; }
+    #main-menu .ow-nav { gap: 8px; }
+    #main-menu .ow-social-lobby { min-height: 64px; }
+}
+@media (max-width: 980px) {
+    #shop-screen .shop-catalog { display: flex; flex-direction: column; overflow: visible; }
+    #shop-screen .shop-grid { flex: none; max-height: none; overflow: visible; }
+    #shop-screen .shop-showcase { grid-template-columns: minmax(120px, .8fr) minmax(0, 1fr); grid-template-rows: auto; }
+    #shop-screen .shop-showcase-stage { min-height: 220px; max-height: 300px; }
+    #shop-screen .shop-selected-detail { padding: 14px; }
+    #shop-screen .shop-selected-detail h2 { font-size: 1.2rem; }
+    #shop-screen .shop-showcase-status { font-size: .7rem; }
+}
+@media (max-width: 620px) {
+    .shop-discovery { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    .shop-search-label { grid-column: 1 / -1; }
+    #shop-screen .shop-showcase { grid-template-columns: 118px minmax(0, 1fr); }
+    #shop-screen .shop-showcase-stage { min-height: 220px; }
+    #shop-screen .shop-live-badge { font-size: .53rem; padding: 5px; left: 5px; top: 6px; }
+    #shop-screen .shop-rotate-hint { font-size: .52rem; padding: 5px; left: 5px; right: auto; }
+    #shop-screen .shop-selected-detail { padding: 10px; }
+    #shop-screen .shop-selected-detail .btn { min-height: 40px; font-size: .65rem; padding: 8px; }
+    #shop-screen .shop-catalog { padding: 12px; }
+    #shop-screen .shop-catalog-header h2 { font-size: 1.2rem; }
+    #shop-screen .shop-filters { flex-wrap: wrap; }
+    #shop-screen .shop-filters .shop-filter-chip { min-height: 36px; padding: 7px 12px; }
+    #shop-screen .shop-card { min-height: 240px; }
+    #shop-screen .shop-character-select { grid-template-columns: 96px minmax(0, 1fr); grid-template-rows: auto auto auto; min-height: 160px; }
+    #shop-screen .shop-character-select .shop-portrait { width: 96px; height: 150px; grid-row: 1 / 4; }
+    #shop-screen .shop-card[data-shop-preview="character"] { min-height: 190px; }
+}
+
+/* Keep copy and actions in normal flow; long descriptions may grow a card. */
+#shop-screen .cosmetic-card { height: auto; }
+#shop-screen .cosmetic-card > * { flex-shrink: 0; }
+#shop-screen .cosmetic-card > .cosmetic-preview { min-height: 92px; height: 92px; }
+#shop-screen .cosmetic-card > .shop-card-actions { margin-top: 12px; }
+
+@media (max-width: 980px) {
+    #shop-screen .shop-shell { display: flex; flex-direction: column; }
+    #shop-screen .shop-shell > * { flex-shrink: 0; }
+    #shop-screen .shop-showcase-layout { display: flex; flex-direction: column; }
+    #shop-screen .shop-showcase { min-height: 220px; flex-shrink: 0; }
+    #shop-screen .shop-catalog { flex-shrink: 0; }
+}

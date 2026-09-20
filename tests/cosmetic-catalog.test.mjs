@@ -10,11 +10,12 @@ import {
     resolveEquippedGlove
 } from '../js/cosmetic-catalog.js';
 
-// cape/aura/trail are 7 (not 6): the Dark Eater set adds one wearable to each.
+// Solar Circuit adds cape/shoes/hat/wings/backpack/gloves; Tidal Drift adds
+// cape/pet/shoes/hat/wings/backpack. Dark Eater still adds cape/aura/trail.
 const EXPECTED_COUNTS = {
-    cape: 7, pet: 6, shoes: 6, aura: 7, impact: 6,
-    hat: 8, mask: 6, wings: 6, backpack: 5, banner: 4, trail: 7, finisher: 5,
-    gloves: 3
+    cape: 9, pet: 7, shoes: 8, aura: 7, impact: 6,
+    hat: 10, mask: 6, wings: 8, backpack: 7, banner: 4, trail: 7, finisher: 5,
+    gloves: 4
 };
 
 test('wearable catalog has priced effect skins in every slot', () => {

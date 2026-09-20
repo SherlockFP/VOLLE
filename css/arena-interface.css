@@ -1,0 +1,215 @@
+/* Astra's shared arena interface. Local tokens preserve all six user themes.
+   Layout contracts for chat, card collections, shop and results stay intact. */
+:root {
+    --arena-ink: var(--ui-text);
+    --arena-muted: var(--ui-muted);
+    --arena-accent: var(--ui-primary);
+    --arena-gold: var(--ui-warning);
+    --arena-base: color-mix(in srgb, var(--ui-bg) 75%, #080f1c);
+    --arena-panel: color-mix(in srgb, var(--ui-bg-elevated) 80%, #0b1424);
+    --arena-card: color-mix(in srgb, var(--ui-surface) 65%, #0b1424);
+    --arena-line: color-mix(in srgb, var(--ui-muted) 24%, transparent);
+}
+:is(#character-screen, #battlepass-screen, #achievements-screen, #daily-screen,
+    #ranked-screen, #screen-profile, #leaderboard-screen, #replays-screen,
+    #social-screen, #social-center-screen, #patchnotes-screen, #practice-menu-screen,
+    #tournament-screen, #join-menu, #game-over-screen, #multiplayer-menu) {
+    color: var(--arena-ink);
+    background: radial-gradient(ellipse at 88% 0%, color-mix(in srgb, var(--arena-accent) 9%, transparent), transparent 50%), var(--arena-base);
+}
+:is(#character-screen, #battlepass-screen, #achievements-screen, #daily-screen,
+    #ranked-screen, #leaderboard-screen, #replays-screen, #social-screen,
+    #social-center-screen, #patchnotes-screen, #practice-menu-screen,
+    #tournament-screen, #join-menu, #game-over-screen) > .panel,
+#screen-profile .profile-container {
+    color: var(--arena-ink); background: var(--arena-panel);
+    border: 1px solid var(--arena-line); border-radius: 20px;
+    box-shadow: 0 18px 50px #0004; backdrop-filter: none;
+    text-align: left;
+}
+:is(#character-screen, #battlepass-screen, #achievements-screen, #daily-screen,
+    #ranked-screen, #leaderboard-screen, #replays-screen, #social-screen,
+    #social-center-screen, #patchnotes-screen, #practice-menu-screen,
+    #tournament-screen, #join-menu, #game-over-screen) :is(h1, h2),
+#screen-profile h2 {
+    color: var(--arena-ink); -webkit-text-fill-color: currentColor;
+    background: none; text-shadow: none; letter-spacing: -.03em;
+}
+.screen :is(.shell-header, .leaderboard-header) { border-color: var(--arena-line); gap: 20px; }
+.screen .shell-kicker { color: var(--arena-accent); font-size: .64rem; letter-spacing: .16em; font-weight: 800; }
+.screen .shell-header h1, #leaderboard-screen h1 { font-size: clamp(1.55rem, 3vw, 2.4rem); line-height: 1.1; margin-bottom: 6px; }
+.screen :is(.shell-title p, .leaderboard-header p, .locker-section-header p) { color: var(--arena-muted); font-size: .82rem; line-height: 1.5; }
+.screen .shell-icon { width: 48px; height: 48px; flex-shrink: 0; color: var(--arena-accent); border: 1px solid var(--arena-line); border-radius: 13px; background: var(--arena-card); box-shadow: none; }
+.screen .meta-stat { color: var(--arena-ink); border: 1px solid var(--arena-line); border-radius: 10px; background: var(--arena-card); box-shadow: none; }
+.screen .meta-stat :is(b, strong) { color: var(--arena-gold); }
+.screen .meta-stat small { color: var(--arena-muted); }
+/* Clear action hierarchy without overriding shop purchase or team semantics. */
+:is(#character-screen, #battlepass-screen, #achievements-screen, #daily-screen,
+    #ranked-screen, #screen-profile, #leaderboard-screen, #replays-screen,
+    #social-screen, #social-center-screen, #patchnotes-screen, #practice-menu-screen,
+    #tournament-screen, #join-menu, #game-over-screen, #multiplayer-menu) .btn {
+    min-height: 44px; border-radius: 10px; letter-spacing: .025em;
+    font-size: .75rem; box-shadow: none; text-shadow: none;
+}
+:is(#character-screen, #battlepass-screen, #ranked-screen, #social-screen,
+    #social-center-screen, #practice-menu-screen, #tournament-screen,
+    #join-menu, #game-over-screen, #multiplayer-menu) .btn-primary {
+    color: #071d24; border-color: var(--arena-accent); background: var(--arena-accent);
+}
+:is(#character-screen, #battlepass-screen, #achievements-screen, #daily-screen,
+    #ranked-screen, #screen-profile, #leaderboard-screen, #replays-screen,
+    #social-screen, #social-center-screen, #patchnotes-screen, #practice-menu-screen,
+    #tournament-screen, #join-menu, #game-over-screen, #multiplayer-menu) :is(.btn-secondary, .btn-back) {
+    color: var(--arena-muted); border: 1px solid var(--arena-line); background: transparent;
+}
+.screen .shell-back { width: fit-content; min-width: 164px; margin-top: 20px; }
+.screen :is(button, input, select, summary):focus-visible,
+#unified-settings :is(button, input, select):focus-visible { outline: 3px solid var(--ui-focus); outline-offset: 3px; }
+
+/* Settings reads as a control desk, with a fixed title and one scroll area. */
+#unified-settings { background: #030a13c9; backdrop-filter: none; }
+#unified-settings .settings-modal {
+    width: min(1020px, calc(100vw - 32px)); max-height: calc(100dvh - 32px);
+    border: 1px solid var(--arena-line); border-radius: 20px;
+    background: var(--arena-panel) !important; backdrop-filter: none;
+    box-shadow: 0 25px 70px #0008;
+}
+#unified-settings .settings-header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 18px; padding: 18px 22px; border-color: var(--arena-line); background: var(--arena-panel); }
+#unified-settings .settings-title-icon { color: var(--arena-accent); background: var(--arena-card); border-color: var(--arena-line); border-radius: 11px; }
+#unified-settings .settings-title h2 { color: var(--arena-ink); -webkit-text-fill-color: currentColor; font-size: 1.35rem; letter-spacing: -.03em; }
+#unified-settings .settings-kicker { color: var(--arena-accent); letter-spacing: .16em; font-size: .58rem; }
+#unified-settings .settings-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; padding: 4px; border: 1px solid var(--arena-line); border-radius: 11px; background: var(--arena-base); }
+#unified-settings .settings-tab { min-height: 40px; padding: 7px 10px; border-radius: 7px; color: var(--arena-muted); font-size: .72rem; }
+#unified-settings .settings-tab.selected { color: var(--arena-accent); background: var(--arena-card); box-shadow: none; }
+#unified-settings .settings-tab::after { display: none; }
+#unified-settings .settings-close-btn { width: 42px; height: 42px; border-radius: 10px; color: var(--arena-muted); background: var(--arena-card); border-color: var(--arena-line); }
+#unified-settings .settings-scroll { padding: 22px; background: var(--arena-base); min-height: 0; scrollbar-width: thin; scrollbar-color: var(--ui-border) transparent; }
+#unified-settings .settings-section { width: 100%; max-width: none; margin: 0; padding: 20px; border: 1px solid var(--arena-line); border-radius: 14px; background: var(--arena-panel) !important; box-shadow: none; }
+#unified-settings .settings-section-heading { padding-bottom: 15px; margin-bottom: 10px; border-bottom: 1px solid var(--arena-line); }
+#unified-settings .settings-section-heading h3 { font-size: 1.3rem; color: var(--arena-ink); }
+#unified-settings .settings-section-heading p { color: var(--arena-muted); font-size: .77rem; line-height: 1.55; }
+#unified-settings .settings-row, #unified-settings [data-settings-section="controls"] .settings-row {
+    min-height: 60px; padding: 12px; margin: 0 0 7px; border: 1px solid var(--arena-line) !important;
+    border-radius: 10px; background: var(--arena-card) !important; box-shadow: none;
+}
+#unified-settings .settings-row > label:first-child { color: var(--arena-ink); font-size: .78rem; }
+#unified-settings :is(.settings-row-desc, .settings-hint) { color: var(--arena-muted); font-size: .67rem; line-height: 1.5; }
+#unified-settings .settings-subgroup-label { color: var(--arena-accent); border: 0; padding: 8px 0; margin-top: 15px; letter-spacing: .14em; }
+#unified-settings .settings-row :is(select, input[type="number"]) { min-height: 40px; border-radius: 8px; color: var(--arena-ink); background: var(--arena-base); border-color: var(--arena-line); }
+#unified-settings .settings-reset-btn { min-height: 36px; border-radius: 8px; font-size: .65rem; }
+
+/* Sport selection and lobby: the existing compact chat/map layout is retained. */
+#multiplayer-menu .sport-select-stage { border-color: var(--arena-line); border-radius: 20px; background: var(--arena-panel); box-shadow: none; backdrop-filter: none; }
+#multiplayer-menu .sport-card { border: 1px solid var(--arena-line); border-radius: 16px; background: var(--arena-card); box-shadow: none; }
+#multiplayer-menu .sport-card-volleyball { border-color: color-mix(in srgb, var(--arena-gold) 40%, var(--arena-line)); background: linear-gradient(140deg, color-mix(in srgb, var(--arena-gold) 8%, var(--arena-card)), var(--arena-card)); }
+#multiplayer-menu .sport-card-mark { color: var(--arena-accent); border-color: var(--arena-line); border-radius: 16px; background: var(--arena-base); box-shadow: none; }
+#multiplayer-menu .sport-card-volleyball .sport-card-mark { color: var(--arena-gold); }
+#multiplayer-menu .sport-card-copy small { color: var(--arena-muted); }
+#multiplayer-menu .sport-card-action { color: var(--arena-accent); }
+#multiplayer-menu :is(.mp-left, .mp-right, .quick-play-builder) { border-color: var(--arena-line); border-radius: 14px; background: var(--arena-panel); box-shadow: none; backdrop-filter: none; }
+#multiplayer-menu .mp-lobby-card { border-color: var(--arena-line); background: var(--arena-card); border-radius: 10px; }
+#lobby-screen { background: var(--arena-base); }
+#lobby-screen :is(.cs-topbar, .cs-bottom) { color: var(--arena-ink); border-color: var(--arena-line); background: var(--arena-panel); box-shadow: none; backdrop-filter: none; }
+#lobby-screen :is(.cs-section, .cs-team-col) { border-color: var(--arena-line); border-radius: 12px; background: var(--arena-panel); box-shadow: none; }
+#lobby-screen .cs-team-col.red { border-top: 3px solid #ff6377; }
+#lobby-screen .cs-team-col.blue { border-top: 3px solid #68b6ff; }
+#lobby-screen .cs-section-title { color: var(--arena-muted); font-size: .62rem; letter-spacing: .12em; }
+#lobby-screen .cs-mode-btn { border-radius: 7px; border-color: var(--arena-line); color: var(--arena-muted); background: var(--arena-base); }
+#lobby-screen .cs-mode-btn.selected { color: var(--arena-accent); border-color: var(--arena-accent); background: color-mix(in srgb, var(--arena-accent) 10%, var(--arena-base)); }
+#lobby-screen .cs-btn-start { color: #071d24; background: var(--arena-accent); border-color: var(--arena-accent); border-radius: 10px; box-shadow: none; }
+#lobby-screen .cs-btn-back { border-radius: 8px; color: var(--arena-muted); background: var(--arena-card); border-color: var(--arena-line); }
+#lobby-screen #lobby-network-status { color: var(--arena-accent); font-size: .6rem; letter-spacing: .08em; }
+
+/* Progression and collections use strong headings and quieter card surfaces. */
+#character-screen .locker-rail { gap: 6px; padding: 5px; border: 1px solid var(--arena-line); border-radius: 11px; background: var(--arena-base); }
+#character-screen .locker-tab { min-height: 42px; border-radius: 7px; color: var(--arena-muted); border-color: transparent; background: transparent; }
+#character-screen .locker-tab.selected { color: var(--arena-accent); background: var(--arena-card); border-color: var(--arena-line); }
+#character-screen :is(.locker-inventory-card, .hero-card) { border-radius: 12px; border-color: var(--arena-line); background: var(--arena-card); }
+#battlepass-screen .progression-hero { border: 1px solid color-mix(in srgb, var(--arena-accent) 35%, var(--arena-line)); border-radius: 15px; background: linear-gradient(110deg, color-mix(in srgb, var(--arena-accent) 11%, var(--arena-panel)), var(--arena-panel)); box-shadow: none; }
+#battlepass-screen .progression-hero strong { color: var(--arena-ink); font-size: clamp(1.1rem, 2vw, 1.6rem); }
+#battlepass-screen .progression-hero p { color: var(--arena-muted); }
+#battlepass-screen .bp-season-value { background: var(--arena-card); border-color: var(--arena-line); border-radius: 12px; }
+#battlepass-screen .bp-tier { border-radius: 12px; border-color: var(--arena-line); background: var(--arena-card); }
+#achievements-screen .achievement-summary { gap: 10px; }
+#achievements-screen .achievement-summary > span { border-radius: 10px; background: var(--arena-card); border-color: var(--arena-line); }
+#achievements-screen .achievement-summary strong { color: var(--arena-gold); }
+#achievements-screen .achievement-card { border-radius: 12px; background: var(--arena-card); border-color: var(--arena-line); box-shadow: none; }
+#achievements-screen .achievement-card.unlocked { border-color: color-mix(in srgb, var(--arena-accent) 55%, var(--arena-line)); }
+#ranked-screen :is(.career-rank-card, .career-stat-card, .career-milestones, .career-history),
+#social-center-screen .community-layout > section { border-radius: 13px; border-color: var(--arena-line); background: var(--arena-card); box-shadow: none; }
+#ranked-screen .career-stat-card b { color: var(--arena-ink); font-variant-numeric: tabular-nums; }
+#ranked-screen .career-stat-card span { color: var(--arena-muted); }
+#screen-profile .profile-container { width: min(760px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 28px; overflow-y: auto; }
+#screen-profile .profile-stats { gap: 10px; }
+#screen-profile .profile-stats > div { color: var(--arena-ink); border: 1px solid var(--arena-line); background: var(--arena-card); border-radius: 12px; }
+#leaderboard-screen .leaderboard-filters { gap: 6px; padding: 5px; background: var(--arena-base); border: 1px solid var(--arena-line); border-radius: 11px; }
+#leaderboard-screen .leaderboard-filters button { min-height: 42px; color: var(--arena-muted); border-radius: 7px; background: transparent; }
+#leaderboard-screen .leaderboard-filters button.selected { color: var(--arena-accent); background: var(--arena-card); }
+#leaderboard-screen .leaderboard-table-wrap { border-radius: 12px; border-color: var(--arena-line); }
+#leaderboard-screen .scoreboard-table { color: var(--arena-ink); background: var(--arena-panel); }
+#leaderboard-screen .scoreboard-table th { color: var(--arena-muted); background: var(--arena-base); letter-spacing: .08em; }
+#leaderboard-screen .scoreboard-table td { border-color: var(--arena-line); }
+#leaderboard-screen .scoreboard-table tbody tr:hover { background: var(--arena-card); }
+#replays-screen .replay-card { border-radius: 12px; background: var(--arena-card); border-color: var(--arena-line); box-shadow: none; }
+#replays-screen .replay-empty { min-height: 220px; border: 1px dashed var(--arena-line); border-radius: 14px; background: var(--arena-base); color: var(--arena-muted); }
+#practice-menu-screen .practice-menu-panel { padding: clamp(22px, 4vw, 42px); }
+#practice-menu-screen .practice-mode-grid { gap: 16px; margin-block: 24px; }
+#practice-menu-screen .practice-mode-card { min-height: 210px; padding: 26px; border: 1px solid var(--arena-line); border-radius: 15px; background: var(--arena-card); box-shadow: none; text-align: left; }
+#practice-menu-screen .practice-mode-card:first-child { border-color: color-mix(in srgb, var(--arena-accent) 50%, var(--arena-line)); }
+#practice-menu-screen .practice-mode-card > span { color: var(--arena-accent); font-size: .62rem; letter-spacing: .14em; }
+#practice-menu-screen .practice-mode-card b { color: var(--arena-ink); font-size: 1.5rem; letter-spacing: -.025em; }
+#practice-menu-screen .practice-mode-card small { color: var(--arena-muted); line-height: 1.65; }
+#practice-menu-screen .practice-mode-card:hover { border-color: var(--arena-accent); background: color-mix(in srgb, var(--arena-accent) 7%, var(--arena-card)); transform: none; }
+#game-over-screen .game-over-panel { border-top: 3px solid var(--arena-accent); }
+#game-over-screen .scoreboard-scroll { border-radius: 12px; border-color: var(--arena-line); }
+#post-game-screen .pg-panel { border-radius: 18px; border-color: var(--arena-line); background: var(--arena-panel); backdrop-filter: none; }
+#post-game-screen .pg-rematch-hero { border-color: color-mix(in srgb, var(--arena-accent) 40%, var(--arena-line)); background: var(--arena-card); border-radius: 12px; }
+#post-game-screen #pg-play-again { border-radius: 9px; background: var(--arena-accent); color: #071d24; box-shadow: none; }
+/* Integrate the new solo selector without changing its behavior. */
+.solo-paths { background: var(--arena-panel); border-color: var(--arena-line); }
+.solo-paths::backdrop { backdrop-filter: none; }
+.solo-path-card { background: var(--arena-card); border-color: var(--arena-line); }
+.solo-path-card[aria-pressed="true"] { border-color: var(--arena-accent); background: color-mix(in srgb, var(--arena-accent) 12%, var(--arena-card)); box-shadow: inset 0 0 0 1px var(--arena-accent); }
+.solo-paths :is(.solo-kicker, .solo-path-icon) { color: var(--arena-accent); }
+.solo-start { color: #071d24; background: var(--arena-accent); }
+
+@media (max-width: 760px) {
+    :is(#battlepass-screen, #achievements-screen, #daily-screen, #ranked-screen,
+        #leaderboard-screen, #replays-screen, #social-screen, #social-center-screen,
+        #patchnotes-screen, #practice-menu-screen, #tournament-screen, #join-menu,
+        #game-over-screen) > .panel {
+        min-width: 0; width: calc(100vw - 20px); max-height: calc(100dvh - 20px);
+        padding: 18px; border-radius: 15px; overflow-y: auto; overscroll-behavior: contain;
+    }
+    .screen :is(.shell-header, .leaderboard-header) { flex-wrap: wrap; gap: 14px; padding-bottom: 15px; margin-bottom: 16px; }
+    .screen .shell-title { gap: 10px; }
+    .screen .shell-icon { width: 40px; height: 40px; border-radius: 10px; }
+    .screen .shell-header h1 { font-size: 1.65rem; }
+    .screen .shell-title p { font-size: .74rem; }
+    .screen .shell-back { width: 100%; }
+    #unified-settings .settings-modal { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); border-radius: 15px; }
+    #unified-settings .settings-header { grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; padding: 14px; }
+    #unified-settings .settings-title { grid-column: 1; grid-row: 1; }
+    #unified-settings .settings-saved-indicator { grid-column: 2; grid-row: 1; }
+    #unified-settings .settings-close-btn { grid-column: 3; grid-row: 1; }
+    #unified-settings .settings-tabs { grid-column: 1 / -1; grid-row: 2; }
+    #unified-settings .settings-tab { padding-inline: 5px; font-size: .62rem; }
+    #unified-settings .settings-scroll { padding: 10px; }
+    #unified-settings .settings-section { padding: 12px; }
+    #unified-settings .settings-section-heading { flex-wrap: wrap; gap: 10px; }
+    #unified-settings .settings-row, #unified-settings [data-settings-section="controls"] .settings-row { padding: 10px; }
+    #unified-settings .settings-row select { max-width: 100%; }
+    #screen-profile .profile-container { width: calc(100vw - 20px); padding: 20px; border-radius: 15px; }
+    #practice-menu-screen .practice-mode-grid { grid-template-columns: 1fr; gap: 10px; margin-block: 18px; }
+    #practice-menu-screen .practice-mode-card { min-height: 150px; padding: 20px; }
+    #practice-menu-screen .practice-mode-card b { font-size: 1.25rem; }
+    #leaderboard-screen .leaderboard-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    #leaderboard-screen .leaderboard-table-wrap { overflow-x: auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+    :is(#unified-settings, #multiplayer-menu, #lobby-screen, #character-screen,
+        #battlepass-screen, #achievements-screen, #ranked-screen, #practice-menu-screen,
+        #replays-screen, #leaderboard-screen, #post-game-screen) * {
+        animation-duration: .001ms !important; transition-duration: .001ms !important;
+    }
+}

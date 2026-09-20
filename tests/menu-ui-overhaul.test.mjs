@@ -102,8 +102,8 @@ test('selected ball drives the persistent live showcase with real model geometry
         'gameplay shuriken lies edge-on to the showcase camera unless its inner model is faced forward');
     assert.match(main, /group\.userData\.previewSpinAxis = 'z'/,
         'flat shuriken previews must spin in their face plane instead of turning edge-on every half rotation');
-    assert.match(main, /model\.rotation\[previewSpinAxis\] \+= \.012/,
-        'preview renderer must respect the model-specific turntable axis');
+    assert.match(main, /if \(!reducedMotion\) model\.rotation\[previewSpinAxis\] \+= delta \* \.72/,
+        'preview renderer must respect the model-specific turntable axis with time-based motion');
     assert.match(main, /if \(!ballInspect\.closest\('#shop-grid'\)\)/,
         'shop selection uses its status region instead of a toast over the catalog heading');
     assert.match(ui, /visual\.setAttribute\('role', 'img'\)/);

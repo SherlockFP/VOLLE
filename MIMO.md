@@ -1,8 +1,60 @@
 # MIMO.md — 2BALL Project Current State
 
-> **Last updated:** 2026-08-14
+> **Last updated:** 2026-09-20
 > **Status:** Active Gauntlet development. Canonical cycle order and exit gates live in `docs/GAUNTLET_CYCLES.md`.
 > **Tech Stack:** Three.js + PeerJS + vanilla JS (ES modules), browser-based 3D dodgeball.
+
+## 2026-09-20 Astra interface and 30 FPS pass
+
+- Reworked the main menu and shared screens (locker, shop, settings, progression,
+  social, practice and match results) with a common VOLLE visual system.
+- Main-menu routes are visible again, the Solo preset chooser is keyboard-friendly,
+  and the mobile navigation/action panels use their natural height at 375px wide.
+- Added three local Solo presets with correct round limits, bot difficulty and maps;
+  the live Rally Duel HUD now reads the active scoreboard round limit.
+- FPS preference now restores into the Video settings screen and is applied to all
+  menu/shop/avatar previews. Browser smoke checks were run at the requested 30 FPS
+  cap while the menu and Court Skills screens were exercised.
+- Final validation for this cycle: 1,793/1,793 tests, 40/40 focused regression
+  tests, and 110 JavaScript files pass the syntax check. Graft refresh was not
+  available because the package was not cached and the environment rejected the
+  network escalation.
+
+---
+
+## 2026-09-20 Court Skills gameplay expansion
+
+- Main Menu has a direct Volleyball Court Skills launch.
+- Local practice now offers four sequential, nonblocking goals: 3 serves,
+  5 receives, 3 receive/set/spike chains, and 2 blocks. Only accepted contacts
+  count. Restart resets progress; completion leaves practice open.
+- Contextual edge-of-screen coaching shows the current contact/key, successful
+  contact feedback, stage progress and longest rally without covering ball flight.
+- The court has a visible turquoise surface, attack lines, mesh net/posts/tape,
+  striped ball and a floor projection ring. Physics/homing remain unchanged.
+- Wearable cards now use 13 category SVG silhouettes plus headset/court-bag/pet
+  variants. Compact desktop cards keep copy and actions visible together.
+- Validation: 1,780/1,780 full tests, 108 JS files; final focused tests 10/10.
+  Browser checks: direct entry, accepted serve advances 1/3, restart/exit,
+  visible ball stripes/floor ring, 375x812 HUD and compact wearable card.
+- Integrated scripted challenge completion: 6 rallies, 75 accepted player
+  contacts with the default feeder pattern; this is not a human playtest score.
+
+---
+
+## 2026-09-20 VOLLE usability, cosmetics and reliability pass
+
+- Direct Solo vs Bots entry and correct LOCAL lobby status; responsive shop search,
+  rarity/slot filtering, sorting, readable portraits and non-overlapping cards.
+- Twelve Solar Circuit / Tidal Drift cosmetics (88 total), mirrored server catalog,
+  new headset/court-bag shapes and socket cleanup.
+- Local-only kill feedback and streak reset; combat overlays stay out of menus.
+- Replay snapshot construction gated to 8 Hz; preview draw and backing-pixel budgets,
+  visibility lifecycle, and shortest-path replay yaw interpolation.
+- Full validation: 1,766/1,766 tests; 105 JS files parse. Volleyball 90 simulated
+  rallies across 30/60/144 FPS; live browser smoke checks at 1280x720 and 375x812.
+- Honest provisional product assessment: 7/10, not a verified 8/10 release.
+  Evidence and remaining limits: `docs/QUALITY_REPORT_2026-09-20.md`.
 
 ---
 

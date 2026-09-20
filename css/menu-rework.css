@@ -1,0 +1,221 @@
+/* Astra menu direction: one navigation lane, one play lane, one arena stage.
+   This file intentionally loads after the legacy presentation sheets. */
+#main-menu {
+    --menu-cyan: var(--ui-primary);
+    --menu-gold: var(--ui-warning);
+    --menu-ink: var(--ui-text);
+    --menu-muted: var(--ui-muted);
+    --menu-line: color-mix(in srgb, var(--ui-muted) 24%, transparent);
+    --menu-panel: color-mix(in srgb, var(--ui-bg-elevated) 90%, #080f1c);
+    --menu-panel-soft: color-mix(in srgb, var(--ui-surface) 65%, #080f1c);
+    background: var(--menu-panel);
+    overflow: hidden;
+}
+#main-menu::before {
+    background: radial-gradient(ellipse at 80% 35%, color-mix(in srgb, var(--ui-primary) 9%, transparent), transparent 62%), linear-gradient(120deg, #080f1c, var(--ui-bg));
+    opacity: 1;
+}
+#main-menu .ow-mouse-glow, #main-menu .ow-cursor { display: none; }
+#main-menu #menu-stage-canvas { opacity: .12; mix-blend-mode: normal; }
+#main-menu .ow-menu {
+    width: min(100%, 1680px); height: 100%; max-width: 1680px;
+    margin-inline: auto; padding: 18px 24px;
+    display: grid; grid-template-columns: minmax(320px, 370px) minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr); gap: 16px;
+    overflow: hidden; animation: none;
+}
+#main-menu .ow-topbar {
+    grid-column: 1 / -1; display: grid;
+    grid-template-columns: minmax(180px, 1fr) auto;
+    grid-template-rows: auto auto; gap: 12px 20px;
+    min-height: 0; padding: 0 0 12px; border: 0;
+    border-bottom: 1px solid var(--menu-line); border-radius: 0;
+    background: transparent; box-shadow: none; backdrop-filter: none;
+}
+#main-menu .ow-profile { grid-column: 1; grid-row: 1; min-width: 0; gap: 10px; }
+#main-menu .ow-avatar { width: 42px; height: 42px; border-radius: 12px; border-color: var(--menu-line); background: var(--menu-panel-soft); color: var(--menu-cyan); box-shadow: none; }
+#main-menu .ow-profile-info { min-width: 0; }
+#main-menu .ow-eyebrow { font-size: .55rem; letter-spacing: .16em; }
+#main-menu .ow-name-input { width: 100%; max-width: 210px; font-size: .9rem; height: 22px; min-height: 22px; }
+#main-menu .ow-level { font-size: .62rem; }
+#main-menu .ow-currency { grid-column: 2; grid-row: 1; gap: 7px; margin: 0; }
+#main-menu .ow-coin { min-height: 38px; padding: 6px 10px; border-radius: 8px; color: var(--menu-gold); background: color-mix(in srgb, var(--menu-gold) 7%, transparent); border-color: color-mix(in srgb, var(--menu-gold) 25%, transparent); }
+#main-menu .ow-coin.ow-pass { color: var(--menu-muted); border-color: var(--menu-line); background: transparent; }
+#main-menu .ow-gear { width: 40px; height: 40px; min-height: 40px; border-radius: 10px; }
+#main-menu .ow-tabs {
+    grid-column: 1 / -1; grid-row: 2; display: grid;
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+    width: 100%; min-width: 0; gap: 6px; padding: 0; overflow: visible;
+}
+#main-menu .ow-tab {
+    display: flex; align-items: center; justify-content: center;
+    min-width: 0; min-height: 42px; padding: 8px 10px;
+    border-radius: 8px; border: 1px solid transparent;
+    color: var(--menu-muted); background: transparent;
+    font-size: .76rem; font-weight: 700; letter-spacing: .035em; white-space: nowrap;
+}
+#main-menu .ow-tab:hover { color: var(--menu-ink); border-color: var(--menu-line); background: var(--menu-panel-soft); }
+#main-menu .ow-tab:is(.active, .selected, [aria-current="page"]) {
+    color: var(--menu-cyan); border-color: color-mix(in srgb, var(--menu-cyan) 35%, transparent);
+    background: color-mix(in srgb, var(--menu-cyan) 10%, transparent); box-shadow: inset 0 -2px var(--menu-cyan);
+}
+#main-menu .ow-action-panel {
+    grid-column: 1; grid-row: 2; align-self: stretch;
+    display: flex; flex-direction: column; min-height: 0; max-height: none;
+    padding: 20px; gap: 11px; overflow-y: auto; overflow-x: hidden;
+    border: 1px solid var(--menu-line); border-radius: 18px;
+    background: var(--menu-panel); box-shadow: none; backdrop-filter: none;
+    scrollbar-width: thin; scrollbar-gutter: stable;
+}
+#main-menu .ow-action-panel > * { flex-shrink: 0; }
+#main-menu .ow-action-heading { margin-bottom: 3px; }
+#main-menu .ow-action-heading strong { display: block; margin-top: 5px; font-size: 1.45rem; line-height: 1.15; letter-spacing: -.025em; color: var(--menu-ink); }
+#main-menu .ow-kicker { color: var(--menu-cyan); font-size: .63rem; font-weight: 800; letter-spacing: .15em; }
+#main-menu .ow-play {
+    min-height: 76px; padding: 14px 18px; gap: 14px; border-radius: 12px;
+    color: #071c24; border: 1px solid var(--ui-primary-hover);
+    background: var(--menu-cyan); box-shadow: none; transform: none;
+}
+#main-menu .ow-play::before, #main-menu .ow-play::after { display: none; }
+#main-menu .ow-play b { color: #071c24; font-size: 1.14rem; letter-spacing: .035em; }
+#main-menu .ow-play small { color: #143740; font-size: .72rem; }
+#main-menu .ow-play > .ui-icon { color: #071c24; width: 26px; height: 26px; }
+#main-menu .ow-play:hover { background: var(--ui-primary-hover); transform: none; }
+#main-menu .ow-bot-play {
+    min-height: 68px; padding: 12px 14px; gap: 11px; border-radius: 12px;
+    color: var(--menu-ink); border: 1px solid var(--menu-line);
+    background: var(--menu-panel-soft); box-shadow: none;
+}
+#main-menu .ow-bot-play b { font-size: .8rem; line-height: 1.3; letter-spacing: .035em; }
+#main-menu .ow-bot-play small { font-size: .68rem; color: var(--menu-muted); line-height: 1.4; }
+#main-menu .ow-bot-play > :first-child { color: var(--menu-cyan); }
+#main-menu .ow-bot-play:hover { background: color-mix(in srgb, var(--ui-primary) 12%, var(--menu-panel-soft)); border-color: var(--menu-cyan); }
+#main-menu .ow-court-play { border-color: color-mix(in srgb, var(--menu-gold) 45%, var(--menu-line)); background: color-mix(in srgb, var(--menu-gold) 6%, var(--menu-panel-soft)); }
+#main-menu .ow-court-play > :first-child { color: var(--menu-gold); }
+#main-menu .ow-world-grid { margin: 0; }
+#main-menu .ow-social-lobby { min-height: 64px; padding: 10px 14px; border-radius: 12px; color: var(--menu-ink); border-color: var(--menu-line); background: transparent; box-shadow: none; }
+#main-menu .ow-social-lobby span b { font-size: .82rem; }
+#main-menu .ow-social-lobby small { display: block !important; color: var(--menu-muted); font-size: .65rem; }
+#main-menu .ow-secondary { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0; }
+#main-menu .ow-sbtn { min-height: 42px; padding: 8px 10px; border: 1px solid var(--menu-line); border-radius: 9px; color: var(--menu-muted); background: transparent; font-size: .7rem; }
+#main-menu .ow-sbtn:hover { color: var(--menu-ink); background: var(--menu-panel-soft); }
+/* Restore meaningful destinations suppressed by the earlier compact-menu pass. */
+#main-menu .ow-extralinks { display: grid !important; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 2px; padding-top: 10px; border-top: 1px solid var(--menu-line); }
+#main-menu .ow-link { min-height: 36px; display: flex; justify-content: flex-start; gap: 7px; padding: 6px 8px; color: var(--menu-muted); border-radius: 7px; font-size: .64rem; letter-spacing: .01em; }
+#main-menu .ow-link:hover { color: var(--menu-ink); background: var(--menu-panel-soft); }
+#main-menu .ow-hint { display: block !important; margin: 0; color: var(--menu-muted); font-size: .57rem; line-height: 1.7; letter-spacing: .035em; }
+#main-menu .ow-retention-strip { display: flex !important; gap: 7px; }
+#main-menu .ow-retention-strip:empty { display: none !important; }
+#main-menu .ow-retention-card { flex-basis: 130px; min-height: 50px; border-radius: 9px; background: var(--menu-panel-soft); }
+#main-menu .ow-retention-title { font-size: .65rem; }
+#main-menu .ow-retention-sub { font-size: .6rem; }
+#main-menu .ow-featured:not([hidden]) { display: block !important; margin: 0; border-radius: 10px; }
+#main-menu .menu-party-rail { display: grid !important; gap: 7px; padding: 10px; background: transparent; border-radius: 10px; }
+#main-menu .menu-party-actions { gap: 6px; flex-wrap: wrap; }
+#main-menu .menu-party-actions .ow-sbtn { min-height: 36px; font-size: .61rem; }
+#main-menu .ow-showcase {
+    position: relative; grid-column: 2; grid-row: 2; min-height: 0;
+    overflow: hidden; border: 1px solid var(--menu-line); border-radius: 18px;
+    background: radial-gradient(ellipse at 58% 54%, color-mix(in srgb, var(--menu-cyan) 14%, transparent), transparent 68%), linear-gradient(140deg, var(--menu-panel-soft), var(--ui-bg));
+}
+#main-menu .ow-showcase::before {
+    content: ""; opacity: .5; z-index: 0; inset: 18% -20% -26%;
+    border: 1px solid color-mix(in srgb, var(--menu-cyan) 24%, transparent);
+    border-radius: 50%; clip-path: none; transform: rotate(-25deg);
+    background: none; box-shadow: 0 0 0 60px color-mix(in srgb, var(--menu-cyan) 3%, transparent), 0 0 0 120px color-mix(in srgb, var(--menu-cyan) 2%, transparent);
+}
+#main-menu .ow-showcase::after { display: none; }
+#main-menu .ow-hero-stage { inset: 3% 0 2%; border-radius: 0; filter: none; overflow: hidden; }
+#main-menu .ow-splash, #main-menu:has(.friends-sidebar:not(.collapsed)) .ow-showcase .ow-splash {
+    position: absolute; z-index: 3; inset: 28px auto auto 30px;
+    max-width: calc(100% - 64px); display: flex; flex-direction: column;
+    align-items: flex-start; gap: 8px; text-align: left; opacity: 1;
+    pointer-events: none; transform: none;
+}
+#main-menu .ow-splash::before { display: none; }
+#main-menu .ow-logo { display: block; margin: 0; font-size: clamp(3.8rem, 7.5vw, 7rem); line-height: .9; font-weight: 900; font-style: italic; letter-spacing: -.055em; color: var(--menu-ink); -webkit-text-fill-color: var(--menu-ink); background: none; filter: none; text-shadow: none; }
+#main-menu .brand-mark-menu { display: none; }
+#main-menu .ow-tagline { color: var(--menu-muted); font-size: .68rem; letter-spacing: .22em; line-height: 1.6; }
+#main-menu .ow-mode-chip { margin-top: 8px; max-width: 320px; display: flex; flex-wrap: wrap; gap: 5px; padding: 7px; border-radius: 7px; backdrop-filter: none; background: var(--menu-panel); }
+#main-menu .ow-mode-chip span { color: #10202a; background: var(--menu-gold); font-size: .58rem; }
+#main-menu .ow-mode-chip b { color: var(--menu-muted); font-size: .6rem; }
+#main-menu .menu-player-card { left: 20px; right: 20px; bottom: 20px; min-width: 0; padding: 12px 14px; border-radius: 12px; background: var(--menu-panel); backdrop-filter: none; box-shadow: none; }
+#main-menu .friends-sidebar { top: 146px; right: 36px; bottom: 38px; width: 330px; border-radius: 14px; background: var(--menu-panel); backdrop-filter: none; box-shadow: 0 16px 48px #0008; }
+#main-menu .friends-sidebar.collapsed { top: 150px; right: 38px; bottom: auto; width: 174px; height: 48px; min-height: 48px; max-height: 48px; border-radius: 10px; transform: none; box-shadow: none; }
+#main-menu .friends-sidebar.collapsed .friends-sidebar-header { min-width: 0; min-height: 46px; padding: 4px 7px; gap: 5px; }
+#main-menu .friends-sidebar.collapsed .fbar-title-icon, #main-menu .friends-sidebar.collapsed .fbar-title small { display: none; }
+#main-menu .friends-sidebar.collapsed .fbar-title { display: grid; }
+#main-menu .friends-sidebar.collapsed .friends-sidebar-count { font-size: .53rem; }
+#main-menu .friends-sidebar.collapsed .friends-sidebar-body { display: none; }
+#main-menu :is(button, input):focus-visible { outline: 3px solid var(--ui-focus); outline-offset: 2px; }
+
+@media (max-height: 760px) and (min-width: 761px) {
+    #main-menu .ow-menu { padding: 12px 20px; gap: 12px; }
+    #main-menu .ow-topbar { gap: 7px 16px; padding-bottom: 8px; }
+    #main-menu .ow-action-panel { padding: 15px; gap: 9px; }
+    #main-menu .ow-action-heading strong { font-size: 1.25rem; }
+    #main-menu .ow-play { min-height: 66px; }
+    #main-menu .ow-bot-play { min-height: 62px; }
+    #main-menu .friends-sidebar { top: 126px; right: 32px; bottom: 32px; }
+    #main-menu .friends-sidebar.collapsed { top: 130px; right: 34px; }
+    #main-menu .ow-splash { inset: 24px auto auto 26px; }
+}
+@media (max-width: 1000px) and (min-width: 761px) {
+    #main-menu .ow-menu { grid-template-columns: 310px minmax(0, 1fr); padding-inline: 14px; }
+    #main-menu .ow-tab { font-size: .66rem; padding-inline: 5px; }
+    #main-menu .ow-splash { top: 76px; left: 20px; right: 20px; max-width: none; }
+    #main-menu .ow-logo { font-size: 4rem; }
+    #main-menu .ow-mode-chip { max-width: 230px; }
+    #main-menu .friends-sidebar.collapsed { right: 26px; }
+}
+@media (max-width: 760px) {
+    #main-menu { overflow-y: auto; overscroll-behavior: contain; }
+    #main-menu .ow-menu {
+        height: max-content; min-height: 100%; flex: 0 0 auto; align-self: flex-start;
+        padding: 12px 12px calc(82px + env(safe-area-inset-bottom));
+        grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto;
+        gap: 12px; overflow: visible;
+    }
+    #main-menu .ow-topbar { height: auto; min-height: 0; max-height: none; gap: 12px 6px; padding-bottom: 12px; }
+    #main-menu .ow-profile { min-width: 0; }
+    #main-menu .ow-avatar { width: 34px; height: 34px; }
+    #main-menu .ow-name-input { max-width: 122px; font-size: .79rem; }
+    #main-menu .ow-currency { gap: 4px; }
+    #main-menu .ow-coin { padding: 5px; font-size: .72rem; }
+    #main-menu .ow-coin .ui-icon { width: 14px; height: 14px; }
+    #main-menu .ow-gear { width: 34px; min-width: 34px; height: 38px; min-height: 38px; }
+    #main-menu .ow-tabs { display: grid; height: auto; min-height: 89px; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; overflow: visible; }
+    #main-menu .ow-tab { min-width: 0; min-height: 42px; padding: 7px 4px; font-size: .64rem; border-color: var(--menu-line); }
+    #main-menu .ow-showcase { grid-column: 1; grid-row: 2; min-height: 250px; height: 250px; border-radius: 14px; }
+    #main-menu .ow-hero-stage { inset: -10% -18% 4% 28%; }
+    #main-menu .ow-splash, #main-menu:has(.friends-sidebar:not(.collapsed)) .ow-showcase .ow-splash { inset: 24px auto auto 18px; max-width: 210px; gap: 8px; }
+    #main-menu .ow-splash .ow-kicker { max-width: 135px; font-size: .5rem; line-height: 1.6; }
+    #main-menu .ow-logo { font-size: 3.8rem; }
+    #main-menu .ow-tagline { max-width: 140px; font-size: .5rem; letter-spacing: .12em; }
+    #main-menu .ow-mode-chip { max-width: 155px; margin-top: 0; padding: 5px; }
+    #main-menu .ow-mode-chip span, #main-menu .ow-mode-chip b { font-size: .47rem; }
+    #main-menu .menu-player-card { left: 10px; right: 10px; bottom: 10px; padding: 8px 10px; border-radius: 9px; }
+    #main-menu .menu-player-card strong { font-size: .76rem; }
+    #main-menu .menu-player-elo { font-size: .63rem; }
+    #main-menu .ow-action-panel { grid-column: 1; grid-row: 3; height: max-content; min-height: 0; max-height: none; padding: 17px; overflow: visible; border-radius: 14px; }
+    #main-menu .ow-action-heading { display: grid; }
+    #main-menu .ow-action-heading strong { font-size: 1.35rem; }
+    #main-menu .ow-extralinks { grid-template-columns: 1fr 1fr; }
+    #main-menu .ow-link { min-height: 42px; font-size: .66rem; }
+    #main-menu .friends-sidebar { position: fixed; inset: auto 12px calc(10px + env(safe-area-inset-bottom)); width: auto; height: min(640px, calc(100dvh - 24px)); max-height: calc(100dvh - 24px); transform: none; border-radius: 16px; }
+    #main-menu .friends-sidebar.collapsed { inset: auto 12px calc(10px + env(safe-area-inset-bottom)); width: auto; height: 56px; min-height: 56px; max-height: 56px; border-radius: 12px; transform: none; }
+    #main-menu .friends-sidebar.collapsed .friends-sidebar-header { display: none; }
+    #main-menu .fbar-sheet-handle { display: flex; min-height: 54px; }
+    #main-menu .friends-sidebar:not(.collapsed) .friends-sidebar-header { min-height: 54px; }
+    /* Mobile openness is owned by mobile-open, independently of the desktop
+       collapsed preference. Match that state so the sheet remains operable. */
+    #main-menu .friends-sidebar:not(.mobile-open) { height: 56px; min-height: 56px; max-height: 56px; }
+    #main-menu .friends-sidebar:not(.mobile-open) .friends-sidebar-header,
+    #main-menu .friends-sidebar:not(.mobile-open) .friends-sidebar-body { display: none; }
+    #main-menu .friends-sidebar.mobile-open { height: min(640px, calc(100dvh - 24px)); max-height: calc(100dvh - 24px); }
+    #main-menu .friends-sidebar.mobile-open .friends-sidebar-header { display: flex; min-height: 54px; }
+    #main-menu .friends-sidebar.mobile-open .friends-sidebar-body { display: flex; }
+}
+@media (prefers-reduced-motion: reduce) {
+    #main-menu *, #main-menu *::before, #main-menu *::after { animation: none !important; transition: none !important; }
+}

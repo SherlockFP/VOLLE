@@ -84,7 +84,8 @@ export function renderReplaySnapshot(snapshot, adapters = {}, timestamp = 0) {
 const lerp = (a, b, alpha) => finite(a) + (finite(b) - finite(a)) * alpha
 const lerpAngle = (a, b, alpha) => {
     const start = finite(a)
-    const delta = ((finite(b) - start + Math.PI) % (Math.PI * 2)) - Math.PI
+    const turn = Math.PI * 2
+    const delta = (((finite(b) - start + Math.PI) % turn + turn) % turn) - Math.PI
     return start + delta * alpha
 }
 const lerpPoint = (a, b, alpha) => {
@@ -232,6 +233,10 @@ export class ReplayClass {
             type: event.type,
             data: event.data
         })
+    }
+
+    isSnapshotDue() {
+        return this.recording && this._now() - this.startTs - this._lastSnapshotTs >= SNAPSHOT_INTERVAL
     }
 
     recordSnapshot(snapshot) {

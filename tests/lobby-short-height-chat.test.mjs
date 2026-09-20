@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 function section(css, startMarker, endMarker, fromLast = false) {
+    css = css.replace(/\r\n/g, '\n');
     const start = fromLast ? css.lastIndexOf(startMarker) : css.indexOf(startMarker);
     assert.ok(start >= 0, `${startMarker} must exist`);
     const end = css.indexOf(endMarker, start + startMarker.length);

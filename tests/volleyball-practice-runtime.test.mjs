@@ -30,7 +30,39 @@ test('runtime installs no input before mount and creates an exact 18x18 court on
   const floor = runtime.group.getObjectByName('VolleyballPracticeFloor');
   assert.equal(floor.geometry.parameters.width, 18);
   assert.equal(floor.geometry.parameters.height, 18);
+  assert.equal(floor.position.y, runtime.session.controller.config.floorY + 0.035);
+  const net = runtime.group.getObjectByName('VolleyballPracticeNet');
+  assert.equal(net.getObjectByName('VolleyballPracticeNetGrid').isLineSegments, true);
+  assert.equal(net.getObjectByName('VolleyballPracticeNetTape').isMesh, true);
+  assert.equal(net.children.filter((child) => child.name === 'VolleyballPracticeNetPost').length, 2);
   assert.equal(runtime.group.getObjectByName('VolleyballPracticeBall') != null, true);
+  runtime.dispose();
+});
+
+test('runtime gives the ball readable stripes and tracks its active ground projection without new scene nodes', () => {
+  const runtime = createVolleyballPracticeRuntime();
+  assert.equal(runtime.mount({ scene: new THREE.Group() }), true);
+  const ball = runtime.group.getObjectByName('VolleyballPracticeBall');
+  const marker = runtime.group.getObjectByName('VolleyballPracticeLandingMarker');
+  assert.equal(ball.getObjectByName('VolleyballPracticeBallCore').isMesh, true);
+  const stripes = ball.children.filter((child) => child.name === 'VolleyballPracticeBallStripe');
+  assert.equal(stripes.length, 3);
+  assert.ok(stripes[0].geometry.parameters.radius + stripes[0].geometry.parameters.tube
+    > runtime.session.controller.config.ballRadius);
+  assert.equal(marker.visible, false);
+
+  const state = runtime.session.controller.state;
+  state.ballActive = true;
+  state.ball.x = 2.25;
+  state.ball.y = 4;
+  state.ball.z = -3.5;
+  const childCount = runtime.group.children.length;
+  runtime.update(1 / 60);
+  assert.equal(marker.visible, true);
+  assert.equal(marker.position.x, 2.25);
+  assert.equal(marker.position.y, runtime.session.controller.config.floorY + 0.043);
+  assert.equal(marker.position.z, -3.5);
+  assert.equal(runtime.group.children.length, childCount);
   runtime.dispose();
 });
 

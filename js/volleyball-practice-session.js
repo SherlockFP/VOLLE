@@ -9,6 +9,7 @@ import {
   createVolleyballContactScratch,
   writeVolleyballPracticeAction,
 } from './volleyball-contact.js';
+import { createVolleyballDrillTracker } from './volleyball-drill.js';
 
 const DEFAULT_QUEUE_CAPACITY = 24;
 const DEFAULT_CONTACT_COOLDOWN = 0.18;
@@ -42,7 +43,9 @@ export function createVolleyballPracticeSession(options = {}) {
   const feederReturnPattern = Array.isArray(options.feederReturnPattern)
     && options.feederReturnPattern.length > 0
     ? options.feederReturnPattern.slice(0, 16).map((value) => boundedInteger(value, 0, 8, 0))
-    : [0, 1, 0];
+    // Four feeder returns create a repeatable receive/set/spike exchange and
+    // eventually present the net block required by the default local drill.
+    : [4];
   const controllerOptions = {
     config: {
       ...options.config,
@@ -71,6 +74,7 @@ export function createVolleyballPracticeSession(options = {}) {
   let lastCompletedRallyId = 0;
   let currentRallyReturnLimit = feederReturnPattern[0];
   let playerSpikesReturned = 0;
+  const drill = createVolleyballDrillTracker();
   const queue = Array.from({ length: queueCapacity }, createActionSlot);
   const queuedAt = new Float64Array(queueCapacity);
   const playerScratch = createVolleyballContactScratch();
@@ -86,6 +90,8 @@ export function createVolleyballPracticeSession(options = {}) {
     playerContacts: 0,
     feederContacts: 0,
     droppedActions: 0,
+    elapsedSeconds: 0,
+    completionElapsedSeconds: null,
     running: false,
     disposed: false,
   };
@@ -115,6 +121,10 @@ export function createVolleyballPracticeSession(options = {}) {
       contactElapsed = 0;
       if (isFeeder) state.feederContacts++;
       else state.playerContacts++;
+      drill.recordContact(action.type, context.team, controller.state.rallyId);
+      if (drill.isComplete() && state.completionElapsedSeconds == null) {
+        state.completionElapsedSeconds = state.elapsedSeconds;
+      }
     }
     return result.accepted;
   }
@@ -249,10 +259,15 @@ export function createVolleyballPracticeSession(options = {}) {
     if (awarded != null && awarded > lastCompletedRallyId) {
       lastCompletedRallyId = awarded;
       state.ralliesCompleted++;
+      const faultTeam = controller.state.pendingFaultTeam;
+      const winner = faultTeam === VOLLEYBALL_TEAMS.HOME
+        ? VOLLEYBALL_TEAMS.AWAY : VOLLEYBALL_TEAMS.HOME;
+      drill.recordRallyAward(awarded, winner);
     }
   }
 
   function fixedStep() {
+    if (state.completionElapsedSeconds == null) state.elapsedSeconds += controller.config.fixedStep;
     contactElapsed += controller.config.fixedStep;
     state.expectedAction = null;
     if (controller.state.phase === VOLLEYBALL_PHASES.SERVE_SETUP) prepareCurrentServe();
@@ -301,6 +316,9 @@ export function createVolleyballPracticeSession(options = {}) {
       state.playerContacts = 0;
       state.feederContacts = 0;
       state.droppedActions = 0;
+      state.elapsedSeconds = 0;
+      state.completionElapsedSeconds = null;
+      drill.reset();
       return session.start();
     },
 
@@ -345,6 +363,8 @@ export function createVolleyballPracticeSession(options = {}) {
         playerContacts: state.playerContacts,
         feederContacts: state.feederContacts,
         droppedActions: state.droppedActions,
+        elapsedSeconds: state.elapsedSeconds,
+        completionElapsedSeconds: state.completionElapsedSeconds,
         queueSize: queueCount,
         running,
       };
@@ -360,6 +380,9 @@ export function createVolleyballPracticeSession(options = {}) {
       out.awaySets = controller.state.score.sets[1];
       out.ralliesCompleted = state.ralliesCompleted;
       out.queueSize = queueCount;
+      out.elapsedSeconds = state.elapsedSeconds;
+      out.completionElapsedSeconds = state.completionElapsedSeconds;
+      drill.writeState(out);
       return true;
     },
 

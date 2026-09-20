@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Warrball - Competitive Ball Combat</title>
+    <title>VOLLE — Enter the Arena</title>
     <meta name="description" content="Warrball is a fast, competitive first-person ball combat game. Master movement, classes, and the arena.">
     <link rel="icon" type="image/png" href="assets/generated/warrball-logo-transparent-v1.png">
     <link rel="manifest" href="manifest.webmanifest">
@@ -14,6 +14,12 @@
     <link rel="stylesheet" href="css/ui-shell.css?v=1">
     <link rel="stylesheet" href="css/polish.css?v=1">
     <link rel="stylesheet" href="css/auth.css?v=1">
+    <link rel="stylesheet" href="css/season-polish.css?v=1">
+    <link rel="stylesheet" href="css/court-skills.css?v=1">
+    <link rel="stylesheet" href="css/cosmetic-icons.css?v=1">
+    <link rel="stylesheet" href="css/solo-paths.css?v=1">
+    <link rel="stylesheet" href="css/arena-interface.css?v=1">
+    <link rel="stylesheet" href="css/menu-rework.css?v=1">
     <script type="importmap">
     {
         "imports": {
@@ -70,7 +76,7 @@
     <div id="loading-screen">
         <div class="loading-content">
             <img class="brand-mark brand-mark-loading" src="assets/generated/warrball-logo-transparent-v1.png" alt="">
-            <div class="loading-logo">WARRBALL</div>
+            <div class="loading-logo">VOLLE</div>
             <div class="loading-bar-track"><div class="loading-bar-fill"></div></div>
             <div class="loading-status">Loading assets...</div>
         </div>
@@ -89,13 +95,13 @@
             </div>
             <div class="match-loading-track"><span id="match-loading-progress"></span></div>
             <b id="match-loading-percent" class="match-loading-percent">0%</b>
-            <small>WARRBALL COMPETITIVE NETWORK</small>
+            <small>VOLLE · ARENA SPORTS</small>
         </div>
     </div>
     <!-- Auth Modal: Register/Login -->
     <div id="auth-modal" class="command-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title" aria-describedby="auth-status">
         <div class="command-card auth-card">
-            <header><span class="shell-kicker">WARRBALL ACCOUNT</span><h2 id="auth-modal-title">Enter the arena</h2><p id="auth-status" class="auth-status" role="status">Checking your saved session…</p></header>
+            <header><span class="shell-kicker">VOLLE ACCOUNT</span><h2 id="auth-modal-title">Enter the arena</h2><p id="auth-status" class="auth-status" role="status">Checking your saved session…</p></header>
             <div class="auth-tabs" role="tablist" aria-label="Account access">
                 <button class="auth-tab-btn auth-tab-active" data-tab="login" role="tab" aria-selected="true" aria-controls="auth-login-tab">Sign In</button>
                 <button class="auth-tab-btn" data-tab="register" role="tab" aria-selected="false" aria-controls="auth-register-tab">Create Account</button>
@@ -197,10 +203,10 @@
                     <span class="ow-character-ball"></span>
                 </div>
                 <div class="ow-splash">
-                    <span class="ow-kicker">WELCOME TO THE ARENA</span>
+                    <span class="ow-kicker">YOUR NEXT RALLY STARTS HERE</span>
                     <img class="brand-mark brand-mark-menu" src="assets/generated/warrball-logo-transparent-v1.png" alt="Warrball emblem">
-                    <div class="ow-logo">WARRBALL</div>
-                    <div class="ow-tagline">FIRST PERSON DODGEBALL</div>
+                    <div class="ow-logo">VOLLE</div>
+                    <div class="ow-tagline">DODGEBALL / VOLLEYBALL</div>
                     <div class="ow-mode-chip" id="menu-mode-status"><span>QUICK PLAY</span><b>Create or join a lobby</b></div>
                 </div>
                 <article class="menu-player-card" aria-label="Current player profile">
@@ -217,6 +223,8 @@
                     <strong>Choose your match</strong>
                 </div>
                 <button id="btn-play-solo" class="ow-play"><svg class="ui-icon" aria-hidden="true"><use href="#i-play"></use></svg><span><b>QUICK PLAY</b><small>Create or join a lobby</small></span></button>
+                <button id="btn-menu-bots" class="ow-bot-play" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#i-target"></use></svg><span><b>SOLO VS BOTS</b><small>Local match · no waiting</small></span><span aria-hidden="true">↗</span></button>
+                <button id="btn-menu-volleyball" class="ow-bot-play ow-court-play" type="button"><span aria-hidden="true">◉</span><span><b>VOLLEYBALL · COURT SKILLS</b><small>Serve, set, spike · local challenges</small></span><span aria-hidden="true">↗</span></button>
                 <div class="ow-world-grid">
                     <button id="btn-social-lobby" class="ow-social-lobby">
                         <svg class="ui-icon" aria-hidden="true"><use href="#i-globe"></use></svg>
@@ -1044,6 +1052,12 @@
                         <div><span class="shell-kicker">CURATED LOADOUTS</span><h2 id="shop-catalog-title">Characters</h2></div>
                         <span id="shop-catalog-count" class="shop-catalog-count" role="status" aria-live="polite">Loading items</span>
                     </header>
+                    <div class="shop-discovery" role="search" aria-label="Search this collection">
+                        <label class="shop-search-label"><span>Find your style</span><input id="shop-search" type="search" placeholder="Search name, style or collection…" maxlength="80" autocomplete="off"></label>
+                        <label><span>Rarity</span><select id="shop-rarity"><option value="all">All rarities</option><option value="common">Common</option><option value="rare">Rare</option><option value="epic">Epic</option><option value="legendary">Legendary</option></select></label>
+                        <label><span>Sort</span><select id="shop-sort"><option value="featured">Featured</option><option value="price-low">Price: low to high</option><option value="price-high">Price: high to low</option><option value="name">Name: A–Z</option></select></label>
+                        <label id="shop-slot-label" hidden><span>Equipment slot</span><select id="shop-slot"><option value="all">All equipment</option></select></label>
+                    </div>
                     <div class="shop-filters" id="shop-filters" role="group" aria-label="Filter shop items">
                         <button type="button" class="shop-filter-chip selected" data-filter="all" aria-pressed="true">All</button>
                         <button type="button" class="shop-filter-chip" data-filter="ball" aria-pressed="false">Balls</button>
@@ -1055,6 +1069,7 @@
                         <button type="button" class="shop-filter-chip" data-filter="owned" aria-pressed="false">Owned</button>
                         <button type="button" class="shop-filter-chip" data-filter="affordable" aria-pressed="false">Affordable</button>
                     </div>
+                    <div id="shop-no-results" class="shop-no-results" hidden><strong>No matching items</strong><p>Try another name, rarity or equipment slot.</p><button id="shop-clear-filters" class="btn btn-secondary btn-small" type="button">Clear filters</button></div>
                     <div class="shop-grid" id="shop-grid" role="tabpanel" aria-labelledby="shop-tab-chars" tabindex="0"></div>
                 </section>
             </main>
@@ -1772,6 +1787,16 @@
         <small>Walk the studio to inspect lighting and silhouette. Esc returns to Shop.</small>
     </aside>
 
+    <dialog id="solo-paths" class="solo-paths" aria-labelledby="solo-paths-title">
+        <header><div><span class="solo-kicker">YOUR NEXT MATCH</span><h2 id="solo-paths-title">Find your rhythm.</h2><p>Choose a short solo match. One opponent. A clear challenge.</p></div><button class="solo-close" id="solo-paths-close" type="button" aria-label="Close solo match chooser">×</button></header>
+        <div class="solo-path-grid" aria-label="Solo match presets">
+            <button type="button" class="solo-path-card" data-solo-preset="warmup" aria-pressed="true"><span class="solo-path-icon" aria-hidden="true">◎</span><strong>Warm-up</strong><small>Find your timing against a forgiving opponent. Classic health rules.</small><span class="solo-path-tag">EASY · CLASSIC</span></button>
+            <button type="button" class="solo-path-card" data-solo-preset="rally_duel" aria-pressed="false"><span class="solo-path-icon" aria-hidden="true">↔</span><strong>Rally Duel</strong><small>Equal stats. No powers. Win with timing, direction and movement.</small><span class="solo-path-tag">MEDIUM · 1 VS 1</span></button>
+            <button type="button" class="solo-path-card" data-solo-preset="pressure" aria-pressed="false"><span class="solo-path-icon" aria-hidden="true">ϟ</span><strong>Under Pressure</strong><small>One hit ends the round. Stay calm as the ball gets faster.</small><span class="solo-path-tag">HARD · INSTAGIB</span></button>
+        </div>
+        <footer><p id="solo-paths-detail" role="status">Your selected rules will appear in the lobby before you start.</p><button type="button" id="solo-paths-start" class="solo-start">Prepare match ↗</button></footer>
+    </dialog>
+
     <aside id="volleyball-practice-hud" class="volleyball-practice-hud hidden" role="region" aria-label="Local Volleyball practice status" aria-hidden="true">
         <header class="volleyball-practice-score" aria-label="Practice score">
             <span class="is-home"><small>YOU</small><b id="volleyball-practice-home">0</b></span>
@@ -1783,6 +1808,22 @@
             <strong id="volleyball-practice-expected" role="status" aria-live="polite">TRACK THE BALL</strong>
         </div>
         <p><kbd>E</kbd> timed primary <i aria-hidden="true">·</i> <kbd>R</kbd> receive <i aria-hidden="true">·</i> <kbd>Q</kbd> set <i aria-hidden="true">·</i> <kbd>F</kbd> spike <i aria-hidden="true">·</i> <kbd>B</kbd> block <i aria-hidden="true">·</i> <kbd>Space</kbd> jump</p>
+        <section class="volleyball-coach" aria-label="Contact coach">
+            <span id="volleyball-coach-key">E / LEFT CLICK</span>
+            <h2 id="volleyball-coach-title">Serve to start</h2>
+            <p id="volleyball-coach-copy">Send the ball over the tape to begin your rally.</p>
+            <output id="volleyball-contact-feedback" aria-live="polite">Ready for your first contact</output>
+        </section>
+        <section class="volleyball-challenge" aria-label="Court skills challenge">
+            <div class="volleyball-challenge-heading"><span>COURT SKILLS</span><b id="volleyball-drill-step">01 / 04</b></div>
+            <h2 id="volleyball-drill-title">Build your serve</h2>
+            <div class="volleyball-drill-progress"><span id="volleyball-drill-fill"></span></div>
+            <p id="volleyball-drill-count" role="status">0 / 3</p>
+            <div class="volleyball-record-strip"><span>TIME <b id="volleyball-elapsed">0:00</b></span><span>PERSONAL BEST <b id="volleyball-personal-best">—</b></span></div>
+            <p id="volleyball-completion-summary" class="volleyball-completion-summary">Finish all four goals to set a local best.</p>
+            <div class="volleyball-session-stats"><span>CONTACTS <b id="volleyball-contact-count">0</b></span><span>BEST RALLY <b id="volleyball-rally-best">0</b></span></div>
+            <p id="volleyball-drill-instruction" class="volleyball-challenge-note">Use E or primary attack to serve.</p>
+        </section>
         <div class="volleyball-practice-actions">
             <button id="volleyball-practice-restart" type="button"><kbd>T</kbd> Restart</button>
             <button id="volleyball-practice-exit" type="button"><kbd>Esc</kbd> Exit</button>
