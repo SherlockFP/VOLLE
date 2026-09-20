@@ -356,6 +356,7 @@ export class Game {
         this._maxPowerUps = 1;
         this._playerBuffs = {}; // { speed: 0, shield: 0, damage: 0 } timer
         this._respawnTimer = null;
+        this._openingServe = null;
 
         // Lobby/menu music — rotate between tracks.
         // Uses .sfx aliases + fetch+blob (like audio.js) so IDM never sees a .mp3/.m4a URL to grab.
@@ -457,6 +458,7 @@ export class Game {
 
     setState(s) {
         const prev = this.state;
+        if (s !== STATES.PLAYING && s !== STATES.PAUSED) this._openingServe = null;
         if (s === STATES.PAUSED && prev === STATES.PLAYING) this.armIncomingSettlement();
         if (s === STATES.PLAYING && prev === STATES.PAUSED) this.cancelIncomingSettlement();
         RuntimeLog.auditTransition(prev, s);
@@ -1223,6 +1225,7 @@ startGame(skipPreGame = false, matchId = null) {
 
     startRound({ fromNetwork = false } = {}) {
         this.ui.hideMatchIntro();
+        this._openingServe = null;
         if (this._pendingLethalHit) clearTimeout(this._pendingLethalHit);
         this._pendingLethalHit = null;
         this._pendingLethalVictim = null;
@@ -1306,32 +1309,53 @@ startGame(skipPreGame = false, matchId = null) {
         // First target
         const targets = this.guidedDrill.active ? [] : this.getAllTargets();
         if (targets.length && !fromNetwork) {
-            const first = targets[Math.floor(Math.random() * targets.length)];
-            setTimeout(() => {
-        // Host-authoritative hit detection when actually networked (client plays effects
-        // from ball/playerHit broadcast); when not connected at all (solo/offline bot
-        // matches) there is no host to defer to, so the ball must self-target locally or
-        // it never gets a target and just falls in place forever. Same
-        // !connected||isHost convention already used elsewhere in this file
-        // (updatePowerUps, split-ball hit detection, rocket movement, map hazards).
-        if (this.ball.active && (!this.network?.connected || this.network?.isHost)) {
-                    const targetPosition = first.position?.distanceTo
-                        ? first.position
-                        : first.getPosition?.();
-                    if (targetPosition?.distanceTo) {
-                        const distance = this.ball.position.distanceTo(targetPosition);
-                        this.ball.currentSpeed = openingServeSpeed(distance, this.ball.currentSpeed);
-                    }
-                    this.ball.setTarget(first);
-                    this.ball.state = 'homing';
-                }
-            }, 700);
+            // Match time, not an unowned wall-clock callback: pausing preserves
+            // the opening, and a previous round can never retarget a new ball.
+            this._openingServe = {
+                remaining: 0.7,
+                round: this.scoreboard.roundNum,
+                scoreboard: this.scoreboard,
+                ball: this.ball,
+                target: targets[Math.floor(Math.random() * targets.length)]
+            };
         }
         this.ui.showRoundBanner(this.scoreboard.roundNum, this.scoreboard.redScore, this.scoreboard.blueScore);
         // P2P: round start state'i tüm client'lara bildiriyoruz, böylece istemciler eşzamanlı başlar.
         if (this.network?.isHost) {
             this.network.broadcastRoundStart(this.snapshotState());
         }
+    }
+
+    _updateOpeningServe(dt) {
+        const serve = this._openingServe;
+        if (!serve) return false;
+        if (serve.scoreboard !== this.scoreboard || serve.round !== this.scoreboard.roundNum
+            || serve.ball !== this.ball || this.ball.targetPlayer || this.lastDeflector) {
+            this._openingServe = null;
+            return false;
+        }
+        if (this.ball.active && (!this.network?.connected || this.network?.isHost)) {
+            if (this.state !== STATES.PLAYING || !Number.isFinite(dt) || dt <= 0) return false;
+            serve.remaining = Math.max(0, serve.remaining - dt);
+            if (serve.remaining > 1e-9) return false;
+            this._openingServe = null;
+            const targets = this.getAllTargets().filter(target => target.alive !== false);
+            if (!targets.length) return false;
+            const first = targets.includes(serve.target)
+                ? serve.target : targets[Math.floor(Math.random() * targets.length)];
+            const targetPosition = first.position?.distanceTo
+                ? first.position
+                : first.getPosition?.();
+            if (targetPosition?.distanceTo) {
+                const distance = this.ball.position.distanceTo(targetPosition);
+                this.ball.currentSpeed = openingServeSpeed(distance, this.ball.currentSpeed);
+            }
+            this.ball.setTarget(first);
+            this.ball.state = 'homing';
+            return true;
+        }
+        this._openingServe = null;
+        return false;
     }
 
     // Rebuild the arena as a different map (called from the lobby).
@@ -2282,6 +2306,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
     }
 
     updatePlaying(dt) {
+        if (this._openingServe) this._updateOpeningServe(dt);
         this._updateRemoteSkillCooldowns(dt);
         this.scoreboard.updateTimer(dt);
         if ((!this.network?.connected || this.network?.isHost) && this._updateHotPotato(dt)) return;

@@ -1,8 +1,16 @@
 # STATUS — 2026-09-20
 
-> Güncel çalışma: [[sessions/2026-09-20-game-audit-settings]]. Önceki mağaza turu: [[sessions/2026-09-20-shop-studio]]. Ayrıntılı proje geçmişi `MIMO.md` içinde.
+> Güncel çalışma: [[sessions/2026-09-20-owner-gameplay-pass]]. Paralel servis/HUD çalışması: [[sessions/2026-09-20-serve-lifecycle]]. Önceki ayarlar turu: [[sessions/2026-09-20-game-audit-settings]]. Ayrıntılı proje geçmişi `MIMO.md` içinde.
 
-## En yeni tamamlanan çalışma
+## En yeni tamamlanan çalışma — oynanış ve Arcade
+- Botlar mevcut duvar/sütun çarpışmalarını gözetiyor; normal harekette yerel engel dolanma ve sınır içinde doğum kurtarma var. FFA yarı saha kısıtı kalktı; takım modları korunuyor. Bu, tam rota planlama değil.
+- Ölü bot hareketi duruyor; chill oyuncudaki gibi %20 yavaşlatıyor; geçersiz hareket değerleri reddediliyor. Bot isim/avatar/can barı kaynakları bir kez temizleniyor. Top fiziği ve zorluk olasılıkları değiştirilmedi.
+- Arcade: Bot Matches, Guided Deflect, Free Lab ve açıkça yerel etiketli Volleyball Drill. Önceden butonu eksik üç solo seçenek erişilebilir. Kartlar kayarken Back görünür kalıyor; süre açıklaması maç genelini belirtiyor.
+- Son tam test **1954/1954**, sıfır başarısız/atlanmış; **110 JS dosyası** temiz. Bu tur 20 regresyon ekledi; paralel servis/HUD testleri de toplamda yer alıyor. Graft wiring kontrolü geçti.
+- Gerçek uygulama tarayıcı kontrolü: 3 ekran boyutu, 3 solo seçeneğin hazırlanması, üç raundluk maç ve 0-0/ilk raund rövanş. Yerel voleybolda servis ve Esc çıkış çalışıyor. Yakalanan sayfa hatası yok; insan oynanış dengesi veya iki gerçek oyunculu ağ testi yapılmış sayılmaz.
+- Kalan öncelikler: daha anlamlı ralliler/takım kararları, karmaşık engellerde rota, voleybolda konum/erişim tabanlı temas ve canlı çok oyunculu doğrulama. Kanıtlar `.qa/owner-browser-report.json`, `.qa/owner-final-tests.log` ve oturum notunda.
+
+## Önceki çalışma — ayarlar ve güvenilirlik
 - Grafik ayarları: sabit başlık/sekmeler/Done, tek içerik kaydırması, kalite ve ekran grupları; ses ayarları Controls içinde. Mobil sıra/taşma ve slider-değer çakışması düzeltildi; klavye sekmeleri ve odak yönetimi eklendi.
 - Bot yetenekleri ve uzaktaki oyuncuların bekleme süreleri çalışıyor; ölü/gecikmiş istekler maç durumunu bozamıyor. Host, hareket paketinden HP/dirilme kabul etmiyor. P2P kaçırılan vuruşları iki tarafta da yalnız geri bildirim; gerçek hasar host tarafından veriliyor.
 - Yeniden bağlantı girişimleri 5 saniyede sonlanıyor; düşük kalite gerçek çizim hedeflerine uygulanıyor, harita bloom'u tekrar açamıyor.

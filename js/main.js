@@ -1760,7 +1760,7 @@ class App {
             soloPresetId = id;
             soloDialog?.querySelectorAll('[data-solo-preset]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.soloPreset === id)));
             const detail = document.getElementById('solo-paths-detail');
-            if (detail) detail.textContent = `${preset.maxRounds} rounds · ${preset.timeLimit / 60} minute round limit · ${preset.botDifficulty} opponent. Review your court in the lobby.`;
+            if (detail) detail.textContent = `${preset.maxRounds} rounds · ${preset.timeLimit / 60} minute match limit · ${preset.botDifficulty} opponent. Review your court in the lobby.`;
         };
         soloDialog?.querySelectorAll('[data-solo-preset]').forEach(button => button.addEventListener('click', () => selectSoloPreset(button.dataset.soloPreset)));
         bind('btn-menu-bots', () => {

@@ -385,7 +385,11 @@ export class Bot {
     recordDamageDealt(amount) { this.totalDamageDealt += amount; }
 
     update(dt, ball) {
-        const moveSpeed = this.moveSpeed * (this._hazardMoveMul || 1);
+        if (!this.alive || !Number.isFinite(dt) || dt <= 0) return;
+        const hazard = Number.isFinite(this._hazardMoveMul) && this._hazardMoveMul > 0 ? this._hazardMoveMul : 1;
+        const moveSpeed = this.moveSpeed * hazard * (this._chillTimer > 0 ? 0.8 : 1);
+        const previousX = this.position.x;
+        const previousZ = this.position.z;
         // A declined deflect gets one short, committed lateral escape. Consume
         // only the remaining latch time so its total displacement is stable at
         // every frame rate; after that the bot holds rather than running away
@@ -506,18 +510,22 @@ export class Bot {
 
         // Team side — allow more forward pressure based on ball position
         const ballZ = ball?.position?.z ?? 0;
-        const sideLimit = 1.5;
-        if (this.team === 'red') {
+        this._walkMinZ = b.minZ + 1.5;
+        this._walkMaxZ = b.maxZ - 1.5;
+        if (!this._gameRef?._ffa && this.team === 'red') {
             // depthBias<0 (aggressive) shifts pushUp toward 0 = more forward pressure allowed.
             const pushUp = (ballZ < -5 ? -3 : -1) - this._tendencyDepthBias; // push forward when ball is on blue side
+            this._walkMaxZ = Math.min(this._walkMaxZ, pushUp);
             if (this.position.z > pushUp) this.position.z = pushUp;
         }
-        if (this.team === 'blue') {
+        if (!this._gameRef?._ffa && this.team === 'blue') {
             const pushUp = (ballZ > 5 ? 3 : 1) + this._tendencyDepthBias;
+            this._walkMinZ = Math.max(this._walkMinZ, pushUp);
             if (this.position.z < pushUp) this.position.z = pushUp;
         }
 
         this.position.y = 0;
+        this._moveAroundProps(previousX, previousZ);
         this.group.position.copy(this.position);
 
         // Attack cooldown
@@ -542,6 +550,131 @@ export class Bot {
             facts.aim = 0;
             facts.strafe = this._defenseStrafe;
             this.animator.update(dt, facts);
+        }
+    }
+
+    // Same arena colliders as the player, using the bot's feet-based position.
+    // Scalar checks and bounded substeps avoid both per-tick vectors and tunneling.
+    _canStandAt(x, z) {
+        const bounds = this.arena.bounds;
+        if (x < bounds.minX + 1.5 || x > bounds.maxX - 1.5
+            || z < this._walkMinZ || z > this._walkMaxZ) return false;
+        const radius = this.radius || 0.5;
+        for (const prop of this.arena.collidables || []) {
+            if (prop.broken) continue;
+            if (Number.isFinite(prop.minX)) {
+                if (this.position.y + 1.9 <= prop.minY || this.position.y >= prop.maxY) continue;
+                if (x > prop.minX - radius && x < prop.maxX + radius
+                    && z > prop.minZ - radius && z < prop.maxZ + radius) return false;
+            } else if (prop.pos && Number.isFinite(prop.radius) && prop.radius > 0) {
+                if (Math.abs(this.position.y + 1.7 - prop.pos.y) >= prop.radius + radius + 2) continue;
+                const dx = x - prop.pos.x;
+                const dz = z - prop.pos.z;
+                if (dx * dx + dz * dz < (radius + prop.radius) ** 2 - 1e-10) return false;
+            }
+        }
+        return true;
+    }
+
+    _moveAroundProps(previousX, previousZ) {
+        if (!this.arena.collidables?.length) return;
+        const position = this.position;
+        // Map changes, team changes and random spawn offsets can begin in cover.
+        // Resolve those overlaps once instead of trapping the bot inside the prop.
+        if (!this._canStandAt(previousX, previousZ)) {
+            this._separateFromProps();
+            return;
+        }
+        const dx = position.x - previousX;
+        const dz = position.z - previousZ;
+        const length = Math.hypot(dx, dz);
+        if (length < 1e-9) return;
+        const steps = Math.min(128, Math.max(1, Math.ceil(length / ((this.radius || 0.5) * 0.5))));
+        const stepX = dx / steps;
+        const stepZ = dz / steps;
+        const canDetour = this._defenseIntent !== 'deflect'
+            && this._defenseIntent !== 'dodge-left' && this._defenseIntent !== 'dodge-right';
+        let x = previousX;
+        let z = previousZ;
+        for (let i = 0; i < steps; i++) {
+            if (this._canStandAt(x + stepX, z + stepZ)) {
+                x += stepX;
+                z += stepZ;
+            } else if (Math.abs(stepX) > 1e-9 && this._canStandAt(x + stepX, z)) {
+                x += stepX;
+            } else if (Math.abs(stepZ) > 1e-9 && this._canStandAt(x, z + stepZ)) {
+                z += stepZ;
+            } else if (canDetour) {
+                // A stable tangent walks around cover; no random rerolls or speed
+                // bonus, and no detour during an already committed defensive move.
+                let side = this._obstacleSide || this.strafeDir || 1;
+                if (!this._canStandAt(x - stepZ * side, z + stepX * side)) side = -side;
+                if (this._canStandAt(x - stepZ * side, z + stepX * side)) {
+                    this._obstacleSide = side;
+                    x -= stepZ * side;
+                    z += stepX * side;
+                }
+            }
+        }
+        position.x = x;
+        position.z = z;
+    }
+
+    _separateFromProps() {
+        const position = this.position;
+        const radius = this.radius || 0.5;
+        const bounds = this.arena.bounds;
+        for (let pass = 0; pass < 3; pass++) {
+            for (const prop of this.arena.collidables) {
+                if (prop.broken) continue;
+                if (Number.isFinite(prop.minX)) {
+                    if (position.y + 1.9 <= prop.minY || position.y >= prop.maxY) continue;
+                    const left = position.x - (prop.minX - radius);
+                    const right = prop.maxX + radius - position.x;
+                    const back = position.z - (prop.minZ - radius);
+                    const front = prop.maxZ + radius - position.z;
+                    if (left <= 0 || right <= 0 || back <= 0 || front <= 0) continue;
+                    // Do not select an exit face beyond the court boundary: the
+                    // bounds clamp would put the spawn straight back in the wall.
+                    const leftExit = prop.minX - radius >= bounds.minX + 1.5 ? left : Infinity;
+                    const rightExit = prop.maxX + radius <= bounds.maxX - 1.5 ? right : Infinity;
+                    const backExit = prop.minZ - radius >= this._walkMinZ ? back : Infinity;
+                    const frontExit = prop.maxZ + radius <= this._walkMaxZ ? front : Infinity;
+                    const depth = Math.min(leftExit, rightExit, backExit, frontExit);
+                    if (!Number.isFinite(depth)) continue;
+                    if (depth === leftExit) position.x -= left + 1e-6;
+                    else if (depth === rightExit) position.x += right + 1e-6;
+                    else if (depth === backExit) position.z -= back + 1e-6;
+                    else position.z += front + 1e-6;
+                } else if (prop.pos && Number.isFinite(prop.radius) && prop.radius > 0) {
+                    if (Math.abs(position.y + 1.7 - prop.pos.y) >= prop.radius + radius + 2) continue;
+                    const dx = position.x - prop.pos.x;
+                    const dz = position.z - prop.pos.z;
+                    const distance = Math.hypot(dx, dz);
+                    const reach = radius + prop.radius;
+                    if (distance >= reach) continue;
+                    let nextX = prop.pos.x + (distance > 1e-6 ? dx / distance : 1) * (reach + 1e-6);
+                    let nextZ = prop.pos.z + (distance > 1e-6 ? dz / distance : 0) * (reach + 1e-6);
+                    if (!this._canStandAt(nextX, nextZ)) {
+                        let nearest = Infinity;
+                        for (let side = 0; side < 4; side++) {
+                            const x = prop.pos.x + (side === 0 ? -reach - 1e-6 : side === 1 ? reach + 1e-6 : 0);
+                            const z = prop.pos.z + (side === 2 ? -reach - 1e-6 : side === 3 ? reach + 1e-6 : 0);
+                            const separation = (x - position.x) ** 2 + (z - position.z) ** 2;
+                            if (separation < nearest && this._canStandAt(x, z)) {
+                                nearest = separation;
+                                nextX = x;
+                                nextZ = z;
+                            }
+                        }
+                    }
+                    position.x = nextX;
+                    position.z = nextZ;
+                }
+            }
+            position.x = Math.max(bounds.minX + 1.5, Math.min(bounds.maxX - 1.5, position.x));
+            position.z = Math.max(this._walkMinZ, Math.min(this._walkMaxZ, position.z));
+            if (this._canStandAt(position.x, position.z)) break;
         }
     }
 
@@ -712,9 +845,16 @@ export class Bot {
     }
 
     remove() {
+        if (this._removed) return;
+        this._removed = true;
         disposeObject3D(this.knifeGroup);
         this.targetOutline?.userData.dispose?.();
         this.rig?.dispose();
+        // These sprites belong to the outer bot group, not to rig.dispose().
+        for (const sprite of [this.nameSprite, this.avatarSprite, this.hpBar]) {
+            sprite?.material?.map?.dispose();
+            sprite?.material?.dispose();
+        }
         this.scene.remove(this.group);
     }
 }

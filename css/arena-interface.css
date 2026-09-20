@@ -122,9 +122,11 @@
 #leaderboard-screen .scoreboard-table tbody tr:hover { background: var(--arena-card); }
 #replays-screen .replay-card { border-radius: 12px; background: var(--arena-card); border-color: var(--arena-line); box-shadow: none; }
 #replays-screen .replay-empty { min-height: 220px; border: 1px dashed var(--arena-line); border-radius: 14px; background: var(--arena-base); color: var(--arena-muted); }
-#practice-menu-screen .practice-menu-panel { padding: clamp(22px, 4vw, 42px); }
-#practice-menu-screen .practice-mode-grid { gap: 16px; margin-block: 24px; }
-#practice-menu-screen .practice-mode-card { min-height: 210px; padding: 26px; border: 1px solid var(--arena-line); border-radius: 15px; background: var(--arena-card); box-shadow: none; text-align: left; }
+#practice-menu-screen .practice-menu-panel { display: flex; flex-direction: column; padding: clamp(22px, 4vw, 36px); max-height: calc(100dvh - 32px); overflow: hidden; }
+#practice-menu-screen .practice-menu-panel > :not(.practice-mode-grid) { flex-shrink: 0; }
+#practice-menu-screen .practice-mode-grid { min-height: 0; flex: 1 1 auto; gap: 14px; margin-block: 20px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--arena-line) transparent; padding: 3px; }
+#practice-menu-screen #btn-practice-back { align-self: flex-start; margin: 0; }
+#practice-menu-screen .practice-mode-card { min-height: 174px; padding: 22px; border: 1px solid var(--arena-line); border-radius: 15px; background: var(--arena-card); box-shadow: none; text-align: left; }
 #practice-menu-screen .practice-mode-card:first-child { border-color: color-mix(in srgb, var(--arena-accent) 50%, var(--arena-line)); }
 #practice-menu-screen .practice-mode-card > span { color: var(--arena-accent); font-size: .62rem; letter-spacing: .14em; }
 #practice-menu-screen .practice-mode-card b { color: var(--arena-ink); font-size: 1.5rem; letter-spacing: -.025em; }
@@ -159,6 +161,7 @@
     .screen .shell-back { width: 100%; }
     #screen-profile .profile-container { width: calc(100vw - 20px); padding: 20px; border-radius: 15px; }
     #practice-menu-screen .practice-mode-grid { grid-template-columns: 1fr; gap: 10px; margin-block: 18px; }
+    #practice-menu-screen .practice-menu-panel { overflow: hidden; }
     #practice-menu-screen .practice-mode-card { min-height: 150px; padding: 20px; }
     #practice-menu-screen .practice-mode-card b { font-size: 1.25rem; }
     #leaderboard-screen .leaderboard-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }

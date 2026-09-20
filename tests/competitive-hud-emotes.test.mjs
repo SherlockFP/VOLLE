@@ -33,7 +33,7 @@ test('choosing an emote closes the exclusive overlay through the one close path'
 
 test('scoreboard keeps labels while the hot path only replaces nested values', () => {
     assert.match(html, /id="hud-score-red"><span>RED<\/span><b data-score-value>0<\/b>/);
-    assert.match(html, /id="hud-round-timer"><span>ROUND<\/span><b data-timer-value>5:00<\/b>/);
+    assert.match(html, /id="hud-round-timer"><span>MATCH<\/span><b data-timer-value>5:00<\/b>/);
     assert.match(html, /id="hud-score-blue"><span>BLUE<\/span><b data-score-value>0<\/b>/);
     assert.match(ui, /timerEl\.querySelector\('\[data-timer-value\]'\) \|\| timerEl/);
     assert.match(ui, /node\.querySelector\('\[data-score-value\]'\) \|\| node/);

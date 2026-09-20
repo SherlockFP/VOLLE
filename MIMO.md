@@ -4,6 +4,42 @@
 > **Status:** Active Gauntlet development. Canonical cycle order and exit gates live in `docs/GAUNTLET_CYCLES.md`.
 > **Tech Stack:** Three.js + PeerJS + vanilla JS (ES modules), browser-based 3D dodgeball.
 
+## 2026-09-20 Bot fairness and Arcade gameplay access
+
+- Bots use existing sphere/box court colliders with bounded movement and local
+  detours, keep their movement budget, and recover overlapping spawns. FFA no
+  longer enforces team halves. Dead movement, missing chill slow, invalid hazard
+  multipliers and owned sprite cleanup are fixed; ball/difficulty tuning is unchanged.
+- Arcade exposes the existing three solo presets plus Guided Deflect, Free Lab
+  and an honestly labeled local Volleyball Drill. Its card area scrolls while
+  Back stays visible; solo copy correctly describes a match-wide time limit.
+- Added 20 actual-method/entry regressions. Latest full shared-tree validation:
+  **1,954/1,954 tests**, **110 syntax-clean JS files**. Actual browser checks cover
+  three viewports, all three preset launches, a complete Warm-up and 0-0 rematch;
+  local Volleyball serve and Esc exit also checked. No captured page exceptions.
+- These are automated lifecycle checks, not human fun/balance testing or network
+  soak. Local obstacle avoidance is not global route planning; Volleyball still
+  needs player-pose/physical reach validation. Ownership, evidence and priorities:
+  `vault/sessions/2026-09-20-owner-gameplay-pass.md`.
+
+## 2026-09-20 Opening serve lifecycle and match-clock clarity
+
+- Opening serves now advance on the PLAYING simulation clock rather than an
+  unowned timeout. Pause preserves the 700 ms opening; old match/round/ball work,
+  eliminated targets and an already accepted rally cannot steal a later serve.
+  Solo/host authority and the existing opening speed/readability rules remain.
+- The live HUD labels its shared countdown MATCH. The actual scoreboard keeps
+  consuming this budget across rounds and resets it only for a new match.
+- Preserved and validated concurrent shared-tree bot/Arcade work: ground-prop
+  avoidance, FFA movement, chill/death/disposal fixes and visible local activity
+  entries. Added executed-method movement and serve lifecycle regressions.
+- Actual local browser smoke: controlled pause/resume, a complete three-round
+  warm-up, results and a 0-0/round-1 rematch with a target; no captured page errors.
+  This was scripted/no-input match validation, not human balance or network soak.
+  Final full suite: **1,954/1,954 passed**, zero skipped; **110 syntax-clean JS files**.
+  Scope, evidence and remaining weaknesses:
+  `vault/sessions/2026-09-20-serve-lifecycle.md`.
+
 ## 2026-09-20 Gameplay audit and Graphics settings
 
 - Settings now has explicit fixed header/tabs/footer rows and one bounded content

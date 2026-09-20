@@ -1443,10 +1443,15 @@
 
     <div id="practice-menu-screen" class="screen hidden">
         <div class="panel wide-panel practice-menu-panel">
-            <span class="shell-kicker">SKILL CIRCUIT</span>
-            <h1>Practice Protocol</h1>
-            <p>Build reliable contact before entering competitive queues.</p>
+            <span class="shell-kicker">PLAY AT YOUR PACE</span>
+            <h1>Arcade &amp; Practice</h1>
+            <p>Play a short bot match, sharpen your timing, or try local Volleyball. No online lobby required.</p>
             <div class="practice-mode-grid">
+                <button id="btn-menu-bots" type="button" class="practice-mode-card" aria-haspopup="dialog" aria-controls="solo-paths">
+                    <span>3 CHALLENGES / SOLO</span>
+                    <b>Bot Matches</b>
+                    <small>Warm-up, Rally Duel, or Under Pressure. Choose your pace and review the rules before starting.</small>
+                </button>
                 <button id="btn-guided-deflect" class="practice-mode-card">
                     <span>73 SEC / 3 STAGES</span>
                     <b>Guided Deflect</b>
@@ -1456,6 +1461,11 @@
                     <span>UNRESTRICTED</span>
                     <b>Free Lab</b>
                     <small>Manual spawn, reposition, and open-ended reps.</small>
+                </button>
+                <button id="btn-menu-volleyball" type="button" class="practice-mode-card">
+                    <span>LOCAL ONLY / GUIDED CONTACTS</span>
+                    <b>Volleyball Drill</b>
+                    <small>Serve, receive, set, spike, and block with an automated feeder. Not a multiplayer match.</small>
                 </button>
             </div>
             <button id="btn-practice-back" class="btn btn-secondary">Back</button>
@@ -1495,7 +1505,7 @@
         <div class="hud-top">
             <div class="hud-score-panel" aria-label="Match score">
                 <div class="hud-team-score red" id="hud-score-red"><span>RED</span><b data-score-value>0</b></div>
-                <div class="hud-timer" id="hud-round-timer"><span>ROUND</span><b data-timer-value>5:00</b></div>
+                <div class="hud-timer" id="hud-round-timer"><span>MATCH</span><b data-timer-value>5:00</b></div>
                 <div class="hud-team-score blue" id="hud-score-blue"><span>BLUE</span><b data-score-value>0</b></div>
             </div>
             <!-- Rally heat pip + charge bar — Game._applyRallyHeat / _updateCharge -->
