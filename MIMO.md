@@ -110,7 +110,8 @@
 - Solo warm-up now uses the intended one-shot ruleset. An early local deflect read
   is feedback-only; a late or uncertain miss costs 12 HP in normal modes and keeps
   the one-shot penalty, with feedback and replay event capture for the miss.
-- Aimed ball steering now recovers with the stronger authored homing values again;
+- Aimed ball steering now uses an intermediate return tune (`0.50` steering,
+  `0.70` proximity, `1.3` safety base, `1.25s` rescue and `4.8` return cap);
   close-range rescue still requires an approaching ball and the orbit watchdog
   prevents a tangent return from circling forever. Replay playback now supports
   loop mode, keyboard `L`, and miss highlights.
@@ -125,10 +126,10 @@
 
 ## 2026-09-20 Dodgeball reflection tuning
 
-- Player aimed returns now use the previous stronger steering/proximity factors and
-  full close safety lane, while retaining the approach gate and terminal watchdog.
-  This stops the current weak homing pass from orbiting the defender without
-  turning an outgoing ball into a forced hit.
+- Player aimed returns now use a middle ground between the soft and legacy tunes:
+  stronger steering/proximity, a `0.22` approach gate, and a bounded `4.8` rescue
+  lane. This stops the weak pass from orbiting the defender without turning an
+  outgoing ball into a forced hit.
 - Added an aimed orbit watchdog: a tangent shot that remains in the defender's
   orbit for 0.9 seconds can reclaim a steering slice even during repeated bounce
   ownership, so it cannot circle forever. The main menu presentation was restored
