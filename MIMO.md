@@ -70,6 +70,10 @@
   proximity safety net, require a stronger approach vector for forced hits, and
   delay terminal return rescue. A bad reflection can pass the defender's side and
   bend back later instead of snapping straight onto the torso.
+- Added an aimed orbit watchdog: a tangent shot that remains in the defender's
+  orbit for 0.9 seconds can reclaim a steering slice even during repeated bounce
+  ownership, so it cannot circle forever. The main menu presentation was restored
+  to the `e4182f3` WARRBALL version only; later screen flows remain available.
 - Focused ball, replay, lobby, deflect, and menu checks pass (66/66), and all 110
   JavaScript files pass direct syntax validation.
 

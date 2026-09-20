@@ -34,6 +34,7 @@ const {
     proximityAssistRange,
     PLAYER_AIM_PROXIMITY_FACTOR,
     PLAYER_AIM_STEERING_FACTOR,
+    shouldBreakAimedOrbit,
     shouldDirectHomingRescue,
     shouldForceProximityHit
 } = ballModule;
@@ -54,7 +55,12 @@ test('aimed misses keep a side lane before the delayed return rescue', () => {
     assert.match(source, /const rescueAge = this\.aimed \? 1\.7 : 1\.15;/);
     assert.match(source, /const minApproachDot = this\.aimed \? 0\.30 : PROXIMITY_APPROACH_DOT;/);
     assert.match(source, /this\.aimed\s*\? Math\.min\(homingRescueRange\(this\.currentSpeed\), 2\.4\)/);
+    assert.match(source, /const forceAimedRescue = this\.aimed && \(hasOverstayed \|\| aimedOrbiting\);/);
+    assert.match(source, /const steeringDt = directRescue \|\| forceAimedRescue/);
     assert.match(source, /const next = directRescue && !this\.aimed \? torsoDirection : current\.lerp\(direct, turn\);/);
+    assert.equal(shouldBreakAimedOrbit(3.8, 34, 0.91, 0.0), true);
+    assert.equal(shouldBreakAimedOrbit(3.8, 34, 0.89, 0.0), false);
+    assert.equal(shouldBreakAimedOrbit(3.8, 34, 0.91, 0.2), false);
 });
 
 test('every purchasable ball skin is cosmetic-only and ready for the shop', () => {

@@ -64,6 +64,17 @@ export function shouldDirectHomingRescue(distance, speed, homingAge, alignment) 
     return isCircling || (hasOverstayed && (isClose || alignment < 0.15));
 }
 
+// Aimed shots get a short orbit watchdog in addition to the wider miss grace.
+// This keeps a tangent reflection expressive without allowing a bounce-locked
+// route to circle the defender forever.
+export function shouldBreakAimedOrbit(distance, speed, steeringAge, alignment) {
+    if (![distance, speed, steeringAge, alignment].every(Number.isFinite)) return false;
+    const rescueRange = Math.min(homingRescueRange(speed), 2.4);
+    return steeringAge > 0.9
+        && distance < Math.max(rescueRange, 4.2)
+        && alignment < 0.12;
+}
+
 export function floorSafeHomingTargetY(targetY, radius) {
     const safeRadius = Number.isFinite(radius) ? Math.max(0, radius) : 0.35;
     const minimumY = Math.max(0.35, safeRadius);
@@ -1482,27 +1493,37 @@ export class Ball {
             : homingRescueRange(this.currentSpeed);
         const isCircling = torsoDistance < rescueRange
             && alignment < (this.aimed ? 0.05 : 0.15);
+        // A tangent player shot can orbit just outside the close rescue lane.
+        // Give that state a shorter orbit watchdog while preserving the longer
+        // grace period for a clean wide pass.
+        const aimedOrbiting = this.aimed
+            && shouldBreakAimedOrbit(torsoDistance, this.currentSpeed, this._steeringAge, alignment);
         const directRescue = shouldDirectHomingRescue(
             torsoDistance, this.currentSpeed, this._steeringAge, alignment
         ) && (!this.aimed || isCircling || (hasOverstayed
             && (torsoDistance < rescueRange || alignment < 0.05)));
-        const steeringDt = directRescue
+        // A player-owned shot may be in a floor/bounce ownership window when
+        // its grace period expires. Do not let that short route lock preserve
+        // an orbit forever: after the miss window, steering must get a frame
+        // to turn back toward the torso.
+        const forceAimedRescue = this.aimed && (hasOverstayed || aimedOrbiting);
+        const steeringDt = directRescue || forceAimedRescue
             ? unlockedSteeringDt
             : steeringDtAfterBounceOwnership(oldAge, dt, bounceRouteDt);
         if (steeringDt <= 0) return 0;
-        if (hasOverstayed || isCircling) {
+        if (hasOverstayed || isCircling || aimedOrbiting) {
             this._steeringPhase = 'torso';
             this._steeringWaypoint = null;
             this._steeringPlaneNormal = null;
             this._targetRouteOffset = { x: 0, y: 0, z: 0 };
         }
-        const direct = hasOverstayed || isCircling
+        const direct = hasOverstayed || isCircling || aimedOrbiting
             ? torsoDirection
             : desired;
         const proximityTurn = 1 - Math.exp(
             -proximityHomingTurnRate(torsoDistance, this._steeringAge) * steeringDt
         );
-        const rescueTurn = hasOverstayed || isCircling
+        const rescueTurn = hasOverstayed || isCircling || aimedOrbiting
             ? 1 - Math.exp(-7 * steeringDt)
             : 0;
         const aimFactor = this.aimed ? PLAYER_AIM_STEERING_FACTOR : 1;

@@ -11,18 +11,6 @@
 .ow-bot-play:hover { background: linear-gradient(110deg, #1b5357, #142e41); border-color: #88ffee; }
 .ow-bot-play:focus-visible { outline: 3px solid #a4fff1; outline-offset: 3px; }
 
-/* A collapsed rail is a control, not an empty opaque panel covering the hero. */
-@media (min-width: 761px) {
-    #main-menu .friends-sidebar.collapsed {
-        width: 184px; height: 58px; min-height: 58px; max-height: 58px;
-        right: 20px; bottom: auto; transform: none; border-radius: 12px;
-        overflow: hidden;
-    }
-    #main-menu .friends-sidebar.collapsed .friends-sidebar-header { width: 100%; min-width: 0; }
-    #main-menu .friends-sidebar.collapsed .friends-sidebar-body { display: none; }
-    #main-menu .ow-splash { right: 24px; }
-}
-
 /* Combat lives only in a match. Timed effects cannot escape into another screen. */
 body:not(.match-ui-active) :is(#combo-display, #combo-counter, #combo-meter,
     #streak-banner, #damage-flash, #round-banner, #killcam, #killcam-overlay,
