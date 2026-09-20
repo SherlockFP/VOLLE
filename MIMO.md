@@ -4,6 +4,33 @@
 > **Status:** Active Gauntlet development. Canonical cycle order and exit gates live in `docs/GAUNTLET_CYCLES.md`.
 > **Tech Stack:** Three.js + PeerJS + vanilla JS (ES modules), browser-based 3D dodgeball.
 
+## 2026-09-20 Shop Studio and input reliability
+
+- Shop now separates the 3D stage from animation controls and product details,
+  shows prices/balance/shortfalls, filters by collection and equipment slot, and
+  keeps the selected product and scroll position after purchases and equipment changes.
+  Short desktop catalogs scroll as a whole; mobile keeps a compact exit/wallet bar.
+- Added eight direct-purchase cosmetics across **Court Carnival** and **Orbital Club**,
+  priced 220–480 credits; total wearable catalog is **96**. Each has a distinct low-poly
+  model, matching SVG and authoritative server descriptor. Existing case odds are unchanged.
+- Preview controls support Idle, Run, Celebrate, Rotate and Front view. Reduced motion
+  freezes the rig and cosmetics; hidden previews stop drawing. Unlimited FPS (`0`) now
+  maps to the 60 FPS decorative ceiling in both shop and menu instead of 1 FPS.
+- Fixed duplicate 2D/3D characters, a redundant inline ball renderer, misplaced legacy
+  hats/masks/gloves, purchase-click fall-through into Equip, duplicate pending purchases,
+  and delayed purchase/live-market/equipment replies overriding navigation.
+- Player chat/editable focus and owned pointer-lock loss now clear stale held inputs
+  without changing movement, accepted dash or cooldown rules. Volleyball rejects a fourth
+  contact before incrementing accepted-contact state; snapshot round-trips remain valid.
+  The snapshot API has no current production consumer; this is not a live multiplayer claim.
+- Validation: **1,852/1,852 tests**, JavaScript syntax **110 files**, and **17 browser flow
+  checks** plus all seven shop categories and the unavailable-deals retry state. Screenshots
+  at **1440×900, 1280×720 and 375×812** were inspected with no horizontal layout overflow.
+  Browser checks used actual UI/renderers/handlers with an isolated in-memory Store;
+  authoritative debit, ownership, persistence and replay safety were tested separately.
+  Receipts: `.qa/shop-final-tests.log`, `.qa/shop-browser-report.json` and
+  `vault/sessions/2026-09-20-shop-studio.md`.
+
 ## 2026-09-20 Astra interface and 30 FPS pass
 
 - Reworked the main menu and shared screens (locker, shop, settings, progression,
@@ -36,6 +63,15 @@
   all 110 JavaScript files pass direct syntax checks. The full suite remains
   baseline-validated at 1,793/1,793; the all-in-one isolation-free runner has
   unrelated shared-global failures on this host.
+
+## 2026-09-20 Dodgeball reflection tuning
+
+- Player aimed returns now preserve their authored heading longer, use a smaller
+  proximity safety net, require a stronger approach vector for forced hits, and
+  delay terminal return rescue. A bad reflection can pass the defender's side and
+  bend back later instead of snapping straight onto the torso.
+- Focused ball, replay, lobby, deflect, and menu checks pass (66/66), and all 110
+  JavaScript files pass direct syntax validation.
 
 ---
 

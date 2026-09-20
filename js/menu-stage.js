@@ -450,9 +450,10 @@ export class MenuStageRenderer {
     // Decorative scenes never exceed 60 FPS. Changing the cap starts a fresh cadence so
     // a paused high-rate clock cannot delay the first frame at the new budget.
     setFrameLimit(fps) {
-        const requested = Math.floor(Number(fps));
-        this._frameLimit = Number.isFinite(requested)
-            ? Math.max(1, Math.min(MAX_DECORATIVE_FPS, requested))
+        // Settings use 0 for Unlimited; an explicit positive cap of 1 still means 1 FPS.
+        const requested = Number(fps);
+        this._frameLimit = Number.isFinite(requested) && requested > 0
+            ? Math.max(1, Math.min(MAX_DECORATIVE_FPS, Math.floor(requested)))
             : MAX_DECORATIVE_FPS;
         this._resetAnimationClock();
         return this._frameLimit;

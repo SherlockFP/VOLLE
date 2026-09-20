@@ -21,12 +21,15 @@
 #shop-screen .shop-live-badge { box-shadow: none; font-size: .6rem; letter-spacing: .06em; }
 #shop-screen .shop-rotate-hint { top: 14px; bottom: auto; font-size: .58rem; min-height: 28px; padding-inline: 8px; }
 #shop-screen .shop-preview-controls {
-    position: absolute; left: 12px; right: 12px; bottom: 10px; z-index: 5;
+    position: static; margin-bottom: 12px;
     display: flex; flex-wrap: wrap; justify-content: center; gap: 6px;
     padding: 7px; border: 1px solid #739bb442; border-radius: 12px;
     background: #081823eb; backdrop-filter: none;
 }
 #shop-screen .shop-preview-controls[hidden] { display: none; }
+.shop-motion-notice { width: 100%; text-align: center; color: #c7dbe6; font-size: .65rem; }
+.shop-motion-notice[hidden] { display: none; }
+#shop-screen .shop-preview-controls button:disabled { opacity: .45; cursor: default; }
 .shop-pose-buttons, .shop-view-buttons { display: flex; justify-content: center; gap: 3px; }
 #shop-screen .shop-preview-controls button {
     min-height: 36px; padding: 7px 10px; border: 1px solid transparent; border-radius: 7px;
@@ -107,8 +110,8 @@
     #shop-screen .shop-selected-detail { padding: 12px 16px; }
     #shop-screen .shop-selected-detail h2 { font-size: 1.2rem; }
     #shop-screen .shop-selected-detail .shop-selected-description { font-size: .75rem; line-height: 1.35; margin-top: 6px; }
-    #shop-screen .shop-catalog { gap: 9px; padding: 12px; }
-    #shop-screen .shop-grid { grid-template-columns: repeat(auto-fill, minmax(195px, 1fr)); gap: 10px; }
+    #shop-screen .shop-catalog { gap: 9px; padding: 12px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--ui-primary) transparent; }
+    #shop-screen .shop-grid { flex: none; overflow: visible; grid-template-columns: repeat(auto-fill, minmax(195px, 1fr)); gap: 10px; }
     #shop-screen .shop-card[data-shop-preview="character"] { min-height: 264px; }
     #shop-screen .shop-preview-controls { padding: 4px; bottom: 6px; gap: 3px; }
     #shop-screen .shop-preview-controls button { min-height: 32px; font-size: .66rem; padding: 5px 8px; }
@@ -123,10 +126,11 @@
     #shop-screen .shop-preview-controls { left: 6px; right: 6px; }
 }
 @media (max-width: 620px) {
-    #shop-screen .shop-shell { padding: 10px; gap: 10px; }
+    #shop-screen .shop-shell { padding: 10px 10px 88px; gap: 10px; }
     #shop-screen .shop-tabs .shop-tab { flex: 0 0 auto; min-height: 44px; padding: 8px 12px; }
-    #shop-screen .shop-showcase { grid-template-columns: 1fr; grid-template-rows: 235px auto; }
-    #shop-screen .shop-showcase-stage { min-height: 235px; }
+    #shop-screen .shop-showcase { grid-template-columns: 1fr; grid-template-rows: 205px auto; }
+    #shop-screen .shop-showcase-stage { min-height: 205px; }
+    #shop-screen .shop-rotate-hint { left: auto; right: 8px; top: 8px; font-size: .52rem; }
     #shop-screen .shop-selected-detail { border-left: 0; border-top: 1px solid var(--studio-line); padding: 14px; }
     #shop-screen .shop-selected-detail h2 { font-size: 1.25rem; }
     #shop-screen .shop-selected-detail .shop-selected-description { font-size: .8rem; }
@@ -143,6 +147,13 @@
     #shop-screen .shop-character-select { grid-template-columns: 104px minmax(0, 1fr); grid-template-rows: auto auto auto; }
     #shop-screen .shop-character-select .shop-portrait { width: 104px; height: 150px; }
     #shop-screen .shop-card[data-shop-preview="character"] { min-height: 184px; }
+    #shop-screen .shop-footer { position: fixed; bottom: 8px; left: 10px; right: 10px; z-index: 20; display: flex; flex-direction: row; align-items: center; gap: 6px; padding: 8px; min-height: 60px; }
+    #shop-screen .shop-footer .shell-back { flex: 0 0 104px; min-width: 0; width: auto; font-size: .64rem; padding: 7px; }
+    #shop-screen .shop-footer-wallet { flex: 1 1 auto; width: auto; gap: 5px; }
+    #shop-screen .shop-footer-wallet .meta-stat { min-width: 66px; flex: 0 0 66px; padding: 5px; }
+    #shop-screen .shop-footer-wallet .meta-stat :is(small, .ui-icon) { display: none; }
+    #shop-screen #shop-earn-slot { flex: 1 1 auto; min-width: 0; }
+    #shop-screen #shop-earn-slot .btn { min-width: 0; width: 100%; min-height: 44px; font-size: .6rem; padding: 5px; white-space: normal; }
 }
 @media (prefers-reduced-motion: reduce) {
     #shop-screen .shop-card, #shop-screen .shop-preview-controls button { animation: none; transition: none; }

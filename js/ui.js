@@ -2119,7 +2119,7 @@ export class UI {
             avatars: ['all', 'owned', 'affordable'],
             balls: ['all', 'ball', 'owned', 'affordable'],
             live: ['all', 'ball', 'cosmetic', 'owned', 'affordable'],
-            wearables: ['all', 'cosmetic', 'hat', 'shoes', 'cape', 'owned', 'affordable'],
+            wearables: ['all', 'owned', 'affordable'],
             cases: ['all', 'affordable'],
             boosts: ['all', 'affordable']
         };
@@ -2479,6 +2479,8 @@ export class UI {
         const empty = document.getElementById('shop-no-results');
         if (empty) empty.hidden = visible > 0 || entries.length === 0;
         if (grid) grid.scrollTop = 0;
+        const catalog = document.querySelector('#shop-screen .shop-catalog');
+        if (catalog) catalog.scrollTop = 0;
         document.querySelectorAll('#shop-filters .shop-filter-chip').forEach(chip => {
             const selected = chip.dataset.filter === id;
             chip.classList.toggle('selected', selected);
@@ -2494,6 +2496,8 @@ export class UI {
         if (!grid) return;
         const sameTab = this._shopTab === tab;
         const scrollTop = sameTab ? grid.scrollTop : 0;
+        const catalog = document.querySelector('#shop-screen .shop-catalog');
+        const catalogScrollTop = sameTab ? catalog?.scrollTop || 0 : 0;
         const previewCosmetic = this._shopPreviewCosmetic;
         if (!sameTab) {
             const search = document.getElementById('shop-search');
@@ -2766,6 +2770,7 @@ export class UI {
         }
         this._applyShopFilter(this._shopFilterId || 'all');
         grid.scrollTop = scrollTop;
+        if (catalog) catalog.scrollTop = catalogScrollTop;
     }
 
     updateContractTracker(daily, store) {

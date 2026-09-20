@@ -5,8 +5,11 @@ import { ObjectPool } from './objectPool.js';
 
 export const STEERING_CONTROL_WINDOW = 0.074;
 export const BOUNCE_ROUTE_OWNERSHIP_WINDOW = 0.082;
-export const PLAYER_AIM_STEERING_FACTOR = 0.58;
-export const PLAYER_AIM_PROXIMITY_FACTOR = 0.78;
+// Player reflections keep their authored heading long enough to be dodged. The
+// target still supplies a readable return arc, but it must not magnetize the
+// ball back onto the torso a few frames after a miss.
+export const PLAYER_AIM_STEERING_FACTOR = 0.22;
+export const PLAYER_AIM_PROXIMITY_FACTOR = 0.30;
 export const PROXIMITY_APPROACH_DOT = 0.18;
 const STEERING_TICK = 1 / 66;
 const WIDE_SHOT_ANGLE = 15 * Math.PI / 180;
@@ -43,9 +46,9 @@ export function proximityAssistRange(speed, baseRange = 1.5) {
     return Math.max(0, baseRange) + Math.min(safeSpeed * 0.0015, 1.0);
 }
 
-export function shouldForceProximityHit({ distance, speed, approachDot, timer = 0, threshold = 0.3, hitRange = 0.7 } = {}) {
-    if (![distance, speed, approachDot, timer, threshold, hitRange].every(Number.isFinite)) return false;
-    if (approachDot < PROXIMITY_APPROACH_DOT) return false;
+export function shouldForceProximityHit({ distance, speed, approachDot, timer = 0, threshold = 0.3, hitRange = 0.7, minApproachDot = PROXIMITY_APPROACH_DOT } = {}) {
+    if (![distance, speed, approachDot, timer, threshold, hitRange, minApproachDot].every(Number.isFinite)) return false;
+    if (approachDot < minApproachDot) return false;
     const near = distance <= hitRange && speed > 80;
     const delayed = distance < proximityAssistRange(speed, hitRange + 0.8)
         && distance > hitRange
@@ -1070,19 +1073,25 @@ export class Ball {
             const approachDot = this.velocity.lengthSq() > 0.001 && toTarget.lengthSq() > 0.001
                 ? this.velocity.clone().normalize().dot(toTarget.normalize())
                 : 0;
-            // Wider proximity range for fast balls — prevents orbiting at high speed
-            const effectiveProxRange = proximityAssistRange(this.currentSpeed, this._proximityRange);
+            // Aimed reflections get a smaller, stricter safety net. They may
+            // curve back after a pass, but a tangent should remain a dodgeable
+            // pass instead of becoming an instant torso hit.
+            const proximityBaseRange = this.aimed ? 0.9 : this._proximityRange;
+            const effectiveProxRange = proximityAssistRange(this.currentSpeed, proximityBaseRange);
+            const minApproachDot = this.aimed ? 0.30 : PROXIMITY_APPROACH_DOT;
             if (proxDist < effectiveProxRange && proxDist > this.hitRange) {
                 this._proximityTimer += dt;
                 // Faster trigger at high speed — 0.2s instead of 0.4s
-                const threshold = clamp(0.42 - this.currentSpeed * 0.0024, 0.18, 0.38);
+                const threshold = clamp(0.42 - this.currentSpeed * 0.0024, 0.18, 0.38)
+                    + (this.aimed ? 0.12 : 0);
                 if (shouldForceProximityHit({
                     distance: proxDist,
                     speed: this.currentSpeed,
                     approachDot,
                     timer: this._proximityTimer,
                     threshold,
-                    hitRange: this.hitRange
+                    hitRange: this.hitRange,
+                    minApproachDot
                 })) {
                     this._forceHit = true;
                     this._proximityTimer = 0;
@@ -1091,7 +1100,8 @@ export class Ball {
                 distance: proxDist,
                 speed: this.currentSpeed,
                 approachDot,
-                hitRange: this.hitRange
+                hitRange: this.hitRange,
+                minApproachDot
             })) {
                 // Ball is within hit range and moving fast → force hit immediately (tunneling fix)
                 this._forceHit = true;
@@ -1461,13 +1471,21 @@ export class Ball {
         const toTorso = new THREE.Vector3().subVectors(torsoPos, this.position);
         const torsoDistance = toTorso.length();
         const torsoDirection = torsoDistance > 0.001 ? toTorso.normalize() : desired;
-        const hasOverstayed = this._steeringAge > 1.15;
+        // Reflected shots get a longer return window so a bad read can pass
+        // beside the defender before the ball bends back. Bots/incoming balls
+        // keep the tighter terminal rescue used by the existing modes.
+        const rescueAge = this.aimed ? 1.7 : 1.15;
+        const hasOverstayed = this._steeringAge > rescueAge;
         const alignment = current.dot(torsoDirection);
-        const rescueRange = homingRescueRange(this.currentSpeed);
-        const isCircling = torsoDistance < rescueRange && alignment < 0.15;
+        const rescueRange = this.aimed
+            ? Math.min(homingRescueRange(this.currentSpeed), 2.4)
+            : homingRescueRange(this.currentSpeed);
+        const isCircling = torsoDistance < rescueRange
+            && alignment < (this.aimed ? 0.05 : 0.15);
         const directRescue = shouldDirectHomingRescue(
             torsoDistance, this.currentSpeed, this._steeringAge, alignment
-        );
+        ) && (!this.aimed || isCircling || (hasOverstayed
+            && (torsoDistance < rescueRange || alignment < 0.05)));
         const steeringDt = directRescue
             ? unlockedSteeringDt
             : steeringDtAfterBounceOwnership(oldAge, dt, bounceRouteDt);
@@ -1494,7 +1512,9 @@ export class Ball {
             proximityTurn * proximityFactor,
             rescueTurn
         );
-        const next = directRescue ? torsoDirection : current.lerp(direct, turn);
+        // Even the aimed terminal rescue bends back over several frames; only
+        // non-player homing uses the hard snap for a tunnelling safety net.
+        const next = directRescue && !this.aimed ? torsoDirection : current.lerp(direct, turn);
         if (finitePoint(next) && next.lengthSq() > 0.000001) {
             this.velocity.copy(next.normalize().multiplyScalar(this.currentSpeed));
         }

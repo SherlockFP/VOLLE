@@ -1150,6 +1150,8 @@ class App {
         this.renderer.setRenderScale(this.store.get('renderScale') || 1);
         this.game.juice.reducedMotion = !!settings.reduceMotion;
         this.menuHero?.setReducedMotion(!!settings.reduceMotion);
+        this.shopShowcase?.setReducedMotion(!!settings.reduceMotion);
+        this._syncShopMotionControls();
         this.menuStage?.setReducedMotion(!!settings.reduceMotion);
         this.game.juice.screenShakeEnabled = settings.screenShake !== false;
         this.game.juice.screenFlashEnabled = settings.screenFlash !== false;
@@ -3429,7 +3431,10 @@ updateCSLobbyInfo();
             if (cosmeticClear) {
                 this.store.clearCosmeticSlot(cosmeticClear.dataset.type);
                 await this._syncWearableLoadout();
-                this.ui.renderShop(this.store, 'wearables');
+                if (document.body.dataset.screen === 'shop') {
+                    const activeTab = document.querySelector('.shop-tab.selected')?.dataset.tab || 'wearables';
+                    this.ui.renderShop(this.store, activeTab);
+                }
                 this.ui.showMessage?.('Cosmetic removed.');
                 return;
             }
@@ -3480,7 +3485,7 @@ updateCSLobbyInfo();
                 const activeTab = document.querySelector('.shop-tab.selected')?.dataset.tab || 'chars';
                 if (equippedForAnalytics) this.productAnalytics.track('cosmetic_equip', { itemType, itemId: ballId });
                 if (equipBtn.closest('#character-screen')) this.ui.renderLockerInventory(this.store);
-                else this.ui.renderShop(this.store, activeTab);
+                else if (document.body.dataset.screen === 'shop') this.ui.renderShop(this.store, activeTab);
                 this.refreshMetaStats();
             }
             const ballInspect = e.target.closest('.ball-inspect');
@@ -5350,7 +5355,14 @@ updateCarousel() {
         return ready;
     }
 
-    // Practice range — bot yok, sınırsız top, spawn/taşı.
+    // Reflect the same accessibility setting that controls the renderer.
+    _syncShopMotionControls() {
+        const reduced = this.shopShowcase?.reducedMotion === true;
+        document.querySelectorAll('#shop-preview-controls [data-shop-animation], #shop-auto-rotate').forEach(button => { button.disabled = reduced; });
+        const notice = document.getElementById('shop-motion-notice');
+        if (notice) notice.hidden = !reduced;
+    }
+
     _initShopShowcase() {
         const canvas = document.getElementById('shop-showcase-canvas');
         if (!canvas || this.shopShowcase) return;
@@ -5369,6 +5381,9 @@ updateCarousel() {
             if (status) status.textContent = '3D preview unavailable. Catalog controls remain active.';
         }
         this.shopShowcase?.setFrameLimit(this.store.get('fpsLimit'));
+        this.shopShowcase?.setReducedMotion(this.store.get('settings')?.reduceMotion === true);
+        this._syncShopMotionControls();
+        window.matchMedia?.('(prefers-reduced-motion: reduce)').addEventListener?.('change', () => this._syncShopMotionControls(), { signal: this._mainAbort.signal });
         const controls = document.getElementById('shop-preview-controls');
         controls?.addEventListener('click', event => {
             const button = event.target.closest('[data-shop-animation]');

@@ -374,6 +374,66 @@ test('frame-limited previews evaluate poses and cosmetics only for actual draws 
     }
 });
 
+test('Unlimited (0) draws at the decorative ceiling and visibly advances Run within 120ms', t => {
+    for (const fps of [0, '0']) {
+        for (const sourceHz of [60, 144, 240]) {
+            const { preview, poses, cosmetics } = setup(t);
+            preview.setFrameLimit(fps);
+            preview.setAnimation('run');
+            preview.start();
+            poses.length = 0;
+            cosmetics.length = 0;
+            preview.renderer.renderCount = 0;
+            preview.renderer.loop(0);
+            const firstPose = poseSnapshot(preview);
+            const earlyFrames = Math.floor(.12 * sourceHz);
+            for (let frame = 1; frame <= earlyFrames; frame++) preview.renderer.loop(frame * 1000 / sourceHz);
+            assert.notDeepEqual(poseSnapshot(preview), firstPose, `Unlimited at ${sourceHz} Hz must not freeze the visible Run pose`);
+            assert.ok(Math.abs(preview.avatar.rig.joints.hipL.rotation.x) > .2);
+            for (let frame = earlyFrames + 1; frame < sourceHz; frame++) preview.renderer.loop(frame * 1000 / sourceHz);
+            assert.equal(preview.renderer.renderCount, 60, 'Unlimited retains the 60 FPS decorative budget');
+            assert.equal(poses.length, 60);
+            assert.equal(cosmetics.length, 60);
+        }
+    }
+});
+
+test('an explicit 1 FPS cap stays distinct from Unlimited and changing caps resets its draw deadline', t => {
+    for (const fps of [1, '1']) {
+        const { preview, poses } = setup(t);
+        assert.equal(preview.setFrameLimit(fps), 1);
+        preview.setAnimation('run');
+        preview.start();
+        preview.renderer.renderCount = 0;
+        poses.length = 0;
+        step(preview, 60);
+        assert.equal(preview.renderer.renderCount, 1);
+        assert.equal(poses.length, 1, 'an intentional slow cap also limits pose evaluations');
+        const phase = preview._elapsed;
+        assert.equal(preview.setFrameLimit(0), 60);
+        assert.equal(preview.renderer.renderCount, 1, 'setting a budget does not draw or create another loop');
+        preview.renderer.loop(1000);
+        assert.equal(preview._elapsed, phase, 'the new cadence does not absorb a clock gap');
+        assert.equal(preview.renderer.renderCount, 2, 'the old one-second deadline cannot delay the new budget');
+        preview.renderer.loop(1000 + 1000 / 60);
+        assert.equal(preview.renderer.renderCount, 3);
+        preview.setReducedMotion(true);
+        preview.setFrameLimit(0);
+        assert.equal(preview.renderer.loop, null, 'Unlimited cannot override reduced motion');
+    }
+});
+
+test('missing or nonpositive FPS settings use the decorative default while positive caps retain their bounds', t => {
+    const { preview } = setup(t);
+    for (const value of [undefined, null, '', NaN, Infinity, -Infinity, -30, 'invalid']) {
+        assert.equal(preview.setFrameLimit(value), 60);
+    }
+    for (const [value, expected] of [[.5, 1], [1, 1], [30, 30], [30.9, 30], [60, 60], [144, 60]]) {
+        assert.equal(preview.setFrameLimit(value), expected);
+    }
+    assert.equal(preview.renderer.renderCount, 0, 'configuration never starts a stopped preview');
+});
+
 test('large stalls have bounded motion, invalid/backwards timestamps are ignored, and repeated start keeps time', t => {
     const { preview } = setup(t);
     preview.start();

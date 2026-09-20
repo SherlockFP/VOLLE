@@ -2583,7 +2583,10 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                     const dx2 = ballPos.x - px, dz2 = ballPos.z - pz, dy2 = ballPos.y - py;
                     const proxDistSq = dx2 * dx2 + dy2 * dy2 + dz2 * dz2;
                     // ponytail: expanded proximity range for fast balls
-                    const effectiveRange = proximityAssistRange(this.ball.currentSpeed, this.ball._proximityRange);
+                    const effectiveRange = proximityAssistRange(
+                        this.ball.currentSpeed,
+                        this.ball.aimed ? 0.9 : this.ball._proximityRange
+                    );
                     if (proxDistSq < effectiveRange * effectiveRange) {
                         this.handleHit(target);
                         return;

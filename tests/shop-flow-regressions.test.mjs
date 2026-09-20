@@ -144,3 +144,41 @@ test('failed live-market refresh rebuilds the recoverable empty state in the act
     assert.equal(await refresh.call(app), false);
     assert.equal(renders, 1);
 });
+
+test('delayed equipment removal keeps the new category and never redraws a closed shop', async () => {
+    const start = mainSource.indexOf('            const cosmeticClear =');
+    const end = mainSource.indexOf('            const wearableInspect =', start);
+    for (const screen of ['shop', 'mainMenu']) {
+        let resolve;
+        let removed;
+        const renders = [];
+        const tab = { dataset: { tab: 'wearables' } };
+        const document = { body: { dataset: { screen: 'shop' } }, querySelector: () => tab };
+        const handler = runInNewContext(`(async function(e) { ${mainSource.slice(start, end)} })`, { document });
+        const app = {
+            store: { clearCosmeticSlot: slot => { removed = slot; } },
+            _syncWearableLoadout: () => new Promise(done => { resolve = done; }),
+            ui: { renderShop: (store, category) => renders.push(category), showMessage() {} }
+        };
+        const pending = handler.call(app, { target: { closest: () => ({ dataset: { type: 'hat' } }) } });
+        tab.dataset.tab = 'balls';
+        document.body.dataset.screen = screen;
+        resolve(true);
+        await pending;
+        assert.equal(removed, 'hat');
+        assert.deepEqual(renders, screen === 'shop' ? ['balls'] : []);
+    }
+});
+
+test('delayed equip updates ownership without rebuilding a shop left during the request', async () => {
+    let resolve;
+    const fixture = purchaseFixture(async () => false);
+    fixture.button.closest = selector => selector === '.shop-equip' ? fixture.button : null;
+    fixture.app._syncWearableLoadout = () => new Promise(done => { resolve = done; });
+    const pending = fixture.click();
+    fixture.document.body.dataset.screen = 'mainMenu';
+    resolve(true);
+    await pending;
+    assert.equal(fixture.equips(), 1);
+    assert.equal(fixture.renders(), 0);
+});

@@ -1,6 +1,19 @@
-# STATUS — 2026-07-31 (oturum kapanışı)
+# STATUS — 2026-09-20
 
-> Son güncelleyen: Claude Fable 5 oturumu. Detay: [[sessions/2026-07-31-fable]] + `MIMO.md` Wave 7-8.
+> Güncel çalışma: [[sessions/2026-09-20-shop-studio]]. Ayrıntılı proje geçmişi `MIMO.md` içinde.
+
+## Son tamamlanan çalışma
+- Mağazada okunabilir ürün detayları, koleksiyon/slot filtreleri, kalıcı seçim ve kaydırma, mobil alt menü, Idle/Run/Celebrate önizleme kontrolleri.
+- Court Carnival ve Orbital Club: 8 yeni model/SVG/sunucu kaydı; 220–480 kredi; toplam 96 giyilebilir kozmetik.
+- Satın almanın yanlışlıkla ekipman takmasına, çift isteğe, geciken yanıtların sekmeyi değiştirmesine ve çift 2D/3D önizlemeye yol açan hatalar düzeltildi.
+- Eski şapka/maske/eldiven yerleşimleri, Unlimited seçiliyken 1 FPS önizleme, sohbet açınca basılı kalan girdiler ve voleybolun reddedilen dördüncü temas durumu düzeltildi.
+- Doğrulama: **1852/1852 test**, **110 JS dosyası**, **17 tarayıcı akış kontrolü**, 7 sekme + fırsat yok durumunda tekrar deneme; 1440×900, 1280×720, 375×812 görselleri incelendi.
+- Tarayıcı akışı izole bellek verisiyle gerçek üretim UI/render/olay kodunu çalıştırdı. Sunucu satın alma/kalıcılık ayrı test edildi; bu turda gerçek hesapla uçtan uca satın alma veya iki kişiyle uzun maç testi yapılmadı.
+- Aynı klasördeki paralel top/maç/replay/lobi çalışmaları korundu. Bu çalışma yeni bağımlılık eklemedi; kalan inceleme için `.qa/shop-browser-report.json` ve oturum notuna bak.
+
+## Önceki oturum notları — 2026-07-31 arşivi
+
+> Aşağıdakiler önceki oturumun kayıtlarıdır; ayrıntı [[sessions/2026-07-31-fable]] + `MIMO.md` Wave 7-8.
 
 ## Bitti ve pushlu
 - `1741825` — Faz 1: ball stall fix (isHost&&!connected sim boşluğu), host/late-join 4 kök neden (lobi unregister, TTL 45→90s, rate limit 30→120/dk, peer-unavailable listener), QUICK PLAY hub reroute, skybox revert.
