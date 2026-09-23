@@ -40,3 +40,5 @@ export function buildMapArt(arena, tier = 'medium') {
 }
 
 export { POLISH_BUILDERS };
+// The world outside the court + stands (every tier; see backdrop.js).
+export { buildBackdrop, backdropThemeFor, BACKDROP_THEMES } from './backdrop.js';

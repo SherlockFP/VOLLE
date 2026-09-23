@@ -1079,6 +1079,136 @@ export function mapLightingPreset(mapId) {
     return Object.hasOwn(MAP_LIGHTING, mapId) ? MAP_LIGHTING[mapId] : null;
 }
 
+// --- Sky, weather and backdrop (presentation only) ----------------------------
+// Sky tuning for the maps whose `sky` block is the auto-filled default (see
+// ensureMapMetadata): sun/moon disc, cloud cover, optional stars. Merged over
+// config.sky in buildSkybox. Nothing here touches gameplay.
+export const MAP_SKY_STYLE = Object.freeze({
+    beach: Object.freeze({ sun: true, sunColor: 0xfff0c8, cloudAmount: 0.34 }),
+    industrial: Object.freeze({ sun: true, sunColor: 0xfff4e0, cloudAmount: 0.45 }),
+    space: Object.freeze({ sun: true, sunColor: 0xfff8e8, cloudAmount: 0, stars: 1 }),
+    neon: Object.freeze({ sun: true, sunColor: 0xe0d4ff, cloudAmount: 0.3, stars: 0.6 }),
+    dojo: Object.freeze({ sun: true, sunColor: 0xfff2d6, cloudAmount: 0.4 }),
+    colosseum: Object.freeze({ sun: true, sunColor: 0xffeccc, cloudAmount: 0.28 }),
+    // Ember glow along the horizon so the basalt ranges silhouette against it.
+    volcano: Object.freeze({ horizonColor: 0x8a2a0c, sun: true, sunColor: 0xff8a50, cloudAmount: 0.62 }),
+    ice: Object.freeze({ sun: true, sunColor: 0xffffff, cloudAmount: 0.42 }),
+    cloud: Object.freeze({ sun: true, sunColor: 0xfff4e8, cloudAmount: 0.55 }),
+    jungle: Object.freeze({ sun: true, sunColor: 0xfff4c8, cloudAmount: 0.5 }),
+    cyber: Object.freeze({ sun: true, sunColor: 0xe8ffff, cloudAmount: 0.22 }),
+    canyon: Object.freeze({ sun: true, sunColor: 0xffe2a8, cloudAmount: 0.16 }),
+    pillar: Object.freeze({ sun: true, sunColor: 0xffe8c4, cloudAmount: 0.32 }),
+    lava: Object.freeze({ sun: true, sunColor: 0xff7a3a, cloudAmount: 0.55 }),
+    crystal: Object.freeze({ sun: true, sunColor: 0xe8f6ff, cloudAmount: 0.3 }),
+    mecha: Object.freeze({ sun: true, sunColor: 0xf0f4ff, cloudAmount: 0.5 }),
+    atlantis: Object.freeze({ sun: false, cloudAmount: 0 }),
+    minecraft: Object.freeze({ sun: true, sunColor: 0xfffbe0, cloudAmount: 0.45 }),
+    esport_arena: Object.freeze({ sun: true, sunColor: 0xfff4dc, cloudAmount: 0.3 }),
+    temple_sym: Object.freeze({ sun: true, sunColor: 0xffe4b8, cloudAmount: 0.3 })
+});
+
+// A sky reads as night when neither its horizon nor its zenith carries light
+// (mirrors the `night` term in the sky shader).
+export function skyIsNight(horizonColor, topColor) {
+    const lum = color => {
+        const c = color?.isColor ? color : new THREE.Color(color);
+        return c.r * 0.2126 + c.g * 0.7152 + c.b * 0.0722;
+    };
+    return Math.max(lum(horizonColor), lum(topColor)) < 0.16;
+}
+
+// Weather pools: the chance of each non-clear weather per map (the remainder
+// is clear, so most matches stay dry). Rolled once per build from
+// mapRandom(`${mapId}:weather:${arena.weatherSeed}`), so every client that
+// shares weatherSeed sees the same weather. An empty pool never rains (indoor,
+// space, underwater); maps missing here (custom maps) keep config.weather.
+// config.weather stays the map's signature weather for the lobby carousel.
+export const MAP_WEATHER_POOLS = Object.freeze({
+    beach: Object.freeze({ rain: 0.25 }),
+    beach_open: Object.freeze({ rain: 0.25 }),
+    industrial: Object.freeze({ rain: 0.3 }),
+    space: Object.freeze({}),
+    neon: Object.freeze({ rain: 0.35 }),
+    circuit_dome: Object.freeze({}),
+    dojo: Object.freeze({ rain: 0.2, snow: 0.1 }),
+    colosseum: Object.freeze({ rain: 0.2 }),
+    volcano: Object.freeze({ storm: 0.3 }),
+    ice: Object.freeze({ snow: 0.4 }),
+    cloud: Object.freeze({}),
+    jungle: Object.freeze({ rain: 0.3, storm: 0.05 }),
+    cyber: Object.freeze({ rain: 0.1, storm: 0.2 }),
+    canyon: Object.freeze({ rain: 0.12 }),
+    pillar: Object.freeze({ rain: 0.25 }),
+    lava: Object.freeze({}),
+    crystal: Object.freeze({ snow: 0.25 }),
+    mecha: Object.freeze({ rain: 0.25 }),
+    atlantis: Object.freeze({}),
+    minecraft: Object.freeze({ rain: 0.2, snow: 0.1 }),
+    esport_arena: Object.freeze({}),
+    dropworks: Object.freeze({ rain: 0.3 }),
+    grand_stadium: Object.freeze({ rain: 0.3 }),
+    mega_pinball: Object.freeze({}),
+    cosmetic_studio: Object.freeze({}),
+    temple_sym: Object.freeze({ rain: 0.25 }),
+    aquarium: Object.freeze({}),
+    museum: Object.freeze({}),
+    casino: Object.freeze({}),
+    subway: Object.freeze({}),
+    neon_rooftop: Object.freeze({ rain: 0.35 }),
+    sunken_temple: Object.freeze({ rain: 0.3 }),
+    orbital_station: Object.freeze({}),
+    sunbaked_bazaar: Object.freeze({}),
+    harbor_nightworks: Object.freeze({ rain: 0.5 }),
+    alpine_research: Object.freeze({ snow: 0.45 }),
+    jade_garden: Object.freeze({ rain: 0.3 })
+});
+
+export const WEATHER_KINDS = Object.freeze(['clear', 'rain', 'snow', 'storm']);
+
+// How each weather dresses the scene: sky deck (overcast), sun dimming, fog
+// desaturate/dim/lift, backdrop dimming.
+export const WEATHER_LOOK = Object.freeze({
+    clear: Object.freeze({ overcast: 0, sunScale: 1, fogDesat: 0, fogDim: 0, fogLift: 0, backdropDim: 0 }),
+    rain: Object.freeze({ overcast: 0.62, sunScale: 0.62, fogDesat: 0.5, fogDim: 0.16, fogLift: 0, backdropDim: 0.22 }),
+    storm: Object.freeze({ overcast: 0.85, sunScale: 0.5, fogDesat: 0.6, fogDim: 0.28, fogLift: 0, backdropDim: 0.32 }),
+    snow: Object.freeze({ overcast: 0.55, sunScale: 0.8, fogDesat: 0.4, fogDim: 0, fogLift: 0.18, backdropDim: 0.08 })
+});
+
+export function mapWeatherPool(mapId, config = MAPS[mapId]) {
+    if (Object.hasOwn(MAP_WEATHER_POOLS, mapId)) return MAP_WEATHER_POOLS[mapId];
+    const fixed = config?.weather;
+    return WEATHER_KINDS.includes(fixed) && fixed !== 'clear' ? { [fixed]: 1 } : {};
+}
+
+// Pure + deterministic: same (mapId, seed) -> same weather on every client.
+export function rollMapWeather(mapId, seed = 0, config = MAPS[mapId]) {
+    const pool = mapWeatherPool(mapId, config);
+    const roll = mapRandom(`${mapId}:weather:${seed ?? 0}`)();
+    let acc = 0;
+    for (const kind of WEATHER_KINDS) {
+        if (kind === 'clear' || !(pool[kind] > 0)) continue;
+        acc += pool[kind];
+        if (roll < acc) return kind;
+    }
+    return 'clear';
+}
+
+// Backdrop ring outside the court + stands (js/map-art/backdrop.js, loaded
+// lazily with the map-art chunk). Enclosed rooms (aquarium, museum, casino,
+// subway) show no outside; the space station and rooftop maps already carry
+// their own horizon art.
+export const MAP_BACKDROPS = Object.freeze({
+    beach: 'resort', beach_open: 'resort', industrial: 'factory', space: 'space',
+    neon: 'city_night', circuit_dome: 'cyber_city', dojo: 'dojo', colosseum: 'roman',
+    volcano: 'volcanic', ice: 'alpine', cloud: 'sky_islands', jungle: 'jungle',
+    cyber: 'cyber_city', canyon: 'canyon', pillar: 'roman', lava: 'volcanic',
+    crystal: 'crystal', mecha: 'mech_base', atlantis: 'seabed', minecraft: 'voxel',
+    esport_arena: 'city_day', dropworks: 'city_high', grand_stadium: 'city_day',
+    mega_pinball: 'cyber_city', temple_sym: 'highlands',
+    sunken_temple: 'far_jungle', sunbaked_bazaar: 'far_desert', harbor_nightworks: 'far_harbor',
+    alpine_research: 'far_snow', jade_garden: 'far_garden'
+});
+
 // Maps that get the lazily-loaded js/map-art/ layer (identity scenery for the
 // new maps on every tier; polish for the rest on medium/high only). Mirrors
 // IDENTITY_BUILDERS / POLISH_BUILDERS in js/map-art/index.js.
@@ -1147,6 +1277,11 @@ export class Arena {
         // animated art material; art CanvasTextures are disposed in clearMap().
         this._artTime = { value: 0 };
         this._artTextures = [];
+        // Shared seed for the per-build weather roll (rollMapWeather). Every
+        // client that agrees on it sees the same rain/snow; setWeatherSeed()
+        // re-rolls in place without rebuilding the map.
+        this.weatherSeed = Number.isFinite(options.weatherSeed) ? options.weatherSeed : 0;
+        this.weatherType = 'clear';
         this.build();
         // ponytail: apply initial map theme
         this._applyTheme(this.mapId);
@@ -1228,12 +1363,10 @@ export class Arena {
             this.buildSpectatorStands();
             if (this.goalRushEnabled) this.buildGoalZones();
             if (!this.bounds.maxY) this.bounds.maxY = this.ceilingHeight || 30;
-            if (this.config.weather && this.config.weather !== 'clear' && this.config.weather !== 'indoor') {
-                this.weather = new WeatherSystem(this.scene, this.bounds);
-                this.weather.setWeather(this.config.weather);
-            }
+            this._applyWeather();
             this.addAmbientParticles('dust');
             this._loadArenaDecor();
+            this._loadMapArt(); // backdrop ring (voxel hills)
             return;
         }
         this.buildFloor();
@@ -1292,24 +1425,75 @@ export class Arena {
         if (this.goalRushEnabled) this.buildGoalZones();
         this._buildDecorations();
         this._registerDeckBallColliders();
-        // Weather — init after scene is built if config has non-clear weather
-        if (this.config.weather && this.config.weather !== 'clear' && this.config.weather !== 'indoor') {
-            this.weather = new WeatherSystem(this.scene, this.bounds);
-            this.weather.setWeather(this.config.weather);
-        }
         // Default bounds.y for weather system
         if (!this.bounds.maxY) this.bounds.maxY = this.ceilingHeight || 30;
+        // Weather — rolled per build from the map's weather pool + weatherSeed
+        this._applyWeather();
         // Ambient particles based on map theme
-        const particleType = this.config.ambientParticles || ((this.config.isVolcano || this.config.isLava) ? 'ember'
-            : (this.config.isIce || this.config.isCrystal || this.config.isAquarium || this.config.isOrbital) ? 'crystal'
-            : (this.config.isJungle || this.config.isBeachOpen || this.config.isSunkenTemple) ? 'leaf'
-            : (this.config.weather === 'snow') ? 'snow'
-            : (this.config.weather === 'rain') ? 'rain'
-            : (this.config.isSpace || this.config.isNeon || this.config.isCosmeticStudio || this.config.isCasino || this.config.isRooftop) ? 'spark'
-            : 'dust');
-        this.addAmbientParticles(particleType);
+        this.addAmbientParticles(this._ambientParticleType());
         this._loadArenaDecor();
         this._loadMapArt();
+    }
+
+    // Ambient particle flavour: map theme first, then the rolled weather.
+    _ambientParticleType() {
+        const c = this.config;
+        return c.ambientParticles || ((c.isVolcano || c.isLava) ? 'ember'
+            : (c.isIce || c.isCrystal || c.isAquarium || c.isOrbital) ? 'crystal'
+            : (c.isJungle || c.isBeachOpen || c.isSunkenTemple) ? 'leaf'
+            : (this.weatherType === 'snow') ? 'snow'
+            : (this.weatherType === 'rain' || this.weatherType === 'storm') ? 'rain'
+            : (c.isSpace || c.isNeon || c.isCosmeticStudio || c.isCasino || c.isRooftop) ? 'spark'
+            : 'dust');
+    }
+
+    // Rolls this build's weather (rollMapWeather: the map's pool + weatherSeed,
+    // identical on every client sharing the seed) and dresses the scene for
+    // it: GPU rain/snow, the sky's cloud deck, fog tint, sun dimming and the
+    // backdrop haze. Safe to call again (setWeatherSeed) on a built map.
+    _applyWeather() {
+        if (this.weather) { this.weather.dispose(); this.weather = null; }
+        const type = rollMapWeather(this.mapId, this.weatherSeed ?? 0, this.config);
+        this.weatherType = type;
+        if (type !== 'clear') {
+            this.weather = new WeatherSystem(this.scene, this.bounds, { quality: this._mapArtTier() });
+            this.weather.setWeather(type);
+        }
+        const look = WEATHER_LOOK[type] || WEATHER_LOOK.clear;
+        const sky = this.skybox?.material?.uniforms;
+        if (sky?.overcast) {
+            sky.overcast.value = look.overcast;
+            sky.flash.value = 0;
+        }
+        // Wet weather greys and dims the fog; snow lifts bright skies a touch.
+        const fog = new THREE.Color(this.config.fogColor);
+        const lum = fog.r * 0.2126 + fog.g * 0.7152 + fog.b * 0.0722;
+        fog.lerp(new THREE.Color(lum, lum, lum * 1.06), look.fogDesat).multiplyScalar(1 - look.fogDim);
+        if (look.fogLift) fog.lerp(new THREE.Color(0xeef3fa), look.fogLift * Math.min(1, lum * 2));
+        if (this.scene.fog && !this._skyboxTexture) this.scene.fog.color.copy(fog);
+        if (!this._skyboxTexture) this.renderer?.renderer?.setClearColor?.(fog);
+        if (this.renderer?.sun) this.renderer.sun.intensity = arenaPresentationProfile(this.mapId).sun * look.sunScale;
+        this._backdropHaze?.applyWeather?.(look);
+    }
+
+    // Re-roll the weather for a new shared seed (e.g. synced from the host)
+    // without rebuilding the map. Returns the weather type now showing.
+    setWeatherSeed(seed = 0) {
+        this.weatherSeed = seed ?? 0;
+        if (!this.config) return this.weatherType;
+        const before = this._ambientParticleType();
+        this._applyWeather();
+        const after = this._ambientParticleType();
+        const old = this._sceneParticles?.points;
+        if (after !== before && old) {
+            this.scene.remove(old);
+            this.objects = this.objects.filter(obj => obj !== old);
+            old.geometry.dispose();
+            old.material.dispose();
+            this._sceneParticles = null;
+            this.addAmbientParticles(after);
+        }
+        return this.weatherType;
     }
 
     // Quality tier for the map-art layer: Low (or the hub performance mode)
@@ -1328,11 +1512,15 @@ export class Arena {
         const tier = this._mapArtTier();
         const wanted = MAP_ART_IDENTITY.includes(this.mapId)
             || (tier !== 'low' && MAP_ART_POLISH.includes(this.mapId));
-        if (!wanted) return;
+        // The backdrop ring (mountains, resort, skyline...) ships in the same
+        // chunk and is built on every tier (Low gets its thinnest version).
+        const backdrop = Object.hasOwn(MAP_BACKDROPS, this.mapId);
+        if (!wanted && !backdrop) return;
         Arena._mapArtModule ||= import('./map-art/index.js');
         Arena._mapArtModule.then(mod => {
             if (token !== this._artToken) return;
-            mod.buildMapArt(this, tier);
+            if (wanted) mod.buildMapArt(this, tier);
+            if (backdrop) mod.buildBackdrop?.(this, tier);
         }).catch(error => {
             Arena._mapArtModule = null;
             console.warn('[arena] map art unavailable:', error?.message || error);
@@ -2092,6 +2280,9 @@ export class Arena {
     }
 
     buildOpenEnv() {
+        // Themed backdrop rings (js/map-art/backdrop.js) replace the generic
+        // random tree line + hills.
+        if (Object.hasOwn(MAP_BACKDROPS, this.mapId)) return;
         const halfW = this.courtWidth / 2;
         const halfL = this.courtLength / 2;
 
@@ -3981,10 +4172,18 @@ export class Arena {
 
     buildSkybox() {
         const c = this.config;
-        const skyConfig = c.sky || {};
+        // Per-map sky tuning (MAP_SKY_STYLE) layers over the map's sky metadata;
+        // it only lists maps whose sky block is the auto-filled default.
+        const skyConfig = { ...(c.sky || {}), ...(Object.hasOwn(MAP_SKY_STYLE, this.mapId) ? MAP_SKY_STYLE[this.mapId] : {}) };
         // Match world fog + clear color to this map's palette.
         if (this.scene.fog) this.scene.fog.color.set(c.fogColor);
         this.renderer.renderer.setClearColor(c.fogColor);
+        const horizon = new THREE.Color(skyConfig.horizonColor ?? c.skyBottom);
+        const top = new THREE.Color(c.skyTop);
+        // Explicit `stars` wins; otherwise dark skies get a modest starfield.
+        const stars = Number.isFinite(skyConfig.stars) ? skyConfig.stars : (skyIsNight(horizon, top) ? 0.55 : 0);
+        // Cloud detail follows the art tier (Low: 3 octaves, no cirrus layer).
+        const tier = this._mapArtTier();
         // Keep the camera safely inside the dome; a small dome exposes its circular edge at steep pitch angles.
         const skyGeo = new THREE.SphereGeometry(1000, 32, 32);
         const skyMat = new THREE.ShaderMaterial({
@@ -3992,17 +4191,28 @@ export class Arena {
             depthTest: false,
             depthWrite: false,
             fog: false,
+            defines: {
+                CLOUD_OCTAVES: tier === 'low' ? 3 : tier === 'high' ? 5 : 4,
+                ...(tier === 'low' ? {} : { CLOUD_DETAIL: 1 })
+            },
             uniforms: {
-                topColor: { value: new THREE.Color(c.skyTop) },
+                topColor: { value: top },
                 bottomColor: { value: new THREE.Color(c.skyBottom) },
-                horizonColor: { value: new THREE.Color(skyConfig.horizonColor ?? c.skyBottom) },
+                horizonColor: { value: horizon },
                 sunColor: { value: new THREE.Color(skyConfig.sunColor ?? 0xfff2c0) },
                 sunAmount: { value: skyConfig.sun ? 1 : 0 },
                 cloudAmount: { value: Math.min(1, Math.max(0, skyConfig.cloudAmount || 0)) },
                 // Lighting presets move the disc to match the shadow-casting
                 // light; the fallback is the original fixed direction.
                 sunDir: { value: new THREE.Vector3(...(mapLightingPreset(this.mapId)?.sun || [-0.55, 0.38, -0.74])).normalize() },
-                starAmount: { value: Math.min(1, Math.max(0, skyConfig.stars || 0)) }
+                starAmount: { value: Math.min(1, Math.max(0, stars)) },
+                // Shared with the map-art layer: Arena.update() advances it once
+                // per frame, which drifts the clouds and twinkles the stars.
+                time: this._artTime || { value: 0 },
+                // Weather deck (set by _applyWeather): 0 clear .. 1 storm.
+                overcast: { value: 0 },
+                // Lightning flash from a storm WeatherSystem (0..1).
+                flash: { value: 0 }
             },
             vertexShader: `
                 varying vec3 vWP;
@@ -4020,30 +4230,92 @@ export class Arena {
                 uniform float cloudAmount;
                 uniform vec3 sunDir;
                 uniform float starAmount;
+                uniform float time;
+                uniform float overcast;
+                uniform float flash;
                 varying vec3 vWP;
+                const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
+                float hash12(vec2 p) {
+                    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+                    p3 += dot(p3, p3.yzx + 33.33);
+                    return fract((p3.x + p3.y) * p3.z);
+                }
+                float vnoise(vec2 p) {
+                    vec2 i = floor(p);
+                    vec2 f = fract(p);
+                    vec2 u = f * f * (3.0 - 2.0 * f);
+                    return mix(mix(hash12(i), hash12(i + vec2(1.0, 0.0)), u.x),
+                               mix(hash12(i + vec2(0.0, 1.0)), hash12(i + vec2(1.0, 1.0)), u.x), u.y);
+                }
+                float fbm(vec2 p) {
+                    float s = 0.0;
+                    float a = 0.5;
+                    for (int i = 0; i < CLOUD_OCTAVES; i++) {
+                        s += a * vnoise(p);
+                        p = mat2(1.6, 1.2, -1.2, 1.6) * p + vec2(17.1, 9.2);
+                        a *= 0.5;
+                    }
+                    return s;
+                }
                 void main() {
                     vec3 n = normalize(vWP);
                     float h = clamp(n.y, 0.0, 1.0);
                     vec3 color = mix(bottomColor, horizonColor, smoothstep(0.0, 0.16, h));
                     color = mix(color, topColor, smoothstep(0.12, 0.82, h));
-                    float sun = 1.0 - smoothstep(0.035, 0.075, distance(n, sunDir));
+                    float skyLum = dot(horizonColor, LUMA);
+                    float night = 1.0 - smoothstep(0.06, 0.26, max(skyLum, dot(topColor, LUMA)));
+                    // Rain/snow deck: desaturate toward a cool grey and dim.
+                    color = mix(color, vec3(dot(color, LUMA)) * vec3(0.9, 0.94, 1.0), overcast * 0.75) * (1.0 - overcast * 0.3);
+                    float sunDot = max(dot(n, sunDir), 0.0);
+                    float clearSky = 1.0 - overcast * 0.85;
+                    // Horizon haze: a soft bright band, warmed on the sun side.
+                    float haze = exp(-h * 10.0) * (1.0 - night * 0.55);
+                    vec3 hazeCol = mix(horizonColor * 1.08 + 0.02, sunColor, 0.3 * pow(sunDot, 4.0) * sunAmount);
+                    color = mix(color, hazeCol, haze * 0.32);
+                    // Scattering glow around the sun (a faint cool halo for a moon).
+                    color += sunColor * (pow(sunDot, 48.0) * 0.3 + pow(sunDot, 5.0) * 0.07) * sunAmount * clearSky * (1.0 - night * 0.75);
+                    // Clouds: an fbm layer projected on a flat deck, drifting slowly.
+                    float cover = clamp(max(cloudAmount, overcast * 1.25), 0.0, 1.0);
+                    float clouds = 0.0;
+                    float thick = 0.0;
+                    if (cover > 0.001 && n.y > 0.0) {
+                        vec2 uv = n.xz / (n.y + 0.09) * 1.5 + vec2(time * 0.0075, time * 0.003);
+                        float d = fbm(uv);
+                        #ifdef CLOUD_DETAIL
+                        // Fine billows eat into the cloud edges (isotropic, so no streaks).
+                        d -= (vnoise(uv * 7.0 - vec2(time * 0.02, 0.0)) - 0.5) * 0.09;
+                        #endif
+                        float threshold = mix(0.74, 0.3, cover);
+                        clouds = smoothstep(threshold, threshold + 0.2, d);
+                        thick = smoothstep(threshold + 0.05, threshold + 0.42, d);
+                        clouds *= smoothstep(0.015, 0.2, n.y);
+                    }
+                    // Clouds catch the sky's own light: near-white by day, a dim horizon-tinted
+                    // haze at night (pure white read as giant glowing blobs on dark maps).
+                    vec3 cloudTint = mix(horizonColor * 1.8 + 0.035, vec3(1.0), smoothstep(0.05, 0.32, skyLum));
+                    vec3 cloudCol = mix(cloudTint, cloudTint * mix(vec3(0.72, 0.76, 0.84), vec3(0.8), night), thick * 0.8);
+                    cloudCol += sunColor * pow(sunDot, 6.0) * (1.0 - thick) * 0.22 * sunAmount * clearSky * (1.0 - night);
+                    cloudCol = mix(cloudCol, cloudCol * vec3(0.66, 0.69, 0.74), overcast);
+                    float cloudAlpha = clouds * mix(0.88, 0.55, night);
                     if (starAmount > 0.0) {
                         vec3 sp = n * 260.0;
                         vec3 cell = floor(sp);
                         float rnd = fract(sin(dot(cell, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
                         float star = step(0.9965, rnd) * (1.0 - smoothstep(0.08, 0.42, length(fract(sp) - 0.5)));
-                        color += vec3(0.85, 0.9, 1.0) * star * (0.45 + 0.55 * fract(rnd * 97.0))
-                            * smoothstep(0.02, 0.22, h) * starAmount;
+                        float twinkle = 0.7 + 0.3 * sin(time * (1.5 + fract(rnd * 31.0) * 3.0) + rnd * 60.0);
+                        color += vec3(0.85, 0.9, 1.0) * star * (0.45 + 0.55 * fract(rnd * 97.0)) * twinkle
+                            * smoothstep(0.02, 0.22, h) * starAmount * (1.0 - cloudAlpha) * (1.0 - overcast);
                     }
-                    float bands = sin(n.x * 28.0 + n.z * 19.0) + sin(n.x * 51.0 - n.z * 33.0);
-                    float clouds = smoothstep(0.65, 1.45, bands) * smoothstep(0.08, 0.24, h)
-                        * (1.0 - smoothstep(0.48, 0.72, h)) * cloudAmount;
-                    // Clouds catch the sky's own light: near-white by day, a dim horizon-tinted
-                    // haze at night (pure white read as giant glowing blobs on dark maps).
-                    float skyLum = dot(horizonColor, vec3(0.2126, 0.7152, 0.0722));
-                    vec3 cloudTint = mix(horizonColor * 1.8 + 0.035, vec3(1.0), smoothstep(0.05, 0.32, skyLum));
-                    color = mix(color, cloudTint, clouds * 0.24);
-                    color += sunColor * sun * sunAmount * 0.7;
+                    // Sun: soft-edged disc. Moon (night skies): smaller, crisp, faintly mottled.
+                    float dist = distance(n, sunDir);
+                    float sunDisc = 1.0 - smoothstep(0.035, 0.075, dist);
+                    float moonDisc = 1.0 - smoothstep(0.024, 0.03, dist);
+                    float mottle = 0.82 + 0.18 * vnoise((n.xy - sunDir.xy) * 160.0);
+                    float disc = mix(sunDisc * 0.7, moonDisc * 0.85 * mottle, night);
+                    color += sunColor * disc * sunAmount * (1.0 - cloudAlpha * 0.85) * clearSky;
+                    color = mix(color, cloudCol, cloudAlpha);
+                    // Lightning lights the cloud deck from inside.
+                    color += vec3(0.75, 0.8, 1.0) * flash * (0.25 + 0.75 * clouds) * (0.4 + 0.6 * h);
                     gl_FragColor = vec4(color, 1.0);
                 }
             `
@@ -5130,9 +5402,11 @@ export class Arena {
             }
         }
 
-        // Weather update
+        // Weather update (GPU particles: one uniform write; storms flash the sky)
         if (this.weather) {
-            this.weather.update(0.016, time);
+            this.weather.update(dt, time);
+            const sky = this.skybox?.material?.uniforms;
+            if (sky?.flash) sky.flash.value = this.weather.flashIntensity || 0;
         }
         // Scene ambient particles
         this.updateAmbientParticles(0.016);
@@ -5399,7 +5673,8 @@ varying float vNearFade;`)
         this._mapAnimators = null;
         this.jumpPads = null;
         this.cosmeticStudio = null;
-        if (this.weather) { this.weather.clear(); this.weather = null; }
+        if (this.weather) { this.weather.dispose(); this.weather = null; }
+        this._backdropHaze = null;
         disposeArenaDecor(this.decorGroup);
         this.decorGroup = null;
         this._decorToken = (this._decorToken || 0) + 1;
