@@ -18,7 +18,7 @@ import { clampToCourtHalf, confinementSideFor, normalizeAllowCrossCourt, DEFAULT
 import { AffixManager } from './affixes.js';
 import { SKILLS, useSkill, tickSkillCooldowns, ULTIMATES, perfectDeflectCooldownCut } from './skills.js';
 import { isNewerSequence } from './network.js';
-import { resolveKillerName, segmentIntersectsSphere, sweptHitStepCount, scaleDedupWindowMs, scaleLethalGraceMs, decayKillConfirmEntries } from './combat.js';
+import { resolveKillerName, segmentIntersectsSphere, sweptHitStepCount, scaleDedupWindowMs, scaleLethalGraceMs, decayKillConfirmEntries, capsuleContact, targetFeetY } from './combat.js';
 import { comboTier, comboPitchRate } from './combat-fx.js';
 import './hit-feedback.js';
 import { goalScoringTeam, checkGoalEntry } from './goal-mode.js';
@@ -609,11 +609,13 @@ export class Game {
             : 0;
         const sizeScale = target._sizeScale || 1;
         const capsuleRadius = (0.4 + hitBonus) * sizeScale;
+        const feetY = targetFeetY(target);
         let collided = this.capsuleHitTest(
             this.ball.position,
             targetPos,
             1.7 * sizeScale,
-            capsuleRadius
+            capsuleRadius,
+            feetY
         );
         const travelled = this.ball._prevPosition
             ? this.ball._prevPosition.distanceTo(this.ball.position)
@@ -627,7 +629,7 @@ export class Game {
                     this.ball.position,
                     sample / (steps + 1)
                 );
-                if (this.capsuleHitTest(this._sweptInterp, targetPos, 1.7 * sizeScale, capsuleRadius)) {
+                if (this.capsuleHitTest(this._sweptInterp, targetPos, 1.7 * sizeScale, capsuleRadius, feetY)) {
                     collided = true;
                     break;
                 }
@@ -1892,6 +1894,9 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             _animFacts: { speed: 0, grounded: true, verticalSpeed: 0, alive: true, aim: 0, strafe: 0 },
             _defenseIntent: 'none', _defenseStrafe: 0, _botSyncAttacking: false, _botSyncTelegraphed: false,
             getPosition() { return this.position.clone(); },
+            // Synced y is the sender's Player.position.y (eye = feet + 1.7, see
+            // main.js sendPosition); host bot dummies (isBotEntity) carry feet y.
+            getFeetY() { return this.isBotEntity ? this.position.y : this.position.y - 1.7; },
             getAimDirection() { return this.aimDir.clone(); },
             isAttacking() { return this.attacking; },
             setKnifeStyle(style = KNIVES.training) {
@@ -2859,7 +2864,9 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 const hitBonus = this.ball.effectiveHitRange ? (this.ball.effectiveHitRange - this.ball.hitRange) : 0;
                 const sizeScale = target._sizeScale || 1;
                 const capsuleRadius = (0.4 + hitBonus) * sizeScale;
-                if (this.capsuleHitTest(ballPos, headPos, 1.7 * sizeScale, capsuleRadius)) {
+                // Capsule rides with the body (jump / parkour perch), not the floor.
+                const feetY = targetFeetY(target);
+                if (this.capsuleHitTest(ballPos, headPos, 1.7 * sizeScale, capsuleRadius, feetY)) {
                     this.handleHit(target);
                     return;
                 }
@@ -2874,7 +2881,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                         for (let s = 1; s <= steps; s++) {
                             const t = s / (steps + 1);
                             this._sweptInterp.lerpVectors(this.ball._prevPosition, ballPos, t);
-                            if (this.capsuleHitTest(this._sweptInterp, headPos, 1.7 * sizeScale, capsuleRadius)) {
+                            if (this.capsuleHitTest(this._sweptInterp, headPos, 1.7 * sizeScale, capsuleRadius, feetY)) {
                                 this.handleHit(target);
                                 return;
                             }
@@ -3542,15 +3549,10 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         }
     }
 
-    capsuleHitTest(ballPos, playerPos, playerHeight = 1.7, capsuleRadius = 0.4) {
-        const px = playerPos.x, pz = playerPos.z;
-        const py = Math.max(0, Math.min(playerHeight, ballPos.y));
-        const dx = ballPos.x - px;
-        const dz = ballPos.z - pz;
-        const dy = ballPos.y - py;
-        const distSq = dx * dx + dy * dy + dz * dz;
-        const totalRadius = this.ball.radius + capsuleRadius;
-        return distSq < totalRadius * totalRadius;
+    // Body capsule spans [feetY, feetY + playerHeight] (see combat.js#capsuleContact);
+    // feetY = 0 is the original floor-anchored capsule.
+    capsuleHitTest(ballPos, playerPos, playerHeight = 1.7, capsuleRadius = 0.4, feetY = 0) {
+        return capsuleContact(ballPos, playerPos.x, playerPos.z, feetY, playerHeight, capsuleRadius, this.ball.radius);
     }
 
     handleHit(hitTarget) {

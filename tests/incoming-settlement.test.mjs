@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { compileGameMethod } from './game-source.mjs';
-import { sweptHitStepCount } from '../js/combat.js';
+import { sweptHitStepCount, capsuleContact, targetFeetY } from '../js/combat.js';
 
 const mainSource = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
 const gameSource = await readFile(new URL('../js/game.js', import.meta.url), 'utf8');
@@ -25,10 +25,11 @@ const cancelIncomingSettlement = compileGameMethod('cancelIncomingSettlement');
 const armIncomingSettlement = compileGameMethod('armIncomingSettlement', {
     incomingSettlementSeconds: (distance, speed) => Math.min(2, Math.max(0.12, distance / speed + 0.12))
 });
-const capsuleHitTest = compileGameMethod('capsuleHitTest');
+const capsuleHitTest = compileGameMethod('capsuleHitTest', { capsuleContact });
 const updateIncomingSettlement = compileGameMethod('updateIncomingSettlement', {
     THREE: { Vector3 },
-    sweptHitStepCount
+    sweptHitStepCount,
+    targetFeetY
 });
 
 function fixture({ connected = false, isHost = false } = {}) {

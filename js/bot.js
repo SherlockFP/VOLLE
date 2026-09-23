@@ -818,6 +818,11 @@ export class Bot {
         return new THREE.Vector3(this.position.x, this.position.y + 1.2, this.position.z);
     }
 
+    // Bot position is feet-based (see _moveAroundProps); hit capsule anchors here.
+    getFeetY() {
+        return this.position.y;
+    }
+
     // Move this bot to a team: recolor body mats, rebuild name/avatar sprites,
     // and re-place at the new team's spawn. Called by game.switchPlayerTeam.
     setTeam(team) {

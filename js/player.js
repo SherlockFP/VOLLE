@@ -1534,6 +1534,8 @@ export class Player {
     }
 
     getPosition() { return this.position.clone(); }
+    // position is eye height (feet + this.height); hit capsule anchors at the feet.
+    getFeetY() { return this.position.y - this.height; }
     isAttacking() { return this.attacking; }
 
     _moveHorizontal(wishDir, wishSpeed, dt) {

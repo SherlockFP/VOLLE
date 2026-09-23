@@ -51,6 +51,35 @@ export function sweptHitStepCount(distance, totalRadius, maxSteps = 32) {
     return steps > maxSteps ? maxSteps : steps;
 }
 
+// Body hit capsule: a vertical segment from the target's feet (feetY) to
+// feetY + height, inflated by capsuleRadius, tested against the ball sphere.
+// With feetY = 0 this is bit-for-bit the original floor-anchored capsule
+// (py = clamp(ball.y, 0, height)), so grounded hits are unchanged; airborne or
+// perched targets are simply tested where their body actually is.
+// Pure + allocation-free: called per target per swept sample every tick.
+export function capsuleContact(ballPos, targetX, targetZ, feetY, height, capsuleRadius, ballRadius) {
+    const py = Math.max(feetY, Math.min(feetY + height, ballPos.y));
+    const dx = ballPos.x - targetX;
+    const dz = ballPos.z - targetZ;
+    const dy = ballPos.y - py;
+    const distSq = dx * dx + dy * dy + dz * dz;
+    const totalRadius = ballRadius + capsuleRadius;
+    return distSq < totalRadius * totalRadius;
+}
+
+// Feet heights within this band of the floor snap to exactly 0 so network
+// quantization (POS_SCALE 1/64 → grounded eye y 1.703125) and interpolation
+// noise can never nudge a grounded capsule; below-floor states (swimming, void
+// fall) also keep today's floor-anchored capsule instead of sinking it.
+export const CAPSULE_GROUND_SNAP = 0.05;
+
+// Feet height of a hit target: its own getFeetY() when present (Player, Bot,
+// remote proxy), else 0 (today's floor-anchored behaviour).
+export function targetFeetY(target) {
+    const feet = typeof target?.getFeetY === 'function' ? target.getFeetY() : 0;
+    return Number.isFinite(feet) && feet > CAPSULE_GROUND_SNAP ? feet : 0;
+}
+
 // remoteAttack dedup window: a fixed window eats legitimate fast-rally returns
 // once the ball is moving well above base speed (its real round-trip shrinks
 // with it). Scales the window down proportionally to the speed ratio, floored
