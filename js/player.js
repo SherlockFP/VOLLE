@@ -476,6 +476,10 @@ export class Player {
         this.swingAge = 0;
         this.swingClickDt = 0;
         this._swingAgePending = false;
+        // G2 swing live interval: its active length, and the tail a swing keeps
+        // after attackActive runs out (see getSwingLiveInterval).
+        this._swingLiveWindow = 0;
+        this.swingTail = false;
         this.attackDuration = ATTACK_COOLDOWN;
         this.canAttack = true;
         this.knifeAnimation = createKnifeAnimationState('classic');
@@ -970,6 +974,8 @@ export class Player {
         this.swingAge = 0;
         this.swingClickDt = 0;
         this._swingAgePending = true;
+        this._swingLiveWindow = this.attackActive;
+        this.swingTail = false;
         this.canAttack = false;
         this.knifeAttackType = action === 'stab' ? 'stab' : 'slash';
         if (this.knifeGroup?.userData.weaponType === 'knife') {
@@ -1098,9 +1104,19 @@ export class Player {
                 this.swingClickDt = dt;
             } else this.swingAge += dt;
             this.attackActive -= dt;
+            // G2: the live interval is anchored on the half-frame click
+            // estimate, so an unconsumed swing stays live up to half a frame
+            // past the frame its active time runs out in (swingTail). A
+            // consumed or cancelled swing (attacking already false) has no tail.
+            this.swingTail = this.attacking && this.attackActive <= 0;
             if (this.attackActive <= 0) {
                 this.attackActive = 0;
                 this.attacking = false; // hitbox closes; recovery continues below
+            }
+        } else if (this.swingTail) {
+            this.swingAge += dt;
+            if ((this.swingClickDt > 0 ? this.swingClickDt / 2 : 0) - this.swingAge + this._swingLiveWindow < 0) {
+                this.swingTail = false;
             }
         }
         if (this.attackCooldown > 0) {
@@ -1554,6 +1570,22 @@ export class Player {
     // position is eye height (feet + this.height); hit capsule anchors at the feet.
     getFeetY() { return this.position.y - this.height; }
     isAttacking() { return this.attacking; }
+
+    // G2: live interval of the current swing on this frame's ball clock (0 =
+    // the ball state the frame starts from, dt = the state it ends on), with
+    // the click at G3's half-frame estimate (swingClickDt / 2 into the frame
+    // the swing opened in). Writes out.start / out.end in seconds; false when
+    // no swing can deflect this frame.
+    getSwingLiveInterval(out) {
+        if (!this.attacking && !this.swingTail) return false;
+        const start = (this.swingClickDt > 0 ? this.swingClickDt / 2 : 0) - this.swingAge;
+        out.start = start;
+        out.end = start + this._swingLiveWindow;
+        return true;
+    }
+
+    // A swing consumed in its tail (deflect or rejection) cannot deflect again.
+    endSwingTail() { this.swingTail = false; }
 
     _moveHorizontal(wishDir, wishSpeed, dt) {
         const surfaceFactor = this.arena.config?.slippery

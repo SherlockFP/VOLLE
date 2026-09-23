@@ -80,6 +80,122 @@ export function targetFeetY(target) {
     return Number.isFinite(feet) && feet > CAPSULE_GROUND_SNAP ? feet : 0;
 }
 
+// ---------------------------------------------------------------------------
+// G2 in-frame contact: where along this frame's ball segment a = start → b =
+// end (s ∈ [0, 1], event time = frame start + s·dt) a deflect sphere or a
+// body capsule is first touched. Pure + allocation-free (per-frame hot path).
+// ---------------------------------------------------------------------------
+
+// Earliest s ∈ [0, 1] with |a + s·(b − a) − centre| ≤ r: 0 when a is already
+// inside, −1 when the segment never touches the sphere. When `out` is given,
+// out.enter / out.exit receive the entry and exit fractions (exit clamped to 1,
+// both −1 on a miss). Tangent-inclusive like segmentIntersectsSphere.
+export function segmentSphereEntry(a, b, centre, r, out) {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const dz = b.z - a.z;
+    const fx = a.x - centre.x;
+    const fy = a.y - centre.y;
+    const fz = a.z - centre.z;
+    const qa = dx * dx + dy * dy + dz * dz;
+    const qb = 2 * (fx * dx + fy * dy + fz * dz);
+    const qc = fx * fx + fy * fy + fz * fz - r * r;
+    let enter = -1;
+    let exit = -1;
+    if (qc <= 0) {
+        enter = 0;
+        exit = 1;
+        if (qa > 0) {
+            const far = (-qb + Math.sqrt(Math.max(0, qb * qb - 4 * qa * qc))) / (2 * qa);
+            if (far < 1) exit = far > 0 ? far : 0;
+        }
+    } else if (qa > 0) {
+        const disc = qb * qb - 4 * qa * qc;
+        if (disc >= 0) {
+            const root = Math.sqrt(disc);
+            const near = (-qb - root) / (2 * qa);
+            if (near >= 0 && near <= 1) {
+                enter = near;
+                const far = (-qb + root) / (2 * qa);
+                exit = far < 1 ? far : 1;
+            }
+        }
+    }
+    if (out) {
+        out.enter = enter;
+        out.exit = exit;
+    }
+    return enter;
+}
+
+// Sphere entry for a centre given by coordinates (capsule end caps).
+function sphereEntryAt(a, b, cx, cy, cz, r) {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const dz = b.z - a.z;
+    const fx = a.x - cx;
+    const fy = a.y - cy;
+    const fz = a.z - cz;
+    const qa = dx * dx + dy * dy + dz * dz;
+    const qb = 2 * (fx * dx + fy * dy + fz * dz);
+    const qc = fx * fx + fy * fy + fz * fz - r * r;
+    if (qc <= 0) return 0;
+    if (!(qa > 0)) return -1;
+    const disc = qb * qb - 4 * qa * qc;
+    if (disc < 0) return -1;
+    const near = (-qb - Math.sqrt(disc)) / (2 * qa);
+    return near >= 0 && near <= 1 ? near : -1;
+}
+
+// Earliest s ∈ [0, 1] at which the segment touches the G1 body capsule (the
+// vertical axis x, z from feetY to feetY + height inflated by r = ball radius +
+// capsule radius, see capsuleContact), or −1. Analytic: the side of the
+// cylinder (quadratic in x/z, entry height inside the axis span) plus the two
+// hemisphere caps; the earliest of those is the first touch of the union.
+export function segmentCapsuleEntry(a, b, feetY, height, x, z, r) {
+    const top = feetY + height;
+    // Start already touching the capsule.
+    const startY = a.y < feetY ? feetY : (a.y > top ? top : a.y);
+    const sx = a.x - x;
+    const sy = a.y - startY;
+    const sz = a.z - z;
+    if (sx * sx + sy * sy + sz * sz <= r * r) return 0;
+
+    let best = -1;
+    // Cylinder side.
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    const qa = dx * dx + dz * dz;
+    if (qa > 0) {
+        const qb = 2 * (sx * dx + sz * dz);
+        const qc = sx * sx + sz * sz - r * r;
+        const disc = qb * qb - 4 * qa * qc;
+        if (qc > 0 && disc >= 0) {
+            const near = (-qb - Math.sqrt(disc)) / (2 * qa);
+            if (near >= 0 && near <= 1) {
+                const y = a.y + (b.y - a.y) * near;
+                if (y >= feetY && y <= top) best = near;
+            }
+        }
+    }
+    // Hemisphere caps (the flat ends of the cylinder lie inside them).
+    const low = sphereEntryAt(a, b, x, feetY, z, r);
+    if (low >= 0 && (best < 0 || low < best)) best = low;
+    const high = sphereEntryAt(a, b, x, top, z, r);
+    if (high >= 0 && (best < 0 || high < best)) best = high;
+    return best;
+}
+
+// In-frame deflect fraction for a defender whose sphere the segment enters at
+// `enter` and leaves at `exit`, with its swing / ready window [liveFrom,
+// liveTo] expressed in frame fractions: max(enter, liveFrom) when that is no
+// later than exit, liveTo or the frame end, else −1.
+export function deflectContactS(enter, exit, liveFrom, liveTo) {
+    if (!(enter >= 0)) return -1;
+    const s = liveFrom > enter ? liveFrom : enter;
+    return s <= exit && s <= liveTo && s <= 1 ? s : -1;
+}
+
 // remoteAttack dedup window: a fixed window eats legitimate fast-rally returns
 // once the ball is moving well above base speed (its real round-trip shrinks
 // with it). Scales the window down proportionally to the speed ratio, floored

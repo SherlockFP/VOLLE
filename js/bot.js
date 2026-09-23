@@ -765,9 +765,31 @@ export class Bot {
         return this._defenseIntent;
     }
 
+    // Frame-edge deflect (countdown warm-up path): readiness, then one distance
+    // sample of the frame-start ball state. Live play resolves the contact
+    // inside the frame instead (Game._resolveFrameContacts).
     tryDeflect(ball, dt = 0.016) {
         if (this.observeDefenseIntent(ball) !== 'deflect') return false;
         const dist = this._defenseDistance;
+
+        // Reaction + wind-up must both finish within this frame first.
+        if (!(this.advanceDeflectReady(ball, dt) <= dt)) return false;
+
+        // The animation completes on approach, but the ball may only be redirected
+        // when it has actually reached deflect range.
+        if (dist > ball.attackRange) return false;
+
+        return this.commitDeflect();
+    }
+
+    // G2 ready time: advances the reaction/wind-up timers by dt and returns
+    // the exact moment inside this frame (seconds after its start; 0 once
+    // committed earlier) at which both have finished, or Infinity when the
+    // bot is not ready by the frame end. Also stored as deflectReadyAt for the
+    // in-frame contact resolution after the ball steps.
+    advanceDeflectReady(ball, dt = 0.016) {
+        this.deflectReadyAt = Infinity;
+        if (this.observeDefenseIntent(ball) !== 'deflect') return Infinity;
 
         // Alert range must cover the FULL commit budget — reaction time AND the
         // wind-up telegraph that follows it, not just reaction time. Wind-up was
@@ -777,21 +799,26 @@ export class Bot {
         // deflect at all. Scales with the ball's actual current speed so slow
         // and fast throws both leave a fair window.
         // ponytail: alert range ~ ballSpeed * (reactionTime + windUpTime) + attackRange
+        const reactionBefore = this.reactionTimer;
         this.reactionTimer += dt;
-        if (this.reactionTimer < this.reactionTime) return false;
+        if (this.reactionTimer < this.reactionTime) return Infinity;
+        let readyAt = Math.max(0, this.reactionTime - reactionBefore);
 
         // Wind-up telegraphing: bot shows intent before committing to deflect
         // Start wind-up if not already committed
         if (!this.windUpCommitted) {
+            const windUpBefore = this.windUpTimer;
             this.windUpTimer += dt;
-            if (this.windUpTimer < this.windUpTime) return false;  // still winding up
+            if (this.windUpTimer < this.windUpTime) return Infinity;  // still winding up
             this.windUpCommitted = true;  // committed - now check for mishit
+            readyAt = Math.max(readyAt, this.windUpTime - windUpBefore);
         }
+        this.deflectReadyAt = Math.min(readyAt, dt);
+        return this.deflectReadyAt;
+    }
 
-        // The animation completes on approach, but the ball may only be redirected
-        // when it has actually reached deflect range.
-        if (dist > ball.attackRange) return false;
-
+    // Commit to a deflect the game has accepted: attack pose + mishit roll.
+    commitDeflect() {
         // Commit to deflect, but check if bot will mishit (realistic skill variance)
         if (Math.random() < this.mishitRate) {
             this.attacking = true;

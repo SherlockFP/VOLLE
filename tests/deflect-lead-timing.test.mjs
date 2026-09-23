@@ -1,8 +1,9 @@
 // G3 "Deflect tiers you earn with timing": the deflect tier is the click lead —
 // how many ms before the ball would have reached the defender's body capsule
 // the swing started. Covers the pure helpers, a pure-kinematics simulation of
-// the shipped frame order (player.update → deflect check → ball step → G1 hit
-// test) using the real Game._localDeflectLeadMs, and the host authority path
+// the shipped frame order (G2: player.update → ball step → in-frame contact
+// resolution, tests/frame-contact-sim.mjs) using the real
+// Game._resolveFrameContacts/_localDeflectLeadMs, and the host authority path
 // for remote deflects using the real Game.remoteAttack/_remoteDeflectLeadMs.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -17,8 +18,9 @@ import {
     resolvePerfectDeflect,
     sanitizeRemoteSwingAgeMs
 } from '../js/perfect-deflect.js';
-import { capsuleContact, segmentIntersectsSphere, sweptHitStepCount, targetFeetY } from '../js/combat.js';
+import { capsuleContact, targetFeetY } from '../js/combat.js';
 import { compileGameMethod, extractGameMethod } from './game-source.mjs';
+import { simulateApproach, straightPath } from './frame-contact-sim.mjs';
 
 const gameSource = readFileSync(new URL('../js/game.js', import.meta.url), 'utf8');
 const ballSource = readFileSync(new URL('../js/ball.js', import.meta.url), 'utf8');
@@ -46,8 +48,8 @@ test('simulation constants match the shipped Ball/Player tuning', () => {
     // consumes (mirrored by SimPlayer below).
     assert.match(playerSource, /this\.attackActive = Math\.min\(SWING_ACTIVE_WINDOW, this\.attackDuration\);\s+this\.swingAge = 0;\s+this\.swingClickDt = 0;\s+this\._swingAgePending = true;/);
     assert.match(playerSource, /if \(this\._swingAgePending\) \{\s+this\._swingAgePending = false;\s+this\.swingClickDt = dt;\s+\} else this\.swingAge \+= dt;\s+this\.attackActive -= dt;/);
-    // Deflect range used by updatePlaying (solo/host).
-    assert.match(gameSource, /const speedBonus = Math\.min\(this\.ball\.currentSpeed \* 0\.003, 3\.0\);/);
+    // Deflect range used by the solo/host in-frame contact resolution.
+    assert.match(extractGameMethod('_resolveFrameContacts'), /const radius = ball\.attackRange \+ Math\.min\(ball\.currentSpeed \* 0\.003, 3\.0\);/);
 });
 
 test('classifyDeflectLead boundaries', () => {
@@ -94,136 +96,10 @@ test('predictContactMs: capsule gap over speed, Infinity when unmeasurable, allo
 // Pure-kinematics simulation of the shipped frame order.
 // ---------------------------------------------------------------------------
 
-const localDeflectLeadMs = compileGameMethod('_localDeflectLeadMs', { predictContactMs, targetFeetY });
-
-class SimPlayer {
-    constructor(feetY = 0) {
-        this.position = { x: 0, y: feetY + EYE_HEIGHT, z: 0 };
-        this.attacking = false;
-        this.attackActive = 0;
-        this.attackCooldown = 0;
-        this.swingAge = 0;
-        this.swingClickDt = 0;
-        this._swingAgePending = false;
-    }
-
-    getFeetY() { return this.position.y - EYE_HEIGHT; }
-
-    // Player.tryAttack (input event, between frames).
-    tryAttack() {
-        if (this.attackCooldown > 0) return false;
-        this.attacking = true;
-        this.attackCooldown = ATTACK_COOLDOWN;
-        this.attackActive = Math.min(SWING_ACTIVE_WINDOW, ATTACK_COOLDOWN);
-        this.swingAge = 0;
-        this.swingClickDt = 0;
-        this._swingAgePending = true;
-        return true;
-    }
-
-    // Player.update attack timers.
-    update(dt) {
-        if (this.attackActive > 0) {
-            if (this._swingAgePending) {
-                this._swingAgePending = false;
-                this.swingClickDt = dt;
-            } else this.swingAge += dt;
-            this.attackActive -= dt;
-            if (this.attackActive <= 0) {
-                this.attackActive = 0;
-                this.attacking = false;
-            }
-        }
-        if (this.attackCooldown > 0) {
-            this.attackCooldown -= dt;
-            if (this.attackCooldown <= 0) {
-                this.attacking = false;
-            }
-        }
-    }
-}
-
-// Straight ball on a line ending at `aim` (a body point), contact at time Tc.
-// `dir` is the unit travel direction. Position at state time t is chosen so
-// the capsule gap closes at `speed`: p(t) = contactPoint − dir·speed·(t − Tc).
-function straightPath({ speed, contactTime, feetY = 0, dir = { x: -1, y: 0, z: 0 }, aimY = null }) {
-    const bonus = Math.min(speed * 0.003, 2.0);
-    const R = BALL_RADIUS + 0.4 + bonus;
-    const y = aimY ?? feetY + EYE_HEIGHT + CHEST_OFFSET;
-    // Contact point: the ball centre R before the aim point along -dir.
-    const contact = { x: -dir.x * R, y: y - dir.y * R, z: -dir.z * R };
-    return {
-        speed,
-        at(t, out = { x: 0, y: 0, z: 0 }) {
-            const travel = speed * (t - contactTime);
-            out.x = contact.x + dir.x * travel;
-            out.y = contact.y + dir.y * travel;
-            out.z = contact.z + dir.z * travel;
-            return out;
-        }
-    };
-}
-
-// One approach. Clicks are continuous wall-clock times; an event in
-// [W[j-1], W[j]) (after loop j-1 ran) is handled before loop j
-// (Player.tryAttack), then loop j runs player.update → deflect check (ball
-// state (j-1)·dt) → ball step → hit test. So L = lead + (click − W[j-1]).
-function simulateApproach({ path, dt, clicks, feetY = 0, maxTime = 4 }) {
-    const player = new SimPlayer(feetY);
-    const speed = path.speed;
-    const ball = {
-        position: path.at(0),
-        currentSpeed: speed,
-        hitRange: HIT_RANGE,
-        effectiveHitRange: HIT_RANGE + Math.min(speed * 0.003, 2.0),
-        radius: BALL_RADIUS
-    };
-    const game = { player, ball };
-    const eye = player.position;
-    const range = ATTACK_RANGE + Math.min(speed * 0.003, 3.0);
-    const capsuleRadius = 0.4 + (ball.effectiveHitRange - HIT_RANGE);
-    const prev = { x: 0, y: 0, z: 0 };
-    const sample = { x: 0, y: 0, z: 0 };
-    let hasPrev = false;
-    let clickIndex = 0;
-    let acceptedClick = null;
-    const frames = Math.ceil(maxTime / dt);
-    for (let j = 1; j <= frames; j++) {
-        const wall = j * dt;
-        while (clickIndex < clicks.length && clicks[clickIndex] < wall) {
-            if (player.tryAttack()) acceptedClick = clicks[clickIndex];
-            clickIndex++;
-        }
-        player.update(dt);
-        if (player.attacking) {
-            const p = ball.position;
-            const distance = Math.hypot(p.x - eye.x, p.y - eye.y, p.z - eye.z);
-            if (distance < range || (hasPrev && segmentIntersectsSphere(prev, p, eye, range))) {
-                const leadMs = localDeflectLeadMs.call(game);
-                return { outcome: 'deflect', leadMs, tier: classifyDeflectLead(leadMs), clickTime: acceptedClick, frame: j };
-            }
-        }
-        prev.x = ball.position.x; prev.y = ball.position.y; prev.z = ball.position.z;
-        hasPrev = true;
-        path.at(wall, ball.position);
-        const feet = targetFeetY(player);
-        if (capsuleContact(ball.position, 0, 0, feet, 1.7, capsuleRadius, BALL_RADIUS)) {
-            return { outcome: 'hit', frame: j, hitTime: wall };
-        }
-        const travelled = Math.hypot(ball.position.x - prev.x, ball.position.y - prev.y, ball.position.z - prev.z);
-        const steps = sweptHitStepCount(travelled, BALL_RADIUS + capsuleRadius);
-        for (let s = 1; s <= steps; s++) {
-            const f = s / (steps + 1);
-            sample.x = prev.x + (ball.position.x - prev.x) * f;
-            sample.y = prev.y + (ball.position.y - prev.y) * f;
-            sample.z = prev.z + (ball.position.z - prev.z) * f;
-            if (capsuleContact(sample, 0, 0, feet, 1.7, capsuleRadius, BALL_RADIUS)) {
-                return { outcome: 'hit', frame: j, hitTime: wall - dt + f * dt };
-            }
-        }
-    }
-    return { outcome: 'none' };
-}
+// straightPath / simulateApproach live in tests/frame-contact-sim.mjs: one
+// approach per call, clicks handled before the loop they fall in, then
+// player.update → ball step → the real Game._resolveFrameContacts (G2), which
+// grades the deflect with the real Game._localDeflectLeadMs at the contact.
 
 // Every click phase inside one frame for a scripted lead.
 function sweepPhases({ speed, lead, dt, samples = 48, feetY = 0, dir, aimY }) {
