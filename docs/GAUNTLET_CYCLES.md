@@ -229,3 +229,41 @@ within 2% of baseline after 10 rounds; ball/team/threat readability passes LUNA 
 - Coach AI and public creator maps
 - Creator payouts and paid random cases
 - Retention, conversion, revenue, or market-fit score increases without cohorts
+
+## Cycles 2026-09-23 (SOL → TERRA → QA → SOL)
+
+SOL baseline review at `16214e8` (code/arithmetic only, no playtest) lowered several
+provisional scores because the code contradicted earlier evidence: Ball Interaction
+7.5→6.6, Deflect Satisfaction 7.4→6.3, Skill Expression 7.2→6.2, Readability 8.5→7.6.
+
+### G1 — Elevation-true body hit capsule — PASS (`026711e`)
+- Before: the body capsule spanned world y 0..1.7 at the target's x/z, so jumping or
+  perched players were only killed by the force-hit fallback; on a 2.4 m ledge the ball
+  parked inside the torso for 20 s without a hit.
+- After: capsule spans feet..feet+1.7 (Player/Bot/remote proxy); grounded hits
+  bit-identical (1000-sample equivalence); perched/double-jump hit on first overlap.
+- QA: PASS (2 P2 notes: bots never elevated; 1.7 literal duplicated).
+
+### G3 — PERFECT/GREAT earned by timing — PASS after 2 FIX passes (`aeb614f`)
+- Before: tier read time left in a 0.25 s approach window — unreachable on straight
+  balls; Guided drill 0/20 PERFECT at a 40 ms lead; stale ✨PERFECT tags.
+- After: tier = click lead to predicted body contact (half-frame compensated),
+  PERFECT ≤ 60 ms, GREAT ≤ 140 ms at every speed; host grades remote deflects from
+  its own ball state + sanitized swing-age hint. Drill 20/20. Spam ≤ 32.7%, skilled
+  ≥ 86.8% (60/144 Hz, 1×–10×). Outcomes bit-identical. PERFECT hit-stop solo-only.
+- QA: PASS (P2: slow-mo/hit-stop dt mismatch biases lead up; 30 Hz WARN).
+
+### Provisional scores after cycles (code + simulation evidence, no playtest)
+| Pillar | Before | After |
+| --- | ---: | ---: |
+| Ball Interaction | 6.6 | 7.3 |
+| Deflect Satisfaction | 6.3 | 7.3 |
+| Skill Expression | 6.2 | 6.8 |
+| Core Fun | 6.2 | 6.6 |
+
+### Next queue (SOL ranked)
+1. P1 — high-speed deflect/hit decided at frame boundaries (frame-rate dependent) → S1.
+2. P1 — uncapped rally ends on a reaction wall (bots fixed wall; whiff lock > flight
+   time; 20 Hz one-decimal ETA) → needs a design decision + D2 telemetry.
+3. P2 — prop state invisible (no COVER ON/OFF cue); bots can't use parkour; prop ghost
+   makes cover moot after first bounce.
