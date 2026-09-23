@@ -1302,6 +1302,17 @@ export class Arena {
         return obj;
     }
 
+    // Counterpart of add() for short-lived effects (black holes, split balls,
+    // console spawns). Callers existed but the method did not, so every expiry
+    // threw each frame. Disposal stays with the caller.
+    remove(obj) {
+        if (!obj) return obj;
+        this.scene.remove(obj);
+        const index = this.objects.indexOf(obj);
+        if (index !== -1) this.objects.splice(index, 1);
+        return obj;
+    }
+
     // Legacy primitive: a {pos, radius} cylinder that only blocks within
     // radius + PROP_COLLIDER_SLACK of pos.y (see ball.js / player.js). Map
     // props must NOT call this directly — tall props leak the ball above that
