@@ -25,6 +25,37 @@ export function dailyXpAward(challengesClaimed = 0, allComplete = false) {
     return claimed * DAILY_CHALLENGE_XP + (allComplete === true ? DAILY_ALL_COMPLETE_BONUS_XP : 0);
 }
 
+// Post-game daily nudge (Gauntlet G8): the nearest incomplete daily that is at
+// least half done, so the report can say "1 win from Win 3 Matches". Pure — the
+// caller passes whichever list it shows (Store's server catalog or this Daily).
+// Returns null when nothing qualifies; never invents progress.
+export const DAILY_NUDGE_MIN_RATIO = 0.5;
+
+export function nearestDailyNudge(challenges = []) {
+    let best = null;
+    for (const challenge of Array.isArray(challenges) ? challenges : []) {
+        if (!challenge || challenge.claimed) continue;
+        const target = Math.floor(Number(challenge.target));
+        const progress = Math.max(0, Math.floor(Number(challenge.progress) || 0));
+        if (!Number.isFinite(target) || target <= 0 || progress >= target) continue;
+        const ratio = progress / target;
+        if (ratio < DAILY_NUDGE_MIN_RATIO) continue;
+        const remaining = target - progress;
+        if (!best || ratio > best.ratio || (ratio === best.ratio && remaining < best.remaining)) {
+            best = {
+                id: String(challenge.id || ''),
+                name: String(challenge.name || ''),
+                type: String(challenge.type || ''),
+                progress,
+                target,
+                remaining,
+                ratio
+            };
+        }
+    }
+    return best;
+}
+
 const CHALLENGE_POOL = [
     { id: 'win_3', name: 'Win 3 Matches', emoji: '🏆', target: 3, type: 'wins', reward: 100 },
     { id: 'deflect_50', name: '50 Deflects', emoji: '🏐', target: 50, type: 'deflects', reward: 80 },

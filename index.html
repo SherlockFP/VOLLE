@@ -24,7 +24,7 @@
     <link rel="stylesheet" href="css/menu-depth.css?v=2">
     <link rel="stylesheet" href="css/hud.css?v=4">
     <link rel="stylesheet" href="css/spectator.css?v=1">
-    <link rel="stylesheet" href="css/postgame.css?v=1">
+    <link rel="stylesheet" href="css/postgame.css?v=2">
     <link rel="stylesheet" href="css/touch.css?v=1">
     <script type="importmap">
     {
@@ -2112,6 +2112,15 @@
                 <header class="pg-header"><div><span class="shell-kicker" data-i18n="pg.matchReport">MATCH REPORT</span><h2 class="pg-title" id="pg-result"></h2></div><svg class="ui-icon pg-header-mark" aria-hidden="true"><use href="#i-trophy"></use></svg></header>
                 <span class="pg-final-score-label" data-i18n="pg.finalScore">FINAL SCORE</span>
                 <div class="pg-winner" id="pg-winner"></div>
+                <!-- Your match against your own records (js/ui.js#_renderPersonalStrip,
+                     js/store.js#recordPersonalBests). Hidden until a real match fills it. -->
+                <section id="pg-personal" class="pg-personal" hidden aria-label="Your match" data-i18n-attr="aria-label:postgame.yourMatch">
+                    <div class="pg-personal-stat" data-stat="deflects"><b class="pg-personal-value">0</b><span class="pg-personal-label" data-i18n="postgame.deflects">Deflects</span><small class="pg-personal-best"></small></div>
+                    <div class="pg-personal-stat" data-stat="perfects"><b class="pg-personal-value">0</b><span class="pg-personal-label" data-i18n="postgame.perfects">Perfects</span><small class="pg-personal-best"></small></div>
+                    <div class="pg-personal-stat" data-stat="topSpeed"><b class="pg-personal-value">0.0×</b><span class="pg-personal-label" data-i18n="postgame.topSpeed">Top speed</span><small class="pg-personal-best"></small></div>
+                    <div class="pg-personal-stat" data-stat="bestRally"><b class="pg-personal-value">0</b><span class="pg-personal-label" data-i18n="postgame.bestRally">Best rally</span><small class="pg-personal-best"></small></div>
+                    <div class="pg-personal-stat" data-stat="kos"><b class="pg-personal-value">0</b><span class="pg-personal-label" data-i18n="postgame.kos">KOs</span><small class="pg-personal-best"></small></div>
+                </section>
                 <!-- Match MVP: name + key stats + a small 3D showcase of their equipped
                      knife/gloves/ball (js/mvp-showcase.js). js/ui.js#_renderMvpCard fills
                      this from the same scoreboard data the AAR table's MVP tag uses. -->
@@ -2126,10 +2135,13 @@
                 <section class="pg-rematch-hero" aria-label="Play again" data-i18n-attr="aria-label:pg.playAgain">
                     <div id="pg-rematch-status" class="rematch-status" role="status" aria-live="polite">Instant solo rematch.</div>
                     <button id="pg-play-again" class="btn btn-primary"><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg>Rematch</button>
+                    <button id="pg-next-map" class="btn btn-secondary btn-small" type="button" data-i18n="postgame.nextMap">Next map</button>
+                    <p id="pg-daily-nudge" class="pg-daily-nudge" hidden></p>
                 </section>
                 <div class="pg-level">
                     <span id="pg-prestige" class="prestige-badge" hidden></span>
                     <span id="pg-level"></span>
+                    <span id="pg-levelup-stamp" class="pg-levelup-stamp" role="status" aria-live="polite" hidden></span>
                 </div>
                 <div class="guest-save-banner" role="note">
                     <span data-i18n="common.guestLocal"><b data-i18n="common.guestPlaying">Playing as guest.</b> Your progress lives on this device only.</span>

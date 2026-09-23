@@ -184,7 +184,10 @@ test('manual help starts the real guided drill while skip/escape record exits wi
     assert.doesNotMatch(hideSlice, /ftue_complete/, 'dismissing the overlay is not completion');
     const ftueStart = source.indexOf('startFtueGuidedDrill()');
     const ftueSlice = source.slice(ftueStart, ftueStart + 500);
-    assert.match(ftueSlice, /this\.startGuidedDeflectDrill\(\{ source: 'manual_help' \}\)/);
+    // G8: the first-session welcome runs the 40 s FTUE drill (source 'ftue', the
+    // only path that sets ftueCompleted); a later How-to-play visit is manual help.
+    assert.match(ftueSlice, /const ftue = this\._ftueWelcomeFirstRun === true \|\| this\.store\.get\('ftueCompleted'\) !== true;/);
+    assert.match(ftueSlice, /this\.startGuidedDeflectDrill\(\{ source: ftue \? 'ftue' : 'manual_help' \}\)/);
 
     const completionCount = (source.match(/productAnalytics\.track\('ftue_complete'/g) || []).length;
     assert.equal(completionCount, 1, 'only the guided-drill completion callback may claim FTUE completion');

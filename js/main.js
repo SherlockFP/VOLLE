@@ -36,7 +36,8 @@ import { COSMETICS } from './cosmetic-catalog.js';
 import { MapEditorController } from './map-editor.js';
 import { normalizeMapConfig, validateMapConfig } from './map-config.js';
 import { checkAchievements } from './achievements.js';
-import { Daily } from './daily.js';
+import { Daily, nearestDailyNudge } from './daily.js';
+import { firstSoloMatchConfig, CELEBRATION_SKIP_KEYS } from './run-it-back.js';
 import { getReward as getBattlepassRewardEntry } from './battlepass.js';
 import { Replay, extractReplayHighlight } from './replay.js';
 import { ReplayView } from './replay-view.js';
@@ -324,6 +325,10 @@ class App {
             // it with the same scoreboard-derived MVP identity.
             const mvp = selectMvp(this.game.scoreboard.getPlayerStats());
             this.ui.setPostGameMvpShowcase?.(this.game.matchId, mvp && resolveMvpLoadout(mvp, { game: this.game, player: this.player, store: this.store }));
+            // Level-up moment: snapshot the account BEFORE awardMatchRewards() runs
+            // store.grant(), so the report can roll the bar over a crossed level.
+            const prevAccount = this.store.getAccount?.() || null;
+            const personal = this._settlePersonalBests();
             this.awardMatchRewards();
             this.productAnalytics.track('match_complete', {
                 mode: this.game.mode?.id || 'classic',
@@ -335,12 +340,26 @@ class App {
             });
             this.refreshMetaStats();
             this.ui.updateContractTracker(Daily, this.store);
+            return {
+                prevAccount: prevAccount ? { level: prevAccount.level, xp: prevAccount.xp, prestige: prevAccount.prestige || 0 } : null,
+                personal
+            };
         };
+        // Entering GAME_OVER (host timer, client gameOver packet or a solo skip)
+        // re-evaluates Rematch: a multiplayer report opened over the lap keeps it
+        // disabled until the host's lap has actually ended.
+        this.game.onGameOverState = () => this._updateRematchUI?.();
+        // First solo match of a fresh profile: medium bot, 5 rounds, 180 s.
+        this.game.resolveFirstSoloMatch = () => firstSoloMatchConfig({
+            matchesPlayed: this.store.get('stats')?.gamesPlayed,
+            newProfile: isNewPlayerProfile(this.store.data)
+        });
         this.game.onRoundEnd = () => this._queueRoundReplay();
         this.game.onMatchStart = () => {
             clearTimeout(this._deferredRewardRetryTimer);
             this._deferredRewardRetryTimer = null;
             this.ui.clearPostGameMatchDrops?.();
+            this.ui.clearToastQueue?.();
             this._analyticsMatchStartedAt = Date.now();
             this._analyticsGameplayEndedAt = null;
             this._analyticsPostgameReadyAt = null;
@@ -544,8 +563,20 @@ class App {
                 this.ui.updateScoreboard(this.game.scoreboard.getPlayerStats(), this.game._ffa,
                     { cover: this.game.arena?.propsEnabled !== false });
             }
-            // Y/T/Enter → open chat during play, lobby, celebration, or post-game
-            if ((e.code === 'KeyY' || e.code === 'KeyT' || e.code === 'Enter') &&
+            // Run it back: on the report Enter and R press the focused Rematch.
+            // Enter on another focused report button keeps its native click.
+            if (this._handlePostGameRematchKey(e)) return;
+            // Space / E over the lap: solo skips to the report from 1 s, a
+            // multiplayer player opens their own report from 2 s.
+            if (this.game.state === STATES.CELEBRATION && CELEBRATION_SKIP_KEYS.includes(e.code)
+                && !e.repeat && this.game.skipCelebration?.()) {
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
+            // Y/T/Enter → open chat during play, lobby or celebration; the report
+            // (GAME_OVER) opens chat on T or Y only, Enter belongs to Rematch.
+            if ((e.code === 'KeyY' || e.code === 'KeyT' || (e.code === 'Enter' && this.game.state !== STATES.GAME_OVER)) &&
                 (this.game.state === STATES.PLAYING || this.game.state === STATES.LOBBY || this.game.state === STATES.CELEBRATION || this.game.state === STATES.GAME_OVER)) {
                 e.preventDefault();
                 this.openChat();
@@ -716,6 +747,21 @@ class App {
                     this.player.unlock();
                     document.getElementById('social-lobby-chat-input')?.focus();
                 }
+            }
+        }, { signal: this._mainAbort.signal, capture: true });
+
+        // A click over the lap skips it like Space/E (solo from 1 s; multiplayer
+        // opens this player's report from 2 s). Once a multiplayer report is open
+        // over the lap, clicks belong to the report and never reach the rocket.
+        document.addEventListener('mousedown', e => {
+            if (this.game.state !== STATES.CELEBRATION || e.button !== 0) return;
+            if (this.game._postGameOpenedEarly) {
+                e.stopPropagation();
+                return;
+            }
+            if (this.game.skipCelebration?.()) {
+                e.preventDefault();
+                e.stopPropagation();
             }
         }, { signal: this._mainAbort.signal, capture: true });
         document.addEventListener('keyup', e => {
@@ -1641,6 +1687,17 @@ class App {
         return result;
     }
 
+    // Post-game personal strip: this player's match numbers against their stored
+    // records. Runs once per match, under the same guards as the reward grant
+    // (practice, spectating and an already-claimed match record nothing).
+    _settlePersonalBests() {
+        if (!isTerminalRematchState(this.game.state) || this.game._rewardsClaimed) return null;
+        if (this.game.localSpectator || this.game._practiceMode) return null;
+        const stats = this.game.getPersonalMatchStats?.();
+        if (!stats || typeof this.store.recordPersonalBests !== 'function') return null;
+        return this.store.recordPersonalBests(stats);
+    }
+
     // Maç sonu reward: coins + xp, battlepass tier dolum, istatistik, achievement, daily.
     async awardMatchRewards() {
         if (!isTerminalRematchState(this.game.state)) return;
@@ -1704,7 +1761,9 @@ class App {
         });
         // Casual-first XP: weighted on how the match was played rather than on the
         // result, so a strong loss still out-earns a passive win (js/prestige.js).
-        const rally = this.game.rallyCount;
+        // Rally input is the best rally across the whole match: rallyCount resets
+        // every round, so reading it here only ever saw the final round.
+        const rally = this.game.getMatchBestRally();
         const rawXp = matchXp({
             deflections: myStat.deflections,
             kills: myStat.score,
@@ -1779,17 +1838,19 @@ class App {
         const newAch = checkAchievements(this.store, {
             rally, won, damageTaken, spikes, criticalHit, finalHp
         });
-        newAch.forEach(a => {
-            this.ui.showMessage?.(t('toast.achievement', { name: a.name, reward: a.reward }), 3000);
-        });
-
+        // Post-match toasts run through the UI queue (sequential, >= 1.2 s each,
+        // max 4) instead of each showMessage() overwriting the last. The rank
+        // moment leads so it is never the one dropped.
         if (result.prestiged) {
-            this.ui.showMessage?.(`⭐ PRESTIGE ${result.prestige} — ${prestigeTitle(result.prestige)}!`, 4500);
+            this.ui.queueToast?.(`⭐ PRESTIGE ${result.prestige} — ${prestigeTitle(result.prestige)}!`, 2600);
         } else if (result.leveledUp) {
-            this.ui.showMessage?.(t('toast.levelUp', { label: accountRankLabel(result) }), 3000);
+            this.ui.queueToast?.(t('toast.levelUp', { label: accountRankLabel(result) }), 2200);
         }
+        newAch.forEach(a => {
+            this.ui.queueToast?.(t('toast.achievement', { name: a.name, reward: a.reward }), 2000);
+        });
         if (mastery.masteryLeveledUp) {
-            this.ui.showMessage?.(t('toast.mastery', { name: CHARACTERS[this.player.charId]?.name || 'Rally', level: mastery.masteryLevel }), 3000);
+            this.ui.queueToast?.(t('toast.mastery', { name: CHARACTERS[this.player.charId]?.name || 'Rally', level: mastery.masteryLevel }), 2000);
         }
         // Complete the visual handoff only after the local or authoritative
         // result settles. A replay is a historical receipt, never a fresh drop.
@@ -1802,13 +1863,13 @@ class App {
             this.productAnalytics.track('arena_cache_opened', { itemId: card.id, itemType: card.rarity, result: dropResult });
             this.productAnalytics.track('card_earned', { itemId: card.id, itemType: card.rarity, result: dropResult });
             matchDrops.push({ type: 'card', id: card.id, name: card.name, rarity: card.rarity });
-            this.ui.showMessage?.(`Arena Cache: ${card.name} (${CARD_RARITIES[card.rarity].label})`, 4200);
+            this.ui.queueToast?.(`Arena Cache: ${card.name} (${CARD_RARITIES[card.rarity].label})`, 2400);
         }
         if (freshAuthorityResult && synced?.earnedCase && CASES[synced.earnedCase]) {
             const box = CASES[synced.earnedCase];
             this.productAnalytics.track('earned_case_granted', { itemId: box.id, itemType: 'cosmetic_case', result: synced.earnedCaseSource || 'match_roll' });
             matchDrops.push({ type: 'case', id: box.id, name: box.name, rarity: 'earned' });
-            this.ui.showMessage?.(t('toast.matchDrop', { name: box.name }), 4200);
+            this.ui.queueToast?.(t('toast.matchDrop', { name: box.name }), 2400);
         }
         // The report receives a receipt only after this player's local or
         // authoritative settlement. A pending remote completion stays pending;
@@ -1831,8 +1892,12 @@ class App {
             if (settledReceipt && synced?.replayed !== true) this.ui.setPostGameRewardReceipt?.(matchId, settledReceipt, this.store);
             this.ui.setPostGameMatchDrops?.(matchId, matchDrops);
             if (!settledReceipt && this.store.remoteReady) this._startDeferredMatchRewardRetry(matchId, { xp, xpSources });
+            // Daily nudge: one line for the nearest incomplete daily that is at
+            // least half done, read after this match's progress landed.
+            const dailies = this.store.getDailyChallenges?.() || Daily.getChallenges?.() || [];
+            this.ui.setPostGameDailyNudge?.(matchId, nearestDailyNudge(dailies));
         }
-        if (settledReceipt && synced?.replayed !== true) this.ui.showMessage?.(t('toast.rewardsSummary', { coins: settledReceipt.coins.total, xp }), 3000);
+        if (settledReceipt && synced?.replayed !== true) this.ui.queueToast?.(t('toast.rewardsSummary', { coins: settledReceipt.coins.total, xp }), 2000);
 
         // Replay kaydet
         const replay = Replay.stopRecording();
@@ -1968,9 +2033,12 @@ class App {
         this._ftueWelcomeFirstRun = false;
     }
 
+    // First session (first-run welcome, or before ftueCompleted) runs the 40 s
+    // FTUE drill, whose completion sets ftueCompleted; later visits: manual help.
     startFtueGuidedDrill() {
+        const ftue = this._ftueWelcomeFirstRun === true || this.store.get('ftueCompleted') !== true;
         this.hideFtueWelcome({ reason: 'start_guided_drill' });
-        this.startGuidedDeflectDrill({ source: 'manual_help' });
+        this.startGuidedDeflectDrill({ source: ftue ? 'ftue' : 'manual_help' });
     }
 
     // Preserve the first-solo bot reliability guard without showing automatic
@@ -2634,6 +2702,9 @@ class App {
             const ready = Array.isArray(snapshot?.readyPlayerIds) ? snapshot.readyPlayerIds : [];
             const required = Array.isArray(snapshot?.requiredPlayerIds) ? snapshot.requiredPlayerIds : [];
             const localReady = ready.includes(this.network.playerId);
+            // A multiplayer report opened over the lap: the host's lap still runs,
+            // so the rematch vote opens when it ends (host timers stay untouched).
+            const lapRunning = this.network.connected && this.game.state === STATES.CELEBRATION;
             const label = this._rematchStarting
                 ? t('rematch.starting')
                 : localReady
@@ -2641,14 +2712,22 @@ class App {
                     : t('rematch.rematch');
             buttons.forEach(button => {
                 button.textContent = label;
-                button.disabled = this._rematchStarting || localReady;
+                button.disabled = this._rematchStarting || localReady || lapRunning;
             });
             const text = snapshot?.expired
                 ? t('rematch.expired')
-                : this.network.connected && required.length
-                    ? t('rematch.playersReady', { ready: ready.length, total: required.length })
-                    : this.network.connected ? t('rematch.pressWhenReady') : t('rematch.instantSolo');
+                : lapRunning
+                    ? t('postgame.rematchAfterLap')
+                    : this.network.connected && required.length
+                        ? t('rematch.playersReady', { ready: ready.length, total: required.length })
+                        : this.network.connected ? t('rematch.pressWhenReady') : t('rematch.instantSolo');
             statuses.forEach(status => { status.textContent = text; });
+            // Solo keeps the map on Rematch; "Next map" is the explicit rotation.
+            const nextMap = document.getElementById('pg-next-map');
+            if (nextMap) {
+                nextMap.hidden = this.network.connected;
+                nextMap.disabled = this._rematchStarting;
+            }
         };
 
         this._activeRematchPlayerIds = () => connectedRematchParticipants(
@@ -2748,6 +2827,8 @@ class App {
 
         this._requestRematch = () => {
             if (!isTerminalRematchState(this.game.state)) return;
+            // A report opened over a multiplayer lap votes only once the lap ends.
+            if (this.network.connected && this.game.state === STATES.CELEBRATION) return;
             const sourceMatchId = this.game.matchId;
             if (!isSafeMatchId(sourceMatchId) || this._rematchStarting) return;
             const rematchMetrics = Number.isFinite(this._analyticsPostgameReadyAt)
@@ -2952,6 +3033,12 @@ bind('btn-remove-bot', () => {
         window._postGameAction = (action) => {
             if (action === 'play_again') {
                 this._requestRematch();
+            } else if (action === 'next_map') {
+                // Solo only: rotate to another map, then the same instant rematch.
+                if (this.network.connected || !isTerminalRematchState(this.game.state) || this._rematchStarting) return;
+                const picked = this.game.rotateSoloMap?.();
+                this._requestRematch();
+                if (picked) this.ui.showMessage?.(t('match.nextMap', { name: this.arena?.config?.name || picked }), 1600);
             } else if (action === 'lobby') {
                 clearTimeout(this._rematchTimer);
                 this.awardMatchRewards();
@@ -3413,6 +3500,13 @@ bind('carousel-next', () => {
         });
         // Touch hook 2/4: Settings > Controls touch rows (mode, look sensitivity, haptics).
         bindTouchSettings(document, this.store, this.touchControls);
+        // Bot difficulty: the dropdown shows the stored value and the session
+        // plays it (new profiles store 'medium', older saves keep theirs).
+        const storedBotDifficulty = ['easy', 'medium', 'hard'].includes(this.store.get('settings')?.botDifficulty)
+            ? this.store.get('settings').botDifficulty
+            : 'medium';
+        hydrateSetting('setting-bot-difficulty', storedBotDifficulty);
+        this.game.setBotDifficulty(storedBotDifficulty);
         const savedSensitivity = this.store.get('mouseSensitivity') || 2;
         hydrateSetting('setting-sensitivity', savedSensitivity);
         this.player.setSensitivity(savedSensitivity / 1000);
@@ -8475,6 +8569,27 @@ updateCarousel() {
         return d.innerHTML;
     }
 
+    // GAME_OVER report: Enter / R start the rematch through the focused Rematch
+    // button's own click path (same handler, same vote rules), in this frame.
+    _handlePostGameRematchKey(e) {
+        if (this.game.state !== STATES.GAME_OVER || (e.code !== 'Enter' && e.code !== 'KeyR')) return false;
+        if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return false;
+        const screen = document.getElementById('post-game-screen');
+        const rematch = document.getElementById('pg-play-again');
+        if (!screen || screen.classList.contains('hidden') || !rematch) return false;
+        const active = document.activeElement;
+        // Enter on a different focused control (Next map, Lobby, a tab…) is that
+        // control's own activation; R always means Rematch.
+        if (e.code === 'Enter' && active && active !== rematch && active !== document.body
+            && screen.contains(active) && active.matches?.('button, a, summary, [role="button"], [tabindex]')) return false;
+        e.preventDefault();
+        e.stopPropagation();
+        if (rematch.disabled) return true;
+        if (active !== rematch) rematch.focus?.({ preventScroll: true });
+        rematch.click();
+        return true;
+    }
+
     openChat() {
         this.ui.hideScoreboard();
         this.ui._openExclusive('chat', () => this.closeChat());
@@ -8485,7 +8600,14 @@ updateCarousel() {
         }
         if (this.game.state === STATES.GAME_OVER) {
             const pi = document.getElementById('pg-chat-input');
-            if (pi) { pi.focus(); return; }
+            if (pi) {
+                // After-match chat lives inside the closed "Match details"
+                // disclosure; open it so T/Y can actually focus the input.
+                const details = pi.closest?.('details');
+                if (details && !details.open) details.open = true;
+                pi.focus();
+                return;
+            }
         }
         const input = document.getElementById('chat-input');
         if (!input) return;
@@ -8886,7 +9008,8 @@ updateCarousel() {
             || this.game.state === STATES.CELEBRATION
             || this.game.state === STATES.COSMETIC_PRACTICE
             || this.game.state === STATES.SOCIAL_HUB)
-            && !pauseOpen && !settingsOpen && !this.chatOpen && !socialChatFocused && !teamPopup;
+            && !pauseOpen && !settingsOpen && !this.chatOpen && !socialChatFocused && !teamPopup
+            && !this.game._postGameOpenedEarly;
         const canRequestPointerLock = this.game.state !== STATES.COSMETIC_PRACTICE
             || this._activeSportSession?.pointerLockRetry === true;
         // Touch hook 3/4: overlay live only in match input states (no emote wheel / spectator UI underneath).
