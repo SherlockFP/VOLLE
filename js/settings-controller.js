@@ -396,7 +396,18 @@ export function initSettingsExtras({ store, audio, game, player, root } = {}) {
     const extra = readExtraSettings(store);
     const music = settings.musicVolume ?? settings.volume ?? 2;
     const sound = settings.soundVolume ?? settings.volume ?? 50;
-    audio?.setSoundVolume?.(computeEffectiveVolume(sound, extra.masterVolume, extra.muted));
+    // G7: the audio bus keeps sound, master and mute as separate channels, so a
+    // caller that only re-applies the sound slider (main.js applyLoadout) can't
+    // silently drop master or mute. Plain setSoundVolume gets the product.
+    if (typeof audio?.setMix === 'function') {
+      audio.setMix({
+        sound: clampVolumePercent(sound) / 100,
+        master: extra.masterVolume / 100,
+        muted: extra.muted
+      });
+    } else {
+      audio?.setSoundVolume?.(computeEffectiveVolume(sound, extra.masterVolume, extra.muted));
+    }
     game?.setMusicVolume?.(computeEffectiveVolume(music, extra.masterVolume, extra.muted));
   };
 

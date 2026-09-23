@@ -80,7 +80,9 @@ test('Game wires allocation-safe live threat samples after local and network bal
     assert.match(threat, /sampleThreatDirection\(\s*this\._playerThreatDirection,/);
     assert.match(threat, /this\.ui\?\.setPlayerTarget\?\.\(\s*true,\s*speed,\s*distance,/);
     assert.match(threat, /ball\.perfectWindow > 0 && ball\._perfectWindowTarget === this\.player/);
-    assert.match(threat, /this\.audio\?\.updateThreatAudio\?\.\(\{ active: true, speed, distance \}\);/);
+    // G7: the ball position rides along (by reference — audio.js copies it) so the
+    // cue can pan toward the ball and switch to its rear variant.
+    assert.match(threat, /this\.audio\?\.updateThreatAudio\?\.\(\{ active: true, speed, distance, pos: ball\.position \}\);/);
     assert.match(threat, /this\.ui\?\.setPlayerTarget\?\.\(false\);[\s\S]*?active: false/);
     assert.doesNotMatch(threat, /\.clone\(|new THREE\.|\{\s*side:|ball\.update\(|network\.|damage/);
 });

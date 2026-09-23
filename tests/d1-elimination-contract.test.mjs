@@ -187,7 +187,9 @@ test('local and P2P lethal routes share one exactly-once readable KO presenter',
         audio: {
             playCue: cue => calls.push(cue),
             playSfx: cue => calls.push(cue),
-            playExplosion: () => calls.push('explosion')
+            playExplosion: () => calls.push('explosion'),
+            playKillImpact: () => calls.push('kill-impact'),
+            playKillRoleCue: role => calls.push(`role:${role}`)
         },
         juice: {
             killBurst: () => calls.push('kill-burst'),
@@ -201,7 +203,10 @@ test('local and P2P lethal routes share one exactly-once readable KO presenter',
     assert.equal(present.call(game, hit, 'blue', 'Attacker', 'Victim', 7), true);
     assert.equal(present.call(game, hit, 'blue', 'Attacker', 'Victim', 7), false);
     assert.equal(calls.filter(call => call === 'kill-burst').length, 1);
-    assert.equal(calls.filter(call => call === 'explosion').length, 1);
+    // G7: exactly one impact layer; the killer gets no observer notification.
+    assert.equal(calls.filter(call => call === 'kill-impact').length, 1);
+    assert.equal(calls.filter(call => call === 'explosion' || call === 'tf2_explosion').length, 0);
+    assert.equal(calls.filter(call => call.startsWith('role:')).length, 0);
     assert.equal(calls.includes('external-feed'), false, 'G6: no dead window.addKillFeed call');
     assert.equal(timers.pending.length, 1);
     timers.runAll();
