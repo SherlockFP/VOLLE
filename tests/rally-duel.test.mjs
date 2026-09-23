@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import en from '../js/locales/en.js';
 import { readFile } from 'node:fs/promises';
 
 import { COMPETITIVE_RULESET, normalizeCompetitiveEntity } from '../js/competitive-rules.js';
@@ -77,7 +78,8 @@ test('rally duel lobby control is accessible and host-authoritative', async () =
     const game = await readFile(new URL('../js/game.js', import.meta.url), 'utf8');
     assert.match(html, /role="group" aria-label="Game mode"/);
     assert.match(html, /data-mode="rally_duel" aria-pressed="false"/);
-    assert.match(main, /Only the lobby host can change the mode\./);
+    assert.match(main, /t\('toast\.hostOnlyMode'\)/);
+    assert.match(en.toast.hostOnlyMode, /Only the lobby host can change the mode\./);
     assert.match(game, /if \(this\._rallyDuel\) mapId = normalizeRallyDuelMap\(mapId\);/);
     assert.match(game, /if \(this\._powerUpsDisabled\) return false;/);
     assert.match(game, /startGame\(skipPreGame = false, matchId = null\) \{\s*if \(this\._rallyDuel && !this\._prepareRallyDuel\(\)\) return false;/);

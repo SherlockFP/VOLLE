@@ -71,3 +71,5 @@ credible. Initial structure:
 - Premium grants are catalog-priced, transaction-idempotent and server-owned.
 - Payment events and telemetry remain separate: suspicious gameplay never grants
   or removes currency automatically.
+- Stripe Checkout sells server-catalog gem packs; gems buy the Premium Battle Pass
+  and can never open cases or buy keys. Setup and go-live: `docs/PAYMENTS.md`.

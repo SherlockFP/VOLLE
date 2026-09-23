@@ -243,7 +243,8 @@ const snapEnvelope = (progress, riseEnd, fallStart) => {
 // Roblox-style fist (js/player.js buildHandMesh) closes. An item's own grip must land here, so
 // each model's frame offset below is the delta that pulls ITS handle centre onto this point.
 export const VIEWMODEL_BASE_POSITION = Object.freeze([0.035, -0.065, -0.49]);
-export const VIEWMODEL_BASE_ROTATION = Object.freeze([-0.13, 0.24, -0.28]);
+// Knife held gripped with the tip raised ~30° and angled in toward the crosshair (CS-style).
+export const VIEWMODEL_BASE_ROTATION = Object.freeze([0.52, 0.34, -0.36]);
 
 // Per-item correction so each silhouette frames consistently in the cramped first-person
 // frustum AND so its handle sits inside the fist instead of intersecting it. `z` is the

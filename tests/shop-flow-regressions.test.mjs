@@ -4,6 +4,9 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { COSMETICS } from '../js/cosmetic-catalog.js';
 import { SHOP_COLLECTIONS, shopCollectionForItem, matchesShopQuery, deriveShopCardState } from '../js/shop-clarity.js';
+import { localizedName, setText, t } from '../js/i18n.js';
+
+const I18N_GLOBALS = { t, setText, localizedName, characterDesc: c => localizedName('characters', c?.id, c?.desc || '') };
 
 const mainSource = readFileSync(new URL('../js/main.js', import.meta.url), 'utf8');
 const uiSource = readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
@@ -14,7 +17,7 @@ function method(source, name, globals) {
     const next = /\r?\n    (?:async )?[A-Za-z_$][\w$]*\(/.exec(remainder);
     assert.ok(next, `Missing next method after ${name}`);
     const body = source.slice(start.index, start.index + start[0].length + next.index);
-    return runInNewContext(`({${body}\n}).${name}`, globals);
+    return runInNewContext(`({${body}\n}).${name}`, { ...I18N_GLOBALS, ...globals });
 }
 
 test('new collections contain four distinct products each and combine with slot/search filters', () => {
@@ -81,7 +84,7 @@ function purchaseFixture(purchase) {
     };
     const start = mainSource.indexOf('            const buyBtn =');
     const end = mainSource.indexOf('            // Battlepass claim', start);
-    const handler = runInNewContext(`(async function(e) { ${mainSource.slice(start, end)} })`, { document, COSMETICS, AVATAR_SKINS: {}, CHARACTERS: {} });
+    const handler = runInNewContext(`(async function(e) { ${mainSource.slice(start, end)} })`, { ...I18N_GLOBALS, document, COSMETICS, AVATAR_SKINS: {}, CHARACTERS: {} });
     return { app, button, document, click: () => handler.call(app, { target: button }), equips: () => equips, renders: () => renders };
 }
 
@@ -174,7 +177,7 @@ test('delayed equipment removal keeps the new category and never redraws a close
         const renders = [];
         const tab = { dataset: { tab: 'wearables' } };
         const document = { body: { dataset: { screen: 'shop' } }, querySelector: () => tab };
-        const handler = runInNewContext(`(async function(e) { ${mainSource.slice(start, end)} })`, { document });
+        const handler = runInNewContext(`(async function(e) { ${mainSource.slice(start, end)} })`, { ...I18N_GLOBALS, document });
         const app = {
             store: { clearCosmeticSlot: slot => { removed = slot; } },
             _syncWearableLoadout: () => new Promise(done => { resolve = done; }),

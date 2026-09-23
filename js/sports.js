@@ -19,7 +19,8 @@ const DODGEBALL_MAPS = Object.freeze([
     'canyon', 'pillar', 'lava', 'crystal', 'mecha', 'atlantis', 'minecraft',
     'esport_arena', 'dropworks', 'grand_stadium', 'mega_pinball', 'temple_sym',
     'aquarium', 'museum', 'casino', 'subway',
-    'neon_rooftop', 'sunken_temple', 'orbital_station'
+    'neon_rooftop', 'sunken_temple', 'orbital_station',
+    'sunbaked_bazaar', 'harbor_nightworks', 'alpine_research', 'jade_garden'
 ]);
 
 export const SPORTS = Object.freeze({

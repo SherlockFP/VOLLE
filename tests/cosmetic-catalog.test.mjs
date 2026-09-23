@@ -14,10 +14,11 @@ import {
 // cape/pet/shoes/hat/wings/backpack. Court Carnival adds hat/backpack/shoes/cape;
 // Orbital Club adds hat/pet/backpack/wings. Dark Eater still adds cape/aura/trail.
 // Glovebox Case wave adds 24 more gloves (8 rare / 8 epic / 8 legendary).
+// Collection wave (5 skin-theme cases) adds 15 more gloves (3 per collection).
 const EXPECTED_COUNTS = {
     cape: 10, pet: 8, shoes: 9, aura: 7, impact: 6,
     hat: 12, mask: 6, wings: 9, backpack: 9, banner: 4, trail: 7, finisher: 5,
-    gloves: 28
+    gloves: 43
 };
 
 test('wearable catalog has priced effect skins in every slot', () => {

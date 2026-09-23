@@ -69,3 +69,25 @@ test('payment ledger rejects mismatched catalog price and cross-event reuse', t 
         transactionId: 'txn_third123', sku: 'gems_550', amountMinor: 899
     })).status, 409);
 });
+
+test('gem spend for premium battle pass needs enough gems and replays by request id', t => {
+    const { dir, profiles, session } = fixture();
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const profile = profiles.getById(session.profile.id);
+    const { GEM_PRICES } = require('../server/payment-ledger');
+    const price = GEM_PRICES.battlepass_premium;
+    assert.equal(profiles.spendGems(profile, 'battlepass_premium', 'bp-gems:s1').status, 409, 'no gems yet');
+    assert.equal(profile.battlepass.premium, false);
+    profiles.grantPremium(profile, price + 25, 'txn_grant_0001');
+    const first = profiles.spendGems(profile, 'battlepass_premium', 'bp-gems:s1');
+    assert.equal(first.status, 200);
+    assert.equal(first.replayed, false);
+    assert.equal(profile.gems, 25);
+    assert.equal(profile.battlepass.premium, true);
+    assert.equal(profiles.spendGems(profile, 'battlepass_premium', 'bp-gems:s1').replayed, true);
+    assert.equal(profiles.spendGems(profile, 'battlepass_premium', 'short').status, 400);
+    assert.equal(profile.gems, 25, 'replays never charge again');
+    const restored = new ProfileStore(profiles.filePath).getById(profile.id);
+    assert.equal(restored.gems, 25);
+    assert.equal(restored.battlepass.premium, true);
+});

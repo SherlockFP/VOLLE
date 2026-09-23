@@ -5,14 +5,16 @@
 // dist/index.html that points at it (no import map, no 100+ module requests).
 // server.js serves dist/index.html when it exists; delete dist/ to go back to dev.
 // esbuild is a devDependency only — nothing from it ships to players.
-import { build } from 'esbuild';
-import { mkdir, readFile, rm, writeFile, readdir, stat } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, writeFile, readdir, stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const outdir = path.join(root, 'dist');
+const finalDir = path.join(root, 'dist');
+// Built into a staging dir and swapped in at the end, so the server never sees a
+// missing or half-written dist/ (it would silently fall back to the dev page).
+const outdir = path.join(root, 'dist.next');
 
 // Mirrors the import map in index.html.
 const importMapPlugin = {
@@ -35,6 +37,9 @@ import './js/main.js';
 
 export async function buildClient({ log = console.log } = {}) {
     const started = Date.now();
+    // Loaded lazily: production images prune devDependencies after building, and
+    // `npm start` (prestart --if-stale) must still boot when esbuild is gone.
+    const { build } = await import('esbuild');
     await rm(outdir, { recursive: true, force: true });
     await mkdir(outdir, { recursive: true });
     const result = await build({
@@ -55,7 +60,7 @@ export async function buildClient({ log = console.log } = {}) {
     });
     const entry = Object.entries(result.metafile.outputs).find(([, meta]) => meta.entryPoint);
     if (!entry) throw new Error('bundle entry missing from metafile');
-    const entryFile = path.relative(root, path.join(root, entry[0])).split(path.sep).join('/');
+    const entryFile = path.relative(root, path.join(root, entry[0])).split(path.sep).join('/').replace(/^dist\.next\//, 'dist/');
 
     const html = await readFile(path.join(root, 'index.html'), 'utf8');
     const bundled = rewriteIndexHtml(html, entryFile);
@@ -65,6 +70,11 @@ export async function buildClient({ log = console.log } = {}) {
     const bytes = (await Promise.all(files.filter(f => f.endsWith('.js')).map(f => stat(f)))).reduce((sum, s) => sum + s.size, 0);
     const buildId = createHash('sha256').update(bundled).digest('hex').slice(0, 10);
     await writeFile(path.join(outdir, 'build.json'), JSON.stringify({ buildId, entry: entryFile, jsBytes: bytes, builtAt: new Date().toISOString() }, null, 2));
+    const previous = path.join(root, 'dist.prev');
+    await rm(previous, { recursive: true, force: true });
+    await rename(finalDir, previous).catch(() => {});
+    await rename(outdir, finalDir);
+    await rm(previous, { recursive: true, force: true });
     log(`[build] ${files.filter(f => f.endsWith('.js')).length} JS files, ${(bytes / 1024).toFixed(0)} KiB minified, entry ${entryFile} (${Date.now() - started} ms)`);
     return { entryFile, bytes };
 }
@@ -85,8 +95,29 @@ async function listFiles(dir) {
     return nested.flat();
 }
 
+// True when dist/ is missing or any client source/vendor file or index.html is newer.
+export async function isBuildStale() {
+    const built = await stat(path.join(finalDir, 'build.json')).catch(() => null);
+    if (!built) return true;
+    const sources = [path.join(root, 'index.html'), ...await listFiles(path.join(root, 'js'))];
+    for (const file of sources) {
+        const info = await stat(file).catch(() => null);
+        if (info && info.mtimeMs > built.mtimeMs) return true;
+    }
+    return false;
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-    buildClient().catch(error => {
+    const onlyIfStale = process.argv.includes('--if-stale');
+    (onlyIfStale ? isBuildStale() : Promise.resolve(true)).then(stale => {
+        if (!stale) return console.log('[build] dist/ is up to date');
+        return buildClient();
+    }).catch(error => {
+        // --if-stale is best-effort (prestart): never block the server from starting.
+        if (onlyIfStale) {
+            console.warn(`[build] skipped (${error.code || error.message}); serving ${'existing dist/ or dev page'}`);
+            return;
+        }
         console.error(error);
         process.exit(1);
     });

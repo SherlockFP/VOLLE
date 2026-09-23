@@ -8,13 +8,21 @@
 import { createArtContext } from './kit.js';
 import { buildNeonRooftopArt, buildSunkenTempleArt, buildOrbitalStationArt } from './new-maps.js';
 import { POLISH_BUILDERS } from './polish.js';
+import { buildSunbakedBazaarArt } from './landmark-bazaar.js';
+import { buildHarborNightworksArt } from './landmark-harbor.js';
+import { buildAlpineResearchArt } from './landmark-alpine.js';
+import { buildJadeGardenArt } from './landmark-jade.js';
 
 // Identity scenery for the new maps is built on every tier (Low gets a static,
 // thinner version); the polish layer for existing maps is medium/high only.
 export const IDENTITY_BUILDERS = Object.freeze({
     neon_rooftop: buildNeonRooftopArt,
     sunken_temple: buildSunkenTempleArt,
-    orbital_station: buildOrbitalStationArt
+    orbital_station: buildOrbitalStationArt,
+    sunbaked_bazaar: buildSunbakedBazaarArt,
+    harbor_nightworks: buildHarborNightworksArt,
+    alpine_research: buildAlpineResearchArt,
+    jade_garden: buildJadeGardenArt
 });
 
 export function hasMapArt(mapId, tier) {

@@ -54,6 +54,12 @@ export function createArtContext(arena, tier = 'medium') {
             object.userData.mapArt = true;
             object.castShadow = false;
             return arena.add(object);
+        },
+        // Art that reaches into the playable volume (court footprint below
+        // the ball ceiling) but must NOT collide says why (tests enforce it).
+        decor(object, reason) {
+            object.userData.decorative = reason;
+            return this.add(object);
         }
     };
 }
@@ -321,6 +327,130 @@ export function addBunting(batch, from, to, { count = 14, sag = 1.2, size = 0.9,
         const ry = Math.atan2(-(to[2] - from[2]), to[0] - from[0]);
         batch.add(geo, x, y, z, { ry, color: colors[i % colors.length] });
     }
+}
+
+// Painted sign / callout label (CanvasTexture atlas cell). style: { bg, fg,
+// border, font, sub, subColor, glow }.
+export function paintSign(g, x, y, w, h, text, style = {}) {
+    g.save();
+    g.translate(x, y);
+    if (style.bg) {
+        g.fillStyle = style.bg;
+        g.fillRect(w * 0.03, h * 0.06, w * 0.94, h * 0.88);
+    }
+    if (style.border) {
+        g.strokeStyle = style.border;
+        g.lineWidth = h * 0.05;
+        g.strokeRect(w * 0.06, h * 0.12, w * 0.88, h * 0.76);
+    }
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    const size = Math.round(h * (style.sub ? 0.36 : 0.46));
+    g.font = `${style.weight || 900} ${size}px ${style.font || 'Arial, sans-serif'}`;
+    if (style.glow) { g.shadowColor = style.glow; g.shadowBlur = h * 0.14; }
+    g.fillStyle = style.fg || '#ffffff';
+    let fit = size;
+    while (fit > 8 && g.measureText(text).width > w * 0.84) {
+        fit -= 2;
+        g.font = `${style.weight || 900} ${fit}px ${style.font || 'Arial, sans-serif'}`;
+    }
+    g.fillText(text, w / 2, style.sub ? h * 0.42 : h * 0.52);
+    if (style.sub) {
+        g.font = `700 ${Math.round(h * 0.15)}px Arial, sans-serif`;
+        g.fillStyle = style.subColor || style.fg || '#ffffff';
+        g.fillText(style.sub, w / 2, h * 0.72);
+    }
+    g.restore();
+}
+
+// Sign atlas: cols x rows cells, one texture; returns { texture, uv(i) } where
+// uv(i) is GeoBatch opts mapping a PlaneGeometry onto cell i.
+export function signAtlas(ctx, cols, rows, cellW, cellH, drawCell) {
+    const texture = canvasTexture(ctx, cols * cellW, rows * cellH, g => {
+        for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) drawCell(g, r * cols + c, c * cellW, r * cellH, cellW, cellH);
+    });
+    const uv = i => ({
+        uvScale: [1 / cols, 1 / rows],
+        uvOffset: [(i % cols) / cols, 1 - (Math.floor(i / cols) + 1) / rows]
+    });
+    return { texture, uv };
+}
+
+// Box whose side UVs tile a facade texture by metres (tileW x tileH per
+// repeat) and whose roof/floor sample one texel (uvRoof).
+export function facadeBox(w, h, d, tileW = 16, tileH = 32, uvRoof = [0.5, 0.995]) {
+    const geo = new THREE.BoxGeometry(w, h, d);
+    const uv = geo.getAttribute('uv');
+    for (let face = 0; face < 6; face++) {
+        for (let v = 0; v < 4; v++) {
+            const i = face * 4 + v;
+            if (face === 2 || face === 3) { uv.setXY(i, uvRoof[0], uvRoof[1]); continue; }
+            const span = face < 2 ? d : w;
+            uv.setXY(i, uv.getX(i) * span / tileW, uv.getY(i) * h / tileH);
+        }
+    }
+    return geo;
+}
+
+// Additive soft light cone / shaft texture (vertical falloff, soft sides).
+export function glowTexture(ctx, color = '255,210,150') {
+    return canvasTexture(ctx, 64, 128, (g, w, h) => {
+        const grad = g.createLinearGradient(0, 0, 0, h);
+        grad.addColorStop(0, `rgba(${color},0.9)`);
+        grad.addColorStop(1, `rgba(${color},0)`);
+        g.fillStyle = grad;
+        g.fillRect(0, 0, w, h);
+        const side = g.createLinearGradient(0, 0, w, 0);
+        side.addColorStop(0, 'rgba(0,0,0,1)');
+        side.addColorStop(0.5, 'rgba(0,0,0,0)');
+        side.addColorStop(1, 'rgba(0,0,0,1)');
+        g.globalCompositeOperation = 'destination-out';
+        g.fillStyle = side;
+        g.fillRect(0, 0, w, h);
+    });
+}
+
+// Wall slab (w x h, extruded `depth` along z, base at y = 0, centred on x/z)
+// with an opening: 'horseshoe' / 'pointed' arch (width ow, height oh, base
+// on the ground) or 'circle' (moon gate, diameter ow, centre at oh).
+export function wallWithOpening(w, h, depth, { kind = 'horseshoe', ow = 8, oh = 10 } = {}) {
+    const shape = new THREE.Shape();
+    shape.moveTo(-w / 2, 0);
+    shape.lineTo(w / 2, 0);
+    shape.lineTo(w / 2, h);
+    shape.lineTo(-w / 2, h);
+    shape.lineTo(-w / 2, 0);
+    const hole = new THREE.Path();
+    const r = ow / 2;
+    if (kind === 'circle') {
+        hole.absarc(0, oh, r, 0, Math.PI * 2, true);
+    } else {
+        const jamb = kind === 'pointed' ? r : r * Math.cos(0.55);
+        const spring = kind === 'pointed' ? oh - r * 1.2 : oh - r;
+        const jambTop = kind === 'pointed' ? spring : spring - r * Math.sin(0.55);
+        hole.moveTo(-jamb, 0);
+        hole.lineTo(-jamb, jambTop);
+        if (kind === 'pointed') {
+            hole.quadraticCurveTo(-r, oh - r * 0.3, 0, oh);
+            hole.quadraticCurveTo(r, oh - r * 0.3, r, spring);
+        } else {
+            hole.absarc(0, spring, r, Math.PI + 0.55, -0.55, true);
+        }
+        hole.lineTo(jamb, 0);
+        hole.lineTo(-jamb, 0);
+    }
+    shape.holes.push(hole);
+    const geo = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false, curveSegments: 14 });
+    geo.translate(0, 0, -depth / 2);
+    return geo;
+}
+
+// Equirect night/overcast environment painted on a canvas: gives MeshStandard
+// surfaces (wet asphalt, steel) real reflections without any image file.
+export function paintedEnvironment(ctx, draw) {
+    const texture = canvasTexture(ctx, 512, 256, draw);
+    if (texture) texture.mapping = THREE.EquirectangularReflectionMapping;
+    return texture;
 }
 
 export { THREE };

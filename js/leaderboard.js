@@ -1,151 +1,88 @@
-// leaderboard.js — Local leaderboard with simulated AI opponents.
-// ponytail: localStorage blob, Math.random drift, no server, no deps beyond store.
-import { Store } from './store.js';
+// leaderboard.js — real ranked/season/wins leaderboard, backed by the
+// server's authoritative ELO/season records (server/profile-store.js).
+// ponytail: this used to be 50 seeded fake bots in localStorage next to the
+// real player — deceptive and useless. Replaced with a thin fetch client:
+// no bots, no local roster, server is the only source of truth.
+import { account } from './account.js';
 
-const LEADERBOARD_KEY = 'dodgball_leaderboard_v1';
-const FAKE_COUNT = 50;
+// One-time migration: delete the old fake-roster cache so it never
+// resurfaces or confuses a stale reload.
+const LEGACY_LEADERBOARD_KEY = 'dodgball_leaderboard_v1';
+try { globalThis.localStorage?.removeItem(LEGACY_LEADERBOARD_KEY); } catch {}
 
-export function normalizeLeaderboardPlayers(value) {
-    if (!Array.isArray(value)) return null;
-    return value.slice(0, 200).filter(player => player && typeof player.name === 'string'
-        && player.name.trim() && Number.isFinite(player.elo) && player.elo >= 0 && player.elo <= 5000)
-        .map(player => ({
-            name: player.name.trim().slice(0, 40), elo: Math.round(player.elo),
-            weeklyElo: Number.isFinite(player.weeklyElo) && player.weeklyElo >= 0 && player.weeklyElo <= 5000
-                ? Math.round(player.weeklyElo) : Math.round(player.elo),
-            classId: typeof player.classId === 'string' ? player.classId.slice(0, 32) : '',
-            fake: player.fake === true
-        }));
-}
+export const LEADERBOARD_BOARDS = Object.freeze(['ranked', 'season', 'wins']);
+const DEFAULT_LIMIT = 50;
+// Purely a client-side de-dupe against click-spam; the server's own cache
+// window (server.js LEADERBOARD_CACHE_TTL) is the real source of freshness.
+const CLIENT_CACHE_MS = 15000;
 
-const ADJ = ['Neon','Quick','Shadow','Silent','Crimson','Iron','Frozen','Wild','Dark','Blaze',
-             'Swift','Toxic','Lucky','Ghost','Mega','Turbo','Hyper','Sly','Vivid','Nimble'];
-const NOUN = ['Fox','Tiger','Wolf','Hawk','Bear','Lion','Viper','Drake','Phantom','Wraith',
-              'Raven','Shark','Dragon','Cobra','Panther','Eagle','Reaper','Titan','Specter','Jaguar'];
-
-// ponytail: LCG so a wiped cache regenerates the same roster (stable identity).
-function seededRng(seed) {
-    let s = seed >>> 0;
-    return () => {
-        s = (s * 1664525 + 1013904223) >>> 0;
-        return s / 4294967296;
-    };
-}
-
-function generateFakes() {
-    const rng = seededRng(12345);
-    const players = [];
-    for (let i = 0; i < FAKE_COUNT; i++) {
-        const name = ADJ[Math.floor(rng() * ADJ.length)] + NOUN[Math.floor(rng() * NOUN.length)];
-        const elo = Math.round(800 + rng() * 1600); // 800..2400
-        // ponytail: index suffix guarantees unique tags (gamer handles do this anyway)
-        const classes = ['scout', 'soldier', 'tank'];
-        players.push({
-            name: `${name}${i}`,
-            elo,
-            weeklyElo: Math.max(0, elo - Math.round(rng() * 220)),
-            classId: classes[i % classes.length],
-            fake: true
-        });
-    }
-    return players;
+function normalizeBoard(board) {
+    return LEADERBOARD_BOARDS.includes(board) ? board : 'ranked';
 }
 
 class LeaderboardClass {
-    constructor() {
-        this.players = this._load();
-        if (!this.players) {
-            this.players = generateFakes();
-            this._save();
-        } else {
-            const classes = ['scout', 'soldier', 'tank'];
-            this.players = this.players.map((player, index) => ({
-                ...player,
-                weeklyElo: Number.isFinite(player.weeklyElo) ? player.weeklyElo : Math.max(0, player.elo - (index * 17 % 220)),
-                classId: player.classId || classes[index % classes.length]
-            }));
-        }
+    constructor({ fetchImpl = (...args) => globalThis.fetch?.(...args) } = {}) {
+        this.fetchImpl = fetchImpl;
+        this._cache = new Map(); // `${board}:${limit}:${around}` -> { at, data }
+        this._inflight = new Map();
     }
 
-    _load() {
+    // Fetches one board. Never throws — failures resolve with { ok: false }
+    // so a render call can always show a loading/error/offline state.
+    async fetchBoard(board = 'ranked', { limit = DEFAULT_LIMIT, around = true, force = false } = {}) {
+        const normalized = normalizeBoard(board);
+        const boundedLimit = Math.min(50, Math.max(1, Math.floor(Number(limit)) || DEFAULT_LIMIT));
+        const key = `${normalized}:${boundedLimit}:${around ? 1 : 0}`;
+        const cached = this._cache.get(key);
+        if (!force && cached && Date.now() - cached.at < CLIENT_CACHE_MS) return cached.data;
+        if (this._inflight.has(key)) return this._inflight.get(key);
+        const request = this._load(normalized, boundedLimit, around)
+            .then(data => {
+                if (data.ok) this._cache.set(key, { at: Date.now(), data });
+                return data;
+            })
+            .finally(() => this._inflight.delete(key));
+        this._inflight.set(key, request);
+        return request;
+    }
+
+    async _load(board, limit, around) {
+        if (typeof this.fetchImpl !== 'function') {
+            return { ok: false, offline: true, error: 'Leaderboard unavailable offline.', board, entries: [], me: null };
+        }
         try {
-            const raw = localStorage.getItem(LEADERBOARD_KEY);
-            return raw ? normalizeLeaderboardPlayers(JSON.parse(raw)) : null;
-        } catch { return null; }
-    }
-
-    _save() {
-        try { localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(this.players)); } catch {}
-    }
-
-    // Merge the real player (from store) by ELO so they show at the right rank.
-    _merged() {
-        const elo = Store?.getElo?.() ?? 1000;
-        return [...this.players, { name: 'You', elo, fake: false, isYou: true }];
-    }
-
-    getTop(n = 10) {
-        return this._merged().sort((a, b) => b.elo - a.elo).slice(0, n);
-    }
-
-    getFiltered(filter = 'global', {
-        limit = 20,
-        friends = [],
-        classId = ''
-    } = {}) {
-        const friendSet = new Set(friends.map(name => String(name).toLowerCase()));
-        let players = this._merged();
-        if (filter === 'friends') {
-            players = players.filter(player => !player.fake || friendSet.has(player.name.toLowerCase()));
-        } else if (filter === 'class' && classId) {
-            players = players.filter(player => !player.fake || player.classId === classId);
+            const params = new URLSearchParams({ board, season: 'current', limit: String(limit) });
+            if (around) params.set('around', 'me');
+            const headers = {};
+            const token = around ? account.getToken?.() : '';
+            if (token) headers.Authorization = `Bearer ${token}`;
+            const response = await this.fetchImpl(`/api/leaderboard?${params.toString()}`, { headers });
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                return { ok: false, error: body.error || `Leaderboard request failed (${response.status}).`, board, entries: [], me: null };
+            }
+            return {
+                ok: true,
+                board: normalizeBoard(body.board),
+                season: body.season || 'current',
+                total: Number.isFinite(body.total) ? body.total : 0,
+                generatedAt: body.generatedAt || 0,
+                entries: Array.isArray(body.entries) ? body.entries : [],
+                me: body.me || null
+            };
+        } catch {
+            return { ok: false, offline: true, error: 'Could not reach the leaderboard service.', board, entries: [], me: null };
         }
-        const scoreKey = filter === 'weekly' ? 'weeklyElo' : 'elo';
-        return players
-            .map(player => ({ ...player, displayElo: player[scoreKey] ?? player.elo }))
-            .sort((a, b) => b.displayElo - a.displayElo)
-            .slice(0, limit);
     }
 
-    // 1-indexed rank a player with this ELO would hold.
-    getPlayerRank(elo, filter = 'global', options = {}) {
-        const sorted = this.getFiltered(filter, { ...options, limit: Infinity });
-        let rank = 1;
-        for (const p of sorted) {
-            if (p.displayElo > elo) rank++;
-            else break;
-        }
-        return rank;
+    // Guest = playing without a signed-in account; the server never ranks
+    // sessions it can't authenticate, so guests are told to sign up instead
+    // of being shown a misleading position.
+    isGuest() {
+        return !account.isLoggedIn?.();
     }
 
-    addPlayer(name, elo) {
-        this.players.push({ name, elo, fake: false });
-        this._save();
-    }
-
-    // ponytail: tiny ±5 ELO drift on fakes only — feels alive, never persists real players.
-    refresh() {
-        for (const p of this.players) {
-            if (p.fake) p.elo = Math.max(800, Math.min(2400, p.elo + Math.round((Math.random() - 0.5) * 10)));
-        }
-        this._save();
-    }
+    invalidate() { this._cache.clear(); }
 }
 
 export const Leaderboard = new LeaderboardClass();
-
-// ponytail: self-check under ?debug — minimal asserts, no test framework.
-if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('debug')) {
-    const lb = Leaderboard;
-    console.assert(lb.players.length === FAKE_COUNT, 'fake count');
-    const top = lb.getTop(5);
-    console.assert(top.length === 5 && top[0].elo >= top[1].elo, 'top sorted desc');
-    console.assert(lb.getPlayerRank(9999) === 1, 'max elo = rank 1');
-    const myRank = lb.getPlayerRank(Store?.data?.stats?.rankedElo ?? 1000);
-    console.assert(myRank >= 1 && myRank <= FAKE_COUNT + 1, 'my rank in range');
-    const e0 = lb.players[0].elo;
-    lb.refresh();
-    console.assert(typeof lb.players[0].elo === 'number', 'refresh keeps numeric elo');
-    lb.players[0].elo = e0; lb._save(); // undo drift so the self-check is idempotent
-    console.log('[leaderboard] self-check ok', { fakeCount: lb.players.length, top, myRank });
-}

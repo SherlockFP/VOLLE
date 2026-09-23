@@ -83,21 +83,21 @@ function industrial(ctx) {
         s.add(new THREE.ConeGeometry(1.3, 1.1, 14, 1, true), x, 16.1, z, { color: 0x3b4a5c });
     }
     const hardware = s.build(new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide }));
-    if (hardware) ctx.add(hardware);
+    if (hardware) ctx.decor(hardware, 'hanging lamp rig up under the factory roof');
     const glows = instanced(new THREE.CircleGeometry(1.05, 16), new THREE.MeshBasicMaterial({ color: 0xfff1c9, side: THREE.DoubleSide }),
         lampSpots.map(([x, z]) => ({ x, y: 15.58, z, rx: Math.PI / 2 })));
-    if (glows) ctx.add(glows);
+    if (glows) ctx.decor(glows, 'lamp lenses on the roof rig, no surface to hit');
     // Soft light cones under the lamps.
     const cones = instanced(new THREE.ConeGeometry(4.2, 14, 18, 1, true), new THREE.MeshBasicMaterial({
         color: 0xfff0c8, transparent: true, opacity: 0.045, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide
     }), lampSpots.map(([x, z]) => ({ x, y: 8.6, z })));
-    if (cones) ctx.add(cones);
+    if (cones) ctx.decor(cones, 'additive light volume, not a surface');
 
     // Amber warning beacons on the end frames.
     const beacons = instanced(new THREE.SphereGeometry(0.42, 10, 8),
         animate(new THREE.MeshBasicMaterial({ color: 0xffa72d }), ctx, { mode: 'blink', amp: 0.15, speed: 1.2 }),
         [-1, 1].flatMap(sz => [-1, 1].map(sx => ({ x: sx * halfW * 0.52, y: 16.3, z: sz * (halfL - 1.4) }))));
-    if (beacons) ctx.add(beacons);
+    if (beacons) ctx.decor(beacons, 'warning beacons on the end frames, above play height');
 
     // Team banners hanging from the end-frame crossbars.
     const banners = new GeoBatch({ colors: true });
@@ -108,7 +108,7 @@ function industrial(ctx) {
     }
     const bannerMesh = banners.build(animate(new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide }), ctx,
         { mode: 'wave', amp: 0.18, speed: 1.6, freq: 0.3, anchorTop: true }));
-    if (bannerMesh) ctx.add(bannerMesh);
+    if (bannerMesh) ctx.decor(bannerMesh, 'cloth banners hung from the end-frame crossbars');
 
     courtDecal(ctx, (g, w, h, ppm) => {
         for (let i = 0; i < 26; i++) {
@@ -233,7 +233,7 @@ function grandStadium(ctx) {
     }
     const flagMesh = flags.build(animate(new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide }), ctx,
         { mode: 'wave', amp: 0.35, speed: 3.4, freq: 0.4 }));
-    if (flagMesh) ctx.add(flagMesh);
+    if (flagMesh) ctx.decor(flagMesh, 'pennants flying from the floodlight mast tops');
 
     courtDecal(ctx, (g, w, h, ppm) => {
         stencil(g, 'VOLLE', w / 2, h * 0.36, 7 * ppm, Math.PI, TEAM_TEXT);
@@ -339,9 +339,9 @@ function circuitDome(ctx) {
         }
     }
     const ribMesh = ribs.build(new THREE.MeshLambertMaterial({ color: 0xffffff }));
-    if (ribMesh) ctx.add(ribMesh);
+    if (ribMesh) ctx.decor(ribMesh, 'dome ribs arcing overhead, 15 m+ above the court');
     const edgeMesh = edges.build(animate(new THREE.MeshBasicMaterial({ color: 0xffffff }), ctx, { mode: 'pulse', amp: 0.35, speed: 2.4, freq: 0.08 }));
-    if (edgeMesh) ctx.add(edgeMesh);
+    if (edgeMesh) ctx.decor(edgeMesh, 'light strips on the overhead dome ribs');
 
     courtDecal(ctx, (g, w, h, ppm) => {
         g.lineCap = 'round';
@@ -436,7 +436,7 @@ function mecha(ctx) {
     const beacons = instanced(new THREE.SphereGeometry(0.5, 10, 8),
         animate(new THREE.MeshBasicMaterial({ color: 0xffb02e }), ctx, { mode: 'blink', amp: 0.12, speed: 1.1 }),
         [-1, 1].flatMap(sx => [-1, 1].map(sz => ({ x: sx * (halfW - 10), y: 8.5, z: sz * (halfL - 10) }))));
-    if (beacons) ctx.add(beacons);
+    if (beacons) ctx.decor(beacons, 'warning beacons on the hangar gantry, above head height');
 
     // Team banners behind each back line (kept out of the mid-court sky so
     // they never hide a high ball).

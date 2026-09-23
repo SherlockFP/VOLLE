@@ -1114,14 +1114,19 @@ class ProfileStore {
     }
 
     // No server-side "equipped" avatar/knife exists (equip state for those
-    // two lives client-side in js/store.js); the priciest owned item is used
-    // as a stand-in "flair" signal for prestige on the leaderboard row.
+    // two lives client-side in js/store.js, and knives are drop-only so
+    // every catalog "price" is a flat placeholder, not a real value signal).
+    // The most recently unlocked non-starter item stands in as a stable
+    // "flair" signal instead — ownership arrays are append-only.
     _leaderboardFlair(record) {
-        const priciest = (ids, catalog) => (Array.isArray(ids) ? ids : [])
-            .reduce((best, id) => (catalog[id] || 0) >= (catalog[best] || -1) ? id : best, '');
+        const mostRecent = (ids, starter) => {
+            const owned = Array.isArray(ids) ? ids : [];
+            const unlocked = owned.filter(id => id !== starter);
+            return unlocked[unlocked.length - 1] || owned[owned.length - 1] || starter;
+        };
         return {
-            avatarId: priciest(record.ownedAvatarSkins, CATALOG.avatar) || 'default',
-            knifeId: priciest(record.ownedKnives, CATALOG.knife) || 'training'
+            avatarId: mostRecent(record.ownedAvatarSkins, 'default'),
+            knifeId: mostRecent(record.ownedKnives, 'training')
         };
     }
 

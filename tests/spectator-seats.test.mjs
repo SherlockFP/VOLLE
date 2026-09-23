@@ -128,11 +128,12 @@ test('roster: host validates moves, reseats after a map change, clients sanitize
     assert.equal(a.playerId, 'p-a');
 });
 
-test('stands camera: limited look-around, no free roam, seated eye height', () => {
+test('stands camera: limited look-around, seated eye height; noclip free roam is allowed', () => {
     const look = clampStandsLook(-Math.PI / 2 + 3, 2, -Math.PI / 2);
     assert.ok(Math.abs(look.yaw - (-Math.PI / 2 + STANDS_YAW_LIMIT)) < 1e-9);
     assert.ok(look.pitch <= 0.45);
-    assert.equal(JOINED_SPECTATOR_MODES.includes(CAMERA_MODES.FREE_ROAM), false);
+    // Owner decision (2026-09-23): joined spectators may fly a Source-style noclip camera.
+    assert.equal(JOINED_SPECTATOR_MODES.includes(CAMERA_MODES.FREE_ROAM), true);
 
     const lookAt = [];
     const camera = {
@@ -143,7 +144,7 @@ test('stands camera: limited look-around, no free roam, seated eye height', () =
     spectator.camera = camera;
     spectator.active = true;
     spectator.setAllowedModes(JOINED_SPECTATOR_MODES);
-    assert.equal(spectator.setCameraMode(CAMERA_MODES.FREE_ROAM), false, 'joined spectators cannot free roam');
+    assert.equal(spectator.setCameraMode(CAMERA_MODES.FREE_ROAM), CAMERA_MODES.FREE_ROAM, 'joined spectators can free roam');
     assert.equal(spectator.setCameraMode(CAMERA_MODES.STANDS), false, 'stands needs a seat first');
     const seat = computeSpectatorSeats(MAPS.beach_open)[0];
     spectator.setSeat(seat);
@@ -160,4 +161,16 @@ test('stands camera: limited look-around, no free roam, seated eye height', () =
     assert.equal(spectator.getState().context, undefined);
     assert.equal(povEyeOffset({ position: { y: 0 } }), 1.55);
     assert.equal(povEyeOffset({ position: { y: 1.7 } }), 0.1);
+});
+
+test('C cycles POV → chase → free roam → stands and skips stands without a seat', async () => {
+    const { SpectatorClass, CAMERA_MODES: M, JOINED_SPECTATOR_MODES: J } = await import('../js/spectator.js');
+    const spectator = new SpectatorClass();
+    spectator.setAllowedModes?.(J);
+    spectator.allowedModes = [...J];
+    spectator.cameraMode = M.FIRST_PERSON;
+    assert.equal(spectator.cycleCameraMode(), M.CHASE);
+    assert.equal(spectator.cycleCameraMode(), M.FREE_ROAM);
+    assert.equal(spectator.noclip, true);
+    assert.equal(spectator.cycleCameraMode(), M.FIRST_PERSON, 'no seat yet → stands skipped');
 });

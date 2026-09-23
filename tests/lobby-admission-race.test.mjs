@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import en from '../js/locales/en.js';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
@@ -104,7 +105,8 @@ test('valid proof is posted once through the shared admission helper', async () 
 test('host flow awaits initial registration and disconnects before success on failure', () => {
     const source = extractAppMethod('_doHostGame');
     const registration = source.indexOf('const registered = await this._registerLobby(');
-    const success = source.indexOf('Lobby created! Code:');
+    const success = source.indexOf("t('toast.lobbyCreated'");
+    assert.match(en.toast.lobbyCreated, /Lobby created! Code:/);
     assert.ok(registration >= 0 && registration < success);
     assert.match(source.slice(registration, success), /if \(!registered\) \{\s*this\.network\.disconnect\(\);\s*throw new Error\('Lobby service registration failed/);
 });

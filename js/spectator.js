@@ -9,9 +9,10 @@ export const CAMERA_MODES = Object.freeze({
 })
 
 // Joined spectators (lobby "Spectate"): watch a player's POV / chase, or sit in the
-// sideline stands. No free-roam - a spectator never enters the court.
+// sideline stands, or fly a Source-style noclip camera. The free camera is a camera
+// only: it has no body, no collider and cannot touch the ball.
 export const JOINED_SPECTATOR_MODES = Object.freeze([
-    CAMERA_MODES.FIRST_PERSON, CAMERA_MODES.CHASE, CAMERA_MODES.STANDS
+    CAMERA_MODES.FIRST_PERSON, CAMERA_MODES.CHASE, CAMERA_MODES.FREE_ROAM, CAMERA_MODES.STANDS
 ])
 // Look-around limits while seated, relative to facing the court.
 export const STANDS_YAW_LIMIT = 1.3
@@ -150,6 +151,19 @@ export class SpectatorClass {
         this._hopFrom.z = this.seat.z
         this._hopT = SEAT_HOP_SECONDS
         return true
+    }
+
+    // C for joined spectators: POV → chase → free roam → stands → POV (skips unavailable modes).
+    cycleCameraMode() {
+        const order = [CAMERA_MODES.FIRST_PERSON, CAMERA_MODES.CHASE, CAMERA_MODES.FREE_ROAM, CAMERA_MODES.STANDS]
+        const start = Math.max(0, order.indexOf(this.cameraMode))
+        for (let step = 1; step <= order.length; step++) {
+            const next = order[(start + step) % order.length]
+            if (!this.isModeAllowed(next) || (next === CAMERA_MODES.STANDS && !this.seat)) continue
+            if (next === CAMERA_MODES.FREE_ROAM) this.noclip = true
+            return this.setCameraMode(next)
+        }
+        return this.cameraMode
     }
 
     toggleStands() {

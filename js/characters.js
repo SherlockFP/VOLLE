@@ -1,54 +1,55 @@
 // characters.js — Character roster with stats + passives. LoL-style.
 // ponytail: tek dosya, basit objeler, bot/player ortak kullanım.
+// desc = English fallback; shown text comes from js/locales/*.js characters.<id>.
 
 const ROSTER = {
     rally: {
         id: 'rally', name: 'Rally', emoji: '🏐',
         maxHp: 100, speed: 10, deflectPower: 1.0, staminaMax: 100,
         passive: 'none',
-        desc: 'Dengeli tüm-rounder. Başlangıç karakteri.',
+        desc: 'Balanced all-rounder. Starter character.',
         color: 0xff8844, price: 0
     },
     tank: {
         id: 'tank', name: 'Bulwark', emoji: '🛡️',
         maxHp: 150, speed: 8, deflectPower: 0.9, staminaMax: 120,
         passive: 'damage_reduc',
-        desc: 'Yüksek HP, yavaş. -20% alınan hasar.',
+        desc: 'High HP, slow. Takes 20% less damage.',
         color: 0x4488ff, price: 300
     },
     scout: {
         id: 'scout', name: 'Scout', emoji: '💨',
         maxHp: 80, speed: 13, deflectPower: 1.1, staminaMax: 90,
         passive: 'fast_stam',
-        desc: 'Hızlı ve çevik. +50% stamina yenileme.',
+        desc: 'Fast and agile. +50% stamina regen.',
         color: 0x44dd44, price: 300
     },
     sniper: {
         id: 'sniper', name: 'Sniper', emoji: '🎯',
         maxHp: 90, speed: 9, deflectPower: 1.3, staminaMax: 100,
         passive: 'spike_bonus',
-        desc: 'Spike şutları +30% bonus hasar.',
+        desc: 'Spike shots deal +30% bonus damage.',
         color: 0xaa44ff, price: 400
     },
     guardian: {
         id: 'guardian', name: 'Guardian', emoji: '✨',
         maxHp: 120, speed: 9, deflectPower: 1.0, staminaMax: 110,
         passive: 'shield_regen',
-        desc: '3 saniyede bir +5 kalkan rejenerasyonu.',
+        desc: 'Regenerates +5 shield every 3 seconds.',
         color: 0xffdd44, price: 400
     },
     blazer: {
         id: 'blazer', name: 'Blazer', emoji: '🔥',
         maxHp: 95, speed: 11, deflectPower: 1.15, staminaMax: 95,
         passive: 'burn_touch',
-        desc: 'Deflect ettiği top hedefi yakar (3 dmg/s, 2sn).',
+        desc: 'Deflected balls burn the target (3 dmg/s, 2s).',
         color: 0xff3322, price: 500
     },
     frost: {
         id: 'frost', name: 'Frost', emoji: '❄️',
         maxHp: 95, speed: 10, deflectPower: 1.05, staminaMax: 100,
         passive: 'chill_touch',
-        desc: 'Deflect ettiği top hedefi yavaşlatır (-20%, 2sn).',
+        desc: 'Deflected balls slow the target (-20%, 2s).',
         color: 0x66ccff, price: 500
     },
     volt: {
@@ -76,7 +77,7 @@ const ROSTER = {
         id: 'soldier', name: 'Soldier', emoji: 'S',
         maxHp: 110, speed: 9.5, deflectPower: 1.0, staminaMax: 105,
         passive: 'rocket_jump',
-        desc: 'Sağ tıkla roket atar. Patlama itişini kullanarak rocket jump yapar.',
+        desc: 'Right-click fires a rocket. Ride the blast to rocket jump.',
         color: 0xd94c48, price: 650
     },
     anchor: {

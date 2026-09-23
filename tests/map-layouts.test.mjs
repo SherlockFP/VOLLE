@@ -21,11 +21,32 @@ class Mesh {
         this.rotation = new Vec3();
     }
 }
-const THREE_STUB = { Vector3: Vec3, Mesh, DoubleSide: 2 };
-for (const name of ['BoxGeometry', 'CylinderGeometry', 'TorusGeometry', 'CircleGeometry', 'PlaneGeometry', 'DodecahedronGeometry']) {
-    THREE_STUB[name] = class { constructor(...args) { this.args = args; } };
+// Instanced part families (landmark maps) record every placed part.
+class Object3D {
+    constructor() { this.position = new Vec3(); this.rotation = new Vec3(); this.scale = new Vec3(1, 1, 1); this.matrix = null; }
+    updateMatrix() { this.matrix = { p: this.position.clone(), r: this.rotation.clone(), s: this.scale.clone() }; }
 }
-THREE_STUB.MeshBasicMaterial = class { constructor(options = {}) { Object.assign(this, options); } };
+class InstancedMesh extends Mesh {
+    constructor(geometry, material, count) {
+        super(geometry, material);
+        this.count = count;
+        this.parts = [];
+        this.instanceMatrix = {};
+        this.instanceColor = {};
+    }
+    setMatrixAt(i, matrix) { this.parts[i] = matrix; }
+    setColorAt() {}
+}
+const THREE_STUB = {
+    Vector3: Vec3, Mesh, InstancedMesh, Object3D, DoubleSide: 2,
+    Color: class { set() { return this; } }
+};
+for (const name of ['BoxGeometry', 'CylinderGeometry', 'TorusGeometry', 'CircleGeometry', 'PlaneGeometry', 'DodecahedronGeometry', 'SphereGeometry', 'ConeGeometry']) {
+    THREE_STUB[name] = class { constructor(...args) { this.args = args; this.kind = name; } };
+}
+for (const name of ['MeshBasicMaterial', 'MeshLambertMaterial', 'MeshStandardMaterial']) {
+    THREE_STUB[name] = class { constructor(options = {}) { Object.assign(this, options); } };
+}
 globalThis.__LAYOUT_THREE_STUB__ = THREE_STUB;
 
 const source = await readFile(new URL('../js/arena.js', import.meta.url), 'utf8');
@@ -40,7 +61,7 @@ assert.equal(moduleSource.includes("from 'three'"), false, 'THREE import replace
 
 const {
     MAPS, Arena, getArenaBounds, getGameplayLayout, PROP_COLLIDER_SLACK,
-    LOW_COVER_BALL_RADIUS, lowCoverCenterY, blockColliderCircles
+    LOW_COVER_BALL_RADIUS, lowCoverCenterY, blockCollider, SOLID_TOP_STANDABLE_MAX
 } = await import(
     `data:text/javascript;base64,${Buffer.from(moduleSource).toString('base64')}`
 );
@@ -52,7 +73,8 @@ const BOT_RADIUS = 0.5;
 const MAX_TEAM_SPAWNS = 8;
 
 const FLAGSHIP_MAPS = ['pillar', 'circuit_dome', 'volcano', 'mecha'];
-const ART_PASS_MAPS = ['neon_rooftop', 'sunken_temple', 'orbital_station'];
+const LANDMARK_MAPS = ['sunbaked_bazaar', 'harbor_nightworks', 'alpine_research', 'jade_garden'];
+const ART_PASS_MAPS = ['neon_rooftop', 'sunken_temple', 'orbital_station', ...LANDMARK_MAPS];
 const LAYOUT_MAPS = [...FLAGSHIP_MAPS, ...ART_PASS_MAPS];
 
 function build(id) {
@@ -72,8 +94,15 @@ function build(id) {
         _placeMesh: Arena.prototype._placeMesh,
         _addColumnColliders: Arena.prototype._addColumnColliders,
         _addLowCoverColliders: Arena.prototype._addLowCoverColliders,
+        _markSolidColumn: Arena.prototype._markSolidColumn,
+        _addSolidBox: Arena.prototype._addSolidBox,
         _buildArtColumn: Arena.prototype._buildArtColumn,
-        _buildLayoutBlock: Arena.prototype._buildLayoutBlock
+        _buildLayoutBlock: Arena.prototype._buildLayoutBlock,
+        _buildLandmarkProp: Arena.prototype._buildLandmarkProp,
+        _newLayoutParts: Arena.prototype._newLayoutParts,
+        _flushLayoutParts: Arena.prototype._flushLayoutParts,
+        _layoutPartFamily: Arena.prototype._layoutPartFamily,
+        _layoutCanvasTexture: Arena.prototype._layoutCanvasTexture
     };
     Arena.prototype.buildGameplayLayout.call(arena);
     return arena;
@@ -84,6 +113,17 @@ const ballBlockedAt = (c, y) => Math.abs(y - c.pos.y) < c.radius + BALL_RADIUS +
 const playerBlocksOnGround = c => Math.abs(PLAYER.height - c.pos.y) < c.radius + PLAYER.radius + PROP_COLLIDER_SLACK;
 const botBlocksOnGround = c => Math.abs(1.7 - c.pos.y) < c.radius + BOT_RADIUS + PROP_COLLIDER_SLACK;
 const key = (...values) => values.map(v => (Object.is(v, -0) ? 0 : v).toFixed(3)).join('|');
+const isBox = c => Number.isFinite(c.minX);
+// Horizontal footprint of any collider: exact box, or the legacy circle.
+const spanX = c => (isBox(c) ? [c.minX, c.maxX] : [c.pos.x - c.radius, c.pos.x + c.radius]);
+const spanZ = c => (isBox(c) ? [c.minZ, c.maxZ] : [c.pos.z - c.radius, c.pos.z + c.radius]);
+// Planar distance from a point to the collider surface (negative = inside).
+function footprintDistance(c, x, z) {
+    if (!isBox(c)) return Math.hypot(x - c.pos.x, z - c.pos.z) - c.radius;
+    const dx = Math.max(c.minX - x, 0, x - c.maxX);
+    const dz = Math.max(c.minZ - z, 0, z - c.maxZ);
+    return Math.hypot(dx, dz);
+}
 
 test('flagship + map-art maps carry distinct gameplay layouts; other maps carry none', () => {
     const ideas = LAYOUT_MAPS.map(id => getGameplayLayout(id)?.idea);
@@ -155,8 +195,10 @@ test('props stay inside the court and every team spawn slot stays clear', () => 
         const bounds = getArenaBounds(config);
         const arena = build(id);
         for (const c of arena.collidables) {
-            assert.ok(c.pos.x - c.radius > bounds.minX + 2 && c.pos.x + c.radius < bounds.maxX - 2, `${id} collider inside X`);
-            assert.ok(c.pos.z - c.radius > bounds.minZ + 2 && c.pos.z + c.radius < bounds.maxZ - 2, `${id} collider inside Z`);
+            const [x0, x1] = spanX(c);
+            const [z0, z1] = spanZ(c);
+            assert.ok(x0 > bounds.minX + 2 && x1 < bounds.maxX - 2, `${id} collider inside X`);
+            assert.ok(z0 > bounds.minZ + 2 && z1 < bounds.maxZ - 2, `${id} collider inside Z`);
         }
         const spawnHost = { config, courtLength: config.courtLength };
         for (const team of ['red', 'blue']) {
@@ -167,11 +209,11 @@ test('props stay inside the court and every team spawn slot stays clear', () => 
                     const x = spawn.x + jitter;
                     for (const c of arena.collidables) {
                         if (!playerBlocksOnGround(c) && !botBlocksOnGround(c)) continue;
-                        const distance = Math.hypot(x - c.pos.x, spawn.z - c.pos.z);
-                        assert.ok(distance > c.radius + PLAYER.radius + 1.5,
+                        const distance = footprintDistance(c, x, spawn.z);
+                        assert.ok(distance > PLAYER.radius + 1.5,
                             `${id} ${team} spawn ${index} (${x}, ${spawn.z}) is ${distance.toFixed(2)} from a prop`);
                     }
-                    for (const p of arena.platforms) {
+                    for (const p of arena.platforms.filter(entry => !entry.solid)) {
                         const under = Math.abs(x - p.x) < p.halfWidth + 1 && Math.abs(spawn.z - p.z) < p.halfDepth + 1;
                         assert.equal(under, false, `${id} ${team} spawn ${index} sits under a deck`);
                     }
@@ -188,7 +230,7 @@ test('a straight ball lane runs net-to-back-wall unobstructed at every height, a
         const arena = build(id);
         // Every collider blocks its x-span for the whole court length, regardless of height.
         const blocked = arena.collidables
-            .map(c => [c.pos.x - c.radius - BALL_RADIUS, c.pos.x + c.radius + BALL_RADIUS])
+            .map(c => [spanX(c)[0] - BALL_RADIUS, spanX(c)[1] + BALL_RADIUS])
             .sort((a, b) => a[0] - b[0]);
         let cursor = -halfW + 2;
         let widest = 0;
@@ -199,7 +241,7 @@ test('a straight ball lane runs net-to-back-wall unobstructed at every height, a
         widest = Math.max(widest, halfW - 2 - cursor);
         assert.ok(widest >= 6, `${id} keeps a full-length lane at least 6 wide (widest ${widest.toFixed(2)})`);
         for (const c of arena.collidables) {
-            assert.ok(Math.hypot(c.pos.x, c.pos.z) > c.radius + BALL_RADIUS + 5, `${id} centre ball drop stays clear`);
+            assert.ok(footprintDistance(c, 0, 0) > BALL_RADIUS + 5, `${id} centre ball drop stays clear`);
         }
     }
 });
@@ -276,28 +318,34 @@ test('gantry decks are a double-jump tier with walkable space beneath', () => {
     }
 });
 
-test('map-art pass low cover blocks the ball exactly to its visual top and still stops walkers', () => {
+test('map-art pass cover is solid to its exact visual top, standable when reachable, and stops walkers', () => {
     for (const id of ART_PASS_MAPS) {
         const layout = getGameplayLayout(id);
         const arena = build(id);
-        const lowProps = [
-            ...(layout.blocks || []).map(block => ({ height: block.height, circles: blockColliderCircles(block) })),
-            ...(layout.columns || []).filter(col => col.lowCover)
-                .map(col => ({ height: col.height, circles: [{ x: col.x, z: col.z, radius: col.radius }] }))
-        ];
-        assert.ok(lowProps.length >= 4, `${id} has low cover`);
-        for (const prop of lowProps) {
-            assert.ok(prop.height >= 2, `${id} low cover is at least 2 m (bots collide below that)`);
-            for (const circle of prop.circles) {
-                const stack = arena.collidables.filter(c => c.pos.x === circle.x && c.pos.z === circle.z && c.radius === circle.radius);
-                assert.ok(stack.length >= 1, `${id} circle (${circle.x}, ${circle.z}) has a collider`);
-                for (let y = LOW_COVER_BALL_RADIUS; y <= prop.height; y += 0.1) {
-                    assert.ok(stack.some(c => ballBlockedAt(c, y)), `${id} low cover leaks the ball at y=${y.toFixed(2)}`);
-                }
-                assert.ok(!stack.some(c => ballBlockedAt(c, prop.height + 0.05)), `${id} low cover has no invisible wall above it`);
-                assert.ok(stack.some(playerBlocksOnGround), `${id} low cover stops grounded players`);
-                assert.ok(stack.some(botBlocksOnGround), `${id} low cover stops bots`);
-            }
+        const blocks = layout.blocks || [];
+        const lowColumns = (layout.columns || []).filter(col => col.lowCover);
+        assert.ok(blocks.length + lowColumns.length >= 4, `${id} has low cover`);
+        for (const block of blocks) {
+            const expected = blockCollider(block);
+            const match = arena.collidables.filter(c => isBox(c) && c.minX === expected.minX && c.maxZ === expected.maxZ);
+            assert.equal(match.length, 1, `${id} block (${block.x}, ${block.z}) has exactly one solid box`);
+            const [c] = match;
+            for (const k of ['minX', 'maxX', 'minZ', 'maxZ']) assert.equal(c[k], expected[k], `${id} box ${k} matches the mesh`);
+            assert.equal(c.minY, 0);
+            assert.equal(c.maxY, block.height, `${id} box top is the visual top`);
+            assert.equal(c.top, block.height);
+            assert.ok(c.pos && Number.isFinite(c.radius), 'legacy pos/radius kept for rocket splash checks');
+            const top = arena.platforms.filter(p => p.solid && p.x === block.x && p.z === block.z && p.y === block.height);
+            assert.equal(top.length, block.height <= SOLID_TOP_STANDABLE_MAX ? 1 : 0, `${id} block top is standable`);
+            if (top.length) assert.deepEqual([top[0].halfWidth, top[0].halfDepth], [block.halfWidth, block.halfDepth]);
+        }
+        for (const col of lowColumns) {
+            const stack = arena.collidables.filter(c => c.pos.x === col.x && c.pos.z === col.z && c.radius === col.radius);
+            assert.ok(stack.length >= 1);
+            assert.ok(stack.every(c => c.top === col.height && c.bottom === 0), `${id} column carries its exact top`);
+            assert.ok(stack.some(botBlocksOnGround), `${id} low cover stops bots`);
+            assert.ok(arena.platforms.some(p => p.solid && p.radius === col.radius && p.x === col.x && p.z === col.z && p.y === col.height),
+                `${id} low column top is standable`);
         }
     }
     assert.equal(lowCoverCenterY(1, 5) + 1 + LOW_COVER_BALL_RADIUS + PROP_COLLIDER_SLACK, 5);
@@ -317,21 +365,48 @@ test('map-art pass full-height columns block the ball from floor to their visual
     }
 });
 
-test('block colliders tile the footprint along the long axis with no slot to slip through', () => {
-    for (const id of ART_PASS_MAPS) {
-        for (const block of getGameplayLayout(id).blocks || []) {
-            const circles = blockColliderCircles(block);
-            const alongX = block.halfWidth >= block.halfDepth;
-            const long = alongX ? block.halfWidth : block.halfDepth;
-            const radius = alongX ? block.halfDepth : block.halfWidth;
-            const axis = c => (alongX ? c.x - block.x : c.z - block.z);
-            assert.ok(circles.every(c => c.radius === radius), `${id} circles use the short half-extent`);
-            assert.ok(Math.abs(axis(circles[0]) + (long - radius)) < 1e-9, `${id} block starts at its end`);
-            assert.ok(Math.abs(axis(circles.at(-1)) - (long - radius)) < 1e-9, `${id} block reaches its end`);
-            for (let i = 1; i < circles.length; i++) {
-                const gap = axis(circles[i]) - axis(circles[i - 1]) - 2 * radius;
-                assert.ok(gap < 2 * BALL_RADIUS && gap < 2 * BOT_RADIUS, `${id} block has no slot`);
-            }
+// Rotated half-extents of a unit part (box/cylinder/cone/sphere all fit the
+// unit cube) scaled by s and rotated by Euler XYZ r.
+function partHalfExtents(r, s) {
+    const hx = s.x / 2, hy = s.y / 2, hz = s.z / 2;
+    const [cx, sx] = [Math.cos(r.x), Math.sin(r.x)];
+    const [cy, sy] = [Math.cos(r.y), Math.sin(r.y)];
+    const [cz, sz] = [Math.cos(r.z), Math.sin(r.z)];
+    // Rotation matrix R = Rx * Ry * Rz (three.js 'XYZ').
+    const m = [
+        [cy * cz, -cy * sz, sy],
+        [cx * sz + sx * sy * cz, cx * cz - sx * sy * sz, -sx * cy],
+        [sx * sz - cx * sy * cz, sx * cz + cx * sy * sz, cx * cy]
+    ];
+    return m.map(row => Math.abs(row[0]) * hx + Math.abs(row[1]) * hy + Math.abs(row[2]) * hz);
+}
+
+test('landmark cover is honest: every visual part sits inside its collider and at or under its top', () => {
+    const bad = [];
+    for (const id of LANDMARK_MAPS) {
+        const arena = build(id);
+        const solids = arena.collidables.filter(c => Number.isFinite(c.top));
+        const parts = arena.objects.filter(o => o instanceof InstancedMesh)
+            .flatMap(o => o.parts.map(part => ({ ...part, kind: o.geometry.kind, radial: o.geometry.kind !== 'BoxGeometry' })));
+        assert.ok(parts.length > 40, `${id} dresses its cover with instanced parts (${parts.length})`);
+        assert.ok(arena.objects.length <= 12, `${id} layout visuals stay a handful of draw calls (${arena.objects.length})`);
+        for (const part of parts) {
+            let [ex, ey, ez] = partHalfExtents(part.r, part.s);
+            // Round parts spun only about y keep their radius in x/z.
+            if (part.radial && !part.r.x && !part.r.z && part.s.x === part.s.z) ex = ez = part.s.x / 2;
+            const owner = solids.find(c => (isBox(c)
+                ? part.p.x >= c.minX && part.p.x <= c.maxX && part.p.z >= c.minZ && part.p.z <= c.maxZ
+                : Math.hypot(part.p.x - c.pos.x, part.p.z - c.pos.z) <= c.radius));
+            assert.ok(owner, `${id} part at (${part.p.x.toFixed(2)}, ${part.p.z.toFixed(2)}) belongs to a collider`);
+            const slack = 0.06;
+            const where = `${id} ${part.kind} (${part.p.x.toFixed(2)}, ${part.p.y.toFixed(2)}, ${part.p.z.toFixed(2)})`;
+            if (part.p.y + ey > owner.top + slack) bad.push(`${where} top ${(part.p.y + ey).toFixed(2)} > ${owner.top}`);
+            const out = isBox(owner)
+                ? !(part.p.x - ex >= owner.minX - slack && part.p.x + ex <= owner.maxX + slack
+                    && part.p.z - ez >= owner.minZ - slack && part.p.z + ez <= owner.maxZ + slack)
+                : Math.max(Math.abs(part.p.x - owner.pos.x) + ex, Math.abs(part.p.z - owner.pos.z) + ez) > owner.radius + slack;
+            if (out) bad.push(`${where} pokes outside its collider`);
         }
     }
+    assert.deepEqual(bad, [], 'layout visuals match their colliders');
 });

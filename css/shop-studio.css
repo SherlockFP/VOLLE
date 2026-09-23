@@ -342,3 +342,65 @@ body.reduce-motion #shop-screen .shop-card, body.reduce-motion #shop-screen .sho
 .reduced-motion .case-reveal-stage, .reduce-motion .case-reveal-stage,
 .reduced-motion .case-reel.has-reveal-stage .case-reel-window, .reduce-motion .case-reel.has-reveal-stage .case-reel-window { transition: none; }
 @media (max-width: 700px) { .case-reel.has-reveal-stage .case-reel-window { min-height: 240px; } }
+
+/* ===== Shop > Gems tab (js/gem-shop.js; docs/PAYMENTS.md) =====
+   Real-money gem packs + gem-priced Premium Battle Pass. Like the Tier List it
+   renders a block into #shop-grid, so the 3D showcase and item filters hide. */
+#shop-screen[data-shop-tab="gems"] .shop-showcase,
+#shop-screen[data-shop-tab="gems"] .shop-discovery,
+#shop-screen[data-shop-tab="gems"] .shop-filters { display: none; }
+#shop-screen[data-shop-tab="gems"] .shop-showcase-layout { grid-template-columns: 1fr; }
+#shop-screen[data-shop-tab="gems"] .shop-grid { display: block; }
+.gem-shop { display: grid; gap: 14px; color: var(--ui-text); }
+.gem-shop-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px; }
+.gem-shop-title strong { font-size: 1rem; }
+.gem-shop-title p { margin: 4px 0 0; color: var(--ui-muted); font-size: .78rem; }
+.gem-balance {
+    padding: 5px 12px; border-radius: 999px; font-weight: 900; font-size: .82rem;
+    background: color-mix(in srgb, #9f7cff 18%, transparent); border: 1px solid color-mix(in srgb, #9f7cff 45%, transparent);
+}
+.gem-shop-status { margin: 0; padding: 10px 12px; border-radius: 10px; color: var(--ui-muted); font-size: .8rem; background: rgba(255, 255, 255, .04); }
+.gem-shop-status.is-soon { color: var(--ui-text); font-weight: 800; border: 1px dashed var(--studio-line, rgba(133, 225, 241, .17)); }
+.gem-pack-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+#shop-screen .gem-pack-card, #shop-screen .gem-spend-card {
+    position: relative; display: grid; gap: 6px; justify-items: center; align-content: start; text-align: center;
+    padding: 16px 12px 14px; min-height: 0;
+}
+.gem-pack-card.is-best-value { border-color: #ffc02e; box-shadow: 0 0 0 1px color-mix(in srgb, #ffc02e 45%, transparent), 0 10px 26px rgba(255, 192, 46, .12); }
+.gem-pack-tag {
+    position: absolute; top: 8px; right: 8px; padding: 2px 8px; border-radius: 999px;
+    background: #ffc02e; color: #1b1300; font-size: .6rem; font-weight: 900; letter-spacing: .08em; text-transform: uppercase;
+}
+.gem-pack-art { font-size: 2.2rem; line-height: 1; color: #b89bff; text-shadow: 0 0 18px rgba(159, 124, 255, .6); }
+.gem-pack-bonus { color: var(--ui-primary, #8affeb); font-size: .72rem; font-weight: 800; }
+.gem-pack-price { font-size: .9rem; font-weight: 900; }
+.gem-pack-soon { color: var(--ui-muted); font-size: .72rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.gem-pack-buy, .gem-bp-buy { min-height: 44px; width: 100%; }
+#shop-screen .gem-spend-card { justify-items: start; text-align: left; max-width: 520px; }
+.gem-shortfall { color: var(--ui-muted); font-size: .72rem; }
+.gem-legal { display: grid; gap: 3px; padding-top: 10px; border-top: 1px solid var(--studio-line, rgba(133, 225, 241, .17)); }
+.gem-legal p { margin: 0; color: var(--ui-muted); font-size: .7rem; line-height: 1.4; }
+.gem-legal .gem-legal-final { color: var(--ui-text); font-weight: 800; }
+.shop-gem-wallet strong { color: #b89bff; }
+@media (max-width: 620px) { .gem-pack-list { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 380px) { .gem-pack-list { grid-template-columns: 1fr; } }
+
+/* Cases tab: skin-theme collection grouping (owner ask: "extra skin themes").
+   `--collection-accent` is set inline per header/card from js/cosmetics.js COLLECTIONS. */
+#shop-screen .case-collection-title {
+    border-left: 3px solid var(--collection-accent, var(--ui-primary, #8affeb));
+    padding-left: 10px;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--collection-accent, #8affeb) 16%, transparent), transparent 75%);
+    border-radius: 0 8px 8px 0;
+}
+#shop-screen .case-collection-name { color: var(--collection-accent, var(--ui-text)); font-weight: 900; }
+#shop-screen .case-collection-tagline { font: 500 .72rem/1.3 inherit; color: var(--ui-muted); text-transform: none; letter-spacing: 0; }
+#shop-screen .case-card.case-collection-item {
+    border-color: color-mix(in srgb, var(--collection-accent, #8affeb) 45%, var(--studio-line));
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--collection-accent, #8affeb) 20%, transparent);
+}
+#shop-screen .case-collection-tag {
+    display: inline-block; padding: 2px 8px; border-radius: 999px; margin-bottom: 2px;
+    background: color-mix(in srgb, var(--collection-accent, #8affeb) 22%, transparent);
+    color: var(--collection-accent, #8affeb); font-size: .58rem; font-weight: 900; letter-spacing: .1em;
+}

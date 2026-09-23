@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import en from '../js/locales/en.js';
 import { readFileSync, statSync } from 'node:fs';
 
 const read = path => readFileSync(new URL(path, import.meta.url), 'utf8');
@@ -40,7 +41,9 @@ test('post-game result and structural stats do not depend on emoji glyphs', () =
     const tableEnd = ui.indexOf('\n    _esc(', tableStart);
     const ownedPresentation = ui.slice(showStart, showEnd) + ui.slice(tableStart, tableEnd);
 
-    assert.match(ownedPresentation, /resultEl\.textContent = won \? 'VICTORY' : 'DEFEAT'/);
+    assert.match(ownedPresentation, /setText\(resultEl, won \? 'pg\.victory' : 'pg\.defeat'\)/);
+    assert.equal(en.pg.victory, 'VICTORY');
+    assert.equal(en.pg.defeat, 'DEFEAT');
     assert.doesNotMatch(ownedPresentation, /[🏆💀💥🏐👑🔴🔵]/u);
     assert.match(ownedPresentation, /class="pg-mvp-tag">MVP</);
 });

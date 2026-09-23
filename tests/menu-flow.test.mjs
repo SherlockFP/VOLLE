@@ -4,6 +4,7 @@
 // Style mirrors tests/endgame-controls.test.mjs: read the real source, assert on it.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import en from '../js/locales/en.js';
 import { readFile } from 'node:fs/promises';
 import { canHostSport, resolveSportRoute, sportDefinition } from '../js/sports.js';
 
@@ -225,13 +226,18 @@ test('first-run drill result is a match handoff rather than a grade and preserve
     const source = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
     const start = source.indexOf('_showGuidedDrillResult(result = {}, { firstRun = false } = {})');
     const slice = source.slice(start, start + 3000);
-    assert.match(slice, /FIRST DRILL COMPLETE/);
-    assert.match(slice, /YOU’RE READY FOR A MATCH/);
+    assert.match(slice, /'drill.firstComplete'/);
+    assert.match(slice, /'drill.readyForMatch'/);
+    assert.equal(en.drill.firstComplete, 'FIRST DRILL COMPLETE');
+    assert.equal(en.drill.readyForMatch, 'YOU’RE READY FOR A MATCH');
     assert.match(slice, /grade\?\.closest\('\.drill-grade'\)\?\.toggleAttribute\('hidden', firstRun\)/);
     assert.match(slice, /freeLab\?\.toggleAttribute\('hidden', firstRun\)/);
-    assert.match(slice, /\$\{stage\.hits \|\| 0\} contacts/);
-    assert.match(slice, /\$\{stage\.directed \|\| 0\} on target/);
-    assert.match(slice, /\$\{stage\.perfect \|\| 0\} perfect/);
+    assert.match(slice, /t\('drill\.contacts', \{ count: stage\.hits \|\| 0 \}\)/);
+    assert.match(slice, /t\('drill\.onTarget', \{ count: stage\.directed \|\| 0 \}\)/);
+    assert.match(slice, /t\('drill\.perfect', \{ count: stage\.perfect \|\| 0 \}\)/);
+    assert.equal(en.drill.contacts, '{count} contacts');
+    assert.equal(en.drill.onTarget, '{count} on target');
+    assert.equal(en.drill.perfect, '{count} perfect');
 });
 
 test('first-solo reliability guard remains restricted to solo/bot paths', async () => {
@@ -308,4 +314,23 @@ test('new-player profile: locked until any real progress exists', async () => {
     assert.equal(isNewPlayerProfile({ stats: { gamesPlayed: 0 }, rankedState: { currentSeason: { record: { games: 3 } } } }), false, 'account on a new device');
     assert.equal(isNewPlayerProfile({ stats: { gamesPlayed: 0 }, battlepass: { tier: 1, xp: 40 } }), false);
     assert.equal(isNewPlayerProfile(undefined), true);
+});
+
+test('no inline onclick handlers reference undeclared globals (profile Back was dead)', async () => {
+    const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+    assert.doesNotMatch(html, /onclick="ui\./, 'window.ui is never defined; use a bound id instead');
+    const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
+    assert.match(main, /bind\('btn-profile-back', \(\) => this\.ui\.hideProfile\(\)\)/);
+});
+
+test('lobby start rolls a random sport map unless the host chose "Choose map"', async () => {
+    const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
+    const start = main.slice(main.indexOf("bind('btn-start-game'"), main.indexOf("bind('btn-start-game'") + 1400);
+    assert.ok(start.indexOf('this._rollLobbyMapIfRandom();') > -1 && start.indexOf('this._rollLobbyMapIfRandom();') < start.indexOf('this.game.startGame()'));
+    const roll = main.slice(main.indexOf('    _rollLobbyMapIfRandom() {'), main.indexOf('    _startMovementTrial('));
+    assert.match(roll, /if \(this\.store\.get\('lobbyCustomMap'\) === true\) return null;/);
+    assert.match(roll, /if \(this\.network\?\.connected && !this\.isLobbyHost\(\)\) return null;/);
+    assert.match(roll, /pool\.length > 1 \? pool\.filter\(id => id !== this\.arena\.mapId\) : pool/);
+    const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+    assert.match(html, /id="lobby-custom-map"/);
 });

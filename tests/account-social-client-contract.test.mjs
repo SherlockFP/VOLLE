@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import en from '../js/locales/en.js';
 import { readFileSync } from 'node:fs';
 
 const read = path => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
@@ -20,7 +21,8 @@ test('mandatory account client retains a session token and public account only',
 
 test('boot stays behind the auth gate and guest entry points are absent', () => {
     assert.match(mainSource, /_beginAuthenticatedBoot\(\)/);
-    assert.match(mainSource, /_showAuthGate\('Checking your saved session/);
+    assert.match(mainSource, /_showAuthGate\(\{ key: 'auth\.checking' \}\)/);
+    assert.match(en.auth.checking, /^Checking your saved session/);
     assert.match(mainSource, /await this\.store\.connectRemote\(profileName\)/);
     assert.doesNotMatch(html, /Continue as Guest|auth-skip|auth-register-avatar/);
 });

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import en from '../js/locales/en.js';
 import fs from 'node:fs';
 import { FriendsList, normalizeAvailablePlayers, normalizePartySnapshot } from '../js/friends.js';
 
@@ -128,7 +129,8 @@ test('social rail exposes professional async, empty and friend-request states', 
     }
     assert.match(main, /this\._socialRailSyncing = true;[\s\S]*this\._socialRailError = results\.find/);
     assert.match(main, /className = 'fbar-empty-state'/);
-    assert.match(main, /title\.textContent = 'Social is offline'/);
+    assert.match(main, /title\.textContent = t\('social\.railOffline'\)/);
+    assert.equal(en.social.railOffline, 'Social is offline');
     assert.match(main, /submit\.disabled = true; submit\.textContent = 'Sending'/);
     assert.match(css, /\.fbar-empty-state \{/);
     assert.match(css, /\.fbar-skeleton \{/);

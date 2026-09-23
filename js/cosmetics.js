@@ -6,7 +6,54 @@ const CASE_BALLS = Object.freeze({
     ocean: { id: 'ocean', name: 'Ocean Depths', rarity: 'epic' },
     moon: { id: 'moon', name: 'Moon Rock', rarity: 'rare' },
     portal: { id: 'portal', name: 'Portal Rift', rarity: 'legendary' },
-    blackhole: { id: 'blackhole', name: 'Black Hole', rarity: 'legendary' }
+    blackhole: { id: 'blackhole', name: 'Black Hole', rarity: 'legendary' },
+
+    // Collection cases (see COLLECTIONS below) reuse existing js/ball.js BALL_SKINS ids —
+    // ball.js is off-limits this pass, so every collection ball skin is an existing one
+    // whose fields/effects js/ball-skin-fx.js already knows how to paint. `collection`
+    // marks which themed case introduced this entry to the case-reward catalog.
+    neon_dash: { id: 'neon_dash', name: 'Neon Dash', rarity: 'rare', collection: 'neon_syndicate' },
+    plasma: { id: 'plasma', name: 'Plasma Pulse', rarity: 'epic', collection: 'neon_syndicate' },
+    frostbite: { id: 'frostbite', name: 'Frostbite', rarity: 'rare', collection: 'frostbite' },
+    aurora: { id: 'aurora', name: 'Aurora Veil', rarity: 'epic', collection: 'frostbite' },
+    fire: { id: 'fire', name: 'Fireball', rarity: 'rare', collection: 'inferno_forge' },
+    ember_wisp: { id: 'ember_wisp', name: 'Ember Wisp', rarity: 'rare', collection: 'inferno_forge' },
+    nebula: { id: 'nebula', name: 'Nebula Bloom', rarity: 'epic', collection: 'celestial' },
+    copper: { id: 'copper', name: 'Copper Core', rarity: 'rare', collection: 'ronin' },
+    sakura: { id: 'sakura', name: 'Sakura Spirit', rarity: 'epic', collection: 'ronin' }
+});
+
+// Skin-theme collections (owner ask: "extra skin themes") — one coherent visual
+// identity spanning knives + gloves + ball skins, each reachable through its own case.
+// `case` names the CASES key that sells this collection's items; js/ui.js reads this
+// registry to group/label the Shop's cases tab by collection with the accent colour
+// and tagline (case-list rendering only — see js/ui.js renderShop 'cases' branch).
+export const COLLECTIONS = Object.freeze({
+    neon_syndicate: Object.freeze({
+        id: 'neon_syndicate', name: 'Neon Syndicate',
+        tagline: 'Cyberpunk chrome under magenta static.',
+        accent: '#ff2fd0', case: 'neon_syndicate'
+    }),
+    frostbite: Object.freeze({
+        id: 'frostbite', name: 'Frostbite',
+        tagline: 'Steel and starlight under a killing frost.',
+        accent: '#8fe9ff', case: 'frostbite'
+    }),
+    inferno_forge: Object.freeze({
+        id: 'inferno_forge', name: 'Inferno Forge',
+        tagline: 'Black iron tempered in molten light.',
+        accent: '#ff7a33', case: 'inferno_forge'
+    }),
+    celestial: Object.freeze({
+        id: 'celestial', name: 'Celestial',
+        tagline: 'Galaxy silk stitched with fallen starlight.',
+        accent: '#9b5cff', case: 'celestial'
+    }),
+    ronin: Object.freeze({
+        id: 'ronin', name: 'Ronin',
+        tagline: 'Lacquer red and gold beneath falling petals.',
+        accent: '#d4af37', case: 'ronin'
+    })
 });
 
 export const KNIVES = Object.freeze({
@@ -50,7 +97,30 @@ export const KNIVES = Object.freeze({
     talon_reactor: Object.freeze({ id: 'talon_reactor', name: 'Talon | Reactor Core', rarity: 'epic', model: 'talon', finish: 'reactor', color: '#b5ff42', accent: '#1c4d1f', teams: ['red', 'blue'] }),
     flip_prism: Object.freeze({ id: 'flip_prism', name: 'Flip | Prism Cut', rarity: 'epic', model: 'flip', finish: 'prism', color: '#c58bff', accent: '#5c2e9e', teams: ['red', 'blue'] }),
     kukri_void: Object.freeze({ id: 'kukri_void', name: 'Kukri | Void Edge', rarity: 'legendary', model: 'kukri', finish: 'void', color: '#160b2b', accent: '#a26bff', teams: ['red', 'blue'] }),
-    huntsman_tide: Object.freeze({ id: 'huntsman_tide', name: 'Huntsman | Tideline', rarity: 'rare', model: 'huntsman', finish: 'tide', color: '#3fd0d9', accent: '#0f5c73', teams: ['blue'] })
+    huntsman_tide: Object.freeze({ id: 'huntsman_tide', name: 'Huntsman | Tideline', rarity: 'rare', model: 'huntsman', finish: 'tide', color: '#3fd0d9', accent: '#0f5c73', teams: ['blue'] }),
+
+    // Collection wave (owner ask: "extra skin themes") — 3 knives per collection
+    // (see COLLECTIONS above), 1 legendary chase each. Every finish is one
+    // finishMaterials() already understands; no weapon-models.js change needed.
+    ns_pulse: Object.freeze({ id: 'ns_pulse', name: 'Pulse Shiv', rarity: 'rare', model: 'dagger', finish: 'circuit', color: '#28e0ff', accent: '#12283a', teams: ['red', 'blue'], collection: 'neon_syndicate' }),
+    ns_wraith: Object.freeze({ id: 'ns_wraith', name: 'Neon Wraith', rarity: 'epic', model: 'flip', finish: 'void', color: '#ff2fd0', accent: '#1a0b2e', teams: ['red', 'blue'], collection: 'neon_syndicate' }),
+    ns_overdrive: Object.freeze({ id: 'ns_overdrive', name: 'Overdrive Karambit', rarity: 'legendary', model: 'karambit', finish: 'prism', color: '#ff2fd0', accent: '#28e0ff', teams: ['red', 'blue'], collection: 'neon_syndicate' }),
+
+    fb_shard: Object.freeze({ id: 'fb_shard', name: 'Frost Shard', rarity: 'rare', model: 'dagger', finish: 'frost', color: '#dff6ff', accent: '#3f97cf', teams: ['red', 'blue'], collection: 'frostbite' }),
+    fb_glacier: Object.freeze({ id: 'fb_glacier', name: 'Glacier Talon', rarity: 'epic', model: 'talon', finish: 'satin', color: '#c7e9ff', accent: '#274a63', teams: ['red', 'blue'], collection: 'frostbite' }),
+    fb_permafrost: Object.freeze({ id: 'fb_permafrost', name: 'Permafrost Karambit', rarity: 'legendary', model: 'karambit', finish: 'frost', color: '#eafcff', accent: '#1f6fa8', teams: ['red', 'blue'], collection: 'frostbite' }),
+
+    if_cinder: Object.freeze({ id: 'if_cinder', name: 'Cinder Cleaver', rarity: 'rare', model: 'cleaver', finish: 'ember', color: '#ff7a33', accent: '#2a0800', teams: ['red', 'blue'], collection: 'inferno_forge' }),
+    if_slagfang: Object.freeze({ id: 'if_slagfang', name: 'Slagfang Huntsman', rarity: 'epic', model: 'huntsman', finish: 'sunset', color: '#ff9d24', accent: '#4a0c00', teams: ['red', 'blue'], collection: 'inferno_forge' }),
+    if_wyrmforge: Object.freeze({ id: 'if_wyrmforge', name: 'Wyrmforge Karambit', rarity: 'legendary', model: 'karambit', finish: 'brass', color: '#ffb020', accent: '#3a0d00', teams: ['red', 'blue'], collection: 'inferno_forge' }),
+
+    cel_comet: Object.freeze({ id: 'cel_comet', name: 'Comet Shard', rarity: 'rare', model: 'dagger', finish: 'void', color: '#6b2db4', accent: '#ffd86a', teams: ['red', 'blue'], collection: 'celestial' }),
+    cel_starfall: Object.freeze({ id: 'cel_starfall', name: 'Starfall Wings', rarity: 'epic', model: 'butterfly', finish: 'prism', color: '#9b5cff', accent: '#ffe08a', teams: ['red', 'blue'], collection: 'celestial' }),
+    cel_zenith: Object.freeze({ id: 'cel_zenith', name: 'Zenith Karambit', rarity: 'legendary', model: 'karambit', finish: 'brass', color: '#ffd86a', accent: '#6b2db4', teams: ['red', 'blue'], collection: 'celestial' }),
+
+    ro_sakura: Object.freeze({ id: 'ro_sakura', name: 'Sakura Tanto', rarity: 'rare', model: 'tanto', finish: 'satin', color: '#ffb7d9', accent: '#151515', teams: ['red', 'blue'], collection: 'ronin' }),
+    ro_crimson_blade: Object.freeze({ id: 'ro_crimson_blade', name: 'Crimson Blade', rarity: 'epic', model: 'dagger', finish: 'brass', color: '#b3122c', accent: '#d4af37', teams: ['red', 'blue'], collection: 'ronin' }),
+    ro_shogun: Object.freeze({ id: 'ro_shogun', name: 'Shogun Karambit', rarity: 'legendary', model: 'karambit', finish: 'brass', color: '#d4af37', accent: '#8a0f24', teams: ['red', 'blue'], collection: 'ronin' })
 });
 
 export const CASES = Object.freeze({
@@ -169,6 +239,56 @@ export const CASES = Object.freeze({
             { id: 'night_kukri', weight: 20 }, { id: 'gut_frost', weight: 20 }, { id: 'huntsman_brass', weight: 20 },
             { id: 'gut_circuit', weight: 12 }, { id: 'kukri_sunset', weight: 12 }, { id: 'talon_reactor', weight: 12 }, { id: 'flip_prism', weight: 12 },
             { id: 'huntsman_wildfire', weight: 5 }, { id: 'talon_aurora', weight: 5 }, { id: 'kukri_void', weight: 5 }
+        ])
+    }),
+
+    // Collection cases (owner ask: "extra skin themes") — one case per COLLECTIONS
+    // entry above, mixing that collection's 3 knives, 3 gloves and 2 (reused) ball
+    // skins. Weighted like the Glovebox/Blade Vault cases: rares carry the bulk of
+    // the weight, the single legendary knife is the deliberately rare chase pull.
+    neon_syndicate: Object.freeze({
+        id: 'neon_syndicate', name: 'Neon Syndicate Case', price: 250,
+        art: 'assets/generated/cases/chroma-case.webp',
+        drops: Object.freeze([
+            { id: 'ns_pulse', weight: 18 }, { id: 'ns_wraith', weight: 10 }, { id: 'ns_overdrive', weight: 4 },
+            { id: 'gloves_ns_circuit', type: 'cosmetic', weight: 18 }, { id: 'gloves_ns_pulsegrip', type: 'cosmetic', weight: 18 }, { id: 'gloves_ns_overclock', type: 'cosmetic', weight: 10 },
+            { id: 'neon_dash', type: 'ball', rarity: 'rare', weight: 18 }, { id: 'plasma', type: 'ball', rarity: 'epic', weight: 10 }
+        ])
+    }),
+    frostbite: Object.freeze({
+        id: 'frostbite', name: 'Frostbite Case', price: 230,
+        art: 'assets/generated/cases/elemental-case.webp',
+        drops: Object.freeze([
+            { id: 'fb_shard', weight: 18 }, { id: 'fb_glacier', weight: 10 }, { id: 'fb_permafrost', weight: 4 },
+            { id: 'gloves_fb_permafrost', type: 'cosmetic', weight: 18 }, { id: 'gloves_fb_glacierweave', type: 'cosmetic', weight: 18 }, { id: 'gloves_fb_avalanche', type: 'cosmetic', weight: 10 },
+            { id: 'frostbite', type: 'ball', rarity: 'rare', weight: 18 }, { id: 'aurora', type: 'ball', rarity: 'epic', weight: 10 }
+        ])
+    }),
+    inferno_forge: Object.freeze({
+        id: 'inferno_forge', name: 'Inferno Forge Case', price: 260,
+        art: 'assets/generated/cases/arsenal-case.webp',
+        drops: Object.freeze([
+            { id: 'if_cinder', weight: 16 }, { id: 'if_slagfang', weight: 9 }, { id: 'if_wyrmforge', weight: 3 },
+            { id: 'gloves_if_cinderwrap', type: 'cosmetic', weight: 16 }, { id: 'gloves_if_slagforge', type: 'cosmetic', weight: 16 }, { id: 'gloves_if_wyrmforge', type: 'cosmetic', weight: 9 },
+            { id: 'fire', type: 'ball', rarity: 'rare', weight: 16 }, { id: 'ember_wisp', type: 'ball', rarity: 'rare', weight: 16 }
+        ])
+    }),
+    celestial: Object.freeze({
+        id: 'celestial', name: 'Celestial Case', price: 270,
+        art: 'assets/generated/cases/mythic-case.webp',
+        drops: Object.freeze([
+            { id: 'cel_comet', weight: 18 }, { id: 'cel_starfall', weight: 10 }, { id: 'cel_zenith', weight: 4 },
+            { id: 'gloves_cel_stardust', type: 'cosmetic', weight: 18 }, { id: 'gloves_cel_orbit', type: 'cosmetic', weight: 18 }, { id: 'gloves_cel_supernova', type: 'cosmetic', weight: 10 },
+            { id: 'moon', type: 'ball', rarity: 'rare', weight: 18 }, { id: 'nebula', type: 'ball', rarity: 'epic', weight: 10 }
+        ])
+    }),
+    ronin: Object.freeze({
+        id: 'ronin', name: 'Ronin Case', price: 250,
+        art: 'assets/generated/cases/kickoff-case.webp',
+        drops: Object.freeze([
+            { id: 'ro_sakura', weight: 18 }, { id: 'ro_crimson_blade', weight: 10 }, { id: 'ro_shogun', weight: 4 },
+            { id: 'gloves_ro_lacquer', type: 'cosmetic', weight: 18 }, { id: 'gloves_ro_petal', type: 'cosmetic', weight: 18 }, { id: 'gloves_ro_shogun', type: 'cosmetic', weight: 10 },
+            { id: 'copper', type: 'ball', rarity: 'rare', weight: 18 }, { id: 'sakura', type: 'ball', rarity: 'epic', weight: 10 }
         ])
     })
 });

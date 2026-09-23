@@ -13,6 +13,13 @@ services:
         value: /var/data
       - key: COSMETIC_ENTITLEMENT_SECRET
         generateValue: true
+      # Stripe gem checkout (docs/PAYMENTS.md). Unset = Shop > Gems shows "Coming soon".
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
     disk:
       name: volle-data
       mountPath: /var/data

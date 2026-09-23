@@ -5,7 +5,7 @@ import { appendCosmeticIcon } from './cosmetic-icons.js';
 import { SKILLS, RUNES } from './skills.js';
 import { BALL_SKINS } from './ball.js';
 import { AVATAR_SKINS } from './avatar.js';
-import { CASES, KNIVES, getCaseDropRates, revealPresentationForRarity, formatDuplicateConversion, computeCaseReelTickSchedule, arrangeNearMissFillers } from './cosmetics.js';
+import { CASES, KNIVES, COLLECTIONS, getCaseDropRates, revealPresentationForRarity, formatDuplicateConversion, computeCaseReelTickSchedule, arrangeNearMissFillers } from './cosmetics.js';
 import { ACHIEVEMENTS } from './achievements.js';
 import { MatchHistory } from './matchhistory.js';
 import { getRank, getRankProgress } from './ranked.js';
@@ -25,6 +25,8 @@ import * as ItemThumbnails from './item-thumbnails.js';
 import { createCaseReveal3D } from './case-reveal-3d.js';
 import { selectMvp } from './mvp-select.js';
 import { createMvpShowcaseStage } from './mvp-showcase.js';
+import { localizedName, setText, t } from './i18n.js';
+import { awaitGemCredit, buildGemShop, gemShopView, readPurchaseReturn, rememberGemsBeforeCheckout, stripPurchaseParams, takeGemsBeforeCheckout } from './gem-shop.js';
 
 const BALL_BASE_SPEED = 17;
 
@@ -73,6 +75,19 @@ export function getBallThreat(isTarget, ballSpeed, distance, direction = 'front'
             ? `INCOMING ${eta.toFixed(1)}S · ${directionLabel}`
             : `INCOMING · ${directionLabel}`
     };
+}
+
+// 'red'/'RED' -> localised team word; FFA player names pass through untouched.
+function teamLabel(team) {
+    const id = String(team || '').toLowerCase();
+    if (id === 'red') return t('hud.redCaps');
+    if (id === 'blue') return t('hud.blueCaps');
+    return String(team || '');
+}
+
+// Character blurbs live in the locale tables; characters.js keeps the English fallback.
+export function characterDesc(character) {
+    return localizedName('characters', character?.id, character?.desc || '');
 }
 
 export class UI {
@@ -220,16 +235,59 @@ export class UI {
         }
     }
 
+    // HUD score labels keep their pinned markup (<span>RED</span>…), so they are
+    // translated here instead of with data-i18n. Called on boot and on switch.
+    onLanguageChanged() {
+        const setSpan = (selector, key) => {
+            const span = document.querySelector(selector);
+            if (span) span.textContent = t(key);
+        };
+        setSpan('#hud-score-red > span', 'hud.redCaps');
+        setSpan('#hud-score-blue > span', 'hud.blueCaps');
+        setSpan('#hud-round-timer > span', 'hud.matchCaps');
+        if (this._scoreExtras) {
+            const round = this._scoreExtras.round;
+            this._scoreExtras.round = null;
+            this._updateScoreboardExtras(round, null);
+        }
+    }
+
     showHUD() {
         document.body.classList.add('match-ui-active');
         this.updateCompetitiveHUD();
         if (this.screens.hud) this.screens.hud.classList.remove('hidden');
     }
+    // Round label + CS-style alive pips. Called every frame; writes the DOM only when
+    // a value changes (pips are rebuilt only when a team's size changes).
+    _updateScoreboardExtras(round, alive) {
+        const state = this._scoreExtras || (this._scoreExtras = { round: null, red: '', blue: '' });
+        if (Number.isFinite(round) && state.round !== round) {
+            state.round = round;
+            const label = document.querySelector('#hud-round-timer [data-round-label]');
+            if (label) label.textContent = t('hud.roundN', { round });
+        }
+        if (!alive) return;
+        for (const side of ['red', 'blue']) {
+            const counts = alive[side];
+            const key = `${counts.alive}/${counts.total}`;
+            if (state[side] === key) continue;
+            state[side] = key;
+            const node = document.getElementById(`hud-alive-${side}`);
+            if (!node) continue;
+            const total = Math.min(8, counts.total);
+            if (node.childElementCount !== total) {
+                node.replaceChildren(...Array.from({ length: total }, () => document.createElement('u')));
+            }
+            for (let i = 0; i < node.children.length; i++) node.children[i].classList.toggle('down', i >= counts.alive);
+            node.setAttribute('aria-label', t('hud.aliveAria', { team: t(side === 'red' ? 'hud.redName' : 'hud.blueName'), alive: counts.alive, total: counts.total }));
+        }
+    }
+
     hideHUD() { document.body.classList.remove('match-ui-active'); if (this.screens.hud) this.screens.hud.classList.add('hidden'); }
 
     updateHUD(data) {
         const { time, timeRemaining, redScore, blueScore, ballSpeed, hotPotato, competitive,
-            heatTier, heatColor, heatProgress, charging, chargeRatio } = data;
+            heatTier, heatColor, heatProgress, charging, chargeRatio, round, alive } = data;
         const el = id => document.getElementById(id);
 
         const timerEl = el('hud-round-timer');
@@ -263,6 +321,7 @@ export class UI {
             void node.offsetWidth; // restart the animation on repeat scores
             node.classList.add('score-pop');
         }
+        this._updateScoreboardExtras(round, alive);
         if (el('hud-speed')) {
             const heat = getBallHeat(ballSpeed);
             el('hud-speed').textContent = `${heat.label} ${heat.percent}%`;
@@ -354,7 +413,7 @@ export class UI {
     updateScoreboard(stats, ffa = false) {
         this.updateScoreboardTable('scoreboard-body', stats, ffa);
         const heading = document.querySelector('#scoreboard-overlay th:nth-child(2)');
-        if (heading) heading.textContent = ffa ? 'Mode' : 'Team';
+        if (heading) heading.textContent = ffa ? t('mp.mode') : t('common.team');
     }
 
     updateScoreboardTable(tbodyId, stats, ffa = false) {
@@ -522,19 +581,32 @@ export class UI {
         redList.innerHTML = '';
         blueList.innerHTML = '';
 
+        const counts = { red: 0, blue: 0 };
         players.forEach(p => {
-            const li = document.createElement('li');
-            const isYou = p.name === game.playerName;
             const queued = !!p.queuedForNextRound;
             const displayTeam = queued ? (p.pendingTeam || p.team) : p.team;
-            li.textContent = (p.isBot ? '🤖 ' : isYou ? '⭐ ' : '')
-                + p.name
-                + (queued ? ' · NEXT ROUND' : '');
+            const side = displayTeam === 'red' ? 'red' : 'blue';
+            counts[side]++;
+            const isYou = p.name === game.playerName;
+            const li = document.createElement('li');
+            li.className = 'team-chip';
             if (isYou) li.classList.add('you');
-            li.title = isHost || isYou ? 'Team selection is confirmed below' : '';
-            (displayTeam === 'red' ? redList : blueList).appendChild(li);
+            const avatar = document.createElement('i');
+            avatar.textContent = String(p.name || '?').slice(0, 1).toUpperCase();
+            const name = document.createElement('span');
+            name.textContent = p.name;
+            li.append(avatar, name);
+            const tag = isYou ? t('team.you') : p.isBot ? t('team.bot') : queued ? t('team.nextRound') : '';
+            if (tag) {
+                const badge = document.createElement('small');
+                badge.textContent = tag;
+                li.append(badge);
+            }
+            li.title = isHost || isYou ? t('team.confirmedBelow') : '';
+            (side === 'red' ? redList : blueList).appendChild(li);
         });
 
+        const current = game.player.team;
         const selectTeam = (team) => {
             this.selectedTeam = team;
             this._renderTeamLists(game);
@@ -543,37 +615,83 @@ export class UI {
         const headerBlue = document.getElementById('team-header-blue');
         headerRed?.classList.toggle('selected', this.selectedTeam === 'red');
         headerBlue?.classList.toggle('selected', this.selectedTeam === 'blue');
+        document.getElementById('team-col-red')?.classList.toggle('current', current === 'red');
+        document.getElementById('team-col-blue')?.classList.toggle('current', current === 'blue');
         if (headerRed) headerRed.onclick = () => selectTeam('red');
         if (headerBlue) headerBlue.onclick = () => selectTeam('blue');
+        for (const side of ['red', 'blue']) {
+            const node = document.getElementById(`team-count-${side}`);
+            if (node) node.textContent = t('team.players', { count: counts[side] });
+        }
+
+        // Balance hint: joining a team that would end up 2+ players bigger.
+        const target = this.selectedTeam || current;
+        const other = target === 'red' ? 'blue' : 'red';
+        const moving = target !== current;
+        const after = { red: counts.red, blue: counts.blue };
+        if (moving) { after[target]++; after[current] = Math.max(0, after[current] - 1); }
+        const note = document.getElementById('team-balance-note');
+        if (note) {
+            const stacked = after[target] - after[other] >= 2;
+            note.hidden = !stacked;
+            note.textContent = stacked ? t('team.stackedNote', { team: teamLabel(target), count: after[target] - after[other] }) : '';
+        }
+        const auto = document.getElementById('btn-team-popup-auto');
+        if (auto) auto.onclick = () => {
+            const withoutMe = { red: counts.red - (current === 'red' ? 1 : 0), blue: counts.blue - (current === 'blue' ? 1 : 0) };
+            selectTeam(withoutMe.red === withoutMe.blue ? current : (withoutMe.red < withoutMe.blue ? 'red' : 'blue'));
+        };
+        this._bindTeamPopupKeys(game);
 
         const confirm = document.getElementById('btn-team-popup-confirm');
         if (confirm) {
-            confirm.textContent = `JOIN ${String(this.selectedTeam || game.player.team).toUpperCase()} TEAM`;
+            const alreadyThere = !moving && !game.player.queuedForNextRound;
+            confirm.textContent = alreadyThere ? t('team.alreadyOn', { team: teamLabel(target) }) : t('team.joinTeam', { team: teamLabel(target) });
+            confirm.disabled = alreadyThere;
             confirm.onclick = () => this.onTeamConfirm?.(this.selectedTeam || game.player.team);
         }
 
         const specBtn = document.getElementById('btn-team-popup-spectate');
         if (specBtn && this.onToggleSpectate) {
             const waiting = !!game.player.queuedForNextRound;
-            specBtn.textContent = waiting
-                ? 'Waiting for next round'
-                : (this.spectating ? '↩ Leave Spectator' : '👁 Spectate');
+            setText(specBtn, waiting
+                ? 'team.waitingNextRound'
+                : (this.spectating ? 'team.leaveSpectator' : 'common.spectate'));
             specBtn.disabled = waiting;
             specBtn.onclick = () => { this.onToggleSpectate(); };
         }
+    }
+
+    // 1 / 2 pick a side, Enter confirms — only while the team popup is open.
+    _bindTeamPopupKeys(game) {
+        this._teamKeyGame = game;
+        if (this._teamKeysBound || typeof document === 'undefined') return;
+        this._teamKeysBound = true;
+        document.addEventListener('keydown', event => {
+            if (!this.isTeamPopupOpen() || event.repeat) return;
+            if (event.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+            if (event.code === 'Digit1' || event.code === 'Numpad1') { this.selectedTeam = 'red'; this._renderTeamLists(this._teamKeyGame); }
+            else if (event.code === 'Digit2' || event.code === 'Numpad2') { this.selectedTeam = 'blue'; this._renderTeamLists(this._teamKeyGame); }
+            else if (event.code === 'Enter') {
+                const confirm = document.getElementById('btn-team-popup-confirm');
+                if (confirm && !confirm.disabled) confirm.click();
+            } else return;
+            event.preventDefault();
+            event.stopPropagation();
+        }, true);
     }
 
     showGameOver(winner, stats, ffa = false) {
         this.showScreen('gameOver');
         const el = document.getElementById('winner-text');
         if (el) {
-            el.textContent = winner === 'DRAW' ? "It's a Draw!" : ffa ? `${winner} Wins!` : `${winner} Team Wins!`;
+            el.textContent = winner === 'DRAW' ? t('gameOver.draw') : ffa ? t('gameOver.playerWins', { name: winner }) : t('gameOver.teamWins', { team: teamLabel(winner) });
             el.className = `winner-${winner.toLowerCase()}`;
         }
         this.updateScoreboard(stats, ffa);
         this.updateScoreboardTable('scoreboard-body-final', stats, ffa);
         const heading = document.querySelector('#game-over .scoreboard-table th:nth-child(2)');
-        if (heading) heading.textContent = ffa ? 'Mode' : 'Team';
+        if (heading) heading.textContent = ffa ? t('mp.mode') : t('common.team');
     }
 
     showCountdown(num, callback, token = ++this._countdownToken) {
@@ -614,7 +732,7 @@ export class UI {
         const el = document.getElementById('round-banner');
         if (!el) return;
         el.querySelector('.round-number').textContent = round;
-        el.querySelector('.round-teams').textContent = `RED ${redScore} - ${blueScore} BLUE`;
+        el.querySelector('.round-teams').textContent = t('hud.roundTeams', { red: redScore, blue: blueScore });
         el.classList.remove('hidden', 'show');
         void el.offsetWidth; // force reflow
         el.classList.add('show');
@@ -705,7 +823,7 @@ export class UI {
         el.dataset.outcome = won ? 'win' : 'loss';
         audio?.playCue?.('score');
         const resultEl = document.getElementById('pg-result');
-        resultEl.textContent = won ? 'VICTORY' : 'DEFEAT';
+        setText(resultEl, won ? 'pg.victory' : 'pg.defeat');
         // Win/loss is carried on the banner itself so the result reads at a glance
         // instead of every match ending in the same gold title.
         resultEl.classList.toggle('pg-result-win', !!won);
@@ -756,11 +874,11 @@ export class UI {
         const xpText = document.getElementById('pg-xp-text');
         if (xpFill) { xpFill.style.width = '0%'; requestAnimationFrame(() => { xpFill.style.width = perc + '%'; }); }
         if (xpText && pending) {
-            xpText.textContent = 'Rewards settling…';
+            xpText.textContent = t('pg.rewardsSettling');
         } else if (xpText) {
             const tail = progress.need > 0
-                ? ` · ${progress.xp}/${progress.need} to Lv ${progress.level + 1}`
-                : ' · MAX RANK';
+                ? ` · ${t('pg.toLevel', { xp: progress.xp, need: progress.need, level: progress.level + 1 })}`
+                : ` · ${t('pg.maxRank')}`;
             this._animateCount(xpText, xpGained, value => `+${value} XP${tail}`);
         }
         if (pending) {
@@ -2010,9 +2128,9 @@ export class UI {
             wrap.append(b, small);
             statsEl.append(wrap);
         };
-        addStat('Kills', mvp.score || 0);
-        addStat('Deflects', mvp.deflections || 0);
-        addStat('Damage', Math.round(mvp.damageDealt || 0));
+        addStat(t('pg.kills'), mvp.score || 0);
+        addStat(t('common.deflects'), mvp.deflections || 0);
+        addStat(t('pg.damage'), Math.round(mvp.damageDealt || 0));
         this._mvpShowcase = createMvpShowcaseStage(stage, { reducedMotion: this._isReducedMotion() });
         this._mvpShowcase.mount({ ...loadout, team: loadout?.team || mvp.team });
     }
@@ -2078,8 +2196,8 @@ export class UI {
                 <div class="char-stats">
                     ❤️${c.maxHp} 💨${c.speed} 🎯${c.deflectPower}
                 </div>
-                <div class="char-mastery">Mastery Lv ${mastery.level}${masteryNeed ? ` · ${mastery.xp}/${masteryNeed} XP` : ' · MAX'}</div>
-                <div class="char-desc">${c.desc}</div>
+                <div class="char-mastery">${t('locker.masteryLv', { level: mastery.level })}${masteryNeed ? ` · ${mastery.xp}/${masteryNeed} XP` : ` · ${t('locker.max')}`}</div>
+                <div class="char-desc">${characterDesc(c)}</div>
                 ${!isOwned && c.price ? `<div class="char-price">🪙 ${c.price}</div>` : ''}
             `;
             grid.appendChild(card);
@@ -2097,7 +2215,7 @@ export class UI {
                 const owned = ownedSkills.includes(s.id);
                 card.className = `skill-card ${currentSkill === s.id ? 'selected' : ''} ${!owned ? 'locked' : ''}`;
                 card.dataset.skill = s.id;
-                card.innerHTML = `<div class="loadout-icon" ${iconStyle(index)} aria-hidden="true"></div><div class="loadout-card-title">${s.name}</div><div class="char-desc">${s.desc}</div><div class="loadout-card-meta">${s.cooldown}s cooldown</div>${!owned ? '<div class="char-price">ARENA CACHE</div>' : ''}`;
+                card.innerHTML = `<div class="loadout-icon" ${iconStyle(index)} aria-hidden="true"></div><div class="loadout-card-title">${s.name}</div><div class="char-desc">${localizedName('skillDescs', s.id, s.desc)}</div><div class="loadout-card-meta">${t('locker.cooldown', { seconds: s.cooldown })}</div>${!owned ? '<div class="char-price">ARENA CACHE</div>' : ''}`;
                 sg.appendChild(card);
             });
         }
@@ -2115,7 +2233,7 @@ export class UI {
                 const equipped = currentRunes.includes(r.id);
                 card.className = `rune-card ${equipped ? 'selected' : ''} ${!owned ? 'locked' : ''}`;
                 card.dataset.rune = r.id;
-                card.innerHTML = `<div class="loadout-icon rune-icon" ${iconStyle(index + 8)} aria-hidden="true"></div><div class="loadout-card-title">${r.name}</div><div class="char-desc">${r.desc}</div>${!owned ? '<div class="char-price">ARENA CACHE</div>' : ''}`;
+                card.innerHTML = `<div class="loadout-icon rune-icon" ${iconStyle(index + 8)} aria-hidden="true"></div><div class="loadout-card-title">${r.name}</div><div class="char-desc">${localizedName('runeDescs', r.id, r.desc)}</div>${!owned ? '<div class="char-price">ARENA CACHE</div>' : ''}`;
                 rg.appendChild(card);
             });
         }
@@ -2215,8 +2333,8 @@ export class UI {
 
     _syncShopTabs(tab) {
         const labels = {
-            chars: 'Characters', live: 'Live Deals', balls: 'Balls', avatars: 'Character Skins',
-            wearables: 'Wearables', cases: 'Cases', boosts: 'Boosts', tierlist: 'Tier List'
+            chars: 'shop.characters', live: 'common.liveDeals', balls: 'shop.balls', avatars: 'shop.characterSkins',
+            wearables: 'shop.wearables', cases: 'shop.cases', boosts: 'shop.boosts', tierlist: 'shop.tierList', gems: 'shop.gems'
         };
         document.querySelectorAll('#shop-tabs .shop-tab').forEach(button => {
             const selected = button.dataset.tab === tab;
@@ -2228,7 +2346,7 @@ export class UI {
         const selectedTab = document.querySelector(`#shop-tabs .shop-tab[data-tab="${tab}"]`);
         if (grid && selectedTab?.id) grid.setAttribute('aria-labelledby', selectedTab.id);
         const title = document.getElementById('shop-catalog-title');
-        if (title) title.textContent = labels[tab] || 'Collection';
+        if (title) title.textContent = t(labels[tab] || 'shop.collection');
         const screen = document.getElementById('shop-screen');
         if (screen) screen.dataset.shopTab = tab;
         this._syncShopFilters(tab);
@@ -2267,7 +2385,8 @@ export class UI {
             wearables: ['all', 'owned', 'affordable'],
             cases: ['all', 'affordable'],
             boosts: ['all', 'affordable'],
-            tierlist: []
+            tierlist: [],
+            gems: []
         };
         const available = new Set(availableByTab[tab] || ['all']);
         if (!available.has(this._shopFilterId)) this._shopFilterId = 'all';
@@ -2286,19 +2405,19 @@ export class UI {
         const state = deriveShopCardState({ price, owned, equipped, currency: balance });
         const note = document.getElementById('shop-selected-balance');
         if (note) {
-            note.textContent = owned ? 'In your collection' : `${price} credits · Balance ${balance}${state.shortfall ? ` · Need ${state.shortfall} more` : ''}`;
+            note.textContent = owned ? t('shop.inCollection') : `${t('shop.priceBalance', { price, balance })}${state.shortfall ? ` · ${t('shop.needMore', { count: state.shortfall })}` : ''}`;
             note.dataset.shortfall = String(state.shortfall > 0);
         }
         const action = document.getElementById('shop-selected-action');
         if (action) {
             action.disabled = equipped || state.shortfall > 0;
             action.setAttribute('aria-label', action.textContent);
-            action.title = state.shortfall ? `Earn ${state.shortfall} more credits to buy this item.` : '';
+            action.title = state.shortfall ? t('shop.earnMore', { count: state.shortfall }) : '';
         }
         const controls = document.getElementById('shop-preview-controls');
         if (controls) controls.hidden = type === 'ball';
         const hint = document.querySelector('#shop-showcase-stage .shop-rotate-hint');
-        if (hint) hint.textContent = type === 'ball' ? 'Animated model preview' : 'Drag or use arrow keys';
+        if (hint) hint.textContent = type === 'ball' ? t('shop.animatedPreview') : t('shop.dragHint');
     }
 
     _setShopShowcase(store, skin, previewing = false, announce = false, dispatchPreview = true) {
@@ -2328,17 +2447,17 @@ export class UI {
         if (fallback) fallback.dataset.model = selected.model || 'classic';
         if (name) name.textContent = selected.name;
         if (meta) {
-            const state = equipped ? 'Equipped' : owned ? 'Owned' : `${selected.price} credits`;
-            meta.textContent = `${selected.model === 'slim' ? 'Slim' : 'Classic'} model · ${state}`;
+            const state = equipped ? t('shop.equipped') : owned ? t('shop.owned') : t('shop.credits', { count: selected.price });
+            meta.textContent = `${t(selected.model === 'slim' ? 'shop.slimModel' : 'shop.classicModel')} · ${state}`;
         }
         if (status) {
             status.textContent = equipped
-                ? `${selected.name} is equipped.`
+                ? t('shop.statusEquipped', { name: selected.name })
                 : owned
-                    ? `${selected.name} is owned and ready to equip.`
-                    : `Previewing ${selected.name}. Purchase keeps it permanently.`;
+                    ? t('shop.statusOwned', { name: selected.name })
+                    : t('shop.statusPreview', { name: selected.name });
         }
-        if (kicker) kicker.textContent = 'CURRENT LOOK';
+        if (kicker) kicker.textContent = t('shop.currentLook');
         if (practice) {
             practice.hidden = false;
             practice.disabled = false;
@@ -2349,7 +2468,7 @@ export class UI {
             action.dataset.type = 'avatar';
             action.dataset.id = selected.id;
             action.disabled = equipped;
-            action.textContent = equipped ? 'Equipped' : owned ? 'Equip skin' : `Buy — ${selected.price}`;
+            action.textContent = equipped ? t('shop.equipped') : owned ? t('shop.equipSkin') : t('shop.buyPrice', { price: selected.price });
             action.classList.toggle('shop-equip', !equipped && owned);
             action.classList.toggle('shop-buy', !equipped && !owned);
         }
@@ -2392,7 +2511,7 @@ export class UI {
         this._shopPreviewCosmetic = item.id;
         if (kicker) kicker.textContent = 'WEARABLE PREVIEW';
         if (name) name.textContent = item.name;
-        if (meta) meta.textContent = `${typeLabel} · ${String(item.rarity || 'rare').toUpperCase()} · ${equipped ? 'Equipped' : owned ? 'Owned' : `${item.price} credits`}`;
+        if (meta) meta.textContent = `${typeLabel} · ${String(item.rarity || 'rare').toUpperCase()} · ${equipped ? t('shop.equipped') : owned ? t('shop.owned') : t('shop.credits', { count: item.price })}`;
         if (status) status.textContent = `${item.name} · Preview`;
         if (practice) {
             practice.hidden = true;
@@ -2440,7 +2559,7 @@ export class UI {
         }
         if (kicker) kicker.textContent = 'BALL SKIN PREVIEW';
         if (name) name.textContent = item.name;
-        if (meta) meta.textContent = `${String(item.rarity || 'common').toUpperCase()} · ${(item.shape || 'sphere').toUpperCase()} · ${equipped ? 'Equipped' : owned ? 'Owned' : `${item.price || 150} credits`}`;
+        if (meta) meta.textContent = `${String(item.rarity || 'common').toUpperCase()} · ${(item.shape || 'sphere').toUpperCase()} · ${equipped ? t('shop.equipped') : owned ? t('shop.owned') : t('shop.credits', { count: item.price || 150 })}`;
         if (status) status.textContent = `${item.name} · Full-size model and trail preview`;
         if (practice) { practice.hidden = true; practice.disabled = true; }
         if (action) {
@@ -2496,7 +2615,7 @@ export class UI {
         }
         if (kicker) kicker.textContent = 'FEATURED CHARACTER';
         if (name) name.textContent = selected.name;
-        if (meta) meta.textContent = `${selected.desc} · ${equipped ? 'In your loadout' : owned ? 'Unlocked' : `${selected.price} credits`}`;
+        if (meta) meta.textContent = `${characterDesc(selected)} · ${equipped ? t('shop.inYourLoadout') : owned ? t('shop.unlocked') : t('shop.credits', { count: selected.price })}`;
         if (status) {
             status.textContent = equipped
                 ? `${selected.name} is active in your loadout.`
@@ -2513,7 +2632,7 @@ export class UI {
             action.dataset.type = 'char';
             action.dataset.id = selected.id;
             action.disabled = equipped;
-            action.textContent = equipped ? 'In loadout' : owned ? 'Use character' : `Unlock — ${selected.price}`;
+            action.textContent = equipped ? t('shop.inLoadout') : owned ? t('shop.useCharacter') : t('shop.unlockPrice', { price: selected.price });
             action.classList.toggle('shop-equip', !equipped && owned);
             action.classList.toggle('shop-buy', !equipped && !owned);
         }
@@ -2523,7 +2642,7 @@ export class UI {
             if (control.matches('button')) control.setAttribute('aria-pressed', String(isSelected));
         });
         const detail = Object.freeze({ type: 'character', id: selected.id, character: selected, equipped, owned, previewing: true });
-        this._setShopProductCopy(store, { description: selected.desc, price: selected.price, owned, equipped });
+        this._setShopProductCopy(store, { description: characterDesc(selected), price: selected.price, owned, equipped });
         if (stage?.dispatchEvent && typeof CustomEvent !== 'undefined') {
             stage.dispatchEvent(new CustomEvent('shop-preview-change', { bubbles: true, detail }));
         }
@@ -2536,7 +2655,7 @@ export class UI {
     _finalizeShopCatalog(grid) {
         const count = grid.querySelectorAll?.('.shop-card').length || 0;
         const countEl = document.getElementById('shop-catalog-count');
-        if (countEl) countEl.textContent = `${count} ${count === 1 ? 'item' : 'items'}`;
+        if (countEl) countEl.textContent = t('shop.itemCount', { count });
         grid.setAttribute?.('aria-busy', 'false');
         Array.from(grid.children).forEach((child, index) => { child.dataset.catalogOrder = String(index); });
     }
@@ -2556,23 +2675,23 @@ export class UI {
         if (state.badge) {
             const badge = document.createElement('span');
             badge.className = `shop-status-badge is-${state.badge.toLowerCase()}`;
-            badge.textContent = state.badge;
+            badge.textContent = localizedName('shopBadges', String(state.badge).toLowerCase(), state.badge);
             card.appendChild(badge);
         }
         if (state.dim) {
             const note = document.createElement('div');
             note.className = 'shop-shortfall-note';
-            note.textContent = `Need ${state.shortfall} more credits`;
+            note.textContent = t('shop.needCredits', { count: state.shortfall });
             card.appendChild(note);
         }
         card.querySelectorAll('.shop-buy, .live-offer-buy').forEach(button => {
             button.disabled = state.shortfall > 0;
-            if (state.shortfall) button.title = `Earn ${state.shortfall} more credits to buy this item.`;
+            if (state.shortfall) button.title = t('shop.earnMore', { count: state.shortfall });
         });
         if (!owned && (card.dataset.shopPreview === 'character' || card.dataset.shopPreview === 'avatar')) {
             const cost = document.createElement('span');
             cost.className = 'shop-card-price';
-            cost.textContent = `${price} credits`;
+            cost.textContent = t('shop.credits', { count: price });
             card.appendChild(cost);
         }
         return state;
@@ -2660,7 +2779,7 @@ export class UI {
             action.className = `btn btn-primary shop-selected-action${active || boost.accountRequired ? '' : ' shop-buy'}`;
             action.dataset.type = 'boost';
             action.dataset.id = SHOP_XP_BOOST.id;
-            action.textContent = active ? 'Boost active' : boost.accountRequired ? 'Reconnect to purchase' : `Buy and activate — ${SHOP_XP_BOOST.price}`;
+            action.textContent = active ? t('shop.boostActive') : boost.accountRequired ? t('shop.reconnect') : t('shop.buyActivate', { price: SHOP_XP_BOOST.price });
         }
         this._setShopProductCopy(store, { description, price: SHOP_XP_BOOST.price, owned: Boolean(active), equipped: Boolean(active) || boost.accountRequired });
         const practice = document.getElementById('btn-shop-practice');
@@ -2682,13 +2801,13 @@ export class UI {
                 dropIndex.get(key).sources.push({ caseId: box.id, caseName: box.name, chance: drop.chance });
             });
         });
-        const typeLabel = { knife: 'Knife', cosmetic: 'Cosmetic', ball: 'Ball Skin', avatar: 'Character Skin' };
+        const typeLabel = { knife: t('tierList.knife'), cosmetic: t('tierList.cosmetic'), ball: t('tierList.ballSkin'), avatar: t('tierList.characterSkin') };
         const groups = new Map(TIER_ORDER.map(t => [t, []]));
         for (const entry of dropIndex.values()) groups.get(tierForRarity(entry.rarity)).push(entry);
 
         const intro = document.createElement('div');
         intro.className = 'shop-tierlist-intro';
-        intro.innerHTML = '<strong>Every case-obtainable item, ranked S+ to C.</strong><p>Each entry lists every case that drops it and the exact pull chance from that case — the same math the case inspector uses.</p>';
+        intro.innerHTML = `<strong>${t('tierList.introTitle')}</strong><p>${t('tierList.introCopy')}</p>`;
         grid.appendChild(intro);
 
         for (const tier of TIER_ORDER) {
@@ -2699,7 +2818,7 @@ export class UI {
             section.className = `tierlist-group tier-${tier.replace('+', 'plus')}`;
             const heading = document.createElement('h3');
             heading.className = 'tierlist-heading';
-            heading.innerHTML = `${tierBadgeHTML(items[0].rarity)}<span>${tier} tier</span><small>${items.length} item${items.length === 1 ? '' : 's'}</small>`;
+            heading.innerHTML = `${tierBadgeHTML(items[0].rarity)}<span>${t('tierList.tier', { tier })}</span><small>${t('shop.itemCount', { count: items.length })}</small>`;
             section.appendChild(heading);
             const list = document.createElement('div');
             list.className = 'tierlist-items';
@@ -2709,7 +2828,7 @@ export class UI {
                 const sources = entry.sources
                     .map(s => `<span class="tierlist-source"><b>${(s.chance * 100).toFixed(2)}%</b>${s.caseName}</span>`)
                     .join('');
-                row.innerHTML = `<div class="tierlist-item-art" aria-hidden="true"></div><div class="tierlist-item-head"><span class="tierlist-item-type">${typeLabel[entry.type] || entry.type}</span><span class="tierlist-item-name">${entry.name}</span></div><div class="tierlist-item-sources">${sources || '<span class="tierlist-source-none">Not currently in a case</span>'}</div>`;
+                row.innerHTML = `<div class="tierlist-item-art" aria-hidden="true"></div><div class="tierlist-item-head"><span class="tierlist-item-type">${typeLabel[entry.type] || entry.type}</span><span class="tierlist-item-name">${entry.name}</span></div><div class="tierlist-item-sources">${sources || `<span class="tierlist-source-none">${t('tierList.notInCase')}</span>`}</div>`;
                 list.appendChild(row);
                 const art = row.querySelector('.tierlist-item-art');
                 if (!this._attachItemThumb(art, entry, entry.type) && entry.type === 'cosmetic' && COSMETICS[entry.id]) {
@@ -2719,15 +2838,101 @@ export class UI {
             section.appendChild(list);
             grid.appendChild(section);
         }
-        if (!dropIndex.size) grid.innerHTML = '<div class="shop-empty"><strong>No case-obtainable items yet.</strong></div>';
+        if (!dropIndex.size) grid.innerHTML = `<div class="shop-empty"><strong>${t('tierList.empty')}</strong></div>`;
     }
 
     // ===== SHOP EKRANI =====
+    // ===== Shop > Gems (js/gem-shop.js, docs/PAYMENTS.md) =====
+    // Guests never reach these handlers: .gem-pack-buy/.gem-bp-buy are in
+    // GUEST_GATED_SELECTOR (js/main.js), whose capture listener opens the account prompt.
+    _renderGemShop(store, grid) {
+        const draw = catalog => {
+            const view = gemShopView(catalog, {
+                gems: store.get('gems'),
+                battlepassPremium: store.getBattlepassProgress?.().premium === true
+            });
+            grid.replaceChildren(buildGemShop(document, view));
+            grid.querySelectorAll('.gem-pack-buy').forEach(button => {
+                button.addEventListener('click', () => { void this._startGemCheckout(store, button); });
+            });
+            const bpButton = grid.querySelector('.gem-bp-buy');
+            bpButton?.addEventListener('click', () => { void this._buyBattlepassWithGems(store, bpButton); });
+            this._gemShopView = view;
+            this._syncGemShopCount();
+        };
+        const cached = store.paymentCatalog || null;
+        draw(cached);
+        store.getPaymentCatalog?.().then(catalog => {
+            if (this._shopTab === 'gems' && grid.isConnected !== false && catalog !== cached) draw(catalog);
+        });
+    }
+
+    _syncGemShopCount() {
+        const countEl = document.getElementById('shop-catalog-count');
+        const view = this._gemShopView;
+        if (!countEl || !view) return;
+        countEl.textContent = view.loading ? t('gems.loading') : view.enabled ? t('gems.packCount', { count: view.packs.length }) : t('gems.comingSoon');
+    }
+
+    async _startGemCheckout(store, button) {
+        if (button.disabled) return;
+        const label = button.textContent;
+        button.disabled = true;
+        button.setAttribute('aria-busy', 'true');
+        button.textContent = t('gems.openingCheckout');
+        const result = await store.startGemCheckout(button.dataset.packId);
+        if (result.ok) {
+            rememberGemsBeforeCheckout(store.get('gems'));
+            window.location.assign(result.url);
+            return;
+        }
+        button.disabled = false;
+        button.removeAttribute('aria-busy');
+        button.textContent = label;
+        this.showMessage(result.error, 3200);
+    }
+
+    async _buyBattlepassWithGems(store, button) {
+        if (button.disabled) return;
+        button.disabled = true;
+        const ok = await store.buyPremiumBattlepassWithGems();
+        this.showMessage(ok ? t('gems.premiumUnlocked') : (store.lastBattlepassError || t('gems.notEnough')), 3000);
+        if (document.body.dataset.screen === 'shop' && this._shopTab === 'gems') this.renderShop(store, 'gems');
+        else button.disabled = false;
+    }
+
+    // Stripe returns to /?purchase=success|cancel. Called once after account sync.
+    async handlePurchaseReturn(store, onUpdated) {
+        if (typeof location === 'undefined') return;
+        const outcome = readPurchaseReturn(location.search);
+        if (!outcome) return;
+        try { history.replaceState(history.state, '', stripPurchaseParams(location.href)); } catch {}
+        if (outcome === 'cancel') {
+            this.showMessage(t('gems.checkoutCancelled'), 3200);
+            return;
+        }
+        const remembered = takeGemsBeforeCheckout();
+        const before = remembered ?? (Number(store.get('gems')) || 0);
+        this.showMessage(t('gems.paymentReceived'), 3200);
+        const credited = await awaitGemCredit({
+            before,
+            refresh: () => store.connectRemote(store.get('playerName')),
+            readGems: () => store.get('gems')
+        });
+        this.showMessage(credited > 0
+            ? `+${credited} gems added. Thank you!`
+            : 'Payment confirmed. Gems can take a minute to appear — check the Shop shortly.', 4200);
+        onUpdated?.();
+        if (document.body.dataset.screen === 'shop') this.renderShop(store, this._shopTab || 'gems');
+    }
+
     renderShop(store, tab = 'chars') {
         clearTimeout(this._shopBoostExpiryTimer);
         const grid = document.getElementById('shop-grid');
         const coinsEl = document.getElementById('shop-coins');
         if (coinsEl) coinsEl.textContent = store.get('currency');
+        const gemsEl = document.getElementById('shop-gems');
+        if (gemsEl) gemsEl.textContent = String(Number(store.get('gems')) || 0);
         if (!grid) return;
         const sameTab = this._shopTab === tab;
         const scrollTop = sameTab ? grid.scrollTop : 0;
@@ -2763,9 +2968,9 @@ export class UI {
                 ? new Date(market.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                 : '';
             if (!market.offers?.length) {
-                grid.innerHTML = '<div class="shop-empty"><strong>Live deals are unavailable</strong><p>The regular collections are ready to browse.</p><button type="button" class="btn btn-secondary btn-small shop-live-retry">Retry live deals</button></div>';
+                grid.innerHTML = `<div class="shop-empty"><strong>${t('shop.liveUnavailable')}</strong><p>${t('shop.liveUnavailableCopy')}</p><button type="button" class="btn btn-secondary btn-small shop-live-retry">${t('shop.liveRetry')}</button></div>`;
                 const countEl = document.getElementById('shop-catalog-count');
-                if (countEl) countEl.textContent = 'No live offers';
+                if (countEl) countEl.textContent = t('shop.noLiveOffers');
             }
             (market.offers || []).forEach(offer => {
                 const item = offer.kind === 'cosmetic' ? COSMETICS[offer.itemId] : BALL_SKINS[offer.itemId];
@@ -2778,7 +2983,7 @@ export class UI {
                 const visual = offer.kind === 'cosmetic'
                     ? `<div class="cosmetic-preview cosmetic-preview-${item.type}" style="--cosmetic-primary:${item.colors[0]};--cosmetic-secondary:${item.colors[1]}"></div>`
                     : '<div class="ball-inspect-stage"><div class="ball-preview"></div><span class="ball-inspect-trail" aria-hidden="true"></span></div>';
-                card.innerHTML = `<div class="live-deal-badge">-${offer.discount}% TODAY</div>${visual}<div class="char-name">${item.name}</div><div class="char-desc">Rotates at ${until || 'midnight'}.</div>${owned ? '' : `<button class="btn btn-primary btn-small live-offer-buy" data-offer-id="${offer.id}"><s>${offer.basePrice}</s> Buy — ${offer.price}</button>`}`;
+                card.innerHTML = `<div class="live-deal-badge">${t('shop.discountToday', { discount: offer.discount })}</div>${visual}<div class="char-name">${item.name}</div><div class="char-desc">${until ? t('shop.rotatesAt', { time: until }) : t('shop.rotatesMidnight')}</div>${owned ? '' : `<button class="btn btn-primary btn-small live-offer-buy" data-offer-id="${offer.id}"><s>${offer.basePrice}</s> ${t('shop.buyPrice', { price: offer.price })}</button>`}`;
                 if (offer.kind === 'cosmetic') appendCosmeticIcon(card.querySelector('.cosmetic-preview'), item);
                 if (offer.kind === 'cosmetic' ? item.type === 'gloves' : true) {
                     this._attachItemThumb(card.querySelector(offer.kind === 'cosmetic' ? '.cosmetic-preview' : '.ball-inspect-stage'), { ...item, id: offer.itemId }, offer.kind === 'cosmetic' ? 'cosmetic' : 'ball');
@@ -2807,7 +3012,7 @@ export class UI {
                 const portraitMarkup = portraitPath
                     ? `<img src="${portraitPath}" alt="" loading="lazy" decoding="async" onerror="this.style.display='none';this.nextElementSibling.style.display=''"><div class="shop-portrait-fallback" style="display:none" aria-hidden="true">${c.emoji}</div>`
                     : `<div class="shop-portrait-fallback" aria-hidden="true">${c.emoji}</div>`;
-                card.innerHTML = `<button type="button" class="shop-character-select" data-shop-preview="character" data-id="${c.id}" aria-label="Inspect ${c.name}" aria-pressed="${selectedCharacter.id === c.id}"><span class="shop-portrait">${portraitMarkup}</span><span class="char-name">${c.name}</span><span class="char-desc">${c.desc}</span><span class="shop-preview-label">Inspect</span></button>`;
+                card.innerHTML = `<button type="button" class="shop-character-select" data-shop-preview="character" data-id="${c.id}" aria-label="${t('shop.inspectName', { name: c.name })}" aria-pressed="${selectedCharacter.id === c.id}"><span class="shop-portrait">${portraitMarkup}</span><span class="char-name">${c.name}</span><span class="char-desc">${characterDesc(c)}</span><span class="shop-preview-label">${t('case.inspect')}</span></button>`;
                 card.querySelector('.shop-character-select')?.addEventListener('click', () => {
                     this._shopPreviewCharacter = c.id;
                     this._setShopCharacterDetail(store, c, true);
@@ -2947,7 +3152,7 @@ export class UI {
                     action.className = owned ? 'btn btn-small shop-equip' : 'btn btn-primary btn-small shop-buy';
                     action.dataset.type = 'cosmetic';
                     action.dataset.id = item.id;
-                    action.textContent = active ? 'Equipped' : owned ? 'Equip' : `Buy — ${item.price}`;
+                    action.textContent = active ? t('shop.equipped') : owned ? t('case.equip') : t('shop.buyPrice', { price: item.price });
                     action.disabled = active;
                     const actions = document.createElement('div');
                     actions.className = 'shop-card-actions';
@@ -2956,7 +3161,7 @@ export class UI {
                     inspect.className = 'btn btn-small wearable-inspect';
                     inspect.dataset.id = item.id;
                     inspect.setAttribute('aria-pressed', 'false');
-                    inspect.textContent = 'Inspect';
+                    inspect.textContent = t('case.inspect');
                     inspect.addEventListener('click', () => this._dispatchCosmeticPreview(item));
                     actions.append(inspect, action);
                     card.append(preview, name, rarity, tier, description, actions);
@@ -2977,32 +3182,49 @@ export class UI {
             const blocked = Boolean(boost.active) || boost.accountRequired || coinBalance < SHOP_XP_BOOST.price;
             buy.disabled = blocked;
             buy.classList.toggle('shop-buy', !boost.active && !boost.accountRequired);
-            buy.textContent = boost.active ? 'Boost active' : boost.accountRequired ? 'Reconnect to purchase' : `Buy and activate — ${SHOP_XP_BOOST.price}`;
+            buy.textContent = boost.active ? t('shop.boostActive') : boost.accountRequired ? t('shop.reconnect') : t('shop.buyActivate', { price: SHOP_XP_BOOST.price });
             this._decorateShopCard(card, { category: 'boost', price: SHOP_XP_BOOST.price, owned: Boolean(boost.active), currency: coinBalance });
             grid.appendChild(card);
             if (boost.active) this._shopBoostExpiryTimer = setTimeout(() => {
                 if (document.body.dataset.screen === 'shop' && this._shopTab === 'boosts') this.renderShop(store, 'boosts');
             }, Math.min(2147483647, Math.max(1, boost.active.remainingMs + 25)));
         } else if (tab === 'cases') {
+            // Group cases by their skin-theme collection (js/cosmetics.js COLLECTIONS):
+            // a labeled header in the collection's accent colour + tagline precedes its
+            // case card. Cases outside any collection render exactly as before.
+            const collectionByCaseId = Object.fromEntries(Object.values(COLLECTIONS).map(entry => [entry.case, entry]));
+            let lastCollectionId = null;
             Object.values(CASES).forEach(box => {
+                const collection = collectionByCaseId[box.id] || null;
+                if (collection && collection.id !== lastCollectionId) {
+                    const header = document.createElement('h3');
+                    header.className = 'cosmetic-category-title case-collection-title';
+                    header.style.setProperty('--collection-accent', collection.accent);
+                    header.innerHTML = `<span class="case-collection-name">${collection.name}</span><span class="case-collection-tagline">${collection.tagline}</span>`;
+                    grid.appendChild(header);
+                }
+                lastCollectionId = collection ? collection.id : null;
                 const card = document.createElement('article');
-                card.className = `shop-card case-card case-${box.id}`;
+                card.className = `shop-card case-card case-${box.id}${collection ? ' case-collection-item' : ''}`;
+                if (collection) card.style.setProperty('--collection-accent', collection.accent);
                 const pity = store.getCasePityState(box.id);
                 const earned = store.getEarnedCaseState?.(box.id)?.cases || 0;
                 card.innerHTML = `
                     <div class="case-art"><img src="${box.art}" width="512" height="512" loading="lazy" alt="${box.name} crate"></div>
-                    <div class="case-card-head"><div><span class="case-series">ARENA DROP</span><div class="char-name">${box.name}</div></div><strong>${box.price}</strong></div>
-                    <div class="case-balance">Balance: ${store.get('currency')} credits</div>
-                    ${earned ? `<div class="case-earned">${earned} EARNED OPEN${earned === 1 ? '' : 'S'} READY</div>` : '<div class="case-earned muted">Earn free drops from completed matches</div>'}
+                    <div class="case-card-head"><div>${collection ? `<span class="case-series case-collection-tag">${collection.name.toUpperCase()}</span>` : `<span class="case-series">${t('cases.arenaDrop')}</span>`}<div class="char-name">${box.name}</div></div><strong>${box.price}</strong></div>
+                    <div class="case-balance">${t('cases.balance', { count: store.get('currency') })}</div>
+                    ${earned ? `<div class="case-earned">${t('cases.earnedReady', { count: earned })}</div>` : `<div class="case-earned muted">${t('cases.earnFree')}</div>`}
                     <div class="case-pity ${pity.nextGuaranteed ? 'ready' : ''}">
-                        Epic+ guarantee: ${pity.nextGuaranteed ? 'NEXT OPEN' : `${pity.count}/${pity.threshold}`}
+                        ${t('cases.pity')}: ${pity.nextGuaranteed ? t('cases.nextOpen') : `${pity.count}/${pity.threshold}`}
                     </div>
-                    <button class="btn btn-primary btn-small case-select" type="button" data-id="${box.id}" aria-label="Inspect ${box.name}">Inspect and open</button>`;
+                    <button class="btn btn-primary btn-small case-select" type="button" data-id="${box.id}" aria-label="${t('shop.inspectName', { name: box.name })}">${t('cases.inspectOpen')}</button>`;
                 this._decorateShopCard(card, { category: 'case', price: earned > 0 ? 0 : box.price, owned: false, currency: coinBalance });
                 grid.appendChild(card);
             });
         } else if (tab === 'tierlist') {
             this._renderTierList(grid);
+        } else if (tab === 'gems') {
+            this._renderGemShop(store, grid);
         }
         this._finalizeShopCatalog(grid);
         if (!this._shopFiltersBound) {
@@ -3028,6 +3250,8 @@ export class UI {
         if (tab === 'tierlist') {
             const countEl = document.getElementById('shop-catalog-count');
             if (countEl) countEl.textContent = `${grid.querySelectorAll('.tierlist-item').length} items · every case-obtainable drop`;
+        } else if (tab === 'gems') {
+            this._syncGemShopCount();
         } else {
             this._applyShopFilter(this._shopFilterId || 'all');
         }
@@ -3916,7 +4140,7 @@ export class UI {
             const title = document.createElement('strong');
             title.textContent = selected.name;
             const desc = document.createElement('p');
-            desc.textContent = selected.desc;
+            desc.textContent = characterDesc(selected);
             copy.append(title, desc);
             const stats = document.createElement('small');
             stats.textContent = `HP ${selected.maxHp} | SPD ${selected.speed} | POWER ${selected.deflectPower.toFixed(2)}`;
@@ -3927,7 +4151,7 @@ export class UI {
             button.type = 'button';
             button.className = `class-switch-choice${game.player?.charId === character.id ? ' selected' : ''}`;
             button.setAttribute('role', 'listitem');
-            button.setAttribute('aria-label', `${character.name}: ${character.desc}`);
+            button.setAttribute('aria-label', `${character.name}: ${characterDesc(character)}`);
             button.style.setProperty('--class-color', `#${character.color.toString(16).padStart(6, '0')}`);
             const badge = document.createElement('span');
             badge.className = 'class-switch-avatar';
@@ -3944,23 +4168,90 @@ export class UI {
     }
 
     // ===== LEADERBOARD EKRANI =====
-    renderLeaderboard(store, filter = 'global') {
+    // Real ranked/season/wins boards from the server (server/profile-store.js
+    // rankedState). No fake bots, no localStorage roster — see js/leaderboard.js.
+    async renderLeaderboard(store, board = 'ranked') {
         const tbody = document.getElementById('leaderboard-body');
         if (!tbody) return;
-        tbody.innerHTML = '';
-        const options = {
-            friends: store.get('socialProfile')?.friends || [],
-            classId: store.get('selectedChar')
+        const podium = document.getElementById('leaderboard-podium');
+        const statusEl = document.getElementById('leaderboard-status');
+        const guestBanner = document.getElementById('leaderboard-guest-banner');
+        const yourRank = document.getElementById('leaderboard-your-rank');
+
+        // A later call (e.g. a fast tab switch) makes this render stale;
+        // drop the response instead of overwriting a newer view.
+        const requestId = (this._leaderboardRequestId = (this._leaderboardRequestId || 0) + 1);
+        const showStatus = (message, tone = 'loading') => {
+            if (!statusEl) return;
+            statusEl.classList.toggle('hidden', !message);
+            statusEl.classList.toggle('is-error', tone === 'error');
+            statusEl.textContent = message || '';
         };
-        const top = Leaderboard.getFiltered(filter, { ...options, limit: 20 });
-        const myElo = store.getElo();
-        top.forEach((p, i) => {
-            const displayElo = p.displayElo ?? p.elo;
-            const rank = getRank(displayElo);
-            const isMe = p.isYou === true;
+
+        const isGuest = Leaderboard.isGuest();
+        guestBanner?.classList.toggle('hidden', !isGuest);
+        if (guestBanner) {
+            // Lead text / button / tail text: word order differs per language.
+            const texts = [...guestBanner.childNodes].filter(node => node.nodeType === 3);
+            if (texts[0]) texts[0].data = t('lb.guestLead');
+            if (texts.length > 1) texts[texts.length - 1].data = t('lb.guestTail');
+            const cta = document.getElementById('leaderboard-create-account');
+            if (cta) cta.textContent = t('lb.guestCta');
+        }
+        if (guestBanner && !guestBanner.dataset.bound) {
+            guestBanner.dataset.bound = '1';
+            document.getElementById('leaderboard-create-account')?.addEventListener('click', () => {
+                document.getElementById('auth-modal')?.classList.remove('hidden');
+            });
+        }
+        tbody.innerHTML = '';
+        if (podium) { podium.innerHTML = ''; podium.classList.add('hidden'); }
+        yourRank?.classList.add('hidden');
+        showStatus(t('lb.loading'));
+
+        const result = await Leaderboard.fetchBoard(board, { limit: 50, around: !isGuest });
+        if (requestId !== this._leaderboardRequestId) return;
+
+        if (!result.ok) {
+            showStatus(result.offline ? t('lb.offline') : (result.error || t('lb.loadFailed')), 'error');
+            return;
+        }
+        const entries = result.entries;
+        if (!entries.length) {
+            showStatus(t('lb.empty'));
+            return;
+        }
+        showStatus('');
+
+        if (podium) {
+            entries.slice(0, 3).forEach(entry => {
+                const rank = getRank(entry.elo);
+                const slot = document.createElement('div');
+                slot.className = `leaderboard-podium-slot place-${entry.rank}`;
+                const rankEl = document.createElement('span');
+                rankEl.className = 'leaderboard-podium-rank';
+                rankEl.textContent = `#${entry.rank}`;
+                const nameEl = document.createElement('strong');
+                nameEl.textContent = entry.displayName;
+                const tierEl = document.createElement('b');
+                tierEl.style.color = rank.color;
+                tierEl.textContent = `${rank.emoji} ${rank.name}`;
+                const eloEl = document.createElement('em');
+                eloEl.textContent = `${entry.elo} ELO`;
+                slot.append(rankEl, nameEl, tierEl, eloEl);
+                podium.appendChild(slot);
+            });
+            podium.classList.remove('hidden');
+        }
+
+        const myPublicCode = result.me?.entry?.publicCode || '';
+        entries.forEach(entry => {
+            const rank = getRank(entry.elo);
+            const isMe = !!myPublicCode && entry.publicCode === myPublicCode;
             const row = document.createElement('tr');
             row.className = isMe ? 'is-you' : '';
-            const cells = [i + 1, `${p.name}${isMe ? '' : p.fake ? ' · Bot sample' : ' · Local record'}`, displayElo, `${rank.emoji} ${rank.name}`];
+            const record = `${entry.wins}-${Math.max(0, entry.games - entry.wins)}`;
+            const cells = [entry.rank, entry.displayName, entry.elo, `${rank.emoji} ${rank.name}`, record];
             cells.forEach((value, index) => {
                 const cell = document.createElement('td');
                 cell.textContent = String(value);
@@ -3969,10 +4260,27 @@ export class UI {
             });
             tbody.appendChild(row);
         });
-        const playerRank = document.getElementById('leaderboard-your-rank');
-        if (playerRank) {
-            const rank = getRank(myElo);
-            playerRank.innerHTML = `<span>POSITION IN THIS LOCAL VIEW</span><strong>#${Leaderboard.getPlayerRank(myElo, filter, options)}</strong><b style="color:${rank.color}">${rank.emoji} ${rank.name}</b><em>${myElo} ELO</em>`;
+
+        // Pin the caller's own row at the bottom when their real position
+        // isn't already visible in the slice above.
+        if (yourRank) {
+            if (isGuest) {
+                yourRank.classList.add('hidden');
+            } else if (result.me?.entry) {
+                const mine = result.me.entry;
+                const alreadyVisible = entries.some(entry => entry.publicCode === mine.publicCode);
+                if (alreadyVisible) {
+                    yourRank.classList.add('hidden');
+                } else {
+                    const rank = getRank(mine.elo);
+                    yourRank.innerHTML = `<span>${t('lb.yourPosition')}</span><strong>#${mine.rank}</strong><b style="color:${rank.color}">${rank.emoji} ${rank.name}</b><em>${mine.elo} ELO</em>`;
+                    yourRank.classList.remove('hidden');
+                }
+            } else {
+                const rank = getRank(store.getElo());
+                yourRank.innerHTML = `<span>${t('lb.yourPosition')}</span><strong>${t('lb.unranked')}</strong><b style="color:${rank.color}">${rank.emoji} ${rank.name}</b><em>${t('lb.finishPlacements')}</em>`;
+                yourRank.classList.remove('hidden');
+            }
         }
     }
 

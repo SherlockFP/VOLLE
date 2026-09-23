@@ -22,3 +22,5 @@ dist/
 
 # Dependencies (esbuild dev tool)
 node_modules/
+dist.next/
+dist.prev/

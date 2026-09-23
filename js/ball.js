@@ -75,6 +75,32 @@ export function shouldBreakAimedOrbit(distance, speed, steeringAge, alignment) {
         && alignment < 0.12;
 }
 
+// Orbit watchdog for player-steered shots. The aimed steering turn rate is
+// speed-independent by design (it is what leaves a side lane for a miss), so
+// its minimum turning radius v / omega grows with rally speed: ~1.5 m at base
+// speed and ~4 m near the cap, while the hit capsule is ~0.9-1.2 m. Once the
+// ball is inside that radius with a tangent heading it settles into a stable
+// circle the old fixed-rate (7/s) rescue could not tighten. After the ball
+// has swept ORBIT_COMMIT_SWEEP around its target it commits to the torso with
+// a turn rate whose radius (speed / rate) is ORBIT_COMMIT_RADIUS, well inside
+// the capture radius at every speed. A straight fly-by sweeps <= 180 degrees
+// and a wide rear-waypoint shot ~150-180, so neither is affected.
+export const ORBIT_COMMIT_SWEEP = 1.5 * Math.PI;
+export const ORBIT_COMMIT_RADIUS = 0.35;
+
+export function orbitSweepDelta(previousAngle, angle) {
+    if (!Number.isFinite(previousAngle) || !Number.isFinite(angle)) return 0;
+    let delta = angle - previousAngle;
+    while (delta > Math.PI) delta -= 2 * Math.PI;
+    while (delta < -Math.PI) delta += 2 * Math.PI;
+    return delta;
+}
+
+export function orbitCommitTurnRate(speed) {
+    const safeSpeed = Number.isFinite(speed) ? Math.max(0, speed) : 0;
+    return Math.max(7, safeSpeed / ORBIT_COMMIT_RADIUS);
+}
+
 export function floorSafeHomingTargetY(targetY, radius) {
     const safeRadius = Number.isFinite(radius) ? Math.max(0, radius) : 0.35;
     const minimumY = Math.max(0.35, safeRadius);
@@ -1204,6 +1230,38 @@ export class Ball {
         if (this.arena.collidables) {
             for (const c of this.arena.collidables) {
                 if (c.breakable && c.broken) continue;
+                // Solid props (exact box / capped-cylinder extents, see
+                // js/arena.js): swept from last frame so no rally speed tunnels,
+                // and the top face bounces like the floor (never a resting spot).
+                if (Number.isFinite(c.top)) {
+                    const hit = sweepSolidProp(this._prevPosition || this.position, this.position, this.radius, c,
+                        this._propHit || (this._propHit = {}));
+                    if (!hit) continue;
+                    this.position.set(hit.x, hit.y, hit.z);
+                    const dot = this.velocity.x * hit.nx + this.velocity.y * hit.ny + this.velocity.z * hit.nz;
+                    if (dot < 0) {
+                        if (hit.ny > 0.5) {
+                            this.velocity.y = Math.max(4.5, Math.abs(this.velocity.y) * 0.8);
+                            const cx = Number.isFinite(c.minX) ? (c.minX + c.maxX) / 2 : c.pos.x;
+                            const cz = Number.isFinite(c.minZ) ? (c.minZ + c.maxZ) / 2 : c.pos.z;
+                            const ox = this.position.x - cx;
+                            const oz = this.position.z - cz;
+                            const off = Math.hypot(ox, oz);
+                            if (Math.hypot(this.velocity.x, this.velocity.z) < 2) {
+                                this.velocity.x = off > 1e-6 ? (ox / off) * 2 : 2;
+                                this.velocity.z = off > 1e-6 ? (oz / off) * 2 : 0;
+                            }
+                        } else {
+                            this.velocity.x -= hit.nx * dot * 1.8;
+                            this.velocity.y -= hit.ny * dot * 1.8;
+                            this.velocity.z -= hit.nz * dot * 1.8;
+                            this.velocity.y *= 0.85;
+                        }
+                        bounced = true;
+                        this.bounceCount++;
+                    }
+                    break;
+                }
                 const dx = this.position.x - c.pos.x;
                 const dz = this.position.z - c.pos.z;
                 const dy = Math.abs(this.position.y - c.pos.y);
@@ -1441,6 +1499,19 @@ export class Ball {
         this._targetRouteOffset = { x: 0, y: 0, z: 0 };
         this._homingAge = 0;
         this._bounceRouteOwnership = 0;
+        this._orbitSweep = 0;
+        this._orbitLastAngle = NaN;
+        this._orbitCommitted = false;
+    }
+
+    // Signed angle swept around the target on the ground plane since this shot
+    // began. Allocation-free; sticky once committed until the next shot/target.
+    _trackOrbitSweep(center) {
+        const angle = Math.atan2(this.position.z - center.z, this.position.x - center.x);
+        this._orbitSweep = (this._orbitSweep || 0) + orbitSweepDelta(this._orbitLastAngle, angle);
+        this._orbitLastAngle = angle;
+        if (Math.abs(this._orbitSweep) >= ORBIT_COMMIT_SWEEP) this._orbitCommitted = true;
+        return this._orbitCommitted === true;
     }
 
     _consumeBounceRouteOwnership(dt) {
@@ -1532,6 +1603,7 @@ export class Ball {
         const toTorso = new THREE.Vector3().subVectors(torsoPos, this.position);
         const torsoDistance = toTorso.length();
         const torsoDirection = torsoDistance > 0.001 ? toTorso.normalize() : desired;
+        const orbitCommitted = this._trackOrbitSweep(torsoPos);
         // Keep the terminal rescue clock short enough to prevent a reflected
         // ball from spending a full extra loop around its target.
         const rescueAge = this.aimed ? 1.25 : 1.15;
@@ -1556,17 +1628,17 @@ export class Ball {
         // an orbit forever: after the miss window, steering must get a frame
         // to turn back toward the torso.
         const forceAimedRescue = this.aimed && (hasOverstayed || aimedOrbiting);
-        const steeringDt = directRescue || forceAimedRescue
+        const steeringDt = directRescue || forceAimedRescue || orbitCommitted
             ? unlockedSteeringDt
             : steeringDtAfterBounceOwnership(oldAge, dt, bounceRouteDt);
         if (steeringDt <= 0) return 0;
-        if (hasOverstayed || isCircling || aimedOrbiting) {
+        if (hasOverstayed || isCircling || aimedOrbiting || orbitCommitted) {
             this._steeringPhase = 'torso';
             this._steeringWaypoint = null;
             this._steeringPlaneNormal = null;
             this._targetRouteOffset = { x: 0, y: 0, z: 0 };
         }
-        const direct = hasOverstayed || isCircling || aimedOrbiting
+        const direct = hasOverstayed || isCircling || aimedOrbiting || orbitCommitted
             ? torsoDirection
             : desired;
         const proximityTurn = 1 - Math.exp(
@@ -1575,12 +1647,18 @@ export class Ball {
         const rescueTurn = hasOverstayed || isCircling || aimedOrbiting
             ? 1 - Math.exp(-7 * steeringDt)
             : 0;
+        // A confirmed orbit turns at a speed-scaled rate (radius ORBIT_COMMIT_RADIUS)
+        // so the capture holds at the rally cap too; the ordinary rescue stays soft.
+        const orbitCommitTurn = orbitCommitted
+            ? 1 - Math.exp(-orbitCommitTurnRate(this.currentSpeed) * steeringDt)
+            : 0;
         const aimFactor = this.aimed ? PLAYER_AIM_STEERING_FACTOR : 1;
         const proximityFactor = this.aimed ? PLAYER_AIM_PROXIMITY_FACTOR : 1;
         const turn = Math.max(
             steeringTurnAlpha(steeringDt, this.deflections) * aimFactor,
             proximityTurn * proximityFactor,
-            rescueTurn
+            rescueTurn,
+            orbitCommitTurn
         );
         // Even the aimed terminal rescue bends back over several frames; only
         // non-player homing uses the hard snap for a tunnelling safety net.
@@ -2056,4 +2134,110 @@ export class Ball {
         this._emitTrail(dt);
         this.updateTrail(dt);
     }
+}
+
+
+// Swept sphere vs a solid map prop (js/arena.js: box {minX..maxZ, minY..maxY}
+// or capped cylinder {pos, radius, bottom, top}). The shape is grown by the
+// ball radius and the ball centre's segment start -> end is ray-cast against
+// it (slabs + circle), so a ball at any rally speed cannot tunnel through.
+// Returns `out` filled with the contact centre + outward normal, or null.
+// A ball that starts inside (spawned / pushed in) is pushed out through the
+// nearest face at `end`. Pure, allocation-free.
+export function sweepSolidProp(start, end, radius, c, out) {
+    const box = Number.isFinite(c.minX);
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const dz = end.z - start.z;
+    out.t = -Infinity;
+    out.tOut = Infinity;
+    out.nx = 0; out.ny = 0; out.nz = 0;
+    const yMin = (box ? c.minY : c.bottom) - radius;
+    const yMax = (box ? c.maxY : c.top) + radius;
+    if (!sweepSlab(out, start.y, dy, yMin, yMax, 1)) return null;
+    if (box) {
+        if (!sweepSlab(out, start.x, dx, c.minX - radius, c.maxX + radius, 0)) return null;
+        if (!sweepSlab(out, start.z, dz, c.minZ - radius, c.maxZ + radius, 2)) return null;
+    } else {
+        const reach = c.radius + radius;
+        const ox = start.x - c.pos.x;
+        const oz = start.z - c.pos.z;
+        const a = dx * dx + dz * dz;
+        const k = ox * ox + oz * oz - reach * reach;
+        if (a < 1e-12) {
+            if (k > 0) return null;
+        } else {
+            const b = ox * dx + oz * dz;
+            const disc = b * b - a * k;
+            if (disc < 0) return null;
+            const root = Math.sqrt(disc);
+            const t0 = (-b - root) / a;
+            const t1 = (-b + root) / a;
+            if (t0 > out.t) {
+                out.t = t0;
+                out.nx = (ox + dx * t0) / reach;
+                out.ny = 0;
+                out.nz = (oz + dz * t0) / reach;
+            }
+            if (t1 < out.tOut) out.tOut = t1;
+        }
+    }
+    if (out.t > out.tOut || out.tOut < 0 || out.t > 1) return null;
+    if (out.t >= 0) {
+        const t = Math.max(0, out.t - 1e-4);
+        out.x = start.x + dx * t;
+        out.y = start.y + dy * t;
+        out.z = start.z + dz * t;
+        return out;
+    }
+    // Started inside the grown shape: leaving this frame needs no fix.
+    if (out.tOut < 1) return null;
+    out.x = end.x; out.y = end.y; out.z = end.z;
+    let depth = yMax - end.y;
+    out.nx = 0; out.ny = 1; out.nz = 0;
+    // Floor-standing props have no reachable underside.
+    if ((box ? c.minY : c.bottom) > 0 && end.y - yMin < depth) { depth = end.y - yMin; out.ny = -1; }
+    if (box) {
+        const left = end.x - (c.minX - radius);
+        const right = c.maxX + radius - end.x;
+        const back = end.z - (c.minZ - radius);
+        const front = c.maxZ + radius - end.z;
+        if (left < depth) { depth = left; out.nx = -1; out.ny = 0; out.nz = 0; }
+        if (right < depth) { depth = right; out.nx = 1; out.ny = 0; out.nz = 0; }
+        if (back < depth) { depth = back; out.nx = 0; out.ny = 0; out.nz = -1; }
+        if (front < depth) { depth = front; out.nx = 0; out.ny = 0; out.nz = 1; }
+    } else {
+        const ox = end.x - c.pos.x;
+        const oz = end.z - c.pos.z;
+        const dist = Math.hypot(ox, oz);
+        const side = c.radius + radius - dist;
+        if (side < depth) {
+            depth = side;
+            out.nx = dist > 1e-6 ? ox / dist : 1;
+            out.ny = 0;
+            out.nz = dist > 1e-6 ? oz / dist : 0;
+        }
+    }
+    out.x += out.nx * (depth + 1e-4);
+    out.y += out.ny * (depth + 1e-4);
+    out.z += out.nz * (depth + 1e-4);
+    return out;
+}
+
+// One axis of the slab test: narrows [out.t, out.tOut] and records the entry
+// face normal. Returns false when the segment misses the slab entirely.
+function sweepSlab(out, start, delta, lo, hi, axis) {
+    if (Math.abs(delta) < 1e-12) return start >= lo && start <= hi;
+    let t0 = (lo - start) / delta;
+    let t1 = (hi - start) / delta;
+    let sign = -1;
+    if (t0 > t1) { const swap = t0; t0 = t1; t1 = swap; sign = 1; }
+    if (t0 > out.t) {
+        out.t = t0;
+        out.nx = axis === 0 ? sign : 0;
+        out.ny = axis === 1 ? sign : 0;
+        out.nz = axis === 2 ? sign : 0;
+    }
+    if (t1 < out.tOut) out.tOut = t1;
+    return out.t <= out.tOut;
 }

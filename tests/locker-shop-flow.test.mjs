@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import en from '../js/locales/en.js';
 import { readFileSync } from 'node:fs';
 
 const read = path => readFileSync(new URL(path, import.meta.url), 'utf8');
@@ -103,7 +104,8 @@ test('avatar equip validates catalog and ownership before preview or success cop
     assert.match(branch, /const avatarSkin = AVATAR_SKINS\[ballId\]/);
     assert.match(branch, /Boolean\(avatarSkin\) && this\.store\.equipAvatarSkin\(ballId\)/);
     assert.match(branch, /if \(equippedForAnalytics\)[\s\S]*?applyPreset\(ballId\)/);
-    assert.match(branch, /equippedForAnalytics \? `🎨 Equipped:/);
+    assert.match(branch, /equippedForAnalytics \? t\('toast\.skinEquipped'/);
+    assert.match(en.toast.skinEquipped, /^🎨 Equipped:/);
 });
 
 test('375 layout keeps two inventory columns and unclipped left-aligned main nav', () => {

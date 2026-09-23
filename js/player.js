@@ -16,8 +16,8 @@ import { applyGloveLook, buildViewmodelHand, fitGripToModel, updateViewmodelHand
 // so knives read as held objects rather than filling the lower third of the screen.
 const VIEWMODEL_CAMERA_BACKSET = 0.1;
 // Tuned in-game: item sits bottom-right, blade clear of the crosshair (CS-like framing).
-export const VIEWMODEL_DEFAULTS = Object.freeze({ fov: 60, x: 1.2, y: -0.4, z: 0.8 });
-export const VIEWMODEL_SCALE = 0.82;
+export const VIEWMODEL_DEFAULTS = Object.freeze({ fov: 60, x: 1.5, y: -0.3, z: 0.8 });
+export const VIEWMODEL_SCALE = 0.64;
 export const VIEWMODEL_LIMITS = Object.freeze({ fov: [54, 80], offset: [-2, 2] });
 
 // Pure: clamps player viewmodel options (console viewmodel_fov / viewmodel_offset_*).
@@ -292,7 +292,7 @@ export function resolvePlanarBoxCollision(position, previous, radius, height, co
     if (!values.every(Number.isFinite)) return { hit: false, x: position.x, z: position.z };
     const feet = position.y - height;
     const head = position.y + 0.2;
-    if (head <= collider.minY || feet >= collider.maxY) {
+    if (head <= collider.minY || feet >= collider.maxY - PROP_STEP_TOLERANCE) {
         return { hit: false, x: position.x, z: position.z };
     }
 
@@ -359,6 +359,30 @@ export function resolvePlanarBoxCollision(position, previous, radius, height, co
     return { hit: true, x: nearest.x, z: nearest.z, nx: nearest.nx, nz: nearest.nz };
 }
 
+// Solid map props (js/arena.js _addSolidBox / _markSolidColumn) carry exact
+// vertical extents (`bottom`/`top`; boxes also minY/maxY). A body is blocked
+// only while its feet are below the top (minus a small step tolerance), so a
+// player can jump onto a prop and stand there instead of sinking into it.
+export const PROP_STEP_TOLERANCE = 0.05;
+
+export function solidPropSpansBody(feetY, headY, collider) {
+    return feetY < collider.top - PROP_STEP_TOLERANCE && headY > collider.bottom;
+}
+
+// Landing footprint of a one-way platform. Decks (mecha, social hub) need the
+// whole body over the slab; solid prop tops only need the body centre over
+// the box / circle, so landing on a crate edge works and stepping past the
+// edge drops the player (the side collider then pushes them clear).
+export function platformSupports(entry, x, z, radius) {
+    const dx = x - entry.x;
+    const dz = z - entry.z;
+    if (entry.solid) {
+        if (Number.isFinite(entry.radius)) return dx * dx + dz * dz <= entry.radius * entry.radius;
+        return Math.abs(dx) <= entry.halfWidth && Math.abs(dz) <= entry.halfDepth;
+    }
+    return Math.abs(dx) <= entry.halfWidth - radius && Math.abs(dz) <= entry.halfDepth - radius;
+}
+
 export class Player {
     constructor(renderer, camera, arena) {
         this.renderer = renderer;
@@ -404,6 +428,10 @@ export class Player {
 
         // Attack + SPAM PROTECTION (stamina gate)
         this.keys = {};
+        // Analog stick from js/touch-controls.js (x = strafe, y = forward, |v| <= 1).
+        // touchInput = touch controls enabled: pointer lock is skipped.
+        this.touchMove = { x: 0, y: 0 };
+        this.touchInput = false;
         this.team = 'red';
         this.attacking = false;
         this._deflectHeld = false; // raw mouse-button state — Game._updateCharge gates on this
@@ -547,7 +575,8 @@ export class Player {
         this.viewmodelScene.add(keyLight, rimLight);
         // Scene root, not a camera child: moving the camera (viewmodel_offset_*) must reframe the arm.
         this.viewmodelScene.add(this.armGroup);
-        this.renderer.setViewmodel?.(this.viewmodelScene, this.viewmodelCamera, () => this.armGroup.visible);
+        this.viewmodelSuppressed = false;
+        this.renderer.setViewmodel?.(this.viewmodelScene, this.viewmodelCamera, () => this.armGroup.visible && !this.viewmodelSuppressed);
         // Whole hand + item scaled together so the fist keeps its grip on every handle.
         this.armGroup.scale.setScalar(VIEWMODEL_SCALE);
         this.setViewmodelOptions(VIEWMODEL_DEFAULTS);
@@ -646,45 +675,16 @@ export class Player {
         document.addEventListener('keyup', e => { this.keys[e.code] = false; }, { signal });
         document.addEventListener('mousemove', e => {
             // Pointer lock OPTIONAL: camera turns with or without it (movementX/Y works ungated).
-            // Only look during live play and when not typing in a chat/text input.
-            if (!this.alive) return;
-            const st = this.game?.state;
-            if (st !== 'PLAYING' && st !== 'COUNTDOWN' && st !== 'ROUND_END' && st !== 'CELEBRATION' && st !== 'SOCIAL_HUB') return;
-            if (st === 'PAUSED') return;
-            if (this.game?.ui?.isTeamPopupOpen?.()) return;
-            if (this.game?.ui?.spectating) return;
-            if (isEditableTarget(document.activeElement)) return;
-            this.euler.y -= e.movementX * this.sensitivity;
-            this.euler.x += (this.invertY ? 1 : -1) * e.movementY * this.sensitivity;
-            this.euler.x = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, this.euler.x));
-            this.camera.quaternion.setFromEuler(this.euler);
-
-            // Accumulate flick energy (raw pixel motion this frame)
-            this.flickX += e.movementX;
-            this.flickY += e.movementY; // +down, -up on screen
-            this._viewSwayX = Math.max(-1, Math.min(1, this._viewSwayX + e.movementX * 0.008));
-            this._viewSwayY = Math.max(-1, Math.min(1, this._viewSwayY + e.movementY * 0.008));
+            this.applyLookDelta(e.movementX, e.movementY, this.sensitivity);
         }, { signal });
         document.addEventListener('mousedown', e => {
             if (isEditableTarget(e.target)) return;
             // ponytail: pointer lock re-activation removed — causes mouse bug during pause
-            const state = this.game?.state;
-            if (e.button === 0 && this.alive && !this.game?.ui?.spectating && canStartPrimaryAttack(state, this.game?.ball)) {
-                this.tryAttack('slash');
-                this._deflectHeld = true;
-            }
-            if (e.button === 2 && this.alive && state === 'PLAYING' && this.charId === 'soldier' && this.rocketCooldown <= 0) {
-                e.preventDefault();
-                this._rocketQueued = true;
-            } else if (e.button === 2 && this.alive && state === 'PLAYING' && !this.game?.ui?.spectating) {
-                e.preventDefault();
-                this.tryAttack('stab');
-            }
+            if (e.button === 0) this.pressPrimary();
+            if (e.button === 2 && this.pressSecondary()) e.preventDefault();
         }, { signal });
         document.addEventListener('mouseup', e => {
-            // Ends the hold-to-charge window (Game._updateCharge) regardless of
-            // game state — mirrors keyup's unconditional release semantics.
-            if (e.button === 0) this._deflectHeld = false;
+            if (e.button === 0) this.releasePrimary();
         }, { signal });
         document.addEventListener('contextmenu', e => {
             if (this.game?.state === 'PLAYING') e.preventDefault();
@@ -692,24 +692,7 @@ export class Player {
         // ponytail: Q tuşu aktif skill (sadece oyun sırasında)
         document.addEventListener('keydown', e => {
             if (isEditableTarget(e.target)) return;
-            if (e.code === 'KeyQ' && this.alive && this.game?.state === 'PLAYING') {
-                this._skillQueued = true;
-            }
-            const isInspectKey = e.code === 'KeyF' || e.code === 'KeyI';
-            // Free Lab uses F/R for ball tools, except during a knife test drive.
-            const practiceOwnsKey = (e.code === 'KeyF' || e.code === 'KeyR')
-                && this.game?._practiceMode
-                && !this.game?._cosmeticPractice
-                && !this.game?._knifeTrial;
-            const canFlourish = !e.repeat && !practiceOwnsKey
-                && this.alive && this.game?.state === 'PLAYING'
-                && !this.game?.ui?.spectating && !this.game?.sport;
-            if (e.code === 'KeyR' && canFlourish) this.twirlKnife();
-            if (isInspectKey && !e.repeat && !practiceOwnsKey
-                && this.alive && this.game?.state === 'PLAYING'
-                && !this.game?.ui?.spectating) {
-                this.inspectKnife();
-            }
+            this.handleActionKey(e);
         }, { signal });
         document.addEventListener('pointerlockchange', () => {
             const wasLocked = this.locked;
@@ -725,6 +708,87 @@ export class Player {
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) this._clearInputState();
         }, { signal });
+    }
+
+    // Shared input entry points — mouse/keyboard listeners above and the touch
+    // overlay (js/touch-controls.js) both call these, so gameplay rules live once.
+
+    // Camera look from any pointer. dx/dy in screen px; radPerPx = sensitivity.
+    // Flick/sway are accumulated in mouse-equivalent px so spike/lob and view sway
+    // feel the same at any sensitivity (touch uses a different rad/px than mouse).
+    applyLookDelta(dx, dy, radPerPx = this.sensitivity) {
+        // Only look during live play and when not typing in a chat/text input.
+        if (!this.alive) return false;
+        const st = this.game?.state;
+        if (st !== 'PLAYING' && st !== 'COUNTDOWN' && st !== 'ROUND_END' && st !== 'CELEBRATION' && st !== 'SOCIAL_HUB') return false;
+        if (this.game?.ui?.isTeamPopupOpen?.()) return false;
+        if (this.game?.ui?.spectating) return false;
+        if (isEditableTarget(document.activeElement)) return false;
+        this.euler.y -= dx * radPerPx;
+        this.euler.x += (this.invertY ? 1 : -1) * dy * radPerPx;
+        this.euler.x = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, this.euler.x));
+        this.camera.quaternion.setFromEuler(this.euler);
+
+        // Accumulate flick energy (raw pixel motion this frame)
+        const flickScale = this.sensitivity > 0 ? radPerPx / this.sensitivity : 1;
+        const fx = dx * flickScale;
+        const fy = dy * flickScale;
+        this.flickX += fx;
+        this.flickY += fy; // +down, -up on screen
+        this._viewSwayX = Math.max(-1, Math.min(1, this._viewSwayX + fx * 0.008));
+        this._viewSwayY = Math.max(-1, Math.min(1, this._viewSwayY + fy * 0.008));
+        return true;
+    }
+
+    // Left mouse down / touch Deflect press: swing now, then hold-to-charge.
+    pressPrimary() {
+        const state = this.game?.state;
+        if (!this.alive || this.game?.ui?.spectating || !canStartPrimaryAttack(state, this.game?.ball)) return false;
+        this.tryAttack('slash');
+        this._deflectHeld = true;
+        return true;
+    }
+
+    // Ends the hold-to-charge window (Game._updateCharge) regardless of
+    // game state — mirrors keyup's unconditional release semantics.
+    releasePrimary() {
+        this._deflectHeld = false;
+    }
+
+    // Right mouse / touch Stab. Returns true when the press was consumed.
+    pressSecondary() {
+        const state = this.game?.state;
+        if (!this.alive || state !== 'PLAYING') return false;
+        if (this.charId === 'soldier' && this.rocketCooldown <= 0) {
+            this._rocketQueued = true;
+            return true;
+        }
+        if (this.game?.ui?.spectating) return false;
+        this.tryAttack('stab');
+        return true;
+    }
+
+    // Q skill, F/I inspect, R twirl — takes the KeyboardEvent, or any { code, repeat }
+    // (touch buttons pass constant objects), so both paths share one gate.
+    handleActionKey(e) {
+        if (e.code === 'KeyQ' && this.alive && this.game?.state === 'PLAYING') {
+            this._skillQueued = true;
+        }
+        const isInspectKey = e.code === 'KeyF' || e.code === 'KeyI';
+        // Free Lab uses F/R for ball tools, except during a knife test drive.
+        const practiceOwnsKey = (e.code === 'KeyF' || e.code === 'KeyR')
+            && this.game?._practiceMode
+            && !this.game?._cosmeticPractice
+            && !this.game?._knifeTrial;
+        const canFlourish = !e.repeat && !practiceOwnsKey
+            && this.alive && this.game?.state === 'PLAYING'
+            && !this.game?.ui?.spectating && !this.game?.sport;
+        if (e.code === 'KeyR' && canFlourish) this.twirlKnife();
+        if (isInspectKey && !e.repeat && !practiceOwnsKey
+            && this.alive && this.game?.state === 'PLAYING'
+            && !this.game?.ui?.spectating) {
+            this.inspectKnife();
+        }
     }
 
     // R: quick CS2-style flourish. Presses during a twirl queue one follow-up so
@@ -833,9 +897,12 @@ export class Player {
         this._rocketQueued = false;
         this._strafeHistory = [];
         this._deflectHeld = false;
+        this.touchMove.x = 0;
+        this.touchMove.y = 0;
     }
 
     lock() {
+        if (this.touchInput) return; // touch controls: no pointer lock
         try { this.renderer.domElement.requestPointerLock()?.catch?.(() => {}); } catch (_) {}
     }
     unlock() { if (document.pointerLockElement) document.exitPointerLock(); }
@@ -998,13 +1065,21 @@ export class Player {
         if (this.keys['KeyS']) moveDir.sub(forward);
         if (this.keys['KeyA']) moveDir.sub(right);
         if (this.keys['KeyD']) moveDir.add(right);
+        // Touch joystick (js/touch-controls.js): analog direction + magnitude.
+        // Keys win when both are held; otherwise |stick| scales the wish speed.
+        const touchMove = this.touchMove;
+        let analogScale = 1;
+        if (touchMove.x !== 0 || touchMove.y !== 0) {
+            if (moveDir.lengthSq() === 0) analogScale = Math.min(1, Math.hypot(touchMove.x, touchMove.y));
+            moveDir.addScaledVector(forward, touchMove.y).addScaledVector(right, touchMove.x);
+        }
 
         const ctrlDown = !!(this.keys['ControlLeft'] || this.keys['ControlRight']);
         this.longJumpCooldown = Math.max(0, this.longJumpCooldown - dt);
         const longJump = resolveLongJump({
             ctrlDown,
             spaceDown: !!this.keys['Space'],
-            forwardDown: !!this.keys['KeyW'],
+            forwardDown: !!this.keys['KeyW'] || touchMove.y > 0.5,
             onGround: this.onGround,
             comboHeld: this._longJumpWasDown,
             dashActive: this.dashTimer > 0,
@@ -1096,7 +1171,7 @@ export class Player {
             const sprinting = moveDir.lengthSq() > 0 && holdingShift && this.onGround && this.stamina > 0;
             const spd = sprinting ? this.speed * this.sprintMultiplier : this.speed;
             if (sprinting) this.stamina = Math.max(0, this.stamina - this.sprintDrain * dt);
-            this._moveHorizontal(moveDir, spd * chillMul * this._chargeMoveScale, dt);
+            this._moveHorizontal(moveDir, spd * analogScale * chillMul * this._chargeMoveScale, dt);
         }
 
         // Dash trigger — Ctrl tap
@@ -1147,13 +1222,13 @@ export class Player {
         const wasAirborneBeforeLanding = !this.onGround;
         const landingImpactSpeed = Math.max(0, -this.verticalVel);
         let pendingLanding = false;
+        let supported = false;
         if (this.verticalVel <= 0) {
             const platform = this.arena.platforms?.find(entry => {
                 const landingY = entry.y + this.height;
                 return prevPos.y >= landingY
                     && this.position.y <= landingY
-                    && Math.abs(this.position.x - entry.x) <= entry.halfWidth - this.radius
-                    && Math.abs(this.position.z - entry.z) <= entry.halfDepth - this.radius;
+                    && platformSupports(entry, this.position.x, this.position.z, this.radius);
             });
             if (platform) {
                 this.position.y = platform.y + this.height;
@@ -1161,6 +1236,7 @@ export class Player {
                 this.onGround = true;
                 this.jumpsRemaining = 2;
                 pendingLanding = wasAirborneBeforeLanding;
+                supported = true;
             }
         }
         if (!swimming && this.position.y <= this.height && standingHazard?.kind !== 'void') {
@@ -1171,6 +1247,13 @@ export class Player {
             this.position.y = this.height;
             this.verticalVel = 0;
             this.onGround = true;
+            supported = true;
+        }
+        // Walked off a deck / prop top: airborne again with one air jump left,
+        // as if the player had jumped (no ground jump in mid-air).
+        if (this.onGround && !supported && !swimming) {
+            this.onGround = false;
+            this.jumpsRemaining = Math.min(this.jumpsRemaining, 1);
         }
 
         this._jumpPadCooldown = Math.max(0, (this._jumpPadCooldown || 0) - dt);
@@ -1246,7 +1329,10 @@ export class Player {
                 const dz = this.position.z - c.pos.z;
                 const dy = Math.abs(this.position.y - c.pos.y);
                 const minDist = this.radius + c.radius;
-                if (dx * dx + dz * dz < minDist * minDist && dy < c.radius + this.radius + 2) {
+                const spans = Number.isFinite(c.top)
+                    ? solidPropSpansBody(this.position.y - this.height, this.position.y + 0.2, c)
+                    : dy < c.radius + this.radius + 2;
+                if (dx * dx + dz * dz < minDist * minDist && spans) {
                     const dist = Math.sqrt(dx * dx + dz * dz);
                     const previousDx = prevPos.x - c.pos.x;
                     const previousDz = prevPos.z - c.pos.z;

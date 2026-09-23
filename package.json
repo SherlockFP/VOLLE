@@ -4,6 +4,7 @@
   "private": true,
   "description": "Warrball competitive first-person ball combat game",
   "scripts": {
+    "prestart": "node scripts/build.mjs --if-stale",
     "start": "node server.js",
     "test": "node --test",
     "check": "node scripts/check-js.js",

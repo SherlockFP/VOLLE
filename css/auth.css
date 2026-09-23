@@ -150,5 +150,14 @@ body.is-guest .guest-save-banner {
     font-size: .9rem;
 }
 
-/* Guests have no friends graph or presence; an empty "0 online" rail is noise. */
-body.is-guest #friends-sidebar { display: none; }
+/* Guests keep the social rail (it is part of the menu layout) with a sign-up nudge
+   instead of empty friend/online lists. */
+.fbar-guest-cta { display: none; }
+body.is-guest .fbar-guest-cta {
+    display: grid; gap: 6px; margin: 0 0 12px; padding: 12px;
+    border: 1px solid rgba(110, 240, 220, .3); border-radius: 10px;
+    background: linear-gradient(145deg, rgba(110, 240, 220, .12), rgba(110, 240, 220, .03));
+    color: #ecffff; font-size: .78rem; line-height: 1.4;
+}
+body.is-guest .fbar-guest-cta strong { font-size: .86rem; }
+body.is-guest .fbar-guest-cta span { color: var(--ui-text-muted, #9edce4); }

@@ -32,8 +32,13 @@ const art = await import('../js/map-art/index.js');
 const NEW_MAPS = Object.freeze({
     neon_rooftop: 'isRooftop',
     sunken_temple: 'isSunkenTemple',
-    orbital_station: 'isOrbital'
+    orbital_station: 'isOrbital',
+    sunbaked_bazaar: 'isBazaar',
+    harbor_nightworks: 'isHarbor',
+    alpine_research: 'isAlpine',
+    jade_garden: 'isJadeGarden'
 });
+const LANDMARK_IDS = ['sunbaked_bazaar', 'harbor_nightworks', 'alpine_research', 'jade_garden'];
 const NEW_IDS = Object.keys(NEW_MAPS);
 
 // Scene draw calls (renderables the arena adds, no frustum culling) measured
@@ -271,4 +276,81 @@ test('ambient particles are one Points draw that updates in place', () => {
     assert.notDeepEqual(Array.from(positions.slice(0, 6)), before, 'particles drift');
     assert.ok(Array.from(positions).every(Number.isFinite));
     arena.clearMap();
+});
+
+test('landmark maps: callouts, distinct mood presets, one ambient particle system, <= 130 draw calls at Medium', () => {
+    const sunColors = new Set();
+    const skies = new Set();
+    for (const id of LANDMARK_IDS) {
+        const config = MAPS[id];
+        assert.ok(Array.isArray(config.callouts) && config.callouts.length >= 6, `${id} lists its callout zones`);
+        assert.equal(new Set(config.callouts).size, config.callouts.length, `${id} callouts are unique`);
+        assert.ok(config.callouts.every(name => typeof name === 'string' && name.length <= 14), `${id} callouts are short`);
+        sunColors.add(mapLightingPreset(id).sunColor);
+        skies.add(config.skyTop);
+        const { arena, added, totalCalls } = buildWithArt(id, 'medium');
+        assert.ok(totalCalls <= 130, `${id} Medium draw calls ${totalCalls} <= 130`);
+        assert.ok(added >= 8, `${id} builds a real place (${added} art draws)`);
+        const points = arena.objects.filter(object => object.isPoints);
+        assert.equal(points.length, 1, `${id} has exactly one ambient particle system`);
+        assert.equal(points[0], arena._sceneParticles.points);
+        arena.clearMap();
+        const low = buildWithArt(id, 'low');
+        assert.ok(low.totalCalls < totalCalls, `${id} Low skips decorative detail (${low.totalCalls} < ${totalCalls})`);
+        assert.equal(low.arena.scene.environment, null, `${id} Low sets no environment map`);
+        low.arena.clearMap();
+    }
+    assert.equal(sunColors.size, LANDMARK_IDS.length, 'each landmark map has its own light');
+    assert.equal(skies.size, LANDMARK_IDS.length, 'each landmark map has its own sky');
+    assert.equal(MAPS.jade_garden.ambientParticles, 'petal');
+    assert.equal(MAPS.harbor_nightworks.weather, 'rain');
+    assert.equal(MAPS.alpine_research.weather, 'snow');
+});
+
+test('harbor wet ground reflects a painted environment that clearMap drops', () => {
+    const { arena } = buildWithArt('harbor_nightworks', 'medium');
+    const env = arena.scene.environment;
+    assert.ok(env?.isTexture, 'environment set from a CanvasTexture');
+    assert.equal(env.mapping, THREE.EquirectangularReflectionMapping);
+    assert.ok(arena._artTextures.includes(env), 'registered for disposal');
+    arena.clearMap();
+    assert.equal(arena.scene.environment, null);
+});
+
+// Every map-art object that reaches into the playable volume (court footprint,
+// above the floor decals, below the ball ceiling) must be flagged decorative
+// with a reason: anything a player would take for solid lives in the
+// collider-backed gameplay layout instead (js/arena.js GAMEPLAY_LAYOUTS).
+test('map-art never puts undeclared solid-looking geometry inside the play area', () => {
+    const v = new THREE.Vector3();
+    const m = new THREE.Matrix4();
+    const offenders = [];
+    for (const id of [...NEW_IDS, ...MAP_ART_POLISH]) {
+        const { arena } = buildWithArt(id, 'high');
+        const halfW = arena.courtWidth / 2;
+        const halfL = arena.courtLength / 2;
+        const top = arena.ceilingHeight > 0 ? arena.ceilingHeight : arena.bounds.maxY;
+        for (const object of arena.objects.filter(o => o.userData.mapArt)) {
+            const pos = object.geometry?.getAttribute('position');
+            if (!pos) continue;
+            object.updateMatrixWorld(true);
+            const count = object.isInstancedMesh ? object.count : 1;
+            let inside = false;
+            for (let i = 0; i < count && !inside; i++) {
+                if (object.isInstancedMesh) { object.getMatrixAt(i, m); m.premultiply(object.matrixWorld); }
+                else m.copy(object.matrixWorld);
+                for (let k = 0; k < pos.count; k++) {
+                    v.fromBufferAttribute(pos, k).applyMatrix4(m);
+                    if (Math.abs(v.x) < halfW - 0.01 && Math.abs(v.z) < halfL - 0.01 && v.y > 0.05 && v.y < top) { inside = true; break; }
+                }
+            }
+            if (!inside) continue;
+            const reason = object.userData.decorative;
+            if (!(typeof reason === 'string' && reason.length >= 8)) {
+                offenders.push(`${id}: ${object.type} ${object.material?.type}/${object.material?.userData?.artMode || '-'} #${arena.objects.indexOf(object)}`);
+            }
+        }
+        arena.clearMap();
+    }
+    assert.deepEqual(offenders, [], 'art inside the play area must be declared decorative');
 });

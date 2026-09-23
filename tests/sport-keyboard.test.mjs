@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
+import { localizedName, t } from '../js/i18n.js';
 
 const source = readFileSync(new URL('../js/main.js', import.meta.url), 'utf8');
 
@@ -113,7 +114,9 @@ test('Volleyball disables and inerts party follow while Dodgeball restores it', 
         sportDefinition: id => sports[id],
         canHostSport: id => id === 'dodgeball',
         canPlayLocalSport: id => id === 'volleyball',
-        SPORT_IDS: { VOLLEYBALL: 'volleyball' }
+        SPORT_IDS: { VOLLEYBALL: 'volleyball' },
+        t,
+        localizedName
     });
     const app = { _selectedSportId: 'volleyball' };
 

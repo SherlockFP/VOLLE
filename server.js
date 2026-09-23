@@ -91,6 +91,11 @@ const RATE_LIMITS = {
     lobbyInvite: [20, 60000],
     party: [30, 60000],
     paymentWebhook: [40, 60000],
+    // Stripe delivers from a small pool of IPs and retries on 429, so this is a
+    // flood guard rather than a per-user limit.
+    stripeWebhook: [300, 60000],
+    paymentCatalog: [60, 60000],
+    checkout: [10, 60000],
     telemetry: [120, 60000],
     productAnalytics: [120, 60000],
     rtcConfig: [60, 60000],
@@ -105,7 +110,7 @@ const RATE_LIMITS = {
 const LEADERBOARD_CACHE_TTL = 30000;
 let leaderboardCache = null;
 
-function stripProfileId({ profileId, ...publicEntry }) {
+function stripProfileId({ profileId, placed, ...publicEntry }) {
     return publicEntry;
 }
 
@@ -125,6 +130,10 @@ function buildLeaderboardCache(now) {
     }
     return { builtAt: now, boards, rankIndex, total: eligible.length };
 }
+
+// Test-only escape hatch so a test can force a fresh build right after
+// seeding profile data, instead of waiting out LEADERBOARD_CACHE_TTL.
+function __resetLeaderboardCacheForTests() { leaderboardCache = null; }
 
 function getLeaderboardCache() {
     const now = Date.now();
@@ -906,6 +915,69 @@ const server = http.createServer(async (req, res) => {
         return;
     }
 
+    // --- Stripe Checkout for gem packs (docs/PAYMENTS.md). Off unless env is set. ---
+    if (urlPath === '/api/payments/catalog' && req.method === 'GET') {
+        if (!allowRequest(req, res, 'paymentCatalog')) return;
+        sendJson(res, {
+            enabled: stripeConfig().checkoutEnabled,
+            packs: publicPackCatalog(),
+            gemPrices: { ...GEM_PRICES }
+        });
+        return;
+    }
+    if (urlPath === '/api/payments/checkout' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'checkout')) return;
+        const body = await readBody(req, 1024);
+        const auth = resolveAuth(req, body);
+        if (!auth) { sendJson(res, { error: 'account required', message: 'Create a free account to buy gems.' }, 401); return; }
+        const config = stripeConfig();
+        if (!config.checkoutEnabled) { sendJson(res, { error: 'payments unavailable' }, 503); return; }
+        const result = await createCheckoutSession({
+            config,
+            packId: String(body.packId || ''),
+            profileId: auth.profile.id,
+            accountId: auth.account?.id,
+            requestId: String(req.headers['idempotency-key'] || body.requestId || '')
+        });
+        sendJson(res, result.error ? { error: result.error } : { url: result.url, sessionId: result.sessionId }, result.status);
+        return;
+    }
+    if (urlPath === '/api/payments/stripe/webhook' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'stripeWebhook')) return;
+        const config = stripeConfig();
+        if (!config.webhookEnabled) { sendJson(res, { error: 'payments unavailable' }, 503); return; }
+        const raw = await readRawBody(req, 64 * 1024);
+        if (!raw) { sendJson(res, { error: 'payload too large' }, 413); return; }
+        const verified = verifyStripeSignature(raw, req.headers['stripe-signature'], config.webhookSecret);
+        if (!verified.ok) { sendJson(res, { error: 'invalid signature' }, 400); return; }
+        let stripeEvent;
+        try { stripeEvent = JSON.parse(raw.toString('utf8')); }
+        catch { sendJson(res, { error: 'invalid json' }, 400); return; }
+        const payment = paymentEventFromStripe(stripeEvent);
+        // Unrelated/unpaid events are acknowledged so Stripe stops retrying them.
+        if (!payment) { sendJson(res, { received: true, ignored: true }); return; }
+        const result = paymentLedger.apply(profiles, payment);
+        if (result.applied === true) productAnalytics.recordPaymentCompleted(payment.profileId, payment);
+        if (result.error) console.warn('[payments] Stripe session not credited:', payment.transactionId, result.error);
+        sendJson(res, result.error ? { error: result.error } : {
+            received: true, applied: result.applied === true, replayed: result.replayed === true
+        }, result.status);
+        return;
+    }
+    if (urlPath === '/api/profile/battlepass/premium-gems' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'purchase')) return;
+        const body = await readBody(req, 512);
+        const profile = requireAuth(req, res, body)?.profile;
+        if (!profile) return;
+        const requestId = String(req.headers['idempotency-key'] || body.requestId || '');
+        const result = profiles.spendGems(profile, 'battlepass_premium', requestId);
+        sendJson(res, result.error ? { error: result.error } : {
+            replayed: result.replayed === true,
+            profile: result.profile
+        }, result.status);
+        return;
+    }
+
     if (urlPath === '/api/telemetry' && req.method === 'POST') {
         if (!allowRequest(req, res, 'telemetry')) return;
         const body = await readBody(req, 4096);
@@ -1224,4 +1296,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { normalizeLobbyRecord, normalizeLobbySportPayload, pruneLobbies, lobbies, LOBBY_TTL, server, accounts, social, presence, partyStore, matchAuthority };
+module.exports = { normalizeLobbyRecord, normalizeLobbySportPayload, pruneLobbies, lobbies, LOBBY_TTL, server, accounts, social, presence, partyStore, matchAuthority, __resetLeaderboardCacheForTests };

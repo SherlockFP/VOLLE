@@ -23,6 +23,7 @@ import {
 } from './social.js';
 import { createSocialProfile } from './social-service.js';
 import { DEFAULT_NETCODE, normalizeNetcode } from './experimental-netcode.js';
+import { isTrustedCheckoutUrl } from './gem-shop.js';
 import { COSMETICS, DEFAULT_WEARABLE_LOADOUT, normalizeWearableLoadout } from './cosmetic-catalog.js';
 import {
     BALL_PRICES,
@@ -1613,6 +1614,77 @@ class StoreClass {
         } catch {
             this.lastBattlepassError = 'Battle Pass service unavailable';
             return false;
+        }
+    }
+
+    // Gems are server-owned (Stripe webhook credits them); there is no local path.
+    async buyPremiumBattlepassWithGems() {
+        this.lastBattlepassError = '';
+        if (!this.remoteReady && !await this.connectRemote(this.get('playerName'))) {
+            this.lastBattlepassError = 'Sign in to use gems';
+            return false;
+        }
+        const nonce = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const requestId = `bp-gems:${nonce}`.slice(0, 96);
+        try {
+            const response = await fetch('/api/profile/battlepass/premium-gems', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${this.sessionToken}`, 'Content-Type': 'application/json', 'Idempotency-Key': requestId },
+                body: JSON.stringify({ requestId })
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) { this.lastBattlepassError = result.error === 'not enough gems' ? 'Not enough gems' : (result.error || 'Premium Battle Pass unavailable'); return false; }
+            if (result.profile) this._applyRemoteProfile(result.profile);
+            return this.data.battlepass?.premium === true;
+        } catch {
+            this.lastBattlepassError = 'Battle Pass service unavailable';
+            return false;
+        }
+    }
+
+    // Server catalog for the Shop > Gems tab; cached 5 minutes.
+    async getPaymentCatalog({ force = false } = {}) {
+        if (!force && this.paymentCatalog && Date.now() - this.paymentCatalog.fetchedAt < 5 * 60 * 1000) return this.paymentCatalog;
+        try {
+            const response = await fetch('/api/payments/catalog');
+            if (!response.ok) throw new Error('catalog unavailable');
+            const result = await response.json();
+            this.paymentCatalog = {
+                enabled: result.enabled === true,
+                packs: Array.isArray(result.packs) ? result.packs : [],
+                gemPrices: result.gemPrices && typeof result.gemPrices === 'object' ? result.gemPrices : {},
+                fetchedAt: Date.now()
+            };
+        } catch {
+            this.paymentCatalog = { enabled: false, packs: [], gemPrices: {}, fetchedAt: Date.now(), error: true };
+        }
+        return this.paymentCatalog;
+    }
+
+    // Returns { ok, url } for a Stripe-hosted checkout page, or { ok: false, error }.
+    async startGemCheckout(packId) {
+        if (!this.remoteReady && !await this.connectRemote(this.get('playerName'))) {
+            return { ok: false, status: 401, error: 'Create a free account to buy gems.' };
+        }
+        const nonce = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const requestId = `checkout:${nonce}`.slice(0, 80);
+        try {
+            const response = await fetch('/api/payments/checkout', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${this.sessionToken}`, 'Content-Type': 'application/json', 'Idempotency-Key': requestId },
+                body: JSON.stringify({ packId: String(packId || ''), requestId })
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                const error = response.status === 503 ? 'Gem purchases are coming soon.'
+                    : response.status === 401 ? 'Create a free account to buy gems.'
+                        : 'Checkout is unavailable right now. You were not charged.';
+                return { ok: false, status: response.status, error };
+            }
+            if (!isTrustedCheckoutUrl(result.url)) return { ok: false, status: 502, error: 'Checkout is unavailable right now. You were not charged.' };
+            return { ok: true, url: result.url };
+        } catch {
+            return { ok: false, status: 0, error: 'Checkout is unavailable right now. You were not charged.' };
         }
     }
 

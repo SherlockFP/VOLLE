@@ -393,15 +393,39 @@ export class Game {
         // Preload combo sounds to avoid latency (blob so no direct download)
         this._comboAudio = {};
         const comboFiles = ['music/1kill.sfx', 'music/2kill.sfx', 'music/3kill.sfx', 'music/4kill.sfx', 'music/ace.sfx'];
-        this._preloadBlobAudio([...this._musicTracks, ...comboFiles]).then(() => {
+        // Only the opening track (+ small combo stings) loads at boot, after the page is
+        // idle; the rest stream in one at a time while the previous track plays. Loading
+        // all four tracks up front cost ~4.7 MB before the menu felt ready.
+        this._musicIndex = Math.floor(Math.random() * this._musicTracks.length);
+        const bootAudio = () => this._preloadBlobAudio([this._musicTracks[this._musicIndex], ...comboFiles]).then(() => {
             comboFiles.forEach(f => {
                 const a = new Audio(this._blobUrls[f]);
                 a.preload = 'auto';
                 a.volume = 0.12; // combo sesleri
                 this._comboAudio[f] = a;
             });
-            this._startMusic(); // boot music once blobs are ready
+            this._startMusic(); // boot music once the opening track is ready
         });
+        if (typeof window === 'undefined') void bootAudio();
+        else if (document.readyState === 'complete') (window.requestIdleCallback || setTimeout)(() => void bootAudio(), { timeout: 1500 });
+        else window.addEventListener('load', () => (window.requestIdleCallback || setTimeout)(() => void bootAudio(), { timeout: 1500 }), { once: true });
+    }
+
+    // Per-team alive/total for the HUD's CS-style player pips. Reuses one object per
+    // frame; spectators have no team and are never counted.
+    _countTeamAlive() {
+        const out = this._aliveCounts || (this._aliveCounts = { red: { alive: 0, total: 0 }, blue: { alive: 0, total: 0 } });
+        out.red.alive = out.red.total = out.blue.alive = out.blue.total = 0;
+        const add = entity => {
+            const side = entity?.team === 'red' ? out.red : entity?.team === 'blue' ? out.blue : null;
+            if (!side) return;
+            side.total++;
+            if (entity.alive !== false) side.alive++;
+        };
+        if (!this.localSpectator) add(this.player);
+        for (let i = 0; i < this.bots.length; i++) add(this.bots[i]);
+        this.remotePlayers?.forEach?.(add);
+        return out;
     }
 
     // Fetch each .sfx as a blob and cache an object URL — same trick as audio.js.
@@ -420,16 +444,19 @@ export class Game {
     // --- LOBBY MUSIC ---
     _startMusic() {
         if (this._musicAudio) return;
-        // ponytail: her açılışta farklı bir parça rastgele başlasın
-        this._musicIndex = Math.floor(Math.random() * this._musicTracks.length);
+        // The opening track was picked (randomly) at boot so only it had to be fetched.
         const srcFor = (path) => this._blobUrls[path] || path;
+        const nextTrack = () => this._musicTracks[(this._musicIndex + 1) % this._musicTracks.length];
+        const prefetchNext = () => { if (!this._blobUrls[nextTrack()]) void this._preloadBlobAudio([nextTrack()]); };
         const playNext = () => {
             this._musicIndex = (this._musicIndex + 1) % this._musicTracks.length;
             this._musicAudio = new Audio(srcFor(this._musicTracks[this._musicIndex]));
             this._musicAudio.volume = this._musicVolume;
             this._musicAudio.play().catch(() => {});
             this._musicAudio.onended = playNext;
+            prefetchNext();
         };
+        prefetchNext();
         const track = this._musicTracks[this._musicIndex];
         this._musicAudio = new Audio(srcFor(track));
         this._musicAudio.volume = this._musicVolume;
@@ -2891,6 +2918,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             blueScore: this.scoreboard.blueScore,
             ballSpeed: this.ball.getSpeed(),
             round: this.scoreboard.roundNum,
+            alive: this._countTeamAlive(),
             deflections: this.rallyCount,
             hotPotato: this.getHotPotatoSnapshot(),
             competitive: this.getCompetitiveHUDState(),

@@ -18,7 +18,12 @@ export const ARENA_PRESENTATION_PROFILES = Object.freeze({
     // Map-art pass: night rooftop keeps a dim moon key so neon carries the scene.
     neon_rooftop: Object.freeze({ exposure: 1.08, sun: 0.95, bloomRadius: 0.2, bloomThreshold: 0.7 }),
     sunken_temple: Object.freeze({ exposure: 1.04, sun: 1.85, bloomRadius: 0.16, bloomThreshold: 0.84 }),
-    orbital_station: Object.freeze({ exposure: 1.08, sun: 2.2, bloomRadius: 0.2, bloomThreshold: 0.76 })
+    orbital_station: Object.freeze({ exposure: 1.08, sun: 2.2, bloomRadius: 0.2, bloomThreshold: 0.76 }),
+    // Landmark maps: golden hour, rainy sodium night, cold overcast, soft spring.
+    sunbaked_bazaar: Object.freeze({ exposure: 1.0, sun: 2.3, bloomRadius: 0.18, bloomThreshold: 0.8 }),
+    harbor_nightworks: Object.freeze({ exposure: 1.2, sun: 0.85, bloomRadius: 0.18, bloomThreshold: 0.86 }),
+    alpine_research: Object.freeze({ exposure: 0.96, sun: 1.55, bloomRadius: 0.16, bloomThreshold: 0.88 }),
+    jade_garden: Object.freeze({ exposure: 1.02, sun: 1.7, bloomRadius: 0.18, bloomThreshold: 0.82 })
 });
 
 export function arenaPresentationProfile(mapId) {
@@ -498,6 +503,97 @@ export const MAPS = {
             fallDeathY: -12, playerSpawnZ: 42, symmetric: true
         },
         sky: { horizonColor: 0x15224a, sun: true, sunColor: 0xfff4dc, cloudAmount: 0, stars: 1 }
+    },
+    // --- Landmark maps: one readable place each, named callout zones (shown
+    // in-world on painted signs), 2-3 set-pieces to navigate by. Cover +
+    // colliders: GAMEPLAY_LAYOUTS; scenery: js/map-art/landmark-*.js.
+    sunbaked_bazaar: {
+        name: '🏜️ Sunbaked Bazaar',
+        courtWidth: 96, courtLength: 112, wallHeight: 18, ceilingHeight: 0,
+        floorRed: 0xb4583a, floorBlue: 0x2c6e8f, wallColor: 0xe9c89a,
+        skyTop: 0x3f73b8, skyBottom: 0xffc68a, fogColor: 0xe9b88a,
+        floorMaterial: { roughness: 0.9, metalness: 0, emissiveIntensity: 0.05 },
+        hasOcean: false, hasGlass: false, isBazaar: true, openAir: true, size: 'medium', weather: 'clear',
+        ambientParticles: 'motes',
+        callouts: Object.freeze(['Red Gate', 'Blue Gate', 'Minaret', 'Great Dome', 'Spice Row', 'Tea House', 'Well', 'Carts']),
+        spectator: {
+            bounds: { minX: -74, maxX: 74, minY: 0, maxY: 40, minZ: -78, maxZ: 78 },
+            stands: [
+                { side: 'west', tiers: 3, length: 46, depth: 2.2, rise: 0.8, setback: 7 },
+                { side: 'east', tiers: 3, length: 46, depth: 2.2, rise: 0.8, setback: 7 }
+            ]
+        },
+        gameplay: {
+            mechanics: ['market-stall-cover', 'crate-hops', 'open-center-lane', 'symmetric-spawns'],
+            fallDeathY: -12, playerSpawnZ: 40, symmetric: true
+        },
+        sky: { horizonColor: 0xffa865, sun: true, sunColor: 0xffd49a, cloudAmount: 0.2 }
+    },
+    harbor_nightworks: {
+        name: '⚓ Harbor Nightworks',
+        courtWidth: 104, courtLength: 120, wallHeight: 20, ceilingHeight: 0,
+        floorRed: 0xa8423a, floorBlue: 0x2a6a9a, wallColor: 0xff9a2e,
+        skyTop: 0x04070d, skyBottom: 0x1c2330, fogColor: 0x1a1f28,
+        floorMaterial: { roughness: 0.22, metalness: 0.35, emissiveIntensity: 0.1 },
+        hasOcean: false, hasGlass: false, isHarbor: true, openAir: true, size: 'medium', weather: 'rain',
+        ambientParticles: 'mist',
+        callouts: Object.freeze(['Crane', 'Shed 9', 'Berth 4', 'Stacks', 'Quay', 'Ship', 'Gate B', 'Pallets']),
+        spectator: {
+            bounds: { minX: -78, maxX: 78, minY: 0, maxY: 44, minZ: -82, maxZ: 82 },
+            stands: [
+                { side: 'west', tiers: 3, length: 50, depth: 2.2, rise: 0.8, setback: 7 },
+                { side: 'east', tiers: 3, length: 50, depth: 2.2, rise: 0.8, setback: 7 }
+            ]
+        },
+        gameplay: {
+            mechanics: ['container-cover', 'barrier-hops', 'open-center-lane', 'symmetric-spawns'],
+            fallDeathY: -12, playerSpawnZ: 44, symmetric: true
+        },
+        sky: { horizonColor: 0x4a3526, sun: true, sunColor: 0xaebbd6, cloudAmount: 0.65 }
+    },
+    alpine_research: {
+        name: '🏔️ Alpine Research Base',
+        courtWidth: 100, courtLength: 116, wallHeight: 20, ceilingHeight: 0,
+        floorRed: 0xc04a3a, floorBlue: 0x2f74b0, wallColor: 0xff6a2a,
+        skyTop: 0x7fa6d6, skyBottom: 0xe6edf5, fogColor: 0xd5dee8,
+        floorMaterial: { roughness: 0.7, metalness: 0.05, emissiveIntensity: 0.05 },
+        hasOcean: false, hasGlass: false, isAlpine: true, openAir: true, size: 'medium', weather: 'snow',
+        ambientParticles: 'snow',
+        callouts: Object.freeze(['Dish', 'Radome', 'Lab 2', 'Hangar', 'Ridge', 'Pines', 'Masts', 'Bunkers']),
+        spectator: {
+            bounds: { minX: -76, maxX: 76, minY: 0, maxY: 42, minZ: -80, maxZ: 80 },
+            stands: [
+                { side: 'west', tiers: 3, length: 48, depth: 2.2, rise: 0.8, setback: 7 },
+                { side: 'east', tiers: 3, length: 48, depth: 2.2, rise: 0.8, setback: 7 }
+            ]
+        },
+        gameplay: {
+            mechanics: ['bunker-cover', 'antenna-masts', 'open-center-lane', 'symmetric-spawns'],
+            fallDeathY: -12, playerSpawnZ: 42, symmetric: true
+        },
+        sky: { horizonColor: 0xf0f4f8, sun: true, sunColor: 0xffffff, cloudAmount: 0.55 }
+    },
+    jade_garden: {
+        name: '🏯 Jade Garden Temple',
+        courtWidth: 100, courtLength: 116, wallHeight: 20, ceilingHeight: 0,
+        floorRed: 0xb8443a, floorBlue: 0x2f7f72, wallColor: 0xd8443a,
+        skyTop: 0x8fb8d8, skyBottom: 0xf3e4da, fogColor: 0xe4ddd6,
+        floorMaterial: { roughness: 0.85, metalness: 0, emissiveIntensity: 0.05 },
+        hasOcean: false, hasGlass: false, isJadeGarden: true, openAir: true, size: 'medium', weather: 'clear',
+        ambientParticles: 'petal',
+        callouts: Object.freeze(['Pagoda', 'Moon Gate', 'Koi Pond', 'Red Bridge', 'Bell Tower', 'Bamboo', 'Lanterns', 'Rockery']),
+        spectator: {
+            bounds: { minX: -76, maxX: 76, minY: 0, maxY: 42, minZ: -80, maxZ: 80 },
+            stands: [
+                { side: 'west', tiers: 3, length: 48, depth: 2.2, rise: 0.8, setback: 7 },
+                { side: 'east', tiers: 3, length: 48, depth: 2.2, rise: 0.8, setback: 7 }
+            ]
+        },
+        gameplay: {
+            mechanics: ['stone-lantern-cover', 'rockery-hops', 'open-center-lane', 'symmetric-spawns'],
+            fallDeathY: -12, playerSpawnZ: 42, symmetric: true
+        },
+        sky: { horizonColor: 0xf6d8c8, sun: true, sunColor: 0xfff0d8, cloudAmount: 0.35 }
     }
 };
 
@@ -616,8 +712,8 @@ const GAMEPLAY_LAYOUTS = {
     }),
     // Rooftop: waist-high AC units flank the net and the back wings, exhaust
     // stacks give full cover mid-court; the centre lane stays a clean duel line.
-    // `blocks` are boxes whose colliders are a row of circles along the long
-    // axis; low ones use honest-top colliders (see lowCoverCenterY).
+    // `blocks` are floor-standing boxes with one solid box collider each
+    // (exact extents, standable top; see blockCollider).
     neon_rooftop: () => ({
         idea: 'ac-unit-cover',
         blocks: [
@@ -645,8 +741,63 @@ const GAMEPLAY_LAYOUTS = {
             ...mirrorXZ(30, 7, { halfWidth: 3, halfDepth: 0.9, height: 2, style: 'barrier' }),
             ...mirrorXZ(32, 30, { halfWidth: 1.7, halfDepth: 3.4, height: 2.8, style: 'cargo' })
         ]
+    }),
+    // --- Landmark maps. Every block is a solid box with a standable top when
+    // reachable; visuals are instanced part families (_buildLandmarkProp).
+    // Bazaar: spice stalls flank the net (waist cover), crate hops on the
+    // wings, hand carts guard the back lane, stone wells anchor the far wings.
+    sunbaked_bazaar: () => ({
+        idea: 'market-stalls',
+        blocks: [
+            ...mirrorXZ(20, 9, { halfWidth: 3.4, halfDepth: 1.5, height: 2.2, style: 'stall' }),
+            ...mirrorXZ(34, 24, { halfWidth: 1.4, halfDepth: 1.4, height: 1.4, style: 'crate-stack' }),
+            ...mirrorXZ(9, 28, { halfWidth: 1.2, halfDepth: 2.4, height: 1.8, style: 'cart' })
+        ],
+        columns: mirrorXZ(40, 12, { radius: 1.6, height: 2.2, style: 'well', lowCover: true })
+    }),
+    // Harbor: single containers are head-high cover you can mantle with a
+    // double jump; two-high stacks are full walls on the back wings; jersey
+    // barriers and pallets are quick hops.
+    harbor_nightworks: () => ({
+        idea: 'container-stacks',
+        blocks: [
+            ...mirrorXZ(22, 14, { halfWidth: 1.25, halfDepth: 3.05, height: 2.6, style: 'container' }),
+            ...mirrorXZ(38, 32, { halfWidth: 3.05, halfDepth: 1.25, height: 5.2, style: 'container-stack' }),
+            ...mirrorXZ(10, 22, { halfWidth: 2.2, halfDepth: 0.5, height: 1.1, style: 'jersey' }),
+            ...mirrorXZ(34, 6, { halfWidth: 1.1, halfDepth: 1.1, height: 1.3, style: 'pallet' })
+        ]
+    }),
+    // Research base: concrete bunkers near the net, antenna masts (full cover)
+    // on the net wings, snow berms and field crates further back.
+    alpine_research: () => ({
+        idea: 'bunker-berms',
+        blocks: [
+            ...mirrorXZ(18, 12, { halfWidth: 3.2, halfDepth: 2, height: 2.7, style: 'bunker' }),
+            ...mirrorXZ(8, 30, { halfWidth: 1.3, halfDepth: 1.3, height: 1.3, style: 'field-crate' }),
+            ...mirrorXZ(34, 22, { halfWidth: 1, halfDepth: 3.6, height: 1.2, style: 'berm' })
+        ],
+        columns: mirrorXZ(30, 6, { radius: 0.8, height: 7, style: 'mast' })
+    }),
+    // Garden: stone lanterns ring the centre, scholar-rock rockeries on the
+    // wings, low hedge planters and bronze censers shape the back court.
+    jade_garden: () => ({
+        idea: 'lantern-garden',
+        columns: mirrorXZ(14, 12, { radius: 1, height: 2.6, style: 'stone-lantern', lowCover: true }),
+        blocks: [
+            ...mirrorXZ(30, 22, { halfWidth: 2.2, halfDepth: 1.6, height: 1.7, style: 'rockery' }),
+            ...mirrorXZ(22, 34, { halfWidth: 3, halfDepth: 0.8, height: 1.3, style: 'planter' }),
+            ...mirrorXZ(38, 6, { halfWidth: 1.3, halfDepth: 1.3, height: 1.6, style: 'censer' })
+        ]
     })
 };
+
+// Layout styles rendered as instanced part families (see _buildLandmarkProp).
+const LANDMARK_PROP_STYLES = new Set([
+    'stall', 'crate-stack', 'cart', 'well',
+    'container', 'container-stack', 'jersey', 'pallet',
+    'bunker', 'field-crate', 'berm', 'mast',
+    'stone-lantern', 'rockery', 'planter', 'censer'
+]);
 
 // Ball radius the honest-top low-cover colliders are tuned for (js/ball.js).
 export const LOW_COVER_BALL_RADIUS = 0.47;
@@ -659,20 +810,21 @@ export function lowCoverCenterY(radius, height) {
     return height - (radius + LOW_COVER_BALL_RADIUS + PROP_COLLIDER_SLACK);
 }
 
-// Circle centres covering a block footprint along its long axis (no slot a
-// ball, bot or player fits through). Pure; shared by the builder and tests.
-export function blockColliderCircles(block) {
-    const alongX = block.halfWidth >= block.halfDepth;
-    const long = alongX ? block.halfWidth : block.halfDepth;
-    const radius = alongX ? block.halfDepth : block.halfWidth;
-    const span = Math.max(0, long - radius);
-    const count = span > 0 ? Math.ceil((span * 2) / radius) + 1 : 1;
-    const circles = [];
-    for (let i = 0; i < count; i++) {
-        const offset = count === 1 ? 0 : -span + (span * 2 * i) / (count - 1);
-        circles.push({ x: block.x + (alongX ? offset : 0), z: block.z + (alongX ? 0 : offset), radius });
-    }
-    return circles;
+// Solid props carry their exact extents on top of the legacy {pos, radius}
+// contract: boxes add minX..maxZ / minY..maxY, cylinders add bottom/top.
+// player.js stops a body only while its feet are below `top` and lands it on
+// the top face (see `platforms` entries flagged `solid`); ball.js sweeps the
+// ball against the exact shape so side AND top faces bounce, at any speed.
+// Tops no higher than this get a standable platform (double jump ~3.2 m).
+export const SOLID_TOP_STANDABLE_MAX = 4.5;
+
+// Pure: the solid box collider for a layout block (shared by builder + tests).
+export function blockCollider(block) {
+    const { x, z, halfWidth: hw, halfDepth: hd, height: h } = block;
+    return {
+        minX: x - hw, maxX: x + hw, minY: 0, maxY: h, minZ: z - hd, maxZ: z + hd,
+        bottom: 0, top: h
+    };
 }
 
 export function getGameplayLayout(mapId, config = MAPS[mapId]) {
@@ -769,6 +921,10 @@ export const MAP_THEMES = {
     neon_rooftop: { '--ui-primary': '#ff4fa3', '--ui-secondary': '#35e0ff', '--ui-bg': '#120a22', '--ui-accent': '#ffd23d' },
     sunken_temple: { '--ui-primary': '#d9a441', '--ui-secondary': '#3fb3a6', '--ui-bg': '#10201a', '--ui-accent': '#f4e3b0' },
     orbital_station: { '--ui-primary': '#9fd4ff', '--ui-secondary': '#ff7a93', '--ui-bg': '#070d1e', '--ui-accent': '#ffe2a8' },
+    sunbaked_bazaar: { '--ui-primary': '#e0873a', '--ui-secondary': '#2c8fb5', '--ui-bg': '#2a1a10', '--ui-accent': '#ffd27a' },
+    harbor_nightworks: { '--ui-primary': '#ff9a2e', '--ui-secondary': '#3ab0d8', '--ui-bg': '#0a1018', '--ui-accent': '#ffcf6a' },
+    alpine_research: { '--ui-primary': '#ff6a2a', '--ui-secondary': '#5ab4e0', '--ui-bg': '#0e1822', '--ui-accent': '#e8f4ff' },
+    jade_garden: { '--ui-primary': '#d8443a', '--ui-secondary': '#3fa88a', '--ui-bg': '#10201a', '--ui-accent': '#f6c8d8' },
     classic:      { '--ui-primary': '#457bca', '--ui-secondary': '#6fa8dc', '--ui-bg': '#0f0f23', '--ui-accent': '#ff8800' }
 };
 
@@ -790,7 +946,11 @@ export const MAP_LIGHTING = Object.freeze({
     mecha: Object.freeze({ sun: [0.3, 0.8, -0.5], sunColor: 0xe8f0ff, hemiSky: 0xb8c8dc, hemiGround: 0x404a58, hemiIntensity: 0.5, ambient: 0x7a8aa0, ambientIntensity: 0.6, fogNear: 70, fogFar: 270 }),
     neon_rooftop: Object.freeze({ sun: [-0.42, 0.52, -0.74], sunColor: 0xb8c4ff, hemiSky: 0x7a5ad0, hemiGround: 0x1a0f2a, hemiIntensity: 0.6, ambient: 0x5a4a8a, ambientIntensity: 0.62, fogNear: 80, fogFar: 360 }),
     sunken_temple: Object.freeze({ sun: [0.45, 0.72, -0.52], sunColor: 0xfff0c0, hemiSky: 0xcfe8ff, hemiGround: 0x5a7a40, hemiIntensity: 0.55, ambient: 0x9ab090, ambientIntensity: 0.5, fogNear: 90, fogFar: 330 }),
-    orbital_station: Object.freeze({ sun: [-0.62, 0.58, -0.52], sunColor: 0xfff8ec, hemiSky: 0x6f9ad8, hemiGround: 0x10182a, hemiIntensity: 0.4, ambient: 0x4a5a80, ambientIntensity: 0.55, fogNear: 140, fogFar: 460 })
+    orbital_station: Object.freeze({ sun: [-0.62, 0.58, -0.52], sunColor: 0xfff8ec, hemiSky: 0x6f9ad8, hemiGround: 0x10182a, hemiIntensity: 0.4, ambient: 0x4a5a80, ambientIntensity: 0.55, fogNear: 140, fogFar: 460 }),
+    sunbaked_bazaar: Object.freeze({ sun: [0.62, 0.3, -0.72], sunColor: 0xffc27a, hemiSky: 0xffdcb0, hemiGround: 0xa0643a, hemiIntensity: 0.55, ambient: 0xc89a70, ambientIntensity: 0.42, fogNear: 110, fogFar: 420 }),
+    harbor_nightworks: Object.freeze({ sun: [-0.35, 0.55, 0.76], sunColor: 0x9fb4d8, hemiSky: 0x4a5e7e, hemiGround: 0x3a2818, hemiIntensity: 0.8, ambient: 0x6c6a7a, ambientIntensity: 0.78, fogNear: 70, fogFar: 330 }),
+    alpine_research: Object.freeze({ sun: [0.3, 0.62, 0.72], sunColor: 0xeaf2ff, hemiSky: 0xdfeaff, hemiGround: 0xa8b4c4, hemiIntensity: 0.62, ambient: 0xa8b8d0, ambientIntensity: 0.48, fogNear: 80, fogFar: 360 }),
+    jade_garden: Object.freeze({ sun: [-0.5, 0.58, 0.64], sunColor: 0xfff0dc, hemiSky: 0xd8e8f0, hemiGround: 0x6a8a58, hemiIntensity: 0.55, ambient: 0xb0b8b0, ambientIntensity: 0.5, fogNear: 90, fogFar: 340 })
 });
 
 export function mapLightingPreset(mapId) {
@@ -800,7 +960,10 @@ export function mapLightingPreset(mapId) {
 // Maps that get the lazily-loaded js/map-art/ layer (identity scenery for the
 // new maps on every tier; polish for the rest on medium/high only). Mirrors
 // IDENTITY_BUILDERS / POLISH_BUILDERS in js/map-art/index.js.
-export const MAP_ART_IDENTITY = Object.freeze(['neon_rooftop', 'sunken_temple', 'orbital_station']);
+export const MAP_ART_IDENTITY = Object.freeze([
+    'neon_rooftop', 'sunken_temple', 'orbital_station',
+    'sunbaked_bazaar', 'harbor_nightworks', 'alpine_research', 'jade_garden'
+]);
 export const MAP_ART_POLISH = Object.freeze([
     'beach_open', 'industrial', 'neon', 'grand_stadium', 'pillar', 'circuit_dome', 'volcano', 'mecha'
 ]);
@@ -995,13 +1158,13 @@ export class Arena {
         // Default bounds.y for weather system
         if (!this.bounds.maxY) this.bounds.maxY = this.ceilingHeight || 30;
         // Ambient particles based on map theme
-        const particleType = (this.config.isVolcano || this.config.isLava) ? 'ember'
+        const particleType = this.config.ambientParticles || ((this.config.isVolcano || this.config.isLava) ? 'ember'
             : (this.config.isIce || this.config.isCrystal || this.config.isAquarium || this.config.isOrbital) ? 'crystal'
             : (this.config.isJungle || this.config.isBeachOpen || this.config.isSunkenTemple) ? 'leaf'
             : (this.config.weather === 'snow') ? 'snow'
             : (this.config.weather === 'rain') ? 'rain'
             : (this.config.isSpace || this.config.isNeon || this.config.isCosmeticStudio || this.config.isCasino || this.config.isRooftop) ? 'spark'
-            : 'dust';
+            : 'dust');
         this.addAmbientParticles(particleType);
         this._loadArenaDecor();
         this._loadMapArt();
@@ -2202,6 +2365,8 @@ export class Arena {
             const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.5, 22, 8), frameMat);
             mast.position.set(x, 11, z);
             this.add(mast);
+            // Corner masts stand inside the court footprint: solid, full height.
+            this._addSolidCylinder(mast, x, 0, z, 0.5, 22, false);
             const lamp = new THREE.Mesh(new THREE.BoxGeometry(4, 1.2, 1), new THREE.MeshBasicMaterial({ color: 0xfff4cc }));
             lamp.position.set(x, 22, z);
             lamp.lookAt(0, 3, 0);
@@ -2247,12 +2412,44 @@ export class Arena {
 
     // One ground collider stops walkers; taller props stack more so a ball
     // cannot pass through the upper part of the mesh (see PROP_COLLIDER_SLACK).
-    _addColumnColliders(mesh, x, z, radius, height) {
+    // `solid` also stamps the exact extents (see SOLID_TOP_STANDABLE_MAX).
+    _addColumnColliders(mesh, x, z, radius, height, solid = false) {
+        const first = this.collidables.length;
         const reach = radius + PROP_COLLIDER_SLACK;
         for (let y = 0; ; y += reach * 2) {
             const cy = Math.min(y, Math.max(0, height - reach));
             this.addCollidable(mesh, new THREE.Vector3(x, cy, z), radius);
             if (cy + reach >= height) break;
+        }
+        if (solid) this._markSolidColumn(first, x, z, radius, height);
+    }
+
+    // Exact extents for the cylinder colliders pushed since `first`, plus a
+    // standable round top when a player can reach it.
+    _markSolidColumn(first, x, z, radius, height, standable = true) {
+        for (let i = first; i < this.collidables.length; i++) {
+            this.collidables[i].bottom = 0;
+            this.collidables[i].top = height;
+        }
+        if (standable && height <= SOLID_TOP_STANDABLE_MAX) {
+            this.platforms.push({ x, z, y: height, radius, halfWidth: radius, halfDepth: radius, solid: true });
+        }
+    }
+
+    // A single solid cylinder (corner props): legacy centre + exact extents.
+    _addSolidCylinder(mesh, x, centerY, z, radius, height, standable = true) {
+        const first = this.collidables.length;
+        this.addCollidable(mesh, new THREE.Vector3(x, centerY, z), radius);
+        this._markSolidColumn(first, x, z, radius, height, standable);
+    }
+
+    // Axis-aligned solid box standing on the floor (layout blocks, crates).
+    // `pos`/`radius` stay for rocket splash checks in game.js.
+    _addSolidBox(mesh, x, z, halfWidth, halfDepth, height, standable = true) {
+        const box = blockCollider({ x, z, halfWidth, halfDepth, height });
+        this.collidables.push({ mesh, pos: new THREE.Vector3(x, height / 2, z), radius: Math.min(halfWidth, halfDepth), ...box });
+        if (standable && height <= SOLID_TOP_STANDABLE_MAX) {
+            this.platforms.push({ x, z, y: height, halfWidth, halfDepth, solid: true });
         }
     }
 
@@ -2277,7 +2474,13 @@ export class Arena {
         const toon = color => mat(`toon-${color}`, () => this.renderer.createToonMaterial(color));
         const glow = (color, opacity = 1) => mat(`glow-${color}-${opacity}`, () => new THREE.MeshBasicMaterial(
             opacity < 1 ? { color, transparent: true, opacity, depthWrite: false } : { color }));
+        const parts = this._newLayoutParts();
+        let landmarkIndex = 0;
         for (const col of columns) {
+            if (LANDMARK_PROP_STYLES.has(col.style)) {
+                this._buildLandmarkProp(col, parts, landmarkIndex++);
+                continue;
+            }
             if (col.style === 'stack' || col.style === 'ruin' || col.style === 'ruin-broken' || col.style === 'pylon') {
                 this._buildArtColumn(col, toon, glow);
                 continue;
@@ -2304,7 +2507,7 @@ export class Arena {
                     stone.cap, col.x, col.height + 0.25, col.z
                 );
             }
-            this._addColumnColliders(body, col.x, col.z, col.radius, col.height);
+            this._addColumnColliders(body, col.x, col.z, col.radius, col.height, true);
         }
 
         const rails = layout.rails || [];
@@ -2374,7 +2577,11 @@ export class Arena {
             }
         }
 
-        for (const block of layout.blocks || []) this._buildLayoutBlock(block, toon, glow);
+        for (const block of layout.blocks || []) {
+            if (LANDMARK_PROP_STYLES.has(block.style)) this._buildLandmarkProp(block, parts, landmarkIndex++);
+            else this._buildLayoutBlock(block, toon, glow);
+        }
+        this._flushLayoutParts(parts);
     }
 
     // Honest-top collider for waist-high cover: blocks the ball exactly up to
@@ -2414,12 +2621,14 @@ export class Arena {
         }
         body.castShadow = true;
         body.receiveShadow = true;
+        const first = this.collidables.length;
         if (col.lowCover) this._addLowCoverColliders(body, x, z, r, h);
         else this._addColumnColliders(body, x, z, r, h);
+        this._markSolidColumn(first, x, z, r, h);
     }
 
     // Box cover: AC units (rooftop), fallen drums (temple), energy barriers and
-    // cargo containers (station). Colliders: blockColliderCircles().
+    // cargo containers (station). Collider: one solid box (blockCollider).
     _buildLayoutBlock(block, toon, glow) {
         const { x, z, halfWidth: hw, halfDepth: hd, height: h } = block;
         const alongX = hw >= hd;
@@ -2444,8 +2653,302 @@ export class Arena {
         }
         body.castShadow = true;
         body.receiveShadow = true;
-        for (const circle of blockColliderCircles(block)) {
-            this._addLowCoverColliders(body, circle.x, circle.z, circle.radius, h);
+        this._addSolidBox(body, x, z, hw, hd, h);
+    }
+
+    // --- Landmark-map cover -------------------------------------------------
+    // Every prop is dressed from shared unit-size part families (box, cylinder,
+    // cone, ...) that become ONE InstancedMesh each, so a whole layout costs a
+    // handful of draw calls. Parts stay inside the collider footprint and at or
+    // below its top, so what you see is exactly what blocks you and the ball.
+    _newLayoutParts() {
+        return new Map();
+    }
+
+    _layoutPartFamily(key) {
+        const unitBox = () => new THREE.BoxGeometry(1, 1, 1);
+        const lambert = (options = {}) => new THREE.MeshLambertMaterial({ color: 0xffffff, ...options });
+        switch (key) {
+            case 'cyl': return { geometry: new THREE.CylinderGeometry(0.5, 0.5, 1, 16), material: lambert() };
+            case 'cone': return { geometry: new THREE.ConeGeometry(0.5, 1, 12), material: lambert() };
+            case 'cone4': return { geometry: new THREE.ConeGeometry(0.5, 1, 4), material: lambert() };
+            case 'sphere': return { geometry: new THREE.SphereGeometry(0.5, 14, 10), material: lambert() };
+            case 'rock': return { geometry: new THREE.DodecahedronGeometry(0.5, 0), material: lambert({ flatShading: true }) };
+            case 'glow': return { geometry: unitBox(), material: new THREE.MeshBasicMaterial({ color: 0xffffff }) };
+            case 'crate': return { geometry: unitBox(), material: lambert({ map: this._layoutCanvasTexture('plank') }) };
+            case 'panel': return { geometry: unitBox(), material: lambert({ map: this._layoutCanvasTexture('panel') }) };
+            case 'rib': return {
+                geometry: unitBox(),
+                material: new THREE.MeshStandardMaterial({ color: 0xffffff, map: this._layoutCanvasTexture('rib'), roughness: 0.55, metalness: 0.35 })
+            };
+            case 'hazard': return { geometry: unitBox(), material: lambert({ map: this._layoutCanvasTexture('hazard') }) };
+            default: return { geometry: unitBox(), material: lambert() };
+        }
+    }
+
+    // Small arena-owned CanvasTextures for the part families (disposed by
+    // clearMap via userData.arenaOwned). Null without a DOM (headless tests).
+    _layoutCanvasTexture(kind) {
+        if (typeof document === 'undefined') return null;
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = 128;
+        const g = canvas.getContext('2d');
+        if (!g) return null;
+        if (kind === 'rib') {
+            // Corrugated container steel: light/dark ribs + rust grime at the base.
+            g.fillStyle = '#ffffff';
+            g.fillRect(0, 0, 128, 128);
+            for (let x = 0; x < 128; x += 16) {
+                g.fillStyle = 'rgba(0,0,0,0.22)';
+                g.fillRect(x, 0, 5, 128);
+                g.fillStyle = 'rgba(255,255,255,0.35)';
+                g.fillRect(x + 8, 0, 3, 128);
+            }
+            const grime = g.createLinearGradient(0, 70, 0, 128);
+            grime.addColorStop(0, 'rgba(70,40,20,0)');
+            grime.addColorStop(1, 'rgba(70,40,20,0.45)');
+            g.fillStyle = grime;
+            g.fillRect(0, 0, 128, 128);
+        } else if (kind === 'plank') {
+            // Crate boards: horizontal planks, grain, nail heads, darker frame.
+            g.fillStyle = '#ffffff';
+            g.fillRect(0, 0, 128, 128);
+            for (let y = 0; y < 128; y += 32) {
+                g.fillStyle = 'rgba(90,60,30,0.28)';
+                g.fillRect(0, y, 128, 3);
+                for (let k = 0; k < 6; k++) {
+                    g.fillStyle = 'rgba(120,80,40,0.12)';
+                    g.fillRect(0, y + 6 + k * 4, 128, 1);
+                }
+                g.fillStyle = 'rgba(40,30,20,0.6)';
+                g.fillRect(10, y + 14, 3, 3);
+                g.fillRect(115, y + 14, 3, 3);
+            }
+            g.strokeStyle = 'rgba(70,45,25,0.55)';
+            g.lineWidth = 10;
+            g.strokeRect(0, 0, 128, 128);
+        } else if (kind === 'panel') {
+            // Board-formed concrete: form-tie holes, pour lines, streaks.
+            g.fillStyle = '#ffffff';
+            g.fillRect(0, 0, 128, 128);
+            for (let y = 0; y < 128; y += 21) {
+                g.fillStyle = 'rgba(0,0,0,0.08)';
+                g.fillRect(0, y, 128, 2);
+            }
+            g.fillStyle = 'rgba(0,0,0,0.25)';
+            for (const x of [20, 64, 108]) for (const y of [32, 96]) g.fillRect(x, y, 4, 4);
+            const streak = g.createLinearGradient(0, 0, 0, 128);
+            streak.addColorStop(0, 'rgba(60,60,60,0)');
+            streak.addColorStop(1, 'rgba(60,60,60,0.25)');
+            g.fillStyle = streak;
+            for (const x of [30, 78, 100]) g.fillRect(x, 0, 6, 128);
+        } else {
+            // Diagonal hazard chevrons.
+            g.fillStyle = '#f2c230';
+            g.fillRect(0, 0, 128, 128);
+            g.fillStyle = '#1c1c1c';
+            for (let x = -128; x < 256; x += 32) {
+                g.beginPath();
+                g.moveTo(x, 128); g.lineTo(x + 16, 128); g.lineTo(x + 144, 0); g.lineTo(x + 128, 0);
+                g.fill();
+            }
+        }
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.userData.arenaOwned = true;
+        return texture;
+    }
+
+    _flushLayoutParts(parts) {
+        if (!parts.size) return;
+        const dummy = new THREE.Object3D();
+        const color = new THREE.Color();
+        for (const [key, list] of parts) {
+            const { geometry, material } = this._layoutPartFamily(key);
+            const mesh = new THREE.InstancedMesh(geometry, material, list.length);
+            list.forEach((part, i) => {
+                dummy.position.set(part.x, part.y, part.z);
+                dummy.rotation.set(part.rx || 0, part.ry || 0, part.rz || 0);
+                dummy.scale.set(part.sx, part.sy, part.sz);
+                dummy.updateMatrix();
+                mesh.setMatrixAt(i, dummy.matrix);
+                mesh.setColorAt(i, color.set(part.color ?? 0xffffff));
+            });
+            mesh.instanceMatrix.needsUpdate = true;
+            if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+            mesh.castShadow = key !== 'glow';
+            mesh.receiveShadow = true;
+            mesh.name = `layout-parts-${key}`;
+            this.add(mesh);
+        }
+    }
+
+    // One landmark prop: registers its solid collider(s), then adds its parts
+    // in a local frame (u = long axis, v = short axis, +v faces the net).
+    _buildLandmarkProp(entry, parts, index) {
+        const { x, z, style } = entry;
+        const isColumn = Number.isFinite(entry.radius);
+        const alongX = isColumn || entry.halfWidth >= entry.halfDepth;
+        const L = isColumn ? entry.radius : Math.max(entry.halfWidth, entry.halfDepth);
+        const S = isColumn ? entry.radius : Math.min(entry.halfWidth, entry.halfDepth);
+        const face = z === 0 ? 1 : -Math.sign(z);
+        const put = (key, u, y, v, su, sy, sv, color, rot = {}) => {
+            let list = parts.get(key);
+            if (!list) parts.set(key, list = []);
+            const fv = v * (alongX ? face : Math.sign(x) === 0 ? 1 : -Math.sign(x));
+            // Cylinders lying along the short axis (wheels) rotate onto it.
+            const lying = rot.axis === 'v' ? (alongX ? { rx: Math.PI / 2 } : { rz: Math.PI / 2 }) : {};
+            list.push(alongX
+                ? { x: x + u, y, z: z + fv, sx: su, sy, sz: sv, color, ry: rot.ry || 0, ...lying }
+                : { x: x + fv, y, z: z + u * face, sx: sv, sy, sz: su, color, ry: rot.ry || 0, ...lying });
+        };
+        const pick = (colors, k = 0) => colors[(index + k) % colors.length];
+        if (isColumn) {
+            const first = this.collidables.length;
+            if (entry.lowCover) this._addLowCoverColliders(null, x, z, entry.radius, entry.height);
+            else this._addColumnColliders(null, x, z, entry.radius, entry.height);
+            this._markSolidColumn(first, x, z, entry.radius, entry.height);
+        } else {
+            this._addSolidBox(null, x, z, entry.halfWidth, entry.halfDepth, entry.height);
+        }
+        switch (style) {
+            case 'stall': {
+                put('box', 0, 0.55, 0, 2 * L - 0.1, 1.1, 2 * S - 0.3, 0x8a5a34);
+                put('box', 0, 1.14, 0, 2 * L, 0.08, 2 * S, 0x6e4426);
+                put('box', 0, 0.6, S - 0.12, 2 * L - 0.4, 0.9, 0.06, pick([0xc8372d, 0xe0a02a, 0x2a7f8f, 0x7a2f6a]));
+                put('box', 0, 0.38, S - 0.1, 2 * L - 0.3, 0.08, 0.07, 0xf2e2b8);
+                for (const su of [-1, 1]) for (const sv of [-1, 1]) put('box', su * (L - 0.1), 1.1, sv * (S - 0.1), 0.14, 2.2, 0.14, 0x5c3a22);
+                for (const sv of [-1, 1]) put('box', 0, 2.14, sv * (S - 0.1), 2 * L, 0.1, 0.1, 0x5c3a22);
+                const spices = [0xe8b820, 0xc0391e, 0x8a5a2a, 0x7a2240, 0x6a8a2a];
+                [-2.4, -0.8, 0.8, 2.4].forEach((u, k) => {
+                    put('cyl', u, 1.36, 0.05, 1.25, 0.36, 1.25, 0xb88a4a);
+                    put('cone', u, 1.87, 0.05, 1.1, 0.66, 1.1, spices[(index + k) % spices.length]);
+                });
+                break;
+            }
+            case 'crate-stack': {
+                put('crate', 0, 0.675, 0, 2 * L - 0.1, 1.35, 2 * S - 0.1, pick([0xc09060, 0xa87c50]));
+                put('box', 0, 1.36, 0, 2 * L, 0.08, 2 * S, 0x6b4a2a);
+                for (const su of [-1, 1]) for (const sv of [-1, 1]) put('box', su * (L - 0.06), 0.68, sv * (S - 0.06), 0.12, 1.36, 0.12, 0x6b4a2a);
+                put('box', 0, 0.68, S - 0.04, 2 * L - 0.3, 0.1, 0.06, 0x6b4a2a, { ry: 0 });
+                break;
+            }
+            case 'cart': {
+                put('box', 0, 1.0, 0, 2 * L - 0.4, 0.2, 2 * S - 0.3, 0x7a4f2c);
+                for (const sv of [-1, 1]) put('box', 0, 1.26, sv * (S - 0.22), 2 * L - 0.4, 0.34, 0.08, 0x8f6036);
+                for (const sv of [-1, 1]) put('cyl', -0.3, 0.7, sv * (S - 0.08), 1.4, 0.12, 1.4, 0x4a3020, { axis: 'v' });
+                for (const sv of [-1, 1]) put('box', L - 0.35, 0.95, sv * 0.45, 0.7, 0.08, 0.08, 0x5c3a22);
+                put('box', L - 0.55, 0.45, 0, 0.1, 0.9, 0.1, 0x5c3a22);
+                [-1.1, 0, 1.0].forEach((u, k) => put('sphere', u, 1.45, 0, 1.0, 0.7, 1.5, k === 1 ? 0xcdb88a : 0xd8c49a));
+                put('cyl', 1.6, 1.45, 0.35, 0.55, 0.7, 0.55, 0xb5653a);
+                break;
+            }
+            case 'well': {
+                put('cyl', 0, 0.5, 0, 2 * L, 1.0, 2 * L, 0xcdb48e);
+                put('cyl', 0, 1.03, 0, 2 * L + 0.05, 0.12, 2 * L + 0.05, 0xb89c72);
+                put('cyl', 0, 0.97, 0, 2 * L - 0.5, 0.02, 2 * L - 0.5, 0x2c5a6a);
+                for (const su of [-1, 1]) put('box', su * (L - 0.3), 1.05, 0, 0.16, 2.1, 0.16, 0x6b4a2a);
+                put('box', 0, 2.1, 0, 2 * L - 0.4, 0.14, 0.14, 0x6b4a2a);
+                put('box', 0, 1.85, 0, 0.03, 0.4, 0.03, 0xc8b48a);
+                put('cyl', 0, 1.5, 0, 0.45, 0.45, 0.45, 0x6b4a2a);
+                break;
+            }
+            case 'container':
+            case 'container-stack': {
+                const tiers = style === 'container' ? 1 : 2;
+                const steel = [0xb33a2a, 0x2b5d8a, 0x3f7a4a, 0xd9772b, 0x8a8f96, 0x6a3a6a];
+                for (let t = 0; t < tiers; t++) {
+                    const y0 = t * 2.6;
+                    put('rib', 0, y0 + 1.3, 0, 2 * L - 0.02, 2.58, 2 * S - 0.02, pick(steel, t * 3));
+                    put('box', L - 0.03, y0 + 1.3, 0, 0.05, 2.46, 2 * S - 0.12, 0x2f343b);
+                    for (const sv of [-0.7, -0.25, 0.25, 0.7]) put('box', L - 0.005, y0 + 1.3, sv * S, 0.04, 2.3, 0.05, 0x9aa0a8);
+                    for (const su of [-1, 1]) for (const sv of [-1, 1]) for (const cy of [0.09, 2.51]) {
+                        put('box', su * (L - 0.09), y0 + cy, sv * (S - 0.09), 0.18, 0.18, 0.18, 0x24272c);
+                    }
+                }
+                break;
+            }
+            case 'jersey': {
+                put('box', 0, 0.175, 0, 2 * L, 0.35, 2 * S, 0xa9a49a);
+                put('box', 0, 0.725, 0, 2 * L, 0.75, 2 * S * 0.55, 0xb5b0a6);
+                put('hazard', 0, 0.95, 0, 2 * L + 0.01, 0.16, 2 * S * 0.56, 0xffffff);
+                break;
+            }
+            case 'pallet': {
+                put('box', 0, 0.075, 0, 2 * L, 0.15, 2 * S, 0x7a5a3a);
+                put('box', 0, 0.72, 0, 2 * L - 0.2, 1.14, 2 * S - 0.2, pick([0xd8dde2, 0xc9d2d8]));
+                put('box', 0, 0.72, 0, 2 * L - 0.18, 1.16, 0.12, 0x2a5a9a);
+                put('box', 0, 0.72, 0, 0.12, 1.16, 2 * S - 0.18, 0x2a5a9a);
+                break;
+            }
+            case 'bunker': {
+                put('panel', 0, 1.225, 0, 2 * L, 2.45, 2 * S, 0x9aa0a6);
+                put('box', 0, 2.525, 0, 2 * L, 0.15, 2 * S, 0x7d838a);
+                put('box', 0, 2.65, 0, 2 * L - 0.12, 0.1, 2 * S - 0.12, 0xf4f8fc);
+                put('box', 0, 1.8, S - 0.01, 2 * L - 1.4, 0.2, 0.04, 0x15181d);
+                put('hazard', 0, 0.3, 0, 2 * L + 0.01, 0.24, 2 * S + 0.01, 0xffffff);
+                put('box', 0, 0.95, -(S - 0.01), 1.0, 1.7, 0.05, 0xff6a2a);
+                break;
+            }
+            case 'field-crate': {
+                put('box', 0, 0.6, 0, 2 * L - 0.1, 1.2, 2 * S - 0.1, pick([0xf2c230, 0x5a6470]));
+                put('box', 0, 0.6, 0, 2 * L - 0.08, 0.16, 2 * S - 0.08, 0xf4f8fc);
+                put('box', 0, 1.25, 0, 2 * L, 0.1, 2 * S, 0x2a2f36);
+                for (const su of [-0.6, 0.6]) put('box', su, 1.0, S - 0.03, 0.25, 0.18, 0.08, 0xd8dde2);
+                break;
+            }
+            case 'berm': {
+                put('sphere', 0, 0, 0, 2 * L, 2.0, 2 * S, 0xf2f6fa);
+                for (let k = 0; k < 5; k++) put('sphere', -L + 0.9 + k * ((2 * L - 1.8) / 4), 1.03, 0, 1.3, 0.34, 0.7, 0x9a8a62);
+                break;
+            }
+            case 'mast': {
+                put('box', 0, 0.3, 0, 1.6, 0.6, 1.6, 0x9aa0a6);
+                for (let k = 0; k < 6; k++) put('cyl', 0, 0.6 + k * 1.05 + 0.525, 0, 0.5, 1.05, 0.5, k % 2 ? 0xf0f0f0 : 0xe0402a);
+                for (const y of [5.4, 6.3]) put('box', 0, y, 0, 1.5, 0.08, 0.08, 0xd8dde2);
+                put('sphere', 0.45, 4.4, 0, 0.2, 0.7, 0.7, 0xe8ecf0);
+                put('glow', 0, 6.86, 0, 0.26, 0.26, 0.26, 0xff3020);
+                break;
+            }
+            case 'stone-lantern': {
+                put('cyl', 0, 0.15, 0, 2 * L - 0.2, 0.3, 2 * L - 0.2, 0xa8a498);
+                put('cyl', 0, 0.425, 0, 1.3, 0.25, 1.3, 0x9c988c);
+                put('cyl', 0, 1.0, 0, 0.5, 0.9, 0.5, 0xa8a498);
+                put('box', 0, 1.54, 0, 1.3, 0.18, 1.3, 0x9c988c);
+                put('box', 0, 1.88, 0, 0.9, 0.5, 0.9, 0xa8a498);
+                put('glow', 0, 1.9, 0, 0.92, 0.26, 0.5, 0xffc070);
+                put('glow', 0, 1.9, 0, 0.5, 0.26, 0.92, 0xffc070);
+                put('cone4', 0, 2.34, 0, 2 * L, 0.46, 2 * L, 0x8f8b80, { ry: Math.PI / 4 });
+                put('sphere', 0, 2.52, 0, 0.18, 0.18, 0.18, 0x8f8b80);
+                break;
+            }
+            case 'rockery': {
+                put('box', 0, 0.175, 0, 2 * L, 0.35, 2 * S, 0x8c8a80);
+                put('box', 0, 0.37, 0, 2 * L - 0.3, 0.05, 2 * S - 0.3, 0xd8d2c0);
+                put('rock', -0.9, 0.9, 0, 1.3, 1.6, 1.1, 0x7f8a86, { ry: index * 0.7 });
+                put('rock', 0.6, 0.76, 0.2, 1.1, 0.9, 1.0, 0x8e8a80, { ry: index * 1.3 });
+                put('rock', 1.45, 0.62, -0.3, 0.7, 0.6, 0.7, 0x747c78);
+                put('sphere', -0.2, 0.45, -0.6, 0.6, 0.3, 0.5, 0x4f7a3a);
+                break;
+            }
+            case 'planter': {
+                put('box', 0, 0.3, 0, 2 * L, 0.6, 2 * S, 0xe8e2d6);
+                put('box', 0, 0.63, 0, 2 * L, 0.06, 2 * S, 0x5a5e60);
+                put('box', 0, 0.97, 0, 2 * L - 0.2, 0.62, 2 * S - 0.2, 0x3e6a34);
+                for (let k = 0; k < 4; k++) put('sphere', -L + 0.8 + k * ((2 * L - 1.6) / 3), 1.18, 0.1, 0.24, 0.22, 0.24, pick([0xf29ab8, 0xffffff], k));
+                break;
+            }
+            case 'censer': {
+                for (const su of [-1, 1]) for (const sv of [-1, 1]) put('cyl', su * 0.8, 0.25, sv * 0.8, 0.22, 0.5, 0.22, 0x5a4a30);
+                put('box', 0, 0.95, 0, 2 * L - 0.3, 0.9, 2 * S - 0.3, 0x7a6440);
+                put('box', 0, 1.15, 0, 2 * L - 0.28, 0.18, 2 * S - 0.28, 0x4f8a78);
+                put('box', 0, 1.44, 0, 2 * L - 0.1, 0.08, 2 * S - 0.1, 0x6a5634);
+                for (const su of [-1, 1]) put('box', su * 0.9, 1.45, 0, 0.12, 0.3, 0.6, 0x6a5634);
+                put('glow', 0, 1.41, 0, 1.8, 0.02, 1.8, 0xff8a3a);
+                break;
+            }
+            default:
+                break;
         }
     }
 
@@ -3082,17 +3585,18 @@ export class Arena {
             [-halfW + 2, -halfL + 2], [halfW - 2, -halfL + 2],
             [-halfW + 2, halfL - 2], [halfW - 2, halfL - 2]
         ];
-        if (['industrial', 'cyber', 'mecha', 'pillar', 'neon_rooftop', 'orbital_station'].includes(id)) {
+        if (['industrial', 'cyber', 'mecha', 'pillar', 'neon_rooftop', 'orbital_station', 'sunbaked_bazaar', 'harbor_nightworks', 'alpine_research'].includes(id)) {
             // Crates (boxes) for industrial/sci-fi maps
             const g = new THREE.BoxGeometry(1.6, 1.6, 1.6);
             const m = this.renderer.createToonMaterial(id === 'cyber' ? 0x445566 : 0x8a6a4a);
+            // Axis-aligned so the solid box collider (and its standable top)
+            // matches the mesh exactly on every client.
             corners.forEach(([x, z]) => {
                 const crate = new THREE.Mesh(g, m);
                 crate.position.set(x, 0.8, z);
-                crate.rotation.y = Math.random() * 0.4;
                 crate.castShadow = true;
                 this.add(crate);
-                this.addCollidable(crate, new THREE.Vector3(x, 0.8, z), 1.0);
+                this._addSolidBox(crate, x, z, 0.8, 0.8, 1.6);
             });
         } else if (['ice', 'space', 'crystal'].includes(id)) {
             // Crystal shards (octahedra) for cold/sparkly maps
@@ -3104,7 +3608,7 @@ export class Arena {
                 cr.rotation.y = Math.random() * Math.PI;
                 cr.castShadow = true;
                 this.add(cr);
-                this.addCollidable(cr, new THREE.Vector3(x, 1.2, z), 1.0);
+                this._addSolidCylinder(cr, x, 1.2, z, 1.0, 2.3, false);
             });
         } else if (['volcano', 'lava', 'dojo'].includes(id)) {
             // Torches: wooden post + glowing flame
@@ -3116,12 +3620,12 @@ export class Arena {
                 const post = new THREE.Mesh(postG, postM);
                 post.position.set(x, 1.1, z);
                 this.add(post);
-                this.addCollidable(post, new THREE.Vector3(x, 1.1, z), 0.5);
+                this._addSolidCylinder(post, x, 1.1, z, 0.5, 2.75, false);
                 const flame = new THREE.Mesh(flameGeo, flameMat);
                 flame.position.set(x, 2.4, z);
                 this.add(flame);
             });
-        } else if (['jungle', 'beach', 'beach_open', 'sunken_temple'].includes(id)) {
+        } else if (['jungle', 'beach', 'beach_open', 'sunken_temple', 'jade_garden'].includes(id)) {
             // Plants: pot + foliage cone
             const potG = new THREE.CylinderGeometry(0.5, 0.4, 0.6, 8);
             const potM = this.renderer.createToonMaterial(id === 'jungle' ? 0x6a4a2a : 0xd8b888);
@@ -3132,7 +3636,7 @@ export class Arena {
                 pot.position.set(x, 0.3, z);
                 pot.castShadow = true;
                 this.add(pot);
-                this.addCollidable(pot, new THREE.Vector3(x, 0.3, z), 0.5);
+                this._addSolidCylinder(pot, x, 0.3, z, 0.5, 2.0, false);
                 const foli = new THREE.Mesh(foliG, foliM);
                 foli.position.set(x, 1.3, z);
                 foli.castShadow = true;
@@ -3148,7 +3652,7 @@ export class Arena {
                 plinth.position.set(x, 0.55, z);
                 plinth.castShadow = true;
                 this.add(plinth);
-                this.addCollidable(plinth, new THREE.Vector3(x, 0, z), 1.2);
+                this._addSolidBox(plinth, x, z, 1.05, 1.05, 1.31);
                 const cap = new THREE.Mesh(capGeo, m);
                 cap.position.set(x, 1.2, z);
                 this.add(cap);
@@ -3162,7 +3666,7 @@ export class Arena {
                 b.position.set(x, 0.6, z);
                 b.castShadow = true;
                 this.add(b);
-                this.addCollidable(b, new THREE.Vector3(x, 0.6, z), 0.55);
+                this._addSolidCylinder(b, x, 0.6, z, 0.55, 1.2);
             });
         }
 
@@ -4447,6 +4951,9 @@ export class Arena {
             ember:  { color: 0xff4400, count: 40, size: 0.07, opacity: 0.7, speed: 0.4 },
             crystal:{ color: 0x88ddff, count: 35, size: 0.09, opacity: 0.5, speed: 0.2 },
             leaf:   { color: 0x44aa44, count: 30, size: 0.08, opacity: 0.5, speed: 0.3 },
+            petal:  { color: 0xffb8d2, count: 70, size: 0.1, opacity: 0.8, speed: 0.45 },
+            motes:  { color: 0xffd9a0, count: 60, size: 0.07, opacity: 0.55, speed: 0.12 },
+            mist:   { color: 0x9aa8bc, count: 40, size: 0.05, opacity: 0.22, speed: 0.1 },
         };
         const cfg = configs[type] || configs.dust;
         // One Points draw call instead of `count` sphere meshes (was 30-80 draw

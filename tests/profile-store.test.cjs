@@ -42,7 +42,7 @@ test('ball catalog contains the new cosmetic skin collection', () => {
 test('wearable catalog is server-priced and migrated through its own ownership field', t => {
     const { dir, store } = tempStore();
     t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-    assert.equal(Object.keys(CATALOG.cosmetic).length, 120);
+    assert.equal(Object.keys(CATALOG.cosmetic).length, 135);
     const session = store.session('', 'Player', {
         currency: 1000,
         ownedCosmetics: ['cape_ember', 'unknown_cosmetic']
@@ -257,4 +257,67 @@ test('legacy skill and rune ownership survives migration but cannot be purchased
     assert.equal(profile.equippedCards.active, 'apex-smash');
     assert.equal(store.purchase(profile, 'skill', 'freeze').status, 403);
     assert.equal(store.purchase(profile, 'rune', 'speed_bonus').status, 403);
+});
+
+// --- Leaderboard (read-only) projection ------------------------------------
+
+test('leaderboardEntries derives elo/placement/record/flair from rankedState and never leaks the raw profile id', t => {
+    const { dir, store } = tempStore();
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const session = store.session('', 'LadderQA', {
+        currency: 5000,
+        ownedAvatarSkins: ['default', 'neon', 'royal'],
+        ownedKnives: ['training', 'stiletto', 'rift_hook']
+    });
+    const profile = store.authenticate(session.token);
+    profile.rankedState = {
+        elo: 1450,
+        currentSeason: {
+            id: 'season-1', startedAt: 0, startingElo: 1200,
+            placements: { required: 5, completed: 5, placed: true },
+            record: { games: 12, wins: 8, losses: 4, draws: 0, highestElo: 1500, lowestElo: 1100 },
+            matches: []
+        },
+        pastSeasons: []
+    };
+    const entry = store.leaderboardEntries().find(e => e.profileId === profile.id);
+    assert.ok(entry, 'entry present for a placed profile');
+    assert.equal(entry.elo, 1450);
+    assert.equal(entry.placed, true);
+    assert.equal(entry.games, 12);
+    assert.equal(entry.wins, 8);
+    assert.equal(entry.winRate, 8 / 12);
+    assert.equal(entry.seasonDelta, 250);
+    assert.equal(entry.displayName, 'LadderQA');
+    // No server-side "equipped" avatar/knife exists, so flair stands in with
+    // the most recently unlocked non-starter item of each kind (ownership
+    // arrays are append-only, so "last" means "most recent").
+    assert.equal(entry.avatarId, 'royal');
+    assert.equal(entry.knifeId, 'rift_hook');
+    // The public code stands in for the profile id and must not just be it.
+    assert.notEqual(entry.publicCode, profile.id);
+    assert.match(entry.publicCode, /^[a-f0-9]{12}$/);
+});
+
+test('a fresh profile has not cleared ranked placements and is reported unplaced', t => {
+    const { dir, store } = tempStore();
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const profile = store.authenticate(store.session('', 'Placing').token);
+    const entry = store.leaderboardEntries().find(e => e.profileId === profile.id);
+    assert.equal(entry.placed, false);
+    assert.equal(entry.games, 0);
+});
+
+test('leaderboard publicCode is stable per profile and unique across profiles', t => {
+    const { dir, store } = tempStore();
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const a = store.authenticate(store.session('', 'A').token);
+    const b = store.authenticate(store.session('', 'B').token);
+    const first = store.leaderboardEntries();
+    const second = store.leaderboardEntries();
+    const codeA1 = first.find(e => e.profileId === a.id).publicCode;
+    const codeA2 = second.find(e => e.profileId === a.id).publicCode;
+    const codeB = first.find(e => e.profileId === b.id).publicCode;
+    assert.equal(codeA1, codeA2);
+    assert.notEqual(codeA1, codeB);
 });

@@ -42,6 +42,35 @@ const CASES = Object.freeze({
         ['knife', 'night_kukri', 'rare', 20], ['knife', 'gut_frost', 'rare', 20], ['knife', 'huntsman_brass', 'rare', 20],
         ['knife', 'gut_circuit', 'epic', 12], ['knife', 'kukri_sunset', 'epic', 12], ['knife', 'talon_reactor', 'epic', 12], ['knife', 'flip_prism', 'epic', 12],
         ['knife', 'huntsman_wildfire', 'legendary', 5], ['knife', 'talon_aurora', 'legendary', 5], ['knife', 'kukri_void', 'legendary', 5]
+    ] },
+    // Collection cases (owner ask: "extra skin themes"): one case per js/cosmetics.js
+    // COLLECTIONS entry, mixing that collection's 3 knives, 3 gloves and 2 (reused,
+    // already-priced) ball skins. Must mirror js/cosmetics.js CASES exactly — see
+    // tests/server-commerce-parity.test.mjs and tests/glovebox-blade-vault.test.mjs.
+    neon_syndicate: { price: 250, drops: [
+        ['knife', 'ns_pulse', 'rare', 18], ['knife', 'ns_wraith', 'epic', 10], ['knife', 'ns_overdrive', 'legendary', 4],
+        ['cosmetic', 'gloves_ns_circuit', 'rare', 18], ['cosmetic', 'gloves_ns_pulsegrip', 'rare', 18], ['cosmetic', 'gloves_ns_overclock', 'epic', 10],
+        ['ball', 'neon_dash', 'rare', 18], ['ball', 'plasma', 'epic', 10]
+    ] },
+    frostbite: { price: 230, drops: [
+        ['knife', 'fb_shard', 'rare', 18], ['knife', 'fb_glacier', 'epic', 10], ['knife', 'fb_permafrost', 'legendary', 4],
+        ['cosmetic', 'gloves_fb_permafrost', 'rare', 18], ['cosmetic', 'gloves_fb_glacierweave', 'rare', 18], ['cosmetic', 'gloves_fb_avalanche', 'epic', 10],
+        ['ball', 'frostbite', 'rare', 18], ['ball', 'aurora', 'epic', 10]
+    ] },
+    inferno_forge: { price: 260, drops: [
+        ['knife', 'if_cinder', 'rare', 16], ['knife', 'if_slagfang', 'epic', 9], ['knife', 'if_wyrmforge', 'legendary', 3],
+        ['cosmetic', 'gloves_if_cinderwrap', 'rare', 16], ['cosmetic', 'gloves_if_slagforge', 'rare', 16], ['cosmetic', 'gloves_if_wyrmforge', 'epic', 9],
+        ['ball', 'fire', 'rare', 16], ['ball', 'ember_wisp', 'rare', 16]
+    ] },
+    celestial: { price: 270, drops: [
+        ['knife', 'cel_comet', 'rare', 18], ['knife', 'cel_starfall', 'epic', 10], ['knife', 'cel_zenith', 'legendary', 4],
+        ['cosmetic', 'gloves_cel_stardust', 'rare', 18], ['cosmetic', 'gloves_cel_orbit', 'rare', 18], ['cosmetic', 'gloves_cel_supernova', 'epic', 10],
+        ['ball', 'moon', 'rare', 18], ['ball', 'nebula', 'epic', 10]
+    ] },
+    ronin: { price: 250, drops: [
+        ['knife', 'ro_sakura', 'rare', 18], ['knife', 'ro_crimson_blade', 'epic', 10], ['knife', 'ro_shogun', 'legendary', 4],
+        ['cosmetic', 'gloves_ro_lacquer', 'rare', 18], ['cosmetic', 'gloves_ro_petal', 'rare', 18], ['cosmetic', 'gloves_ro_shogun', 'epic', 10],
+        ['ball', 'copper', 'rare', 18], ['ball', 'sakura', 'epic', 10]
     ] }
 });
 
@@ -189,7 +218,24 @@ const COSMETIC_DESCRIPTORS = Object.freeze({
     gloves_titanium_crest: Object.freeze({ type: 'gloves', price: 580 }),
     gloves_dragon_lord: Object.freeze({ type: 'gloves', price: 660 }),
     gloves_starforged: Object.freeze({ type: 'gloves', price: 620 }),
-    gloves_eclipse_king: Object.freeze({ type: 'gloves', price: 680 })
+    gloves_eclipse_king: Object.freeze({ type: 'gloves', price: 680 }),
+
+    // Collection wave — must mirror js/cosmetic-catalog.js COSMETICS exactly (id/price).
+    gloves_ns_circuit: Object.freeze({ type: 'gloves', price: 280 }),
+    gloves_ns_pulsegrip: Object.freeze({ type: 'gloves', price: 300 }),
+    gloves_ns_overclock: Object.freeze({ type: 'gloves', price: 420 }),
+    gloves_fb_permafrost: Object.freeze({ type: 'gloves', price: 280 }),
+    gloves_fb_glacierweave: Object.freeze({ type: 'gloves', price: 260 }),
+    gloves_fb_avalanche: Object.freeze({ type: 'gloves', price: 400 }),
+    gloves_if_cinderwrap: Object.freeze({ type: 'gloves', price: 260 }),
+    gloves_if_slagforge: Object.freeze({ type: 'gloves', price: 300 }),
+    gloves_if_wyrmforge: Object.freeze({ type: 'gloves', price: 440 }),
+    gloves_cel_stardust: Object.freeze({ type: 'gloves', price: 280 }),
+    gloves_cel_orbit: Object.freeze({ type: 'gloves', price: 300 }),
+    gloves_cel_supernova: Object.freeze({ type: 'gloves', price: 420 }),
+    gloves_ro_lacquer: Object.freeze({ type: 'gloves', price: 260 }),
+    gloves_ro_petal: Object.freeze({ type: 'gloves', price: 280 }),
+    gloves_ro_shogun: Object.freeze({ type: 'gloves', price: 420 })
 });
 
 const COSMETIC_PRICES = Object.freeze(Object.fromEntries(

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import en from '../js/locales/en.js';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
@@ -9,7 +10,8 @@ const server = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
 test('party casual quick play is leader-only and reserves every squad slot without touching ranked flow', () => {
     const quick = main.slice(main.indexOf('    async _startQuickPlay() {'), main.indexOf('\n    _esc(', main.indexOf('    async _startQuickPlay() {')));
     assert.match(quick, /const partyQuickPlay = queue === 'casual' && partySize > 1/);
-    assert.match(quick, /Only the party leader can start Casual Quick Play/);
+    assert.match(quick, /t\('toast\.partyLeaderQuick'\)/);
+    assert.match(en.toast.partyLeaderQuick, /Only the party leader can start Casual Quick Play/);
     assert.match(quick, /await this\._beginPartyCasualQueue\(party\)/);
     assert.match(quick, /const routedLobbies = filterLobbies\(lobbies, \{ sportId: this\._selectedSportId, openOnly: false \}\)/);
     assert.match(quick, /minOpenSlots: partySize/);

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import en from '../js/locales/en.js';
 import { readFile } from 'node:fs/promises';
 import { canHostSport, canPlayLocalSport, SPORT_IDS } from '../js/sports.js';
 
@@ -22,7 +23,9 @@ test('directory enables only the local Volleyball CTA and restores Dodgeball cop
     assert.match(presentation, new RegExp(`'${id}'`));
   }
   assert.match(presentation, /const enabled = hostEnabled \|\| localPlayEnabled/);
-  assert.match(presentation, /'Local Practice' : 'Solo vs Bots'/);
+  assert.match(presentation, /'mp.localPractice' : 'mp.soloVsBots'/);
+  assert.equal(en.mp.localPractice, 'Local Practice');
+  assert.equal(en.mp.soloVsBots, 'Solo vs Bots');
   assert.match(presentation, /directory\.inert = !hostEnabled/);
 
   const soloStart = source.indexOf("        bind('btn-mp-solo'");
