@@ -19,6 +19,28 @@ const BOT_HIT_DAMAGE = 22;
 const MAX_DEFENSE_SPEED = 10;
 const DEFENSE_DODGE_LATCH_SECONDS = 0.25;
 
+// Parkour (js/arena.js buildParkour tags each top 'step' | 'ledge' | 'perch').
+// A bot may climb a step or a ledge — never the perch — with a scripted hop
+// when the ball's play is on/above that piece (see _tryMountParkour).
+export const BOT_MOUNT_MAX_RISE = 1.2;       // m above the current feet
+export const BOT_MOUNT_EDGE_REACH = 0.8;     // u from the piece edge
+export const BOT_MOUNT_TARGET_MARGIN = 1.0;  // intercept target within footprint + this
+export const BOT_MOUNT_HIGH_BALL = 2.0;      // or predicted ball height at intercept >= this
+export const BOT_MOUNT_ARC_SECONDS = 0.3;
+export const BOT_MOUNT_ARC_PEAK = 0.4;       // m above the top
+export const BOT_DISMOUNT_DELAY = 1.0;       // s the reason must stay false
+export const BOT_FALL_GRAVITY = -20;
+export const BOT_SEEK_RANGE = 12;             // u: an idle bot contests the high ground this close
+// Unstick: wanting to move but covering < BOT_STUCK_DISTANCE in BOT_STUCK_SECONDS.
+export const BOT_STUCK_SECONDS = 1.0;
+export const BOT_STUCK_DISTANCE = 0.1;
+const BOT_DETOUR_SECONDS = 1.5;
+const BOT_MOUNTABLE = Object.freeze({ step: true, ledge: true });
+const PK_NONE = 0;  // on the floor
+const PK_ARC = 1;   // scripted mount hop
+const PK_ON = 2;    // standing on _pkPiece, clamped to its footprint
+const PK_OFF = 3;   // walking off / falling to the surface below
+
 // Difficulty base stats, hoisted so the tendency helpers below can read the same
 // canonical table the constructor uses (was previously a constructor-local literal).
 const DIFFICULTY_SETTINGS = {
@@ -154,6 +176,8 @@ export class Bot {
         this._toIntercept = new THREE.Vector3();
         this._dodgeDir = new THREE.Vector3();
         this._perpDir = new THREE.Vector3();
+        this._interceptFresh = false;
+        this._resetParkour();
         // First-session safety net. It is armed by Game for one opposing solo
         // bot only, and changes at most one declined chance roll into the next
         // readable deflect opportunity; difficulty, wind-up and mishit remain
@@ -394,6 +418,7 @@ export class Bot {
         const moveSpeed = this.moveSpeed * hazard * (this._chillTimer > 0 ? 0.8 : 1);
         const previousX = this.position.x;
         const previousZ = this.position.z;
+        this._interceptFresh = false;
         // A declined deflect gets one short, committed lateral escape. Consume
         // only the remaining latch time so its total displacement is stable at
         // every frame rate; after that the bot holds rather than running away
@@ -476,6 +501,7 @@ export class Bot {
                 this._ballDir.copy(ball.velocity).normalize();
                 this._predOffset.copy(this._ballDir).multiplyScalar(Math.min(ballDist * 0.3, 3));
                 this._interceptTarget.copy(ball.position).add(this._predOffset);
+                this._interceptFresh = true;
                 const toIntercept = this._toIntercept.subVectors(this._interceptTarget, this.position);
                 toIntercept.y = 0;
                 const interceptDist = toIntercept.length();
@@ -496,6 +522,7 @@ export class Bot {
                     this.position.addScaledVector(this._perpDir, strafeAmount);
                     this._defenseStrafe = this.strafeDir;
                 }
+                if (!isTargeted) this._seekParkour(moveSpeed, dt);
             }
         } else {
             // No ball — wander with random strafe
@@ -506,6 +533,21 @@ export class Bot {
             }
             this.position.x += this.strafeDir * moveSpeed * 0.3 * dt;
         }
+
+        // The scripted mount hop owns the body (the AI step above is dropped); a
+        // dismount walk or an unstick detour replaces the AI step while no
+        // defense intent holds the bot. Every piece sits >= 3 u inside its own
+        // half, so the clamps below leave a hop alone.
+        const arcing = this._pkMode === PK_ARC;
+        if (arcing) {
+            this.position.x = previousX;
+            this.position.z = previousZ;
+            this._stepMountArc(dt);
+        } else if (this._defenseIntent === 'none') {
+            this._applyScriptedWalk(dt, moveSpeed, previousX, previousZ);
+        }
+        // Up on a piece the soft depth line below yields to the piece.
+        const elevated = (this._pkMode || PK_NONE) !== PK_NONE && this._pkPiece;
 
         // Bounds
         const b = this.arena.bounds;
@@ -520,12 +562,12 @@ export class Bot {
             // depthBias<0 (aggressive) shifts pushUp toward 0 = more forward pressure allowed.
             const pushUp = (ballZ < -5 ? -3 : -1) - this._tendencyDepthBias; // push forward when ball is on blue side
             this._walkMaxZ = Math.min(this._walkMaxZ, pushUp);
-            if (this.position.z > pushUp) this.position.z = pushUp;
+            if (this.position.z > pushUp && !elevated) this.position.z = pushUp;
         }
         if (!this._gameRef?._ffa && this.team === 'blue') {
             const pushUp = (ballZ > 5 ? 3 : 1) + this._tendencyDepthBias;
             this._walkMinZ = Math.max(this._walkMinZ, pushUp);
-            if (this.position.z < pushUp) this.position.z = pushUp;
+            if (this.position.z < pushUp && !elevated) this.position.z = pushUp;
         }
         // Cross-court rule (js/court-rules.js): an aggressive depth bias may push the
         // line above past z=0 — while crossing is locked the midline is a hard wall.
@@ -535,9 +577,23 @@ export class Bot {
             if (courtSide < 0) this._walkMaxZ = Math.min(this._walkMaxZ, -BOT_MIDLINE_MARGIN);
             else this._walkMinZ = Math.max(this._walkMinZ, BOT_MIDLINE_MARGIN);
         }
+        this._baseWalkMinZ = this._walkMinZ;
+        this._baseWalkMaxZ = this._walkMaxZ;
+        if (elevated) {
+            const piece = this._pkPiece;
+            const margin = (this.radius || 0.5) + 0.2;
+            this._walkMinZ = Math.max(b.minZ + 1.5, Math.min(this._walkMinZ, piece.z - piece.halfDepth - margin));
+            this._walkMaxZ = Math.min(b.maxZ - 1.5, Math.max(this._walkMaxZ, piece.z + piece.halfDepth + margin));
+        }
 
-        this.position.y = 0;
-        this._moveAroundProps(previousX, previousZ);
+        if (!arcing) {
+            const wanted = Math.hypot(this.position.x - previousX, this.position.z - previousZ);
+            this._moveAroundProps(previousX, previousZ);
+            // Feet height = what the bot stands on (floor, or a parkour top).
+            this._resolveBotHeight(dt);
+            this._updateParkour(dt);
+            this._updateUnstick(dt, wanted, moveSpeed);
+        }
         this.group.position.copy(this.position);
 
         // Attack cooldown
@@ -547,7 +603,7 @@ export class Bot {
         }
 
         // Drive the rig's animator — facts derived from what the bot already
-        // tracks (bots never leave the ground, so grounded/verticalSpeed are fixed).
+        // tracks (airborne only during a mount hop or a dismount fall).
         // ponytail: speed via position delta, reused facts object, 0 alloc/frame.
         if (this.animator) {
             const invDt = dt > 1e-4 ? 1 / dt : 0;
@@ -556,8 +612,8 @@ export class Bot {
             this._animPrevZ = this.position.z;
             const facts = this._animFacts;
             facts.speed = moved * invDt;
-            facts.grounded = true;
-            facts.verticalSpeed = 0;
+            facts.grounded = this._pkMode !== PK_ARC && !(this._fallVy < 0);
+            facts.verticalSpeed = this._fallVy || 0;
             facts.alive = this.alive;
             facts.aim = 0;
             facts.strafe = this._defenseStrafe;
@@ -567,22 +623,26 @@ export class Bot {
 
     // Same arena colliders as the player, using the bot's feet-based position.
     // Scalar checks and bounded substeps avoid both per-tick vectors and tunneling.
-    _canStandAt(x, z) {
+    // `y` = feet height to test at; `piece` = the parkour top the bot stands on
+    // (it stays inside that footprint until it deliberately walks off).
+    _canStandAt(x, z, y = this.position.y, piece = this._pkMode === PK_ON ? this._pkPiece : null) {
         const bounds = this.arena.bounds;
         if (x < bounds.minX + 1.5 || x > bounds.maxX - 1.5
             || z < this._walkMinZ || z > this._walkMaxZ) return false;
+        if (piece && (x < piece.x - piece.halfWidth || x > piece.x + piece.halfWidth
+            || z < piece.z - piece.halfDepth || z > piece.z + piece.halfDepth)) return false;
         const radius = this.radius || 0.5;
         for (const prop of this.arena.collidables || []) {
             if (prop.broken || prop.ballOnly) continue;
             if (Number.isFinite(prop.minX)) {
-                if (this.position.y + 1.9 <= prop.minY || this.position.y >= prop.maxY) continue;
+                if (y + 1.9 <= prop.minY || y >= prop.maxY) continue;
                 if (x > prop.minX - radius && x < prop.maxX + radius
                     && z > prop.minZ - radius && z < prop.maxZ + radius) return false;
             } else if (prop.pos && Number.isFinite(prop.radius) && prop.radius > 0) {
                 // Solid columns carry exact extents; legacy ones a centre band.
                 if (Number.isFinite(prop.top)
-                    ? this.position.y + 1.9 <= prop.bottom || this.position.y >= prop.top
-                    : Math.abs(this.position.y + 1.7 - prop.pos.y) >= prop.radius + radius + 2) continue;
+                    ? y + 1.9 <= prop.bottom || y >= prop.top
+                    : Math.abs(y + 1.7 - prop.pos.y) >= prop.radius + radius + 2) continue;
                 const dx = x - prop.pos.x;
                 const dz = z - prop.pos.z;
                 if (dx * dx + dz * dz < (radius + prop.radius) ** 2 - 1e-10) return false;
@@ -693,6 +753,374 @@ export class Bot {
             position.z = Math.max(this._walkMinZ, Math.min(this._walkMaxZ, position.z));
             if (this._canStandAt(position.x, position.z)) break;
         }
+    }
+
+    // --- Parkour + unstick (all scalar state, 0 alloc per frame) ----------------
+
+    _resetParkour() {
+        this._pkMode = PK_NONE;
+        this._pkPiece = null;
+        this._pkT = 0;
+        this._pkFalseFor = 0;
+        this._fallVy = 0;
+        this._detourTime = 0;
+        this._stuckTime = 0;
+        this._stuckX = NaN;
+        this._stuckZ = NaN;
+    }
+
+    // Why a bot goes (or stays) up: the ball's play is on this piece, or the
+    // ball will be high where the bot meets it.
+    _parkourReason(piece) {
+        if (!this._interceptFresh || !piece) return false;
+        const target = this._interceptTarget;
+        if (target.y >= BOT_MOUNT_HIGH_BALL) return true;
+        return Math.abs(target.x - piece.x) <= piece.halfWidth + BOT_MOUNT_TARGET_MARGIN
+            && Math.abs(target.z - piece.z) <= piece.halfDepth + BOT_MOUNT_TARGET_MARGIN;
+    }
+
+    // Highest parkour top under the bot's body (same expanded box as the
+    // collider test) at or below `maxY`; 0 = the floor. Sets _supportPiece.
+    _parkourSupportAt(x, z, maxY) {
+        const platforms = this.arena.platforms;
+        const radius = this.radius || 0.5;
+        let best = 0;
+        this._supportPiece = null;
+        for (let i = 0; platforms && i < platforms.length; i++) {
+            const p = platforms[i];
+            if (!p.parkour || p.y > maxY + 1e-6 || p.y <= best) continue;
+            if (Math.abs(x - p.x) < p.halfWidth + radius && Math.abs(z - p.z) < p.halfDepth + radius) {
+                best = p.y;
+                this._supportPiece = p;
+            }
+        }
+        return best;
+    }
+
+    // Floor bots stand at y = 0 (as always). Up on a piece: its top. Walking
+    // off: fall with gravity to the surface below (a lower piece or the floor).
+    _resolveBotHeight(dt) {
+        const position = this.position;
+        const mode = this._pkMode || PK_NONE;
+        if (mode === PK_ON) {
+            const piece = this._pkPiece;
+            if (piece && Math.abs(position.y - piece.y) < 0.05) {
+                position.y = piece.y;
+                this._fallVy = 0;
+                return;
+            }
+            this._resetParkour(); // moved off-script (celebration, team switch): back to the floor
+        }
+        if (mode !== PK_OFF) {
+            position.y = 0;
+            this._fallVy = 0;
+            return;
+        }
+        const support = this._parkourSupportAt(position.x, position.z, position.y);
+        if (position.y > support + 1e-6) {
+            this._fallVy = (this._fallVy || 0) + BOT_FALL_GRAVITY * dt;
+            position.y = Math.max(support, position.y + this._fallVy * dt);
+            if (position.y > support) return;
+        }
+        position.y = support;
+        this._fallVy = 0;
+        const landed = this._supportPiece;
+        if (!landed) {
+            this._pkMode = PK_NONE;
+            this._pkPiece = null;
+        } else if (landed !== this._pkPiece) {
+            // Dropped onto a lower piece: keep walking down unless the reason returns.
+            this._pkMode = PK_ON;
+            this._pkPiece = landed;
+            this._pkFalseFor = BOT_DISMOUNT_DELAY;
+        }
+    }
+
+    // Dismount walk (toward the chosen exit) or unstick detour (toward a corner).
+    _applyScriptedWalk(dt, moveSpeed, previousX, previousZ) {
+        let tx;
+        let tz;
+        let speed;
+        if (this._pkMode === PK_OFF) {
+            tx = this._pkExitX;
+            tz = this._pkExitZ;
+            speed = moveSpeed * 0.6;
+        } else if ((this._pkMode || PK_NONE) === PK_NONE && this._detourTime > 0) {
+            this._detourTime -= dt;
+            tx = this._detourX;
+            tz = this._detourZ;
+            speed = this._detourSpeed;
+        } else {
+            return;
+        }
+        this.position.x = previousX;
+        this.position.z = previousZ;
+        const dx = tx - previousX;
+        const dz = tz - previousZ;
+        const distance = Math.hypot(dx, dz);
+        if (distance < 0.2 && this._pkMode !== PK_OFF) this._detourTime = 0;
+        if (distance < 1e-4) return;
+        const step = Math.min(distance, speed * dt);
+        this.position.x += dx / distance * step;
+        this.position.z += dz / distance * step;
+    }
+
+    _stepMountArc(dt) {
+        const piece = this._pkPiece;
+        this._pkT = Math.min(1, this._pkT + dt / BOT_MOUNT_ARC_SECONDS);
+        const s = this._pkT;
+        const top = piece.y;
+        const y0 = this._pkSY;
+        const peak = top + BOT_MOUNT_ARC_PEAK;
+        const riseEnd = 0.6;
+        this.position.y = s <= riseEnd
+            ? y0 + (peak - y0) * Math.sin(s / riseEnd * Math.PI / 2)
+            : top + BOT_MOUNT_ARC_PEAK * Math.cos((s - riseEnd) / (1 - riseEnd) * Math.PI / 2);
+        // Feet clear the top before the body moves over the edge.
+        const clearAt = riseEnd * Math.asin(Math.min(1, (top - y0) / (peak - y0))) * 2 / Math.PI;
+        const h = s <= clearAt ? 0 : (s - clearAt) / (1 - clearAt);
+        const eased = h * h * (3 - 2 * h);
+        this.position.x = this._pkSX + (this._pkEX - this._pkSX) * eased;
+        this.position.z = this._pkSZ + (this._pkEZ - this._pkSZ) * eased;
+        if (s >= 1) {
+            this.position.y = top;
+            this._pkMode = PK_ON;
+            this._pkFalseFor = 0;
+            this._fallVy = 0;
+        }
+    }
+
+    // A bot may mount a step (floor -> 1.2 m) or a ledge (step -> 2.4 m), never
+    // the perch, and only: no defense intent, within BOT_MOUNT_EDGE_REACH of the
+    // edge, rise <= BOT_MOUNT_MAX_RISE, piece inside its walk limits on its own
+    // half, and a reason (_parkourReason). Returns true when a hop starts.
+    // Edge distance to a piece this bot may climb from where it stands now, or
+    // -1: a step/ledge (never the perch), rise <= BOT_MOUNT_MAX_RISE, on its own
+    // half and inside its walk limits.
+    _climbableEdge(piece) {
+        if (BOT_MOUNTABLE[piece.parkour] !== true || piece === this._pkPiece) return -1;
+        const position = this.position;
+        const rise = piece.y - position.y;
+        if (rise <= 0.05 || rise > BOT_MOUNT_MAX_RISE + 1e-6) return -1;
+        const minX = piece.x - piece.halfWidth;
+        const maxX = piece.x + piece.halfWidth;
+        const minZ = piece.z - piece.halfDepth;
+        const maxZ = piece.z + piece.halfDepth;
+        if (this.team === 'blue' ? minZ <= 0 : maxZ >= 0) return -1;
+        const bounds = this.arena.bounds;
+        if (minX < bounds.minX + 1.5 || maxX > bounds.maxX - 1.5
+            || !(minZ >= this._baseWalkMinZ && maxZ <= this._baseWalkMaxZ)) return -1;
+        return Math.hypot(Math.max(minX - position.x, 0, position.x - maxX),
+            Math.max(minZ - position.z, 0, position.z - maxZ));
+    }
+
+    // An idle bot (not the ball's target) walks toward a climbable piece
+    // within BOT_SEEK_RANGE while the ball will be high, so the high ground is
+    // contested; the mount itself still needs every _tryMountParkour gate.
+    _seekParkour(moveSpeed, dt) {
+        const mode = this._pkMode || PK_NONE;
+        const platforms = this.arena.platforms;
+        if ((mode !== PK_NONE && mode !== PK_ON) || !platforms?.length || this._defenseIntent !== 'none'
+            || !this._interceptFresh || this._interceptTarget.y < BOT_MOUNT_HIGH_BALL) return;
+        let best = null;
+        let bestEdge = BOT_SEEK_RANGE;
+        for (let i = 0; i < platforms.length; i++) {
+            const edge = this._climbableEdge(platforms[i]);
+            if (edge >= 0 && edge < bestEdge) {
+                bestEdge = edge;
+                best = platforms[i];
+            }
+        }
+        if (!best || bestEdge < BOT_MOUNT_EDGE_REACH - 0.2) return;
+        const position = this.position;
+        const dx = Math.max(best.x - best.halfWidth, Math.min(best.x + best.halfWidth, position.x)) - position.x;
+        const dz = Math.max(best.z - best.halfDepth, Math.min(best.z + best.halfDepth, position.z)) - position.z;
+        const distance = Math.hypot(dx, dz);
+        if (distance < 1e-4) return;
+        const step = moveSpeed * 0.5 * dt;
+        position.x += dx / distance * step;
+        position.z += dz / distance * step;
+    }
+
+    _tryMountParkour() {
+        const platforms = this.arena.platforms;
+        if (!platforms?.length || this._defenseIntent !== 'none') return false;
+        const position = this.position;
+        const radius = this.radius || 0.5;
+        for (let i = 0; i < platforms.length; i++) {
+            const piece = platforms[i];
+            const edge = this._climbableEdge(piece);
+            if (edge < 0 || edge > BOT_MOUNT_EDGE_REACH) continue;
+            if (!this._parkourReason(piece)) continue;
+            const minX = piece.x - piece.halfWidth;
+            const maxX = piece.x + piece.halfWidth;
+            const minZ = piece.z - piece.halfDepth;
+            const maxZ = piece.z + piece.halfDepth;
+            const insetX = Math.min(radius + 0.1, piece.halfWidth);
+            const insetZ = Math.min(radius + 0.1, piece.halfDepth);
+            let landX = Math.max(minX + insetX, Math.min(maxX - insetX, position.x));
+            let landZ = Math.max(minZ + insetZ, Math.min(maxZ - insetZ, position.z));
+            if (!this._mountPathClear(landX, landZ, piece.y)) {
+                landX = piece.x;
+                landZ = piece.z;
+                if (!this._mountPathClear(landX, landZ, piece.y)) continue;
+            }
+            this._pkMode = PK_ARC;
+            this._pkPiece = piece;
+            this._pkT = 0;
+            this._pkSX = position.x;
+            this._pkSY = position.y;
+            this._pkSZ = position.z;
+            this._pkEX = landX;
+            this._pkEZ = landZ;
+            this._pkFalseFor = 0;
+            this._detourTime = 0;
+            this.mountCount = (this.mountCount || 0) + 1;
+            return true;
+        }
+        return false;
+    }
+
+    // The hop's horizontal path, tested at the top height (the body only moves
+    // over the edge once the feet are above it).
+    _mountPathClear(landX, landZ, top) {
+        const sx = this.position.x;
+        const sz = this.position.z;
+        for (let k = 0; k <= 6; k++) {
+            const t = k / 6;
+            if (!this._canStandAt(sx + (landX - sx) * t, sz + (landZ - sz) * t, top, null)) return false;
+        }
+        return true;
+    }
+
+    // Straight floor walk from here to (x, z) fits the body all the way.
+    _walkClear(x, z) {
+        const sx = this.position.x;
+        const sz = this.position.z;
+        const steps = Math.max(2, Math.ceil(Math.hypot(x - sx, z - sz) / 0.25));
+        for (let k = 1; k <= steps; k++) {
+            const t = k / steps;
+            if (!this._canStandAt(sx + (x - sx) * t, sz + (z - sz) * t)) return false;
+        }
+        return true;
+    }
+
+    // Stay up while the reason holds; walk off once it has been false for
+    // BOT_DISMOUNT_DELAY. From the floor or a lower piece, try to mount.
+    _updateParkour(dt) {
+        if (!this.alive) return;
+        const mode = this._pkMode || PK_NONE;
+        if (mode === PK_ON) {
+            if (this._parkourReason(this._pkPiece)) this._pkFalseFor = 0;
+            else this._pkFalseFor += dt;
+            if (this._defenseIntent === 'none' && this._tryMountParkour()) return;
+            if (this._pkFalseFor >= BOT_DISMOUNT_DELAY && this._defenseIntent === 'none') this._beginDismount();
+        } else if (mode === PK_NONE) {
+            this._tryMountParkour();
+        }
+    }
+
+    // Nearest edge to walk off: an exit just past the edge where the body fits
+    // at the current height (never toward a taller neighbour such as the
+    // perch), preferring exits inside the normal walk limits.
+    _beginDismount() {
+        const piece = this._pkPiece;
+        const position = this.position;
+        const radius = this.radius || 0.5;
+        const out = radius + 0.1;
+        let best = Infinity;
+        let bestX = 0;
+        let bestZ = 0;
+        for (let pass = 0; pass < 2 && !Number.isFinite(best); pass++) {
+            for (let side = 0; side < 4; side++) {
+                const x = side === 0 ? piece.x - piece.halfWidth - out
+                    : side === 1 ? piece.x + piece.halfWidth + out : position.x;
+                const z = side === 2 ? piece.z - piece.halfDepth - out
+                    : side === 3 ? piece.z + piece.halfDepth + out : position.z;
+                if (pass === 0 && (z < this._baseWalkMinZ || z > this._baseWalkMaxZ)) continue;
+                const cost = Math.abs(x - position.x) + Math.abs(z - position.z);
+                if (cost >= best || !this._canStandAt(x, z, position.y, null)) continue;
+                best = cost;
+                bestX = x;
+                bestZ = z;
+            }
+        }
+        if (!Number.isFinite(best)) return; // boxed in up here: hold, retry next frame
+        this._pkMode = PK_OFF;
+        this._pkExitX = bestX;
+        this._pkExitZ = bestZ;
+        this._fallVy = 0;
+    }
+
+    // Wanting to move (no defense intent holding the bot) yet covering less
+    // than BOT_STUCK_DISTANCE in BOT_STUCK_SECONDS: flip the detour side and
+    // head for the nearest corner of the blocking piece.
+    _updateUnstick(dt, wanted, moveSpeed) {
+        const position = this.position;
+        const wantsToMove = (this._pkMode || PK_NONE) === PK_NONE && this._defenseIntent === 'none'
+            && wanted > moveSpeed * dt * 0.25;
+        if (!wantsToMove || !Number.isFinite(this._stuckX)
+            || Math.hypot(position.x - this._stuckX, position.z - this._stuckZ) >= BOT_STUCK_DISTANCE) {
+            this._stuckTime = 0;
+            this._stuckX = position.x;
+            this._stuckZ = position.z;
+            if (!wantsToMove) return;
+        }
+        this._stuckTime += dt;
+        if (this._stuckTime < BOT_STUCK_SECONDS) return;
+        this._stuckTime = 0;
+        this.stuckEpisodes = (this.stuckEpisodes || 0) + 1;
+        this._obstacleSide = -(this._obstacleSide || this.strafeDir || 1);
+        this._beginDetour(Math.min(moveSpeed * 0.85, Math.max(wanted / dt, moveSpeed * 0.3)));
+    }
+
+    _beginDetour(speed) {
+        const position = this.position;
+        const radius = this.radius || 0.5;
+        const y = position.y;
+        const collidables = this.arena.collidables;
+        let blocker = null;
+        let nearest = radius + 0.35;
+        for (let i = 0; collidables && i < collidables.length; i++) {
+            const prop = collidables[i];
+            if (prop.broken || prop.ballOnly) continue;
+            let gap;
+            if (Number.isFinite(prop.minX)) {
+                if (y + 1.9 <= prop.minY || y >= prop.maxY) continue;
+                gap = Math.hypot(Math.max(prop.minX - position.x, 0, position.x - prop.maxX),
+                    Math.max(prop.minZ - position.z, 0, position.z - prop.maxZ));
+            } else if (prop.pos && prop.radius > 0) {
+                if (Number.isFinite(prop.top) && (y + 1.9 <= prop.bottom || y >= prop.top)) continue;
+                gap = Math.hypot(position.x - prop.pos.x, position.z - prop.pos.z) - prop.radius;
+            } else continue;
+            if (gap < nearest) {
+                nearest = gap;
+                blocker = prop;
+            }
+        }
+        if (!blocker) return;
+        const reach = radius + 0.3;
+        const box = Number.isFinite(blocker.minX);
+        const minX = (box ? blocker.minX : blocker.pos.x - blocker.radius) - reach;
+        const maxX = (box ? blocker.maxX : blocker.pos.x + blocker.radius) + reach;
+        const minZ = (box ? blocker.minZ : blocker.pos.z - blocker.radius) - reach;
+        const maxZ = (box ? blocker.maxZ : blocker.pos.z + blocker.radius) + reach;
+        // Nearest standable corner, preferring one whose straight walk is clear
+        // (a corner tucked against a neighbouring piece would pin it again).
+        let best = Infinity;
+        for (let corner = 0; corner < 8; corner++) {
+            const x = corner & 1 ? maxX : minX;
+            const z = corner & 2 ? maxZ : minZ;
+            const distance = Math.hypot(x - position.x, z - position.z) + (corner < 4 ? 0 : 1e6);
+            if (distance >= best || !this._canStandAt(x, z)) continue;
+            if (corner < 4 && !this._walkClear(x, z)) continue;
+            best = distance;
+            this._detourX = x;
+            this._detourZ = z;
+        }
+        if (!Number.isFinite(best)) return;
+        this._detourTime = BOT_DETOUR_SECONDS;
+        this._detourSpeed = speed;
     }
 
     armFirstSoloDeflectGuard() {
@@ -863,6 +1291,7 @@ export class Bot {
         this.buildAvatarSprite();
         const spawn = this.arena.getPlayerSpawn(team);
         this.position.copy(spawn);
+        this._resetParkour();
         this.drawHpBar?.();
     }
 
@@ -883,6 +1312,7 @@ export class Bot {
         this._burnTimer = 0;
         this._chillTimer = 0;
         this.skillCooldowns = {};
+        this._resetParkour();
         this._resetDefenseIntent();
         this.alive = true;
         this.drawHpBar();

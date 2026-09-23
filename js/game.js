@@ -1045,7 +1045,7 @@ startGame(skipPreGame = false, matchId = null) {
             this._receivedCountdownSeconds = null;
             this.preGameTimer = displaySeconds;
             this._preGameActive = true;
-            this.ui.showMatchIntro(this.arena.config?.name || 'Arena', this.mode?.name || 'Classic');
+            this.ui.showMatchIntro(this.arena.config?.name || 'Arena', this.mode?.name || 'Classic', { cover: this.arena?.propsEnabled !== false });
             this.ui.scheduleMatchIntroHide?.(OPENING_WARMUP_VISIBLE_MS);
             let cancelled = false;
             this._cancelCountdown = () => {
@@ -1067,7 +1067,7 @@ startGame(skipPreGame = false, matchId = null) {
         this.preGameTimer = this.preGameDuration;
         this._preGameActive = true;
         // Show match intro overlay
-        this.ui.showMatchIntro(this.arena.config?.name || 'Arena', this.mode?.name || 'Classic');
+        this.ui.showMatchIntro(this.arena.config?.name || 'Arena', this.mode?.name || 'Classic', { cover: this.arena?.propsEnabled !== false });
         this.ui.scheduleMatchIntroHide?.(OPENING_WARMUP_VISIBLE_MS);
         // Warmup: spawn ball early so players practice deflecting during countdown
         if (!skipPreGame && !this._skipPreGame) {

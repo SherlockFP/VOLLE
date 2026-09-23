@@ -12,7 +12,7 @@ import { Renderer } from './renderer.js';
 import { Player, isEditableTarget } from './player.js';
 import { TouchControls, bindTouchSettings } from './touch-controls.js';
 import { Arena, getLobbyPreviewCommands, registerCustomMap } from './arena.js';
-import { Game, STATES } from './game.js';
+import { Game, STATES, MAP_PROPS_CHANCE } from './game.js';
 import { GAME_MODES } from './gamemodes.js';
 import { Audio } from './audio.js';
 import { UI } from './ui.js';
@@ -541,7 +541,8 @@ class App {
                 e.preventDefault();
                 e.stopPropagation();
                 this.ui.showScoreboard();
-                this.ui.updateScoreboard(this.game.scoreboard.getPlayerStats(), this.game._ffa);
+                this.ui.updateScoreboard(this.game.scoreboard.getPlayerStats(), this.game._ffa,
+                    { cover: this.game.arena?.propsEnabled !== false });
             }
             // Y/T/Enter → open chat during play, lobby, celebration, or post-game
             if ((e.code === 'KeyY' || e.code === 'KeyT' || e.code === 'Enter') &&
@@ -5519,6 +5520,7 @@ updateCarousel() {
         const sizeEl = document.getElementById('carousel-size');
         if (sizeEl) sizeEl.textContent = formatMapSize(config);
         this._drawLobbyMapPreview(config);
+        this._showLobbyCoverNote();
 
         // Update dots
         document.querySelectorAll('.carousel-dot').forEach((dot, i) => {
@@ -5530,6 +5532,21 @@ updateCarousel() {
         if (card) {
             card.classList.toggle('selected', mapId === this.arena?.mapId);
         }
+    }
+
+    // In-court cover (parkour + cover props) is rolled per match (host/solo,
+    // MAP_PROPS_CHANCE), so the preview may show cover the match will not have.
+    _showLobbyCoverNote() {
+        const info = document.querySelector('#carousel-card .carousel-info');
+        if (!info) return;
+        let note = document.getElementById('carousel-cover-note');
+        if (!note) {
+            note = document.createElement('small');
+            note.id = 'carousel-cover-note';
+            note.className = 'carousel-cover-note';
+            info.appendChild(note);
+        }
+        setText(note, 'match.coverRolled', { pct: Math.round(MAP_PROPS_CHANCE * 100) });
     }
 
     _drawLobbyMapPreview(config) {

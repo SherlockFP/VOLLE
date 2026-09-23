@@ -551,9 +551,15 @@ export const SPIN_MAX = 3;
 export const SPIN_MAGNUS_COEFF = 0.40;
 export const SPIN_DECAY_PER_SECOND = 0.95;
 export const SPIN_EPSILON = 0.001;
-// First contact with a prop still bounces; then a targeted ball phases through
-// props this long so homing can finish the shot instead of pinning to a wall.
+// Cover stops a targeted ball: every clean prop contact bounces. Only a PINNED
+// ball phases through props, for PROP_GHOST_SECONDS, so homing can still finish
+// the shot: while targeted, (i) a second prop bounce within PROP_PIN_WINDOW of
+// the previous one, or (ii) a prop bounce whose PROP_PIN_WINDOW passed without
+// the distance to the target changing by PROP_PIN_PROGRESS (hovering at the
+// prop instead of getting around it or flying clear to come back).
 export const PROP_GHOST_SECONDS = 0.6;
+export const PROP_PIN_WINDOW = 0.4;
+export const PROP_PIN_PROGRESS = 1.0;
 export const DEFLECT_SPIN_SCALE = Object.freeze({ normal: 0.45, great: 0.75, perfect: 1 });
 
 export function spinFromStrafe(strafeVelocity, forward, tier = 'normal') {
@@ -701,7 +707,11 @@ export class Ball {
         // süre sayacı başlar. Oyuncu vurmazsa 0.4s sonra zorunlu hit.
         this._proximityTimer = 0;
         this._proximityThreshold = 0.4; // saniye
-        this._propGhost = 0; // s left phasing through props after a prop bounce
+        this._propGhost = 0; // s left phasing through props once pinned (see PROP_PIN_WINDOW)
+        this._propClock = 0; // s, ball-local clock for the pin check (scalars only, no alloc)
+        this._propBounceAt = -Infinity; // _propClock of the latest targeted prop bounce
+        this._propBounceDist = 0; // distance to the target at that bounce
+        this._propPinTarget = null; // target the two scalars above were measured against
         this._proximityRange = 1.5;     // hitRange'den büyük ama çok da değil
         this._forceHit = false;
 
@@ -1231,10 +1241,11 @@ export class Ball {
         let bounceSpeed = 0;
 
         // Collision with map props (trees, pillars, mecha legs, canyon rocks).
-        // After a prop bounce a targeted ball phases through props briefly:
-        // homing steers it straight back into the same prop otherwise, and it
-        // pinned itself against walls/parkour and never reached the player.
+        // Cover bounces a targeted ball on every clean contact; only a pinned
+        // ball (homing steering it back into the same prop, see
+        // _updatePropPin) phases through props briefly to finish the shot.
         if (this._propGhost > 0) this._propGhost = Math.max(0, this._propGhost - dt);
+        this._propClock += dt;
         const propBouncesBefore = this.bounceCount;
         if (this.arena.collidables && !(this._propGhost > 0 && this.targetPlayer)) {
             for (const c of this.arena.collidables) {
@@ -1304,7 +1315,7 @@ export class Ball {
                 }
             }
         }
-        if (this.bounceCount > propBouncesBefore && this.targetPlayer) this._propGhost = PROP_GHOST_SECONDS;
+        this._updatePropPin(this.bounceCount > propBouncesBefore);
 
         // Floor bounce — speed-dependent: fast ball bounces higher, slow dies
         if (this.position.y - this.radius < 0) {
@@ -1461,6 +1472,41 @@ export class Ball {
         this.updateTrail(dt);
 
         return bounced;
+    }
+
+    // Pin detector for targeted prop bounces (see PROP_PIN_WINDOW). Scalars
+    // only — runs every host tick, allocation-free.
+    _updatePropPin(bouncedOffProp) {
+        const target = this.targetPlayer;
+        if (!target || !target.position) {
+            this._propPinTarget = null;
+            this._propBounceAt = -Infinity;
+            return;
+        }
+        if (this._propPinTarget !== target) {
+            this._propPinTarget = target;
+            this._propBounceAt = -Infinity;
+        }
+        const since = this._propClock - this._propBounceAt;
+        if (!bouncedOffProp && !(this._propBounceAt > -Infinity && since >= PROP_PIN_WINDOW)) return;
+        const p = target.position;
+        const distance = Math.hypot(this.position.x - p.x, this.position.y - p.y, this.position.z - p.z);
+        if (bouncedOffProp) {
+            if (since <= PROP_PIN_WINDOW) {
+                // (i) back into a prop within the window: pinned.
+                this._propGhost = PROP_GHOST_SECONDS;
+                this._propBounceAt = -Infinity;
+            } else {
+                this._propBounceAt = this._propClock;
+                this._propBounceDist = distance;
+            }
+            return;
+        }
+        // (ii) the window after the bounce closed without the ball getting
+        // PROP_PIN_PROGRESS closer (around the prop) or farther (flying clear,
+        // it may come back and bounce again): it is hovering there, pinned.
+        if (Math.abs(this._propBounceDist - distance) < PROP_PIN_PROGRESS) this._propGhost = PROP_GHOST_SECONDS;
+        this._propBounceAt = -Infinity;
     }
 
     // Body zone vertical offsets from head position

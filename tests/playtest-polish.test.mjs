@@ -81,10 +81,17 @@ test('in-court props are rolled per match (mostly off) and follow the host on cl
     assert.equal((game.match(/this\.arena\.rebuild\(data\.map, typeof data\.props === 'boolean' \? \{ props: data\.props \} : \{\}\)/g) || []).length, 2);
 });
 
-test('a targeted ball phases through props briefly after a prop bounce instead of pinning to them', async () => {
+test('a targeted ball phases through props only once pinned, so cover blocks yet the ball never pins', async () => {
+    // Behaviour (real Ball vs a parkour block) lives in tests/prop-ghost-pinning.test.mjs.
     const ballSrc = await readFile(new URL('../js/ball.js', import.meta.url), 'utf8');
     const ghost = Number(ballSrc.match(/export const PROP_GHOST_SECONDS = ([\d.]+);/)?.[1]);
+    const window = Number(ballSrc.match(/export const PROP_PIN_WINDOW = ([\d.]+);/)?.[1]);
+    const progress = Number(ballSrc.match(/export const PROP_PIN_PROGRESS = ([\d.]+);/)?.[1]);
     assert.ok(ghost >= 0.3 && ghost <= 1);
+    assert.ok(window > 0 && window <= 0.45, 'a pinned ball phases within 0.45 s of its first pinned bounce');
+    assert.ok(progress > 0);
     assert.match(ballSrc, /if \(this\.arena\.collidables && !\(this\._propGhost > 0 && this\.targetPlayer\)\) \{/);
-    assert.match(ballSrc, /if \(this\.bounceCount > propBouncesBefore && this\.targetPlayer\) this\._propGhost = PROP_GHOST_SECONDS;/);
+    assert.match(ballSrc, /this\._updatePropPin\(this\.bounceCount > propBouncesBefore\);/);
+    assert.doesNotMatch(ballSrc, /if \(this\.bounceCount > propBouncesBefore && this\.targetPlayer\) this\._propGhost = PROP_GHOST_SECONDS;/,
+        'no blanket ghost after every prop bounce: cover must stop a ball more than once');
 });
