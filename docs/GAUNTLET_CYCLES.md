@@ -267,3 +267,48 @@ provisional scores because the code contradicted earlier evidence: Ball Interact
    time; 20 Hz one-decimal ETA) → needs a design decision + D2 telemetry.
 3. P2 — prop state invisible (no COVER ON/OFF cue); bots can't use parkour; prop ghost
    makes cover moot after first bounce.
+
+### Wave 2 (user approved all queue items) — G2 ∥ G5, then G4
+
+#### G2 — In-frame contact order — PASS (`1257f47`, merge `fe5002d`)
+- Before: deflect only registered if a frame ended inside the sphere/capsule gap; at 10×
+  a perfectly timed swing succeeded 19% @30 Hz, 32.5% @60, 89% @144; hard bot 10–49%.
+- After: `_resolveFrameContacts` settles deflect vs hit once per frame on the ball's
+  segment (earliest event, ties → deflect; bots use exact in-frame ready time).
+  100% at every rate for the whole 17/88/177 u/s × 30/100/200 ms matrix; hard bot 100%.
+  Hit decisions still use the old sampling (only timed analytically).
+- SOL accepted: clicks after body contact now lose; full 220 ms swing honoured.
+- QA: PASS (P2: bounce frames judged at frame end; multi-target frames earliest-wins).
+
+#### G5 — Cover cue, bots on parkour, pinned-only ghost — PASS (`41f5e07`, merge `ae690aa`)
+- COVER ON / OPEN COURT chip at countdown (host = client in 20 seeded starts), Tab line,
+  lobby note (EN/TR).
+- Bots mount step/ledge (never perch), dismount, unstick: stuck episodes > 2 s 148 → 0;
+  mounts on 6/6 maps (was 0). Seek toward high ground accepted by SOL.
+- Prop ghost only when pinned: shots blocked by a 2.4 m ledge 78.8% → 87.2%; 0 of 500
+  shots unresolved > 3 s.
+- QA: PASS (P2: celebration/round-end snaps elevated bots; mid-arc deflect animation).
+
+#### G4 — Reaction wall — PASS (`cf4318f`)
+- Swing window grows 0.22 → 0.28 s above 3×; whiff recovery shrinks with speed (never
+  longer than before); first-whiff re-arm when the ball is still coming.
+- Bots crack probabilistically (deflectChance·decay^(r−r0)) with squeezed reactions down
+  to a floor instead of a fixed wall: hard crack speed median 6.1×, p99 12.1× (was a
+  6.1× wall); 10× rally vs hard bot: 0/20 returns → returns in 12/20 runs.
+- Timed player ≥ 99% at 5×/10×; spam ≤ 52.5%; G3 gates hold.
+- OVERDRIVE banner + chip + synthesized cue once per rally at 5×; ETA in ms below 1 s
+  and a closing reticle ring (gold ≤ 60 ms).
+- SOL accepted: re-arm gated to the first whiff in a row (literal card let spam hit 82%).
+- QA: PASS (P2: MAX ratio constant duplicated in game.js/ui.js).
+
+### Provisional scores after wave 2 (code + simulation evidence, no playtest)
+| Pillar | After G1/G3 | After wave 2 |
+| --- | ---: | ---: |
+| Core Fun | 6.6 | 7.1 |
+| Ball Interaction | 7.3 | 7.8 |
+| Deflect Satisfaction | 7.3 | 7.7 |
+| Skill Expression | 6.8 | 7.5 |
+| Match Pacing | 6.9 | 7.4 |
+| Readability | 7.6 | 8.2 |
+
+External playtests and cohort data are still missing; these remain readiness scores.
