@@ -51,9 +51,14 @@ test('the bot commits before reaction timing so the hold spans reaction and wind
 });
 
 test('bot wind-up starts before the attack-range gate, then redirects only in range', () => {
+    // G2 split the reaction/wind-up timers into advanceDeflectReady (also read
+    // by the in-frame contact resolution); tryDeflect runs it before the gate.
     const methodStart = botSource.indexOf('tryDeflect(ball, dt = 0.016) {');
-    const method = botSource.slice(methodStart);
-    const windUp = method.indexOf('this.windUpTimer += dt;');
+    const method = botSource.slice(methodStart, botSource.indexOf('    advanceDeflectReady(ball, dt = 0.016) {'));
+    const readiness = method.indexOf('if (!(this.advanceDeflectReady(ball, dt) <= dt)) return false;');
     const rangeGate = method.indexOf('if (dist > ball.attackRange) return false;');
-    assert.ok(windUp >= 0 && windUp < rangeGate, 'wind-up must complete during the alert window before range is required');
+    assert.ok(readiness >= 0 && readiness < rangeGate, 'wind-up must complete during the alert window before range is required');
+    const ready = botSource.slice(botSource.indexOf('    advanceDeflectReady(ball, dt = 0.016) {'), botSource.indexOf('    commitDeflect() {'));
+    assert.ok(ready.indexOf('this.reactionTimer += dt;') < ready.indexOf('this.windUpTimer += dt;'));
+    assert.doesNotMatch(ready, /ball\.attackRange|_defenseDistance/, 'readiness never depends on range');
 });

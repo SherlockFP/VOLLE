@@ -18,7 +18,7 @@ import { clampToCourtHalf, confinementSideFor, normalizeAllowCrossCourt, DEFAULT
 import { AffixManager } from './affixes.js';
 import { SKILLS, useSkill, tickSkillCooldowns, ULTIMATES, perfectDeflectCooldownCut } from './skills.js';
 import { isNewerSequence } from './network.js';
-import { resolveKillerName, segmentIntersectsSphere, sweptHitStepCount, scaleDedupWindowMs, scaleLethalGraceMs, decayKillConfirmEntries, capsuleContact, targetFeetY } from './combat.js';
+import { resolveKillerName, sweptHitStepCount, scaleDedupWindowMs, scaleLethalGraceMs, decayKillConfirmEntries, capsuleContact, targetFeetY, segmentSphereEntry, segmentCapsuleEntry, deflectContactS } from './combat.js';
 import { comboTier, comboPitchRate } from './combat-fx.js';
 import './hit-feedback.js';
 import { goalScoringTeam, checkGoalEntry } from './goal-mode.js';
@@ -2775,58 +2775,43 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         // Player deflection — aim-based
         // CS2-style: never block deflect on ball.active check alone.
         // Host's late-deflect grace window in remoteAttack handles reactivation.
-        this._updateLocalDeflectAttempt(dt);
+        // G2 order (host/solo): bot timers → ball step → one in-frame contact
+        // resolution (_resolveFrameContacts) → whiff bookkeeping. The P2P
+        // client keeps its presentation-only prediction before the visual step.
+        const authoritative = !this.network?.connected || this.network?.isHost;
         const practiceAttacking = this.player.alive && this.player.isAttacking();
         if (this._practiceMode && practiceAttacking && !this._practiceAttemptActive) {
             this._practiceAttemptActive = true;
             this._practiceAttemptHit = false;
-        } else if (this._practiceMode && !practiceAttacking && this._practiceAttemptActive) {
-            if (!this._practiceAttemptHit) {
-                this.practiceMetrics.recordAttempt({ hit: false });
-                if (this.guidedDrill.active && this.guidedDrill.openAttemptId !== null) {
-                    this.guidedDrill.resolveAttempt({
-                        attemptId: this.guidedDrill.openAttemptId,
-                        hit: false
-                    });
-                    this.ball.deactivate();
-                    this.onGuidedDrillUpdate?.(this.guidedDrill.snapshot());
-                }
-                this.onPracticeMetrics?.(this.practiceMetrics.summary());
-            }
-            this._practiceAttemptActive = false;
-            this._practiceAttemptHit = false;
         }
-        if (practiceAttacking) {
+        if (!authoritative && practiceAttacking) {
             // Client: use larger range for forgiving prediction (host validates authoritatively)
-            const isClient2 = this.network?.connected && !this.network?.isHost;
             const ballPos = this.ball.position;
             const playerPos = this.player.getPosition();
-            const dist = ballPos.distanceTo(playerPos);
             // ponytail: unify client prediction range — both use speed-scaled bonus
             const speedBonus = Math.min(this.ball.currentSpeed * 0.003, 3.0);
-            const deflectionRange = isClient2
-                ? this.ball.attackRange * 1.5 + speedBonus
-                : this.ball.attackRange + speedBonus;
-            if (dist < deflectionRange || (this.ball._prevPosition &&
-                segmentIntersectsSphere(this.ball._prevPosition, ballPos, playerPos, deflectionRange))) {
+            const deflectionRange = this.ball.attackRange * 1.5 + speedBonus;
+            // Rendered segment (invokeBallSmoothing's previous → current position).
+            if (segmentSphereEntry(this.ball._prevPosition || ballPos, ballPos, playerPos, deflectionRange) >= 0) {
                 this.handlePlayerDeflection();
             }
         }
 
-        // Bot deflections — before ball moves
+        // Bot reaction/wind-up timers read the frame-start ball state; the
+        // contact itself is resolved inside the frame after the ball steps.
         // ponytail: bot AI/deflection runs on host only; client renders from botSync
-        if (!this.network?.connected || this.network?.isHost) {
+        if (authoritative) {
             this.bots.forEach(bot => {
-                if (this.ball.active) bot.observeDefenseIntent(this.ball);
-                if (this.ball.active && bot.tryDeflect(this.ball, dt)) {
-                    this.handleBotDeflection(bot);
-                }
+                if (this.ball.active) bot.advanceDeflectReady(this.ball, dt);
+                else bot.deflectReadyAt = Infinity;
             });
         }
 
         // ponytail: ball physics runs on host only; client renders position from snapshot smoothing
-        if (!this.network?.connected || this.network?.isHost) {
+        let ballBounced = false;
+        if (authoritative) {
             const bounced = this.ball.update(dt);
+            ballBounced = !!bounced;
             if (this._practiceMode && !this.guidedDrill.active && bounced) {
                 this.ball.setTarget(this.player);
                 this.ball.state = 'homing';
@@ -2845,73 +2830,30 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             this.ball._clientVisualUpdate(dt);
         }
 
-        // Hit detection — body volume instead of single point.
-        // Ball can hit anywhere: head, chest, abdomen, legs.
-        // Aimed shots fly straight, so check EVERY enemy of the thrower's team in the
-        // ball's path — you damage whoever you actually hit, not just an assigned target.
-        // Ghost affix: skip player collision entirely.
-        if (this.ball.active && !this._practiceMode && !this.ball._affixGhost && !this.ball._warmup && this.ball._noHitTimer <= 0) {
-            const ballPos = this.ball.position;
-            const throwerTeam = this.lastDeflectorTeam;
-            // Candidates: enemies of the thrower (or just the assigned target as fallback).
-            const candidates = this._ffa
-                ? this.getAllTargets().filter(p => p !== this.lastDeflector && p.alive)
-                : (throwerTeam
-                    ? this.getAllTargets().filter(p => p.team !== throwerTeam)
-                    : (this.ball.targetPlayer ? [this.ball.targetPlayer] : []));
-            // ponytail: actual per-frame displacement (not speed*assumed-dt) — a dt
-            // spike (up to the 50ms clamp in main.js) inflates the swept gap just as
-            // much as high ball speed does, so measure the real segment length.
-            const ballTravelDist = this.ball._prevPosition ? this.ball._prevPosition.distanceTo(ballPos) : 0;
-            for (const target of candidates) {
-                if (!target || target.alive === false) continue;
-                const headPos = target.getPosition();
-                const hitBonus = this.ball.effectiveHitRange ? (this.ball.effectiveHitRange - this.ball.hitRange) : 0;
-                const sizeScale = target._sizeScale || 1;
-                const capsuleRadius = (0.4 + hitBonus) * sizeScale;
-                // Capsule rides with the body (jump / parkour perch), not the floor.
-                const feetY = targetFeetY(target);
-                if (this.capsuleHitTest(ballPos, headPos, 1.7 * sizeScale, capsuleRadius, feetY)) {
-                    this.handleHit(target);
-                    return;
+        // Deflect vs body hit, decided at the exact point along the frame.
+        const frameContact = this._resolveFrameContacts(dt, authoritative, ballBounced);
+
+        // Whiff bookkeeping after the contact, so a same-frame contact is never
+        // also a miss (a swing in its live tail is still pending).
+        const practiceSwingLive = this.player.alive && (this.player.isAttacking() || this.player.swingTail === true);
+        if (this._practiceMode && !practiceSwingLive && this._practiceAttemptActive) {
+            if (!this._practiceAttemptHit) {
+                this.practiceMetrics.recordAttempt({ hit: false });
+                if (this.guidedDrill.active && this.guidedDrill.openAttemptId !== null) {
+                    this.guidedDrill.resolveAttempt({
+                        attemptId: this.guidedDrill.openAttemptId,
+                        hit: false
+                    });
+                    this.ball.deactivate();
+                    this.onGuidedDrillUpdate?.(this.guidedDrill.snapshot());
                 }
-                // ponytail: swept check against the actual travelled segment — step
-                // count is derived from distance/radius so the sample gap can never
-                // exceed the capsule (old speed-only heuristic under-sampled on dt
-                // spikes: see sweptHitStepCount in combat.js for the math + tests).
-                if (ballTravelDist > 0) {
-                    const steps = sweptHitStepCount(ballTravelDist, this.ball.radius + capsuleRadius);
-                    if (steps > 0) {
-                        this._sweptInterp ??= new THREE.Vector3();
-                        for (let s = 1; s <= steps; s++) {
-                            const t = s / (steps + 1);
-                            this._sweptInterp.lerpVectors(this.ball._prevPosition, ballPos, t);
-                            if (this.capsuleHitTest(this._sweptInterp, headPos, 1.7 * sizeScale, capsuleRadius, feetY)) {
-                                this.handleHit(target);
-                                return;
-                            }
-                        }
-                    }
-                }
-                // ponytail: proximity forced-hit — top hedefe çok yakınken oyuncu
-                // vurmazsa zorunlu hit. Sonsuz döngü engeli + tunneling fix.
-                if (this.ball._forceHit) {
-                    const px = headPos.x, pz = headPos.z;
-                    const py = headPos.y;
-                    const dx2 = ballPos.x - px, dz2 = ballPos.z - pz, dy2 = ballPos.y - py;
-                    const proxDistSq = dx2 * dx2 + dy2 * dy2 + dz2 * dz2;
-                    // ponytail: expanded proximity range for fast balls
-                    const effectiveRange = proximityAssistRange(
-                        this.ball.currentSpeed,
-                        this.ball.aimed ? 0.9 : this.ball._proximityRange
-                    );
-                    if (proxDistSq < effectiveRange * effectiveRange) {
-                        this.handleHit(target);
-                        return;
-                    }
-                }
+                this.onPracticeMetrics?.(this.practiceMetrics.summary());
             }
+            this._practiceAttemptActive = false;
+            this._practiceAttemptHit = false;
         }
+        this._updateLocalDeflectAttempt(dt);
+        if (frameContact === 'hit') return;
 
         // ponytail: near-miss effect — ball passes close to player without hitting
         if (this.ball.active && this.player.alive && this.ball.targetPlayer !== this.player) {
@@ -3107,7 +3049,10 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             && !this.ui?.spectating
             && !!ball?.active
             && ball.targetPlayer === player;
-        const slashSwing = player?.attacking && player.knifeAttackType !== 'stab';
+        // G2: runs after the frame's contact resolution; a swing in its live
+        // tail (player.swingTail) can still connect, so it is not a whiff yet.
+        const swingTail = player?.swingTail === true;
+        const slashSwing = (player?.attacking || swingTail) && player.knifeAttackType !== 'stab';
 
         // A confirmed contact closes this click even if an external adapter has
         // not cleared the attack pose by the next simulation tick yet.
@@ -3141,7 +3086,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             0,
             this._localDeflectAttemptRemaining - Math.max(0, Number(dt) || 0)
         );
-        if (slashSwing && this._localDeflectAttemptRemaining > 0) return;
+        if (slashSwing && (this._localDeflectAttemptRemaining > 0 || swingTail)) return;
 
         const playerPosition = player.position;
         const ballPosition = ball.position;
@@ -3217,10 +3162,14 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         );
         // Half-frame compensation: the click landed somewhere in the frame of
         // length swingClickDt, so subtract half of it (unbiased measured lead).
+        // G2: ball.position is the in-frame contact point, _deflectContactOffset
+        // seconds after the frame-start state swingAge is measured against.
         const swingAge = Number(player.swingAge);
         const clickDt = Number(player.swingClickDt);
+        const contactOffset = Number(this._deflectContactOffset);
         const swingSeconds = (Number.isFinite(swingAge) ? swingAge : 0)
-            - (Number.isFinite(clickDt) && clickDt > 0 ? clickDt / 2 : 0);
+            - (Number.isFinite(clickDt) && clickDt > 0 ? clickDt / 2 : 0)
+            + (Number.isFinite(contactOffset) ? contactOffset : 0);
         const leadMs = swingSeconds * 1000 + contactMs;
         return leadMs > 0 ? leadMs : 0;
     }
@@ -3254,6 +3203,8 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         );
     }
 
+    // Returns false when the facing gate rejects the contact (ball untouched),
+    // true once the deflect has been applied.
     handlePlayerDeflection() {
         const pos = this.player.getPosition();
         const aimDir = this.player.getAimDirection();
@@ -3270,7 +3221,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 this.ui.showMessage?.(t('match.ballBehind'), 900);
                 this.audio.playCue?.('deflect-reject');
             }
-            return;
+            return false;
         }
         this._cancelPendingLethalHit(this.player);
         // Tier input for both branches below, read before the ball is mutated.
@@ -3347,7 +3298,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 shot: result.shot,
                 speedPercent: (this.ball.getSpeed() / this.ball.baseSpeed) * 100
             }));
-            return;
+            return true;
         }
 
         if (!this.network?.connected) this._firstSoloAimFeedbackPending = false;
@@ -3490,6 +3441,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             reward: resolvedDeflect.reward,
             cooldownCut: perfectCooldownCut
         });
+        return true;
     }
 
     handleBotDeflection(bot) {
@@ -3621,6 +3573,193 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             default:
                 setTimeout(() => { this.player.ultimateActive = false; }, ult.duration * 1000);
         }
+    }
+
+    // G2: deflect vs body hit decided at the exact point along this frame's
+    // ball path A = _prevPosition → B = position (event time = frame start +
+    // s·dt), so the result no longer depends on where frame edges fall.
+    // Earliest event wins, ties → deflect (local player before bots). A deflect
+    // puts the ball back on its contact point before the existing handler runs;
+    // the rest of that frame's travel is dropped (≤ one frame). Deflects are
+    // resolved here on the host/solo only (`authoritative`). Body hits keep the
+    // G1 decision (end point + swept samples) and take only their in-frame time
+    // from the analytic capsule entry. _forceHit applies only when nothing else
+    // connected. Returns 'deflect', 'hit' or null.
+    _resolveFrameContacts(dt, authoritative, bounced = false) {
+        const ball = this.ball;
+        if (!ball.active) return null;
+        const frame = this._frameContact ??= {
+            sphere: { enter: -1, exit: -1 },
+            swing: { start: 0, end: 0 },
+            centre: new THREE.Vector3(),
+            end: new THREE.Vector3()
+        };
+        const frameDt = dt > 0 ? dt : 0;
+        const ballPos = ball.position;
+        const end = frame.end.copy(ballPos);
+        const start = ball._prevPosition || end;
+        // A bounce bends this frame's path, so its chord is not where the ball
+        // went: deflect spheres then only see the frame-end state (s = 1).
+        const deflectFrom = bounced ? end : start;
+
+        // Local player: sphere entry vs the swing's live interval.
+        let playerS = Infinity;
+        if (authoritative && this.player.alive && this._localSwingInterval(frame.swing)) {
+            const eye = this.player.position;
+            const radius = ball.attackRange + Math.min(ball.currentSpeed * 0.003, 3.0);
+            let enter = segmentSphereEntry(deflectFrom, end, eye, radius, frame.sphere);
+            let exit = frame.sphere.exit;
+            if (bounced && enter >= 0) enter = exit = 1;
+            const s = deflectContactS(enter, exit,
+                this._frameFraction(frame.swing.start, frameDt),
+                this._frameFraction(frame.swing.end, frameDt));
+            if (s >= 0) playerS = s;
+        }
+
+        // Bots: sphere entry (getPosition(): feet + 1.2) vs the moment their
+        // reaction + wind-up finished inside this frame (advanceDeflectReady).
+        let botS = Infinity;
+        let deflectBot = null;
+        if (authoritative) {
+            for (const bot of this.bots) {
+                const readyAt = bot.deflectReadyAt;
+                if (!(readyAt <= frameDt) || bot.alive === false) continue;
+                const centre = frame.centre.set(bot.position.x, bot.position.y + 1.2, bot.position.z);
+                let enter = segmentSphereEntry(deflectFrom, end, centre, ball.attackRange, frame.sphere);
+                let exit = frame.sphere.exit;
+                if (bounced && enter >= 0) enter = exit = 1;
+                const s = deflectContactS(enter, exit, this._frameFraction(readyAt, frameDt), 1);
+                if (s >= 0 && s < botS) {
+                    botS = s;
+                    deflectBot = bot;
+                }
+            }
+        }
+
+        // Hit detection — body volume instead of single point.
+        // Ball can hit anywhere: head, chest, abdomen, legs.
+        // Aimed shots fly straight, so check EVERY enemy of the thrower's team in the
+        // ball's path — you damage whoever you actually hit, not just an assigned target.
+        // Ghost affix: skip player collision entirely.
+        let hitS = Infinity;
+        let hitTarget = null;
+        let candidates = null;
+        if (this.ball.active && !this._practiceMode && !this.ball._affixGhost && !this.ball._warmup && this.ball._noHitTimer <= 0) {
+            const throwerTeam = this.lastDeflectorTeam;
+            // Candidates: enemies of the thrower (or just the assigned target as fallback).
+            candidates = this._ffa
+                ? this.getAllTargets().filter(p => p !== this.lastDeflector && p.alive)
+                : (throwerTeam
+                    ? this.getAllTargets().filter(p => p.team !== throwerTeam)
+                    : (ball.targetPlayer ? [ball.targetPlayer] : []));
+            // ponytail: actual per-frame displacement (not speed*assumed-dt) — a dt
+            // spike (up to the 50ms clamp in main.js) inflates the swept gap just as
+            // much as high ball speed does, so measure the real segment length.
+            const ballTravelDist = ball._prevPosition ? ball._prevPosition.distanceTo(ballPos) : 0;
+            for (const target of candidates) {
+                if (!target || target.alive === false) continue;
+                const headPos = target.getPosition();
+                const hitBonus = ball.effectiveHitRange ? (ball.effectiveHitRange - ball.hitRange) : 0;
+                const sizeScale = target._sizeScale || 1;
+                const capsuleRadius = (0.4 + hitBonus) * sizeScale;
+                // Capsule rides with the body (jump / parkour perch), not the floor.
+                const feetY = targetFeetY(target);
+                // G1 decision: swept samples (earliest first), then the end point.
+                // ponytail: swept check against the actual travelled segment — step
+                // count is derived from distance/radius so the sample gap can never
+                // exceed the capsule (old speed-only heuristic under-sampled on dt
+                // spikes: see sweptHitStepCount in combat.js for the math + tests).
+                let sampleS = -1;
+                if (ballTravelDist > 0) {
+                    const steps = sweptHitStepCount(ballTravelDist, ball.radius + capsuleRadius);
+                    if (steps > 0) {
+                        this._sweptInterp ??= new THREE.Vector3();
+                        for (let s = 1; s <= steps; s++) {
+                            const t = s / (steps + 1);
+                            this._sweptInterp.lerpVectors(ball._prevPosition, ballPos, t);
+                            if (this.capsuleHitTest(this._sweptInterp, headPos, 1.7 * sizeScale, capsuleRadius, feetY)) {
+                                sampleS = t;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (sampleS < 0 && this.capsuleHitTest(ballPos, headPos, 1.7 * sizeScale, capsuleRadius, feetY)) sampleS = 1;
+                if (sampleS < 0) continue;
+                // In-frame time of that hit: the exact capsule entry (never later
+                // than the first sample inside).
+                const entry = segmentCapsuleEntry(start, end, feetY, 1.7 * sizeScale, headPos.x, headPos.z, ball.radius + capsuleRadius);
+                const s = entry >= 0 && entry < sampleS ? entry : sampleS;
+                if (s < hitS) {
+                    hitS = s;
+                    hitTarget = target;
+                }
+            }
+        }
+
+        // Earliest event wins; ties → deflect.
+        if (playerS <= botS && playerS <= hitS && playerS !== Infinity) {
+            ball.position.lerpVectors(deflectFrom, end, playerS);
+            this._deflectContactOffset = playerS * frameDt;
+            const deflected = this.handlePlayerDeflection();
+            this._deflectContactOffset = 0;
+            if (!this.player.attacking) this.player.endSwingTail?.();
+            if (deflected !== false) return 'deflect';
+            // Facing gate refused the contact: the frame-end state stands.
+            ball.position.copy(end);
+        }
+        if (deflectBot && botS <= hitS) {
+            ball.position.lerpVectors(deflectFrom, end, botS);
+            deflectBot.commitDeflect();
+            this.handleBotDeflection(deflectBot);
+            return 'deflect';
+        }
+        if (hitTarget) {
+            this.handleHit(hitTarget);
+            return 'hit';
+        }
+        if (candidates && ball._forceHit) {
+            for (const target of candidates) {
+                if (!target || target.alive === false) continue;
+                const headPos = target.getPosition();
+                // ponytail: proximity forced-hit — top hedefe çok yakınken oyuncu
+                // vurmazsa zorunlu hit. Sonsuz döngü engeli + tunneling fix.
+                if (this.ball._forceHit) {
+                    const px = headPos.x, pz = headPos.z;
+                    const py = headPos.y;
+                    const dx2 = ballPos.x - px, dz2 = ballPos.z - pz, dy2 = ballPos.y - py;
+                    const proxDistSq = dx2 * dx2 + dy2 * dy2 + dz2 * dz2;
+                    // ponytail: expanded proximity range for fast balls
+                    const effectiveRange = proximityAssistRange(
+                        this.ball.currentSpeed,
+                        this.ball.aimed ? 0.9 : this.ball._proximityRange
+                    );
+                    if (proxDistSq < effectiveRange * effectiveRange) {
+                        this.handleHit(target);
+                        return 'hit';
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    // Seconds after the frame start → fraction of a frame of length dt.
+    _frameFraction(seconds, dt) {
+        if (dt > 0) return seconds / dt;
+        return seconds > 0 ? Infinity : (seconds < 0 ? -Infinity : 0);
+    }
+
+    // G2: the local swing's live interval (seconds on this frame's ball clock)
+    // from Player.getSwingLiveInterval; a player without it is live all frame
+    // while attacking (the pre-G2 rule).
+    _localSwingInterval(out) {
+        const player = this.player;
+        if (typeof player?.getSwingLiveInterval === 'function') return player.getSwingLiveInterval(out);
+        if (!player?.isAttacking?.()) return false;
+        out.start = -Infinity;
+        out.end = Infinity;
+        return true;
     }
 
     // Body capsule spans [feetY, feetY + playerHeight] (see combat.js#capsuleContact);
