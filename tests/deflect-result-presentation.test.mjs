@@ -29,8 +29,17 @@ test('local solo and P2P prediction classify the same 0/75/150ms presentation ti
     assert.equal(getDeflectPresentation({ timingErrorMs: 150 }).tier, 'normal');
     assert.equal(getDeflectPresentation({ timingErrorMs: 0 }).duration, 1800);
     assert.equal(getDeflectPresentation({ timingErrorMs: 75, chain: 9 }).chain, 0, 'great never presents a fake x1 chain');
-    assert.match(gameSource, /isClientCP[\s\S]*?_presentLocalDeflectResult\(getDeflectPresentation\(/);
-    assert.match(gameSource, /const rawTimingErrorMs = this\.ball\.getPerfectTimingErrorMs\(\);[\s\S]*?_presentLocalDeflectResult\(\{/);
+    assert.equal(getDeflectPresentation({ leadMs: 60 }).tier, 'perfect');
+    assert.equal(getDeflectPresentation({ leadMs: 60.01 }).tier, 'great');
+    assert.equal(getDeflectPresentation({ leadMs: 140 }).tier, 'great');
+    for (const lead of [NaN, Infinity, undefined]) {
+        const presentation = getDeflectPresentation({ leadMs: lead });
+        assert.equal(presentation.tier, 'normal', 'an unmeasurable lead presents as NORMAL');
+        assert.equal(presentation.timingErrorMs, null);
+    }
+    // Both branches present the one lead read before deflectWithAim mutates the ball.
+    assert.match(gameSource, /const deflectLeadMs = this\._localDeflectLeadMs\(\);[\s\S]*?isClientCP[\s\S]*?_presentLocalDeflectResult\(getDeflectPresentation\(\{\s*leadMs: deflectLeadMs,/);
+    assert.match(gameSource, /const resolvedDeflect = resolvePerfectDeflect\(\{\s*leadMs: deflectLeadMs,[\s\S]*?_presentLocalDeflectResult\(\{\s*\.\.\.getDeflectPresentation\(\{\s*leadMs: deflectLeadMs,/);
 });
 
 test('a perfect confirmation is durable and generic toasts cannot overwrite it', () => {

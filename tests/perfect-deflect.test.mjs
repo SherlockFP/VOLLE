@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { runInNewContext } from 'node:vm';
+import { extractGameMethod } from './game-source.mjs';
 
 import {
     DEFLECT_CHAIN_RULES,
@@ -19,21 +19,15 @@ import {
 
 const gameSource = readFileSync(new URL('../js/game.js', import.meta.url), 'utf8');
 
-function gameTimingNormalizer() {
-    const start = gameSource.indexOf('function normalizeGameplayDeflectTimingError');
-    const end = gameSource.indexOf('\n}', start) + 2;
-    assert.ok(start >= 0 && end > start, 'game timing normalizer is present');
-    return runInNewContext(`(${gameSource.slice(start, end)})`, { DEFLECT_TIMING_WINDOWS });
-}
-
 test('contact timing uses bounded normal, great, and perfect tiers', () => {
+    assert.deepEqual({ ...DEFLECT_TIMING_WINDOWS }, { perfect: 60, great: 140, normal: 400 });
     assert.equal(classifyDeflectTiming(0), 'perfect');
-    assert.equal(classifyDeflectTiming(-50), 'perfect');
-    assert.equal(classifyDeflectTiming(50.01), 'great');
-    assert.equal(classifyDeflectTiming(100), 'great');
-    assert.equal(classifyDeflectTiming(100.01), 'normal');
-    assert.equal(classifyDeflectTiming(180), 'normal');
-    assert.equal(classifyDeflectTiming(180.01), null);
+    assert.equal(classifyDeflectTiming(-60), 'perfect');
+    assert.equal(classifyDeflectTiming(60.01), 'great');
+    assert.equal(classifyDeflectTiming(140), 'great');
+    assert.equal(classifyDeflectTiming(140.01), 'normal');
+    assert.equal(classifyDeflectTiming(400), 'normal');
+    assert.equal(classifyDeflectTiming(400.01), null);
 });
 
 test('perfect chain expires, restarts, and never exceeds its cap', () => {
@@ -114,22 +108,31 @@ test('all numeric inputs reject non-finite values', () => {
     );
 });
 
-test('game turns the Ball inactive-window sentinel into an ordinary deflect', () => {
-    const normalizeTimingError = gameTimingNormalizer();
-    const normalTimingError = normalizeTimingError(Infinity);
-    const resolved = resolvePerfectDeflect({
-        timingErrorMs: normalTimingError,
-        at: 100,
-        homingStrength: 0
-    });
+test('game grades local and remote deflects by click lead; an unmeasurable lead is an ordinary deflect', () => {
+    for (const leadMs of [Infinity, NaN]) {
+        const resolved = resolvePerfectDeflect({ leadMs, at: 100, homingStrength: 0 });
+        assert.equal(resolved.tier, 'normal');
+        assert.equal(resolved.chain.count, 0);
+        assert.equal(resolved.reward.scoreMultiplier, DEFLECT_REWARDS.normal.scoreMultiplier);
+    }
+    assert.equal(resolvePerfectDeflect({ leadMs: 60, at: 100 }).tier, 'perfect');
+    assert.equal(resolvePerfectDeflect({ leadMs: 1000, at: 100 }).tier, 'normal', 'no null tier beyond the normal window');
 
-    assert.equal(normalTimingError, DEFLECT_TIMING_WINDOWS.normal);
-    assert.equal(resolved.tier, 'normal');
-    assert.equal(resolved.chain.count, 0);
-    assert.throws(
-        () => resolvePerfectDeflect({ timingErrorMs: normalizeTimingError(NaN), at: 100, homingStrength: 0 }),
-        TypeError
-    );
-    assert.match(gameSource, /const rawTimingErrorMs = this\.ball\.getPerfectTimingErrorMs\(\);\s+const timingErrorMs = normalizeGameplayDeflectTimingError\(rawTimingErrorMs\);/);
-    assert.match(gameSource, /const remoteTimingMs = normalizeGameplayDeflectTimingError\(this\.ball\.getPerfectTimingErrorMs\(\)\);/);
+    // The Ball approach-window sentinel no longer feeds gameplay tiers.
+    assert.doesNotMatch(gameSource, /\.getPerfectTimingErrorMs\(\)/);
+    assert.doesNotMatch(gameSource, /normalizeGameplayDeflectTimingError/);
+
+    const local = extractGameMethod('handlePlayerDeflection');
+    const leadRead = local.indexOf('const deflectLeadMs = this._localDeflectLeadMs();');
+    assert.ok(leadRead > 0, 'local lead is read once for both branches');
+    assert.ok(leadRead < local.indexOf('this.ball.deflectWithAim('), 'lead is read before the ball is mutated');
+    assert.match(local, /const resolvedDeflect = resolvePerfectDeflect\(\{\s*leadMs: deflectLeadMs,/);
+    assert.match(local, /reactionMs: Number\.isFinite\(deflectLeadMs\) \? Math\.max\(0, deflectLeadMs\) : null/);
+    assert.equal(local.match(/getDeflectPresentation\(\{\s*leadMs: deflectLeadMs,/g)?.length, 2, 'prediction + solo presentation');
+
+    const remote = extractGameMethod('remoteAttack');
+    const remoteRead = remote.indexOf('const remoteLeadMs = this._remoteDeflectLeadMs(p, attackPos, resolvedBallPos, data.sa);');
+    assert.ok(remoteRead > 0);
+    assert.ok(remoteRead < remote.indexOf('this.ball.deflectWithAim('), 'host reads the lead before deflectWithAim');
+    assert.match(remote, /const remoteResolved = resolvePerfectDeflect\(\{\s*leadMs: remoteLeadMs,/);
 });

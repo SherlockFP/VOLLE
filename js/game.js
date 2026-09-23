@@ -51,7 +51,7 @@ import { shouldEndOvertime, shouldStartOvertime } from './competitive-service.js
 import { normalizeNetcode, rewindSnapshot } from './experimental-netcode.js';
 import { RemoteInterp, ballPredictAt, ballErrorDecay, BALL_SMOOTHING } from './net-interp.js';
 import { RuntimeLog } from './runtime-safety.js';
-import { DEFLECT_TIMING_WINDOWS, PracticeLabMetrics, resolvePerfectDeflect } from './perfect-deflect.js';
+import { PracticeLabMetrics, predictContactMs, resolvePerfectDeflect, sanitizeRemoteSwingAgeMs } from './perfect-deflect.js';
 import { getDeflectPresentation } from './deflect-presentation.js';
 import { GuidedDeflectDrill } from './guided-deflect-drill.js';
 import { MatchAnalytics } from './match-analytics.js';
@@ -109,12 +109,10 @@ export function sampleThreatDirection(out, forwardX, forwardZ, offsetX, offsetZ)
     return out;
 }
 
-// Ball uses positive Infinity to mean that no perfect-deflect timing window is
-// active. That is a valid ordinary deflect in gameplay, while NaN remains an
-// invalid value that the strict timing domain helpers must reject.
-function normalizeGameplayDeflectTimingError(timingErrorMs) {
-    return timingErrorMs === Infinity ? DEFLECT_TIMING_WINDOWS.normal : timingErrorMs;
-}
+// Ball uses positive Infinity from getPerfectTimingErrorMs() when its approach
+// window is closed; that window now only drives the HUD cue. Deflect tiers are
+// graded by click lead (swing age + predicted contact, see _localDeflectLeadMs /
+// _remoteDeflectLeadMs and perfect-deflect.js classifyDeflectLead).
 
 const POWERUP_TYPES = [
     { id: 'shield', color: 0x44aaff, label: '+SHIELD', duration: 0, weight: 32 },
@@ -2747,6 +2745,8 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 }
                 if (target) this.ball.setTarget(target);
                 this.player.attacking = false;
+                // An orbit release is an ungraded throw: clear any stale ✨PERFECT tag.
+                this.ball.lastPerfectBy = null;
                 this.lastDeflector = this.player;
                 this.lastDeflectorTeam = this.player.team;
                 this._pushDeflectHistory(this.playerName);
@@ -3191,6 +3191,64 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         return Number.isFinite(facingDot) && facingDot >= DEFLECT_MIN_FACING_DOT;
     }
 
+    // G3 click lead (ms): how long before the ball would have reached the local
+    // body the swing opened = swing age + straight-line time from the current
+    // ball state to the G1 hit capsule (same feet/height/radius as the hit test).
+    // Must be read before deflectWithAim mutates the ball. Non-finite → NORMAL.
+    _localDeflectLeadMs() {
+        const player = this.player;
+        const ball = this.ball;
+        const hitBonus = ball.effectiveHitRange ? ball.effectiveHitRange - ball.hitRange : 0;
+        const sizeScale = player._sizeScale || 1;
+        const contactMs = predictContactMs(
+            ball.position,
+            ball.currentSpeed,
+            player.position.x,
+            player.position.z,
+            targetFeetY(player),
+            1.7 * sizeScale,
+            (0.4 + hitBonus) * sizeScale,
+            ball.radius
+        );
+        // Half-frame compensation: the click landed somewhere in the frame of
+        // length swingClickDt, so subtract half of it (unbiased measured lead).
+        const swingAge = Number(player.swingAge);
+        const clickDt = Number(player.swingClickDt);
+        const swingSeconds = (Number.isFinite(swingAge) ? swingAge : 0)
+            - (Number.isFinite(clickDt) && clickDt > 0 ? clickDt / 2 : 0);
+        const leadMs = swingSeconds * 1000 + contactMs;
+        return leadMs > 0 ? leadMs : 0;
+    }
+
+    // Host authority for a remote deflect's click lead. The contact part is the
+    // host's own: the accepted contact point (resolvedBallPos), the host ball's
+    // currentSpeed and the G1 capsule at attackPos (remote-proxy feet = eye y −
+    // 1.7). The only client input is the bounded `sa` swing-age hint; a missing
+    // or invalid hint returns Infinity (NORMAL). Never reads a client tier,
+    // perfect flag or contact time.
+    // R1 known P2P limit: `sa` is self-reported, so a modified client can send
+    // sa=0 and have every accepted deflect graded on host-predicted contact
+    // alone. Not solved here; accept/reject never depends on it.
+    _remoteDeflectLeadMs(p, attackPos, resolvedBallPos, swingAgeHint) {
+        const swingAgeMs = sanitizeRemoteSwingAgeMs(swingAgeHint);
+        if (swingAgeMs === null) return Infinity;
+        const ball = this.ball;
+        const hitBonus = ball.effectiveHitRange ? ball.effectiveHitRange - ball.hitRange : 0;
+        const sizeScale = p?._sizeScale || 1;
+        this._remoteFeetProbe ??= { eyeY: 0, getFeetY() { return this.eyeY - 1.7; } };
+        this._remoteFeetProbe.eyeY = attackPos.y;
+        return swingAgeMs + predictContactMs(
+            resolvedBallPos,
+            ball.currentSpeed,
+            attackPos.x,
+            attackPos.z,
+            targetFeetY(this._remoteFeetProbe),
+            1.7 * sizeScale,
+            (0.4 + hitBonus) * sizeScale,
+            ball.radius
+        );
+    }
+
     handlePlayerDeflection() {
         const pos = this.player.getPosition();
         const aimDir = this.player.getAimDirection();
@@ -3210,6 +3268,8 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             return;
         }
         this._cancelPendingLethalHit(this.player);
+        // Tier input for both branches below, read before the ball is mutated.
+        const deflectLeadMs = this._localDeflectLeadMs();
 
         // Charge consume — power/spread apply to *this* deflect if the button
         // was held (see _updateCharge). Both branches below reuse chargedPower.
@@ -3259,7 +3319,12 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 bx: this.ball.position.x, by: this.ball.position.y, bz: this.ball.position.z,
                 ping: Math.min(250, Math.max(0, this.network?.getPing?.() || 0)),
                 action: this.player.knifeAttackType === 'stab' ? 'stab' : 'slash',
-                flick: { vertical: localFlick?.vertical || 0, horizontal: localFlick?.horizontal || 0, power: localFlick?.power || 0 }
+                flick: { vertical: localFlick?.vertical || 0, horizontal: localFlick?.horizontal || 0, power: localFlick?.power || 0 },
+                // G3: swing age hint (integer ms). The host bounds it and adds its
+                // own predicted contact; it is the only timing input it takes.
+                // Same half-frame click compensation as the local lead, so host and
+                // client grade identical input the same way.
+                sa: Math.min(400, Math.max(0, Math.round(((Number(this.player.swingAge) || 0) - (Number(this.player.swingClickDt) || 0) / 2) * 1000)))
             });
             // Effects
             this.player.kick(result.shot);
@@ -3273,7 +3338,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             // Prediction gets the same local timing read as solo. It does not
             // mutate its chain/reward state; host authority still reconciles it.
             this._presentLocalDeflectResult(getDeflectPresentation({
-                timingErrorMs: this.ball.getPerfectTimingErrorMs(),
+                leadMs: deflectLeadMs,
                 shot: result.shot,
                 speedPercent: (this.ball.getSpeed() / this.ball.baseSpeed) * 100
             }));
@@ -3328,11 +3393,9 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         const slashDir = new THREE.Vector3().subVectors(this.ball.position, this.player.getPosition()).normalize();
         this.juice.slashEffect(this.player.getPosition().clone().add(new THREE.Vector3(0, 1, 0)), slashDir, 0x00ffee);
 
-        // PERFECT-CATCH: perfect window aktifse bonus (Knockout City tarzı)
-        const rawTimingErrorMs = this.ball.getPerfectTimingErrorMs();
-        const timingErrorMs = normalizeGameplayDeflectTimingError(rawTimingErrorMs);
+        // Tier = click lead (read above, before deflectWithAim): PERFECT/GREAT/NORMAL.
         const resolvedDeflect = resolvePerfectDeflect({
-            timingErrorMs,
+            leadMs: deflectLeadMs,
             at: performance.now(),
             chain: this.perfectDeflectChain,
             homingStrength: this.ball.homingStrength || 0
@@ -3353,7 +3416,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             this.practiceMetrics.recordAttempt({
                 hit: true,
                 tier: timingTier || 'normal',
-                reactionMs: Number.isFinite(rawTimingErrorMs) ? rawTimingErrorMs : null
+                reactionMs: Number.isFinite(deflectLeadMs) ? Math.max(0, deflectLeadMs) : null
             });
             this.onPracticeMetrics?.(this.practiceMetrics.summary());
         }
@@ -3379,10 +3442,15 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             this.onGuidedDrillUpdate?.(this.guidedDrill.snapshot());
         }
         let perfectCooldownCut = 0;
+        // Every accepted deflect re-owns the ✨PERFECT hit tag: set on perfect,
+        // cleared otherwise so a later ordinary deflect cannot inherit it.
+        this.ball.lastPerfectBy = isPerfect ? this.player : null;
         if (isPerfect) {
-            this.ball.lastPerfectBy = this.player;
             // Perfect deflect improves timing/reward, not rally speed.
-            this.juice.hitStop(100);     // 100ms donma (daha vurucu impact)
+            // Hit-stop freezes Game.update (the whole simulation), so it is
+            // solo/offline only: in a connected match it would stall the host's
+            // authoritative sim for every peer. The rest of the juice stays.
+            if (!this.network?.connected) this.juice.hitStop(100); // 100ms donma (daha vurucu impact)
             this.juice.shake(0.35);      // daha güçlü shake
             this.juice.sparks(this.ball.position.clone(), 0xffbb00, 16);
             this.juice.shockwave(this.ball.position.clone(), 0xffbb00); // Altın şok dalgası!
@@ -3409,7 +3477,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         if (result.shot === 'spike') this.spikeCount++;
         this._presentLocalDeflectResult({
             ...getDeflectPresentation({
-                timingErrorMs: rawTimingErrorMs,
+                leadMs: deflectLeadMs,
                 chain: this.perfectDeflectChain.count,
                 shot: result.shot,
                 speedPercent: spd
@@ -3423,6 +3491,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         const pos = bot.getPosition();
         const nextTarget = this.getClosestEnemy(pos, bot.team);
         if (!nextTarget) return;
+        this.ball.lastPerfectBy = null; // bots are never graded; clears any stale ✨PERFECT tag (mishit too)
 
         // Mishit: bot committed but missed — apply a randomized spread to the aim
         // so the ball deflects off-target (bot.js sets _mishit = true when the
@@ -5395,9 +5464,10 @@ spawnPowerUp() {
             p.animator?.play('deflect');
             this.ball.position.copy(resolvedBallPos);
             const target = this.getAimedEnemy(attackPos, p.aimDir, p.team);
-            const remoteTimingMs = normalizeGameplayDeflectTimingError(this.ball.getPerfectTimingErrorMs());
+            // Host-authoritative click lead, read before deflectWithAim mutates the ball.
+            const remoteLeadMs = this._remoteDeflectLeadMs(p, attackPos, resolvedBallPos, data.sa);
             const remoteResolved = resolvePerfectDeflect({
-                timingErrorMs: remoteTimingMs,
+                leadMs: remoteLeadMs,
                 at: now,
                 chain: this._remotePerfectChains.get(playerId) || { count: 0, lastPerfectAt: null },
                 homingStrength: this.ball.homingStrength || 0
@@ -5405,8 +5475,8 @@ spawnPowerUp() {
             this._remotePerfectChains.set(playerId, remoteResolved.chain);
             const isPerfect = remoteResolved.tier === 'perfect';
             let finalDeflectPower = p.deflectPower || 1.0;
+            this.ball.lastPerfectBy = isPerfect ? p : null;
             if (isPerfect) {
-                this.ball.lastPerfectBy = p;
                 finalDeflectPower *= 1.3;
                 // V3_UX_ROADMAP.md 3.3: host mirrors the same cut onto its own copy of the
                 // remote player's cooldowns so useSkill() gating below doesn't desync from

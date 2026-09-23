@@ -472,6 +472,10 @@ export class Player {
         this.catchRequested = false;
         this.attackCooldown = 0;
         this.attackActive = 0;
+        // G3 click lead: seconds since the current swing opened (see update()).
+        this.swingAge = 0;
+        this.swingClickDt = 0;
+        this._swingAgePending = false;
         this.attackDuration = ATTACK_COOLDOWN;
         this.canAttack = true;
         this.knifeAnimation = createKnifeAnimationState('classic');
@@ -963,6 +967,9 @@ export class Player {
         this.attacking = true;
         this.attackCooldown = this.attackDuration;
         this.attackActive = Math.min(SWING_ACTIVE_WINDOW, this.attackDuration);
+        this.swingAge = 0;
+        this.swingClickDt = 0;
+        this._swingAgePending = true;
         this.canAttack = false;
         this.knifeAttackType = action === 'stab' ? 'stab' : 'slash';
         if (this.knifeGroup?.userData.weaponType === 'knife') {
@@ -1080,6 +1087,16 @@ export class Player {
         // Attack cooldown
         this.rocketCooldown = Math.max(0, this.rocketCooldown - dt);
         if (this.attackActive > 0) {
+            // swingAge runs on the clock of the ball state the deflect check
+            // reads: this update precedes that frame's ball step, so the frame
+            // that opens the swing reads 0 and each later frame adds the same
+            // dt that attackActive consumes (Game._localDeflectLeadMs).
+            // swingClickDt is the dt of the frame the click landed in; the lead
+            // subtracts half of it (the click's mean offset into that frame).
+            if (this._swingAgePending) {
+                this._swingAgePending = false;
+                this.swingClickDt = dt;
+            } else this.swingAge += dt;
             this.attackActive -= dt;
             if (this.attackActive <= 0) {
                 this.attackActive = 0;

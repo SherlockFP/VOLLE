@@ -1,7 +1,21 @@
+import { pointSegmentDistanceSq } from './combat.js';
+
+// Deflect tiers are graded by click lead: how many ms before the ball would
+// have reached the defender's body capsule the swing was started. Fixed ms at
+// every ball speed. `normal` bounds the lead that still counts as a timed
+// swing (the host accepts a remote swing-age hint up to this value).
 export const DEFLECT_TIMING_WINDOWS = Object.freeze({
-    perfect: 50,
-    great: 100,
-    normal: 180
+    perfect: 60,
+    great: 140,
+    normal: 400
+});
+
+// Host-side bounds for the client's `sa` (swing age, integer ms) attack hint.
+// Anything outside 0..acceptMaxMs is ignored (tier falls back to normal);
+// accepted values are clamped to clampMaxMs (just above the 220 ms swing).
+export const REMOTE_SWING_AGE_LIMITS = Object.freeze({
+    acceptMaxMs: 400,
+    clampMaxMs: 240
 });
 
 export const DEFLECT_CHAIN_RULES = Object.freeze({
@@ -65,6 +79,46 @@ export function classifyDeflectTiming(timingErrorMs, windows = DEFLECT_TIMING_WI
     return null;
 }
 
+// Click-lead tier: PERFECT 0..perfect ms, GREAT up to great ms, NORMAL beyond
+// (or when no lead could be measured). A negative lead is treated as 0.
+export function classifyDeflectLead(leadMs, windows = DEFLECT_TIMING_WINDOWS) {
+    if (typeof leadMs !== 'number' || !Number.isFinite(leadMs)) return 'normal';
+    const lead = leadMs < 0 ? 0 : leadMs;
+    if (lead <= windows.perfect) return 'perfect';
+    if (lead <= windows.great) return 'great';
+    return 'normal';
+}
+
+const contactSegmentStart = { x: 0, y: 0, z: 0 };
+const contactSegmentEnd = { x: 0, y: 0, z: 0 };
+
+// Straight-line ms until the ball sphere would touch the G1 body capsule
+// (vertical segment feetY..feetY+height at targetX/targetZ, inflated by
+// capsuleRadius) at the current speed. 0 when already touching; Infinity when
+// the ball is (nearly) stationary or any input is non-finite. Allocation-free.
+export function predictContactMs(ballPos, ballSpeed, targetX, targetZ, feetY, height, capsuleRadius, ballRadius) {
+    if (typeof ballSpeed !== 'number' || !Number.isFinite(ballSpeed) || ballSpeed <= 0.01) return Infinity;
+    contactSegmentStart.x = targetX;
+    contactSegmentStart.y = feetY;
+    contactSegmentStart.z = targetZ;
+    contactSegmentEnd.x = targetX;
+    contactSegmentEnd.y = feetY + height;
+    contactSegmentEnd.z = targetZ;
+    const gap = Math.sqrt(pointSegmentDistanceSq(ballPos, contactSegmentStart, contactSegmentEnd))
+        - (ballRadius + capsuleRadius);
+    const ms = (gap > 0 ? gap : 0) / ballSpeed * 1000;
+    return Number.isFinite(gap) && Number.isFinite(ms) ? ms : Infinity;
+}
+
+// Host validation of the client's swing-age hint: a finite integer in
+// 0..acceptMaxMs, clamped to clampMaxMs. Anything else returns null (the host
+// then grades the deflect NORMAL; accept/reject never depends on it).
+export function sanitizeRemoteSwingAgeMs(swingAgeMs, limits = REMOTE_SWING_AGE_LIMITS) {
+    if (typeof swingAgeMs !== 'number' || !Number.isInteger(swingAgeMs)) return null;
+    if (swingAgeMs < 0 || swingAgeMs > limits.acceptMaxMs) return null;
+    return swingAgeMs > limits.clampMaxMs ? limits.clampMaxMs : swingAgeMs;
+}
+
 export function updateDeflectChain(
     state = { count: 0, lastPerfectAt: null },
     tier,
@@ -104,7 +158,10 @@ export function getDeflectReward(tier, chain = 0) {
     });
 }
 
+// Pass `leadMs` (click lead, gameplay) to grade with classifyDeflectLead; the
+// legacy `timingErrorMs` path keeps classifyDeflectTiming's contract.
 export function resolvePerfectDeflect({
+    leadMs,
     timingErrorMs,
     at,
     chain = { count: 0, lastPerfectAt: null },
@@ -113,7 +170,9 @@ export function resolvePerfectDeflect({
     chainRules: rules = DEFLECT_CHAIN_RULES
 } = {}) {
     const homing = nonNegative(homingStrength, 'homing strength');
-    const tier = classifyDeflectTiming(timingErrorMs, windows);
+    const tier = leadMs !== undefined
+        ? classifyDeflectLead(leadMs, windows)
+        : classifyDeflectTiming(timingErrorMs, windows);
     const nextChain = updateDeflectChain(chain, tier, at, rules);
     return Object.freeze({
         tier,

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { compileGameMethod, extractGameMethod } from './game-source.mjs';
-import { scaleDedupWindowMs, scaleLethalGraceMs } from '../js/combat.js';
+import { scaleDedupWindowMs, scaleLethalGraceMs, targetFeetY } from '../js/combat.js';
+import { predictContactMs, sanitizeRemoteSwingAgeMs } from '../js/perfect-deflect.js';
 
 const STATES = { PLAYING: 'PLAYING', COUNTDOWN: 'COUNTDOWN' };
 
@@ -204,6 +205,11 @@ function hostAttackFixture({ queued = false, alive = true, ballActive = true } =
         DEFLECT_MIN_FACING_DOT: 0.15,
         Math
     });
+    context._remoteDeflectLeadMs = compileGameMethod('_remoteDeflectLeadMs', {
+        predictContactMs,
+        sanitizeRemoteSwingAgeMs,
+        targetFeetY
+    });
     const method = compileGameMethod('remoteAttack', {
         STATES,
         THREE: { Vector3 },
@@ -213,7 +219,6 @@ function hostAttackFixture({ queued = false, alive = true, ballActive = true } =
         scaleDedupWindowMs,
         normalizeNetcode: value => value,
         rewindSnapshot: () => null,
-        normalizeGameplayDeflectTimingError: value => value,
         resolvePerfectDeflect: ({ chain }) => ({ tier: 'normal', chain })
     });
     const handleHit = compileGameMethod('handleHit', {

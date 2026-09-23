@@ -6,6 +6,8 @@ import { runInNewContext } from 'node:vm';
 import { isNewerSequence, Network } from '../js/network.js';
 import { BALL_SMOOTHING, ballErrorDecay, ballPredictAt } from '../js/net-interp.js';
 import { compileGameMethod } from './game-source.mjs';
+import { targetFeetY } from '../js/combat.js';
+import { predictContactMs, sanitizeRemoteSwingAgeMs } from '../js/perfect-deflect.js';
 
 // ball.js imports Three.js, so compile its pure smoothing helper from the shipped
 // source just as game-source.mjs compiles Game methods for node:test.
@@ -141,6 +143,11 @@ function makeTrace({ currentSpeed, ping = 0 } = {}) {
         DEFLECT_MIN_FACING_DOT: 0.15,
         Math
     });
+    hostGame._remoteDeflectLeadMs = compileGameMethod('_remoteDeflectLeadMs', {
+        predictContactMs,
+        sanitizeRemoteSwingAgeMs,
+        targetFeetY
+    });
     hostGame.remoteAttack = compileGameMethod('remoteAttack', {
         STATES: { PLAYING: 'PLAYING', COUNTDOWN: 'COUNTDOWN' },
         THREE: { Vector3 },
@@ -150,7 +157,6 @@ function makeTrace({ currentSpeed, ping = 0 } = {}) {
         scaleDedupWindowMs: (base, speed, baseSpeed) => base * Math.max(0.2, Math.min(1, baseSpeed / speed)),
         normalizeNetcode: value => value,
         rewindSnapshot: () => null,
-        normalizeGameplayDeflectTimingError: value => value,
         resolvePerfectDeflect: ({ chain }) => ({ tier: 'normal', chain })
     });
 
