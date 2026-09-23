@@ -20,6 +20,11 @@ import { classifyDamageTier, nextPoolCursor, damageJitterFor, comboTier } from '
 import { rewardRowState, tierCardState, SHOP_XP_BOOST } from './battlepass.js';
 import { buildRewardSummary, rewardStepDelays } from './match-analytics.js';
 import { Daily } from './daily.js';
+import { tierForRarity, tierBadgeHTML, tierRank, TIER_ORDER } from './tiers.js';
+import * as ItemThumbnails from './item-thumbnails.js';
+import { createCaseReveal3D } from './case-reveal-3d.js';
+import { selectMvp } from './mvp-select.js';
+import { createMvpShowcaseStage } from './mvp-showcase.js';
 
 const BALL_BASE_SPEED = 17;
 
@@ -177,6 +182,11 @@ export class UI {
             const el = document.getElementById(id);
             if (el) el.classList.add('hidden');
         });
+        // post-game-screen is always hidden above, so its MVP turntable (WebGL
+        // context + rAF loop) must stop here too — `.hidden` alone doesn't
+        // disconnect the canvas, and the render loop only checks isConnected.
+        this._mvpShowcase?.dispose();
+        this._mvpShowcase = null;
     }
 
     // _openExclusive('pause'|'settings'|'emoteWheel'|'chat'|'teamPopup'|
@@ -189,6 +199,9 @@ export class UI {
             this._exclusiveOverlay.closeFn();
         }
         this._exclusiveOverlay = { name, closeFn };
+        // main.js renders the inspector body, then registers it here — the one ui.js
+        // touchpoint where the 3D drop strip can be added without owning that path.
+        if (name === 'caseInspector') this._decorateCaseInspector();
     }
 
     _closeExclusive(name) {
@@ -707,10 +720,25 @@ export class UI {
             : { level, xp: 0, prestige: 0 };
         document.getElementById('pg-level').textContent = accountRankLabel(account);
         this._paintPrestigeBadge('pg-prestige', account.prestige);
+        // Snapshot so setPostGameRewardReceipt() can tell a real level-up (this
+        // match's grant crossing a level) from just re-rendering the same rank.
+        this._postGameStartLevel = account.level;
+        this._postGameStartPrestige = account.prestige || 0;
+        document.getElementById('pg-xp-fill')?.classList.remove('pg-xp-levelup');
         // Detailed AAR stats table
         const playerStats = result.playerStats || [];
         const statsHTML = this._buildAARTable(playerStats, kills, deflects);
         document.getElementById('postgame-stats').innerHTML = statsHTML;
+        // MVP card + 3D showcase. The showcase's knife/gloves/ball ids arrive
+        // from a live game-entity lookup (js/main.js#onMatchComplete hook,
+        // js/mvp-select.js#resolveMvpLoadout) that always runs before this
+        // paint, keyed by matchId so a stale stash from a different match can
+        // never attach to this report.
+        const mvpShowcase = this._pendingMvpShowcase?.matchId === result.matchId
+            ? this._pendingMvpShowcase.loadout
+            : null;
+        this._pendingMvpShowcase = null;
+        this._renderMvpCard(playerStats, mvpShowcase);
         const pgLog = document.getElementById('pg-chat-log');
         if (pgLog) pgLog.innerHTML = '';
         const detailDisclosure = document.getElementById('pg-detail-disclosure');
@@ -772,6 +800,11 @@ export class UI {
             el.classList.add('hidden');
             window._postGameAction?.('main_menu');
         };
+        // Guest save banner: same conversion nudge as the (unused) legacy
+        // #game-over-screen, css/auth.css already shows/hides it via
+        // body.is-guest so this is only the click wire-up.
+        const guestSave = document.getElementById('pg-btn-guest-save');
+        if (guestSave) guestSave.onclick = () => window._postGameAction?.('create_account');
         playAgain?.focus?.({ preventScroll: true });
     }
 
@@ -990,6 +1023,17 @@ export class UI {
             const tail = progress.need > 0 ? ` · ${progress.xp}/${progress.need} to Lv ${progress.level + 1}` : ' · MAX RANK';
             this._animateCount(xpText, xp, value => `+${value} XP${tail}`);
         }
+        // The initial showPostGame() paint only knew the pre-grant account (rewards
+        // were still pending), so the level label and prestige badge are refreshed
+        // here against the account this match's XP actually landed on. Comparing to
+        // the snapshot taken at that first paint is what "a real level-up happened"
+        // means — the receipt itself carries no such flag for the server-authoritative
+        // path (js/store.js#_matchRemoteCompletion never returns one).
+        const leveledUp = account.level > (this._postGameStartLevel ?? account.level)
+            || (account.prestige || 0) > (this._postGameStartPrestige ?? (account.prestige || 0));
+        document.getElementById('pg-level').textContent = accountRankLabel(account);
+        this._paintPrestigeBadge('pg-prestige', account.prestige);
+        this._paintXpBarFill(progress, { leveledUp });
         this._lastMatchReward = receipt.coins && typeof receipt.coins === 'object' ? receipt.coins : null;
         this._renderMatchRewardBreakdown();
         const battlepass = document.getElementById('pg-bp-progress');
@@ -1040,6 +1084,45 @@ export class UI {
         };
         el.textContent = format(from);
         el._countRaf = requestAnimationFrame(step);
+    }
+
+    // XP bar fill for the settled receipt (js/ui.js#setPostGameRewardReceipt). A plain
+    // level-up just eases to the new percentage. A real level-up instead fills to 100%,
+    // flashes (css/postgame.css .pg-xp-levelup), then snaps back to 0 and eases up to
+    // the new level's progress — one continuous "rolled over" motion instead of the
+    // number quietly going backwards. Reduced motion always sets the final value with
+    // no transition (css/postgame.css disables the CSS transition/animation too).
+    _paintXpBarFill(progress, { leveledUp = false } = {}) {
+        const fill = document.getElementById('pg-xp-fill');
+        if (!fill) return;
+        const perc = Math.max(0, Math.min(100, Math.round((progress?.ratio || 0) * 100)));
+        fill.classList.remove('pg-xp-levelup');
+        if (!leveledUp || this._isReducedMotion()) {
+            fill.style.width = perc + '%';
+            return;
+        }
+        fill.style.width = '100%';
+        fill.classList.add('pg-xp-levelup');
+        let rolled = false;
+        const rollover = () => {
+            if (rolled) return;
+            rolled = true;
+            fill.removeEventListener('transitionend', onFull);
+            clearTimeout(safety);
+            fill.style.transition = 'none';
+            fill.style.width = '0%';
+            void fill.offsetWidth; // force reflow so the next width change transitions again
+            fill.style.transition = '';
+            // Synchronous, not rAF: a backgrounded tab can throttle animation
+            // frames indefinitely, which would otherwise strand the bar at 0%.
+            fill.style.width = perc + '%';
+        };
+        const onFull = event => { if (event.target === fill && event.propertyName === 'width') rollover(); };
+        fill.addEventListener('transitionend', onFull);
+        // Safety net: a hidden tab, a zero-duration user stylesheet, or the panel
+        // closing mid-flash can all suppress transitionend. Without this the bar
+        // would stay pinned at 100% forever instead of settling on the real value.
+        const safety = setTimeout(rollover, 1700);
     }
 
     // Animated XP-source + daily-challenge breakdown. index.html is owned
@@ -1312,8 +1395,9 @@ export class UI {
             t.damageDealt += p.damageDealt || 0;
             t.damageTaken += p.damageTaken || 0;
         });
-        // Find MVP (highest score)
-        const mvp = playerStats.reduce((best, p) => (p.score > (best?.score || 0) ? p : best), null);
+        // Find MVP — same tie-break as the MVP card (js/mvp-select.js#selectMvp):
+        // most kills, deflections break a kill tie, damage breaks a deflection tie.
+        const mvp = selectMvp(playerStats);
         // Build table
         let rows = '';
         playerStats.forEach(p => {
@@ -1807,7 +1891,14 @@ export class UI {
         }
     }
 
-    // Flash overlay — hit alınca beyaz/kırmızı parıltı.
+    // Flash overlay — edge-only vignette/glow, center (ball/crosshair) stays
+    // clear (docs/V3_GAMEPLAY.md: "No full-screen flash hiding the trajectory").
+    // Caller (main.js) only forwards juice.flashAmt, a number — it doesn't
+    // thread through juice.flashKind — so the kill-vs-generic tint is
+    // re-inferred here from amt using the same >=0.4 threshold juice.js's
+    // flash() uses internally (game.js's kill flash is flash(0.55)). The
+    // dataset flag is only flipped on a rising edge and cleared once amt
+    // decays to ~0, so a fading pulse can't flicker tint as it crosses 0.4.
     updateFlash(amt) {
         let el = document.getElementById('juice-flash');
         if (!el) {
@@ -1816,7 +1907,14 @@ export class UI {
             el.className = 'juice-flash';
             document.body.appendChild(el);
         }
-        el.style.opacity = Math.min(0.6, amt);
+        const prev = this._lastFlashAmt || 0;
+        if (amt > prev + 0.001) {
+            el.dataset.tint = amt >= 0.4 ? 'kill' : 'generic';
+        } else if (amt <= 0.001) {
+            delete el.dataset.tint;
+        }
+        this._lastFlashAmt = amt;
+        el.style.opacity = Math.min(0.5, amt);
     }
 
     // Meta stats — main menu'de coins/level/tier.
@@ -1873,6 +1971,50 @@ export class UI {
         badge.dataset.prestige = String(tier);
         badge.textContent = `P${tier}`;
         badge.title = prestigeTitle(tier);
+    }
+
+    // js/main.js#onMatchComplete resolves the MVP's equipped knife/gloves/ball from
+    // live game state and calls this before showPostGame() paints the report. Stashed
+    // rather than rendered immediately: showPostGame() still needs to run first (it
+    // resets the rest of the screen), and the matchId guard means a stash from a
+    // different match can never attach to a later report.
+    setPostGameMvpShowcase(matchId, loadout) {
+        this._pendingMvpShowcase = typeof matchId === 'string' && matchId ? { matchId, loadout } : null;
+    }
+
+    // MVP card: name + key stats (js/mvp-select.js#selectMvp — same tie-break the AAR
+    // table's MVP tag uses) plus a small 3D showcase of their knife/gloves/ball
+    // (js/mvp-showcase.js). `loadout` is null until js/main.js's hook resolves it, or
+    // when the match has no players at all; either way the card just shows identity
+    // and stats with a default-loadout showcase rather than staying empty.
+    _renderMvpCard(playerStats, loadout) {
+        const card = document.getElementById('pg-mvp-card');
+        const stage = document.getElementById('pg-mvp-stage');
+        const nameEl = document.getElementById('pg-mvp-name');
+        const statsEl = document.getElementById('pg-mvp-stats');
+        this._mvpShowcase?.dispose();
+        this._mvpShowcase = null;
+        if (!card || !stage || !nameEl || !statsEl) return;
+        stage.replaceChildren();
+        const mvp = selectMvp(playerStats);
+        if (!mvp) { card.hidden = true; return; }
+        card.hidden = false;
+        nameEl.textContent = mvp.name;
+        statsEl.replaceChildren();
+        const addStat = (label, value) => {
+            const wrap = document.createElement('span');
+            const b = document.createElement('b');
+            b.textContent = String(value);
+            const small = document.createElement('small');
+            small.textContent = label;
+            wrap.append(b, small);
+            statsEl.append(wrap);
+        };
+        addStat('Kills', mvp.score || 0);
+        addStat('Deflects', mvp.deflections || 0);
+        addStat('Damage', Math.round(mvp.damageDealt || 0));
+        this._mvpShowcase = createMvpShowcaseStage(stage, { reducedMotion: this._isReducedMotion() });
+        this._mvpShowcase.mount({ ...loadout, team: loadout?.team || mvp.team });
     }
 
     // Per-round breakdown from scoreboard.roundHistory. Match totals alone can't
@@ -2040,7 +2182,7 @@ export class UI {
                     const restriction = knifeTeamRestriction(item.teams);
                     const restrictBadge = restriction ? `<span class="inventory-team-restrict team-${restriction}">${restriction.toUpperCase()} ONLY</span>` : '';
                     card.dataset.invModel = item.model;
-                    card.innerHTML = `<div class="inventory-icon-area"><div class="knife-preview knife-preview-3d model-${item.model}" style="--knife-color:${item.color};--knife-accent:${item.accent}" aria-hidden="true"></div></div><div class="inventory-card-copy"><span class="skin-rarity rarity-${item.rarity}">${item.rarity}</span>${restrictBadge}<div class="char-name">${item.name}</div><div class="char-desc">${item.model.toUpperCase()} / ${(item.finish || 'satin').toUpperCase()}</div></div><div class="stat-track"><span>STATTRACK</span><b>${String(Number(knifeStats[item.id]) || 0).padStart(6, '0')}</b></div><button class="btn btn-small knife-inspect" data-id="${item.id}">3D Inspect</button><div class="inventory-actions">${item.teams.map(team => equippedKnives[team] === item.id ? `<span class="shop-owned">${team.toUpperCase()} equipped</span>` : `<button class="btn btn-small knife-equip" data-id="${item.id}" data-team="${team}">Equip ${team}</button>`).join('')}</div>`;
+                    card.innerHTML = `<div class="inventory-icon-area"><div class="knife-preview knife-preview-3d model-${item.model}" style="--knife-color:${item.color};--knife-accent:${item.accent}" aria-hidden="true"></div></div><div class="inventory-card-copy"><span class="skin-rarity rarity-${item.rarity}">${item.rarity}</span>${tierBadgeHTML(item.rarity)}${restrictBadge}<div class="char-name">${item.name}</div><div class="char-desc">${item.model.toUpperCase()} / ${(item.finish || 'satin').toUpperCase()}</div></div><div class="stat-track"><span>STATTRACK</span><b>${String(Number(knifeStats[item.id]) || 0).padStart(6, '0')}</b></div><button class="btn btn-small knife-inspect" data-id="${item.id}">3D Inspect</button><div class="inventory-actions">${item.teams.map(team => equippedKnives[team] === item.id ? `<span class="shop-owned">${team.toUpperCase()} equipped</span>` : `<button class="btn btn-small knife-equip" data-id="${item.id}" data-team="${team}">Equip ${team}</button>`).join('')}</div>`;
                     this._decorateShopCard(card, { category: 'knife', owned: true, equipped: equippedAny, currency: coinBalance });
                 } else if (group.type === 'cosmetic') {
                     const active = equippedWearables[item.type] === item.id;
@@ -2048,21 +2190,24 @@ export class UI {
                     card.classList.add('cosmetic-card');
                     card.style.setProperty('--cosmetic-primary', item.colors[0]);
                     card.style.setProperty('--cosmetic-secondary', item.colors[1]);
-                    card.innerHTML = `<div class="inventory-icon-area"><div class="cosmetic-preview cosmetic-preview-${item.type}" data-style="${item.style}" aria-hidden="true"></div></div><div class="inventory-card-copy"><span class="skin-rarity rarity-${item.rarity}">${item.rarity}</span><div class="char-name">${item.name}</div><div class="char-desc">${COSMETIC_TYPES[item.type] || item.type}</div></div><div class="inventory-actions"><button class="btn btn-small wearable-inspect" data-id="${item.id}">Inspect</button>${active ? '<span class="shop-owned">Equipped</span>' : `<button class="btn btn-small shop-equip" data-type="cosmetic" data-id="${item.id}">Equip</button>`}</div>`;
+                    card.innerHTML = `<div class="inventory-icon-area"><div class="cosmetic-preview cosmetic-preview-${item.type}" data-style="${item.style}" aria-hidden="true"></div></div><div class="inventory-card-copy"><span class="skin-rarity rarity-${item.rarity}">${item.rarity}</span>${tierBadgeHTML(item.rarity)}<div class="char-name">${item.name}</div><div class="char-desc">${COSMETIC_TYPES[item.type] || item.type}</div></div><div class="inventory-actions"><button class="btn btn-small wearable-inspect" data-id="${item.id}">Inspect</button>${active ? '<span class="shop-owned">Equipped</span>' : `<button class="btn btn-small shop-equip" data-type="cosmetic" data-id="${item.id}">Equip</button>`}</div>`;
                     appendCosmeticIcon(card.querySelector('.cosmetic-preview'), item);
                     this._decorateShopCard(card, { category: 'cosmetic', owned: true, equipped: active, currency: coinBalance });
                 } else if (group.type === 'ball') {
                     const active = equippedBall === item.id;
                     card.dataset.invModel = item.shape || 'sphere';
-                    card.innerHTML = `<div class="inventory-icon-area"><div class="ball-preview" data-shape="${item.shape || 'sphere'}" data-effect="${item.effect || 'core'}" style="--ball-color:#${item.color.toString(16).padStart(6, '0')};--ball-glow:#${item.glow.toString(16).padStart(6, '0')}"></div></div><div class="inventory-card-copy"><span class="skin-rarity rarity-${item.rarity || 'common'}">${item.rarity || 'common'}</span><div class="char-name">${item.name}</div><div class="char-desc">${(item.shape || 'sphere').toUpperCase()} BALL</div></div><div class="inventory-actions"><button class="btn btn-small ball-inspect" data-id="${item.id}">Inspect</button>${active ? '<span class="shop-owned">Equipped</span>' : `<button class="btn btn-small shop-equip" data-type="ball" data-id="${item.id}">Equip</button>`}</div>`;
+                    card.innerHTML = `<div class="inventory-icon-area"><div class="ball-preview" data-shape="${item.shape || 'sphere'}" data-effect="${item.effect || 'core'}" style="--ball-color:#${item.color.toString(16).padStart(6, '0')};--ball-glow:#${item.glow.toString(16).padStart(6, '0')}"></div></div><div class="inventory-card-copy"><span class="skin-rarity rarity-${item.rarity || 'common'}">${item.rarity || 'common'}</span>${tierBadgeHTML(item.rarity)}<div class="char-name">${item.name}</div><div class="char-desc">${(item.shape || 'sphere').toUpperCase()} BALL</div></div><div class="inventory-actions"><button class="btn btn-small ball-inspect" data-id="${item.id}">Inspect</button>${active ? '<span class="shop-owned">Equipped</span>' : `<button class="btn btn-small shop-equip" data-type="ball" data-id="${item.id}">Equip</button>`}</div>`;
                     this._decorateShopCard(card, { category: 'ball', owned: true, equipped: active, currency: coinBalance });
                 } else {
                     const active = equippedAvatar === item.id;
                     card.dataset.invModel = item.model || 'classic';
-                    card.innerHTML = `<div class="inventory-icon-area"><span class="skin-preview" style="--skin-head:${item.head};--skin-body:${item.body};--skin-arms:${item.arms};--skin-legs:${item.legs}" aria-hidden="true"></span></div><div class="inventory-card-copy"><span class="skin-rarity rarity-${item.rarity || 'common'}">${item.rarity || 'common'}</span><div class="char-name">${item.name}</div><div class="char-desc">${item.model === 'slim' ? 'SLIM' : 'CLASSIC'} PLAYER MODEL</div></div>${active ? '<div class="shop-owned">Equipped</div>' : `<button class="btn btn-small shop-equip" data-type="avatar" data-id="${item.id}">Equip</button>`}`;
+                    card.innerHTML = `<div class="inventory-icon-area"><span class="skin-preview" style="--skin-head:${item.head};--skin-body:${item.body};--skin-arms:${item.arms};--skin-legs:${item.legs}" aria-hidden="true"></span></div><div class="inventory-card-copy"><span class="skin-rarity rarity-${item.rarity || 'common'}">${item.rarity || 'common'}</span>${tierBadgeHTML(item.rarity)}<div class="char-name">${item.name}</div><div class="char-desc">${item.model === 'slim' ? 'SLIM' : 'CLASSIC'} PLAYER MODEL</div></div>${active ? '<div class="shop-owned">Equipped</div>' : `<button class="btn btn-small shop-equip" data-type="avatar" data-id="${item.id}">Equip</button>`}`;
                     this._decorateShopCard(card, { category: 'avatar', owned: true, equipped: active, currency: coinBalance });
                 }
                 grid.appendChild(card);
+                if (group.type !== 'cosmetic' || item.type === 'gloves') {
+                    this._attachItemThumb(card.querySelector('.inventory-icon-area'), item, group.type);
+                }
             }
         }
         if (!total) grid.innerHTML = '<div class="shop-empty inventory-empty"><strong>Your collection is ready for its first drop.</strong><span>Complete matches and open earned cases to grow it.</span></div>';
@@ -2071,7 +2216,7 @@ export class UI {
     _syncShopTabs(tab) {
         const labels = {
             chars: 'Characters', live: 'Live Deals', balls: 'Balls', avatars: 'Character Skins',
-            wearables: 'Wearables', cases: 'Cases', boosts: 'Boosts'
+            wearables: 'Wearables', cases: 'Cases', boosts: 'Boosts', tierlist: 'Tier List'
         };
         document.querySelectorAll('#shop-tabs .shop-tab').forEach(button => {
             const selected = button.dataset.tab === tab;
@@ -2121,7 +2266,8 @@ export class UI {
             live: ['all', 'ball', 'cosmetic', 'owned', 'affordable'],
             wearables: ['all', 'owned', 'affordable'],
             cases: ['all', 'affordable'],
-            boosts: ['all', 'affordable']
+            boosts: ['all', 'affordable'],
+            tierlist: []
         };
         const available = new Set(availableByTab[tab] || ['all']);
         if (!available.has(this._shopFilterId)) this._shopFilterId = 'all';
@@ -2522,6 +2668,60 @@ export class UI {
         return { boost, description, statusText };
     }
 
+    // Tier List: every case-obtainable item grouped S+ -> C, each row showing which
+    // case(s) drop it and the exact chance (getCaseDropRates). Doubles as the odds
+    // disclosure — the same numbers the case inspector shows, just all in one place.
+    _renderTierList(grid) {
+        const dropIndex = new Map();
+        Object.values(CASES).forEach(box => {
+            getCaseDropRates(box.id).forEach(drop => {
+                const key = `${drop.type}:${drop.id}`;
+                if (!dropIndex.has(key)) {
+                    dropIndex.set(key, { id: drop.id, type: drop.type, name: drop.name, rarity: drop.rarity, sources: [] });
+                }
+                dropIndex.get(key).sources.push({ caseId: box.id, caseName: box.name, chance: drop.chance });
+            });
+        });
+        const typeLabel = { knife: 'Knife', cosmetic: 'Cosmetic', ball: 'Ball Skin', avatar: 'Character Skin' };
+        const groups = new Map(TIER_ORDER.map(t => [t, []]));
+        for (const entry of dropIndex.values()) groups.get(tierForRarity(entry.rarity)).push(entry);
+
+        const intro = document.createElement('div');
+        intro.className = 'shop-tierlist-intro';
+        intro.innerHTML = '<strong>Every case-obtainable item, ranked S+ to C.</strong><p>Each entry lists every case that drops it and the exact pull chance from that case — the same math the case inspector uses.</p>';
+        grid.appendChild(intro);
+
+        for (const tier of TIER_ORDER) {
+            const items = groups.get(tier);
+            if (!items.length) continue;
+            items.sort((a, b) => a.name.localeCompare(b.name));
+            const section = document.createElement('section');
+            section.className = `tierlist-group tier-${tier.replace('+', 'plus')}`;
+            const heading = document.createElement('h3');
+            heading.className = 'tierlist-heading';
+            heading.innerHTML = `${tierBadgeHTML(items[0].rarity)}<span>${tier} tier</span><small>${items.length} item${items.length === 1 ? '' : 's'}</small>`;
+            section.appendChild(heading);
+            const list = document.createElement('div');
+            list.className = 'tierlist-items';
+            items.forEach(entry => {
+                const row = document.createElement('article');
+                row.className = `tierlist-item rarity-${entry.rarity}`;
+                const sources = entry.sources
+                    .map(s => `<span class="tierlist-source"><b>${(s.chance * 100).toFixed(2)}%</b>${s.caseName}</span>`)
+                    .join('');
+                row.innerHTML = `<div class="tierlist-item-art" aria-hidden="true"></div><div class="tierlist-item-head"><span class="tierlist-item-type">${typeLabel[entry.type] || entry.type}</span><span class="tierlist-item-name">${entry.name}</span></div><div class="tierlist-item-sources">${sources || '<span class="tierlist-source-none">Not currently in a case</span>'}</div>`;
+                list.appendChild(row);
+                const art = row.querySelector('.tierlist-item-art');
+                if (!this._attachItemThumb(art, entry, entry.type) && entry.type === 'cosmetic' && COSMETICS[entry.id]) {
+                    appendCosmeticIcon(art, COSMETICS[entry.id]);
+                }
+            });
+            section.appendChild(list);
+            grid.appendChild(section);
+        }
+        if (!dropIndex.size) grid.innerHTML = '<div class="shop-empty"><strong>No case-obtainable items yet.</strong></div>';
+    }
+
     // ===== SHOP EKRANI =====
     renderShop(store, tab = 'chars') {
         clearTimeout(this._shopBoostExpiryTimer);
@@ -2580,6 +2780,9 @@ export class UI {
                     : '<div class="ball-inspect-stage"><div class="ball-preview"></div><span class="ball-inspect-trail" aria-hidden="true"></span></div>';
                 card.innerHTML = `<div class="live-deal-badge">-${offer.discount}% TODAY</div>${visual}<div class="char-name">${item.name}</div><div class="char-desc">Rotates at ${until || 'midnight'}.</div>${owned ? '' : `<button class="btn btn-primary btn-small live-offer-buy" data-offer-id="${offer.id}"><s>${offer.basePrice}</s> Buy — ${offer.price}</button>`}`;
                 if (offer.kind === 'cosmetic') appendCosmeticIcon(card.querySelector('.cosmetic-preview'), item);
+                if (offer.kind === 'cosmetic' ? item.type === 'gloves' : true) {
+                    this._attachItemThumb(card.querySelector(offer.kind === 'cosmetic' ? '.cosmetic-preview' : '.ball-inspect-stage'), { ...item, id: offer.itemId }, offer.kind === 'cosmetic' ? 'cosmetic' : 'ball');
+                }
                 const preview = card.querySelector('.ball-preview');
                 if (preview) {
                     preview.dataset.effect = item.effect || 'core';
@@ -2655,6 +2858,7 @@ export class UI {
                 const buy = card.querySelector('.shop-buy');
                 if (buy) buy.textContent = `Buy — ${b.price || 150}`;
                 card.querySelector('.ball-inspect')?.addEventListener('click', () => this._setShopBallShowcase(store, { ...b, id }, true));
+                this._attachItemThumb(card.querySelector('.ball-inspect-stage'), { ...b, id }, 'ball');
                 this._decorateShopCard(card, { category: 'ball', rarity: b.rarity, price: b.price || 150, owned, equipped, currency: coinBalance });
                 grid.appendChild(card);
             });
@@ -2724,6 +2928,8 @@ export class UI {
                     preview.className = `cosmetic-preview cosmetic-preview-${item.type}`;
                     preview.dataset.style = item.style;
                     appendCosmeticIcon(preview, item);
+                    // Gloves get the real first-person fist; other slots keep their icon.
+                    if (item.type === 'gloves') this._attachItemThumb(preview, item, 'cosmetic');
                     preview.setAttribute('aria-hidden', 'true');
                     const name = document.createElement('div');
                     name.className = 'char-name';
@@ -2731,6 +2937,9 @@ export class UI {
                     const rarity = document.createElement('span');
                     rarity.className = `skin-rarity rarity-${item.rarity}`;
                     rarity.textContent = item.rarity;
+                    const tierWrap = document.createElement('div');
+                    tierWrap.innerHTML = tierBadgeHTML(item.rarity);
+                    const tier = tierWrap.firstElementChild;
                     const description = document.createElement('div');
                     description.className = 'char-desc';
                     description.textContent = item.description;
@@ -2750,7 +2959,7 @@ export class UI {
                     inspect.textContent = 'Inspect';
                     inspect.addEventListener('click', () => this._dispatchCosmeticPreview(item));
                     actions.append(inspect, action);
-                    card.append(preview, name, rarity, description, actions);
+                    card.append(preview, name, rarity, tier, description, actions);
                     this._decorateShopCard(card, { category: item.type, rarity: item.rarity, price: item.price, owned, equipped: active, currency: coinBalance });
                     grid.appendChild(card);
                 });
@@ -2792,6 +3001,8 @@ export class UI {
                 this._decorateShopCard(card, { category: 'case', price: earned > 0 ? 0 : box.price, owned: false, currency: coinBalance });
                 grid.appendChild(card);
             });
+        } else if (tab === 'tierlist') {
+            this._renderTierList(grid);
         }
         this._finalizeShopCatalog(grid);
         if (!this._shopFiltersBound) {
@@ -2814,7 +3025,12 @@ export class UI {
             });
             this._shopFiltersBound = true;
         }
-        this._applyShopFilter(this._shopFilterId || 'all');
+        if (tab === 'tierlist') {
+            const countEl = document.getElementById('shop-catalog-count');
+            if (countEl) countEl.textContent = `${grid.querySelectorAll('.tierlist-item').length} items · every case-obtainable drop`;
+        } else {
+            this._applyShopFilter(this._shopFilterId || 'all');
+        }
         grid.scrollTop = scrollTop;
         if (catalog) catalog.scrollTop = catalogScrollTop;
     }
@@ -2840,6 +3056,11 @@ export class UI {
             const progress = Math.min(item.target, item.progress || 0);
             return `<div class="contract-track-row"><small>${item.tag}</small><b>${item.name}</b><span>${progress}/${item.target}</span><i><em style="width:${Math.round(progress / item.target * 100)}%"></em></i></div>`;
         }).join('')}`;
+    }
+
+    _isCaseReelReduced() {
+        return document.documentElement.classList.contains('reduce-motion')
+            || document.body.classList.contains('reduced-motion');
     }
 
     _isReducedMotion() {
@@ -2906,19 +3127,16 @@ export class UI {
         track.style.removeProperty('transform');
         track.style.removeProperty('--case-reel-stop');
         track.innerHTML = arrangedItems.map(item => {
-            const type = item.type === 'avatar' ? 'CHARACTER SKIN'
-                : item.type === 'ball' ? 'BALL SKIN'
-                : item.type === 'cosmetic' ? String(item.preview?.type || 'COSMETIC').toUpperCase()
-                : item.model === 'butterfly' ? 'BUTTERFLY KNIFE'
-                : item.model === 'karambit' ? 'KARAMBIT'
-                : 'KNIFE';
+            const type = this._caseReelTypeLabel(item);
             const rarity = item.rarity || result.reward.rarity || 'rare';
             const kind = item.type === 'avatar' ? 'avatar'
                 : item.type === 'ball' ? 'ball'
                 : item.type === 'cosmetic' ? 'cosmetic'
                 : 'knife';
-            return `<div class="case-reel-item rarity-${rarity}" data-rarity="${rarity}"><div class="case-reel-art" aria-hidden="true"><span class="case-reel-orb" data-type="${kind}"></span></div><small>${type}</small><b>${item.name || item.id}</b></div>`;
+            return `<div class="case-reel-item rarity-${rarity}" data-rarity="${rarity}">${tierBadgeHTML(rarity)}<div class="case-reel-art" aria-hidden="true"><span class="case-reel-orb" data-type="${kind}"></span></div><small>${type}</small><b>${item.name || item.id}</b></div>`;
         }).join('');
+        // Real 3D renders replace the orbs as they arrive (warmed by the inspector).
+        this._attachReelThumbnails(track, arrangedItems, targetIndex);
         resultEl.textContent = '';
         resultEl.removeAttribute('data-rarity');
         const preview = document.getElementById('case-reward-preview');
@@ -2934,9 +3152,20 @@ export class UI {
         if (staleGlow) { staleGlow.style.opacity = 0; staleGlow.className = 'case-reveal-glow'; }
         overlay.classList.remove('hidden');
         let settled = false;
-        const presentation = revealPresentationForRarity(result.reward.rarity, { reducedMotion: this._isReducedMotion() });
+        // The reel is the reward moment: only the explicit in-game "Reduce motion"
+        // setting collapses it. An OS-level preference alone keeps the spin but drops
+        // the screen flash, confetti and pulses.
+        const presentation = revealPresentationForRarity(result.reward.rarity, { reducedMotion: this._isCaseReelReduced() });
+        if (!presentation.reducedMotion && this._isReducedMotion()) {
+            presentation.flash = 0;
+            presentation.confetti = false;
+            presentation.pulse = false;
+        }
         overlay.dataset.revealTier = presentation.tier;
         overlay.dataset.revealRarity = presentation.rarity;
+        // 3D reveal stage: built now so its WebGL context and shaders are ready by
+        // the time the reel settles; null (no WebGL) keeps the classic reveal.
+        let revealStage = this._prepareCaseRevealStage(overlay, result.reward, presentation);
         let flashFadeTimer = null;
         let preStopTimer = null;
         let tickTimers = [];
@@ -2949,6 +3178,9 @@ export class UI {
             clearTimeout(preStopTimer);
             tickTimers.forEach(clearTimeout);
             if (onKeyDown) overlay.removeEventListener('keydown', onKeyDown);
+            revealStage?.dispose();
+            revealStage = null;
+            this._resetCaseRevealStage(overlay);
             overlay.classList.add('hidden');
             actions?.classList.add('hidden');
             this._closeExclusive('caseReel');
@@ -2978,7 +3210,10 @@ export class UI {
             actions?.classList.remove('hidden');
             if (skipAction) skipAction.hidden = true;
             inspectAction?.focus?.({ preventScroll: true });
-            this.onCaseRewardReveal?.(result.reward);
+            if (revealStage) this._playCaseRevealStage(overlay, revealStage, result.reward, generation);
+            // The legacy knife preview is only needed when the 3D stage is unavailable.
+            else this.onCaseRewardReveal?.(result.reward);
+            this.audio?.playCaseRevealSting?.(presentation.rarity);
             // Result toast/CTA belongs to the locked reel state. `settled`
             // above guarantees normal, skip and reduced-motion paths fire it once.
             onSettled?.(result);
@@ -3124,10 +3359,144 @@ export class UI {
     // of a persistent per-frame poller running for the whole 6-7s spin.
     _scheduleReelTicks(spinMs, targetIndex) {
         const schedule = computeCaseReelTickSchedule(spinMs, targetIndex);
-        return schedule.map(({ index, timeMs }) => setTimeout(() => {
-            const pitch = 0.85 + (index / Math.max(1, targetIndex)) * 0.55;
-            this.audio?.playCaseTick?.(pitch);
+        return schedule.map(({ index, timeMs }, order) => setTimeout(() => {
+            const progress = index / Math.max(1, targetIndex);
+            // Gap to the previous crossing: widens as the reel decelerates, and the
+            // detent sound (Audio#playCaseReelTick) gets lower/heavier with it.
+            const gapMs = order > 0 ? timeMs - schedule[order - 1].timeMs : 40;
+            if (this.audio?.playCaseReelTick) this.audio.playCaseReelTick(progress, gapMs);
+            else this.audio?.playCaseTick?.(0.85 + progress * 0.55);
         }, timeMs));
+    }
+
+    // ===== ITEM THUMBNAILS / 3D REVEAL (js/item-thumbnails.js, js/case-reveal-3d.js) =====
+    // `typeof` guards: tests load this class with its import lines stripped, where
+    // those module bindings do not exist — every caller then keeps the CSS art.
+    _itemThumbs() {
+        return typeof ItemThumbnails === 'undefined' ? null : ItemThumbnails;
+    }
+
+    _attachItemThumb(container, item, typeHint = null, options = {}) {
+        try {
+            return this._itemThumbs()?.attachItemThumbnail(container, item, typeHint, options) === true;
+        } catch {
+            return false;
+        }
+    }
+
+    _caseReelTypeLabel(item = {}) {
+        if (item.type === 'avatar') return 'CHARACTER SKIN';
+        if (item.type === 'ball') return 'BALL SKIN';
+        if (item.type === 'cosmetic') {
+            const slot = COSMETICS[item.id]?.type || 'cosmetic';
+            return String(COSMETIC_TYPES[slot] || slot).toUpperCase();
+        }
+        const model = item.model || KNIVES[item.id]?.model;
+        if (model === 'butterfly') return 'BUTTERFLY KNIFE';
+        if (model === 'karambit') return 'KARAMBIT';
+        return 'KNIFE';
+    }
+
+    _attachReelThumbnails(track, items, targetIndex) {
+        const arts = track?.querySelectorAll?.('.case-reel-art') || [];
+        arts.forEach((art, index) => {
+            const item = items[index];
+            if (item) this._attachItemThumb(art, item, item.type || null, { lazy: false, priority: index === targetIndex });
+        });
+    }
+
+    _resetCaseRevealStage(overlay) {
+        overlay?.classList?.remove('has-reveal-stage', 'reveal-stage-playing');
+        const stage = document.getElementById('case-reveal-stage');
+        if (!stage) return;
+        stage.hidden = true;
+        stage.removeAttribute('data-rarity');
+        stage.replaceChildren();
+    }
+
+    _prepareCaseRevealStage(overlay, reward, presentation) {
+        this._resetCaseRevealStage(overlay);
+        const stage = document.getElementById('case-reveal-stage');
+        if (!stage || typeof createCaseReveal3D !== 'function') return null;
+        try {
+            return createCaseReveal3D(stage, reward, {
+                typeHint: reward?.type || null,
+                reducedMotion: presentation.reducedMotion,
+                // OS preference only: spin stays, particles/rays go (mirrors flash/confetti).
+                calmMotion: !presentation.reducedMotion && this._isReducedMotion()
+            });
+        } catch {
+            return null;
+        }
+    }
+
+    _playCaseRevealStage(overlay, reveal, reward, generation) {
+        const stage = document.getElementById('case-reveal-stage');
+        if (!stage || !reveal) return;
+        const rarity = reward.rarity || 'common';
+        stage.dataset.rarity = rarity;
+        const caption = document.createElement('div');
+        caption.className = 'case-reveal-caption';
+        caption.innerHTML = `${tierBadgeHTML(rarity)}<small></small><strong></strong>`;
+        caption.querySelector('small').textContent = `${rarity.toUpperCase()} ${this._caseReelTypeLabel(reward)}`;
+        caption.querySelector('strong').textContent = reward.name || reward.id;
+        stage.appendChild(caption);
+        stage.hidden = false;
+        overlay.classList.add('has-reveal-stage');
+        reveal.play().then(shown => {
+            if (this._caseReelGeneration !== generation) return;
+            if (shown) {
+                overlay.classList.add('reveal-stage-playing');
+                return;
+            }
+            this._resetCaseRevealStage(overlay);
+            this.onCaseRewardReveal?.(reward);
+        });
+    }
+
+    // Case inspector: an "In this case" strip of real thumbnails, chase items first.
+    // Queued with priority so the reel's tiles are cached before the case is opened.
+    _decorateCaseInspector() {
+        if (typeof document === 'undefined') return;
+        try {
+            const boxId = document.getElementById('case-inspector-open')?.dataset?.id;
+            const knivesEl = document.getElementById('case-inspector-knives');
+            const drops = boxId ? getCaseDropRates(boxId) : [];
+            if (!drops.length || !knivesEl?.parentNode) return;
+            let strip = document.getElementById('case-inspector-drops');
+            if (!strip) {
+                strip = document.createElement('div');
+                strip.id = 'case-inspector-drops';
+                strip.className = 'case-inspector-drops';
+                strip.setAttribute('aria-label', 'Items in this case');
+                knivesEl.parentNode.insertBefore(strip, knivesEl);
+            }
+            const label = document.createElement('small');
+            label.textContent = 'IN THIS CASE';
+            const list = document.createElement('div');
+            list.className = 'case-inspector-drop-list';
+            const sorted = drops.slice().sort((a, b) => tierRank(a.rarity) - tierRank(b.rarity) || a.chance - b.chance);
+            for (const drop of sorted) {
+                const tile = document.createElement('figure');
+                tile.className = `case-drop-tile rarity-${drop.rarity}`;
+                tile.title = `${drop.name} · ${(drop.chance * 100).toFixed(2)}%`;
+                const art = document.createElement('div');
+                art.className = 'case-drop-art';
+                art.setAttribute('aria-hidden', 'true');
+                const caption = document.createElement('figcaption');
+                caption.innerHTML = `${tierBadgeHTML(drop.rarity)}<span class="case-drop-name"></span><b></b>`;
+                caption.querySelector('.case-drop-name').textContent = drop.name;
+                caption.querySelector('b').textContent = `${(drop.chance * 100).toFixed(drop.chance < 0.01 ? 2 : 1)}%`;
+                tile.append(art, caption);
+                list.appendChild(tile);
+                if (!this._attachItemThumb(art, drop, drop.type, { lazy: false, priority: true }) && drop.type === 'cosmetic' && drop.preview) {
+                    appendCosmeticIcon(art, drop.preview);
+                }
+            }
+            strip.replaceChildren(label, list);
+        } catch {
+            // Decoration only — the inspector itself is owned and rendered by main.js.
+        }
     }
 
     // Persistent full-screen rarity-tinted glow for case reveals (mirrors the
@@ -3383,14 +3752,16 @@ export class UI {
         grid.innerHTML = '';
         if (store) {
             const state = store.getDailyRewardState();
+            // Same server-owned streak as the menu badge — one login reward, one source of truth.
+            const streak = store.getLoginStreakState();
             const login = document.createElement('div');
-            login.className = `daily-card daily-login-card ${state.loginClaimed ? 'claimed' : 'ready'}`;
+            login.className = `daily-card daily-login-card ${streak.claimed ? 'claimed' : 'ready'}`;
             login.innerHTML = `
                 <div class="daily-symbol">LOGIN</div>
                 <div class="daily-name">Daily Login</div>
-                <div class="daily-count">Day ${state.streak}/7 - ${state.loginCoins} coins</div>
-                <button class="btn btn-primary btn-small daily-login-claim" ${state.loginClaimed ? 'disabled' : ''}>
-                    ${state.loginClaimed ? 'Claimed' : 'Claim Coins'}
+                <div class="daily-count">Day ${streak.day} - ${streak.reward} coins</div>
+                <button class="btn btn-primary btn-small daily-login-claim" ${streak.claimed ? 'disabled' : ''}>
+                    ${streak.claimed ? 'Claimed' : 'Claim Coins'}
                 </button>`;
             grid.appendChild(login);
 

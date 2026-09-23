@@ -1,7 +1,7 @@
 // game.js — Full game: chat, team switch, death fx, minimap, aim deflection,
 // damage ramp, skill system, map ban, damage meter, portal handling.
 import * as THREE from 'three';
-import { Ball, networkBallStep, chargeProfile, CHARGE_OVERCHARGE_SECONDS, ballHeatLevel, BALL_HEAT_TIERS, proximityAssistRange } from './ball.js';
+import { Ball, chargeProfile, CHARGE_OVERCHARGE_SECONDS, ballHeatLevel, BALL_HEAT_TIERS, proximityAssistRange } from './ball.js';
 import { Bot } from './bot.js';
 import { Scoreboard } from './scoreboard.js';
 import { calcDamage, missRampDamage } from './characters.js';
@@ -9,7 +9,11 @@ import { Arena, isFallDeathPosition } from './arena.js';
 import { Juice } from './juice.js';
 import { applyMode, GAME_MODES } from './gamemodes.js';
 import { ChaosManager, CHAOS_MODES } from './chaos.js';
-import { EmoteSystem } from './emotes.js';
+import { EmoteSystem, getEmote, isEmoteId } from './emotes.js';
+import { SpectatorRoster } from './spectator-roster.js';
+import { SpectatorCrowd } from './spectator-crowd.js';
+import { computeSpectatorSeats, neighborSeat } from './spectator-seats.js';
+import { clampToCourtHalf, confinementSideFor, normalizeAllowCrossCourt, DEFAULT_ALLOW_CROSS_COURT } from './court-rules.js';
 import { AffixManager } from './affixes.js';
 import { SKILLS, useSkill, tickSkillCooldowns, ULTIMATES, perfectDeflectCooldownCut } from './skills.js';
 import { isNewerSequence } from './network.js';
@@ -43,7 +47,8 @@ import {
     selectQueuedTeam
 } from './late-join.js';
 import { shouldEndOvertime, shouldStartOvertime } from './competitive-service.js';
-import { normalizeNetcode, predictPosition, rewindSnapshot, sampleSnapshots } from './experimental-netcode.js';
+import { normalizeNetcode, rewindSnapshot } from './experimental-netcode.js';
+import { RemoteInterp, ballPredictAt, ballErrorDecay, BALL_SMOOTHING } from './net-interp.js';
 import { RuntimeLog } from './runtime-safety.js';
 import { DEFLECT_TIMING_WINDOWS, PracticeLabMetrics, resolvePerfectDeflect } from './perfect-deflect.js';
 import { getDeflectPresentation } from './deflect-presentation.js';
@@ -147,6 +152,10 @@ export function incomingSettlementSeconds(distance, speed) {
 }
 
 export const CELEBRATION_DURATION_SECONDS = 8;
+// Emote wheel: minimum gap between two of your own emotes, and the sprite height
+// above a player's position (players carry eye height in position.y).
+export const LOCAL_EMOTE_COOLDOWN_MS = 1400; // stays under the host's 3 per 4 s relay limit
+export const PLAYER_EMOTE_OFFSET_Y = 1.3;
 
 // Combat Feedback: Combo streak display
 window.comboStreakDisplay = (() => {
@@ -244,6 +253,9 @@ export class Game {
         this._playerThreatActive = false;
         this._playerThreatForward = new THREE.Vector3(0, 0, -1);
         this._playerThreatDirection = { side: 0, behind: false, offscreen: false, direction: 'front' };
+        // Reused vector for the per-frame spatial-audio listener update below —
+        // never reallocated on the hot path.
+        this._audioListenerForward = new THREE.Vector3(0, 0, -1);
         // Local swing feedback is presentation-only. Keep the tiny lifecycle as
         // scalar fields so the hot game loop does not allocate for missed swings.
         this._localDeflectAttemptActive = false;
@@ -312,6 +324,18 @@ export class Game {
         // Game feel + modlar + emote
         this.juice = new Juice(this.player.camera, this.renderer);
         this.emotes = new EmoteSystem(this.renderer.scene);
+        // Spectating & social-in-match: joined spectators sit in the sideline stands,
+        // never occupy a team slot and have no gameplay authority (host-enforced).
+        this.spectators = new SpectatorRoster();
+        this.spectatorCrowd = new SpectatorCrowd(this.renderer.scene);
+        this.localSpectator = false;
+        this.localSpectatorSeat = -1;
+        this.onSpectatorsChanged = null;
+        this._crowdSeats = null;
+        this._lastBigPlayAt = 0;
+        this._crowdHypeAt = 0;
+        // Host lobby rule: players stay on their own half in team modes unless allowed.
+        this.allowCrossCourt = DEFAULT_ALLOW_CROSS_COURT;
         // Placeholder until App.applyLoadout() (main.js) runs and the real default
         // mode (instagib) gets applied via selectMode() — that order matters because
         // applyLoadout()->Player.applyLoadout() resets HP from character base stats,
@@ -816,7 +840,8 @@ addBot(team, { name: preferredName = null } = {}) {
         if (this.competitiveRules) applyCompetitiveRules(this, this.competitiveRules);
         const ownCustomAvatar = window.__store?.get?.('customAvatar');
         const ownAvatar = ownCustomAvatar?.dataURL || null;
-        const players = [{
+        // A joined spectator does not occupy a team slot — keep them out of the team columns.
+        const players = this.localSpectator ? [] : [{
             name: this.playerName,
             team: this.player.team,
             isBot: false,
@@ -1412,7 +1437,212 @@ getSelectableMaps() {
 
     // Emote göster (player veya bot için).
     showEmote(entity, emoteId) {
-        this.emotes.show(entity, emoteId);
+        // Players (local + remote humans) keep eye height in position.y; bots stand at 0.
+        const playerLike = entity === this.player || (!entity?.isBotEntity && entity?.position?.y > 0.6);
+        return this.emotes.show(entity, emoteId, playerLike ? { offsetY: PLAYER_EMOTE_OFFSET_Y } : undefined);
+    }
+
+    // ---- Cross-court rule (js/court-rules.js) --------------------------------------
+    // -1/+1 = the half this team is confined to right now, 0 = free movement.
+    getCourtConfinementSide(team) {
+        if (this.state !== STATES.PLAYING && this.state !== STATES.COUNTDOWN
+            && this.state !== STATES.ROUND_END) return 0;
+        return confinementSideFor(team, {
+            ffa: this._ffa === true,
+            goalRush: this._goalRush === true,
+            practice: this._practiceMode === true || this.guidedDrill?.active === true
+                || this.arena?.config?.practiceOnly === true,
+            allowCrossCourt: this.allowCrossCourt
+        });
+    }
+
+    setAllowCrossCourt(value) {
+        this.allowCrossCourt = normalizeAllowCrossCourt(value);
+        return this.allowCrossCourt;
+    }
+
+    // ---- Spectators ----------------------------------------------------------------
+    setLocalSpectator(enabled) {
+        this.localSpectator = enabled === true;
+        this.localSpectatorSeat = -1;
+        if (!this.localSpectator) this.spectatorCrowd.setHidden(null);
+        return this.localSpectator;
+    }
+
+    // Seat anchors for the live arena (map + court scale), cached until either changes.
+    getSpectatorSeats() {
+        const arena = this.arena;
+        if (!arena?.config) return [];
+        const key = `${arena.mapId}:${arena.courtWidth}:${arena.courtLength}`;
+        if (this._spectatorSeatsKey !== key) {
+            this._spectatorSeatsKey = key;
+            this._spectatorSeats = computeSpectatorSeats({
+                ...arena.config,
+                courtWidth: arena.courtWidth,
+                courtLength: arena.courtLength
+            });
+        }
+        return this._spectatorSeats;
+    }
+
+    getSpectatorList() {
+        return this.spectators.list();
+    }
+
+    getLocalSpectatorSeat() {
+        return this.getSpectatorSeats()[this.localSpectatorSeat] || null;
+    }
+
+    _spectatorsChanged() {
+        this.spectatorCrowd.sync(this.spectators.list(), this.getSpectatorSeats());
+        this.onSpectatorsChanged?.(this.spectators.list());
+    }
+
+    // Host: admit a spectator (no team slot, no scoreboard row, not a target).
+    addSpectator(playerId, name, peerId) {
+        const entry = this.spectators.add(playerId, name, peerId, this.getSpectatorSeats());
+        if (entry) this._spectatorsChanged();
+        return entry;
+    }
+
+    removeSpectator(playerId) {
+        const removed = this.spectators.remove(playerId);
+        if (removed) this._spectatorsChanged();
+        return removed;
+    }
+
+    // Host: validated seat hop request from a spectator transport.
+    moveSpectatorSeat(playerId, seat) {
+        const moved = this.spectators.move(playerId, seat, this.getSpectatorSeats());
+        if (moved) this._spectatorsChanged();
+        return moved;
+    }
+
+    // Client: mirror the host's list (lobbyState/welcome).
+    applySpectatorList(list) {
+        const clean = this.spectators.apply(list, this.getSpectatorSeats());
+        const mine = clean.find(entry => entry.playerId === this.network?.playerId);
+        if (this.localSpectator && mine) this.localSpectatorSeat = mine.seat;
+        this._spectatorsChanged();
+        return clean;
+    }
+
+    // Local spectator: hop to a neighbouring free seat (optimistic; host confirms).
+    requestSpectatorSeatMove(direction) {
+        if (!this.localSpectator) return -1;
+        const seats = this.getSpectatorSeats();
+        const myId = this.network?.playerId;
+        const occupied = this.spectators.occupied(myId);
+        const next = neighborSeat(seats, this.localSpectatorSeat, direction, occupied);
+        if (next === this.localSpectatorSeat || next < 0) return this.localSpectatorSeat;
+        this.localSpectatorSeat = next;
+        const entry = this.spectators.get(myId);
+        if (entry) entry.seat = next;
+        this.spectatorCrowd.sync(this.spectators.list(), seats);
+        this.network?.send?.({ type: 'spectatorSeat', seat: next });
+        return next;
+    }
+
+    // ---- Emote wheel (players + spectators) ---------------------------------------
+    // Who may hold the wheel open right now. Live players in play / the social hub;
+    // joined spectators through the whole match (countdown, round end, celebration).
+    canUseEmoteWheel() {
+        if (this.localSpectator) {
+            return [STATES.PLAYING, STATES.COUNTDOWN, STATES.ROUND_END, STATES.CELEBRATION].includes(this.state);
+        }
+        if (this.state === STATES.SOCIAL_HUB) return true;
+        return this.state === STATES.PLAYING && this.player?.alive !== false;
+    }
+
+    // Client-side spam guard (the host also rate-limits every transport).
+    _claimLocalEmote(emoteId) {
+        if (!isEmoteId(emoteId)) return false;
+        const now = performance.now();
+        if (now - (this._lastLocalEmoteAt ?? -Infinity) < LOCAL_EMOTE_COOLDOWN_MS) {
+            this.ui?.showMessage?.('Emote cooling down…', 700);
+            return false;
+        }
+        this._lastLocalEmoteAt = now;
+        const emote = getEmote(emoteId);
+        // First person never sees the sprite above its own head: confirm on the HUD.
+        this.ui?.showMessage?.(`${emote.emoji} ${emote.text}`, 900);
+        return true;
+    }
+
+    _sendEmotePacket(emoteId) {
+        if (!this.network?.connected) return;
+        if (this.network.isHost) this.network.broadcast({ type: 'emote', playerId: this.network.playerId, emote: emoteId });
+        else this.network.send({ type: 'emote', emote: emoteId });
+    }
+
+    // Local player emote: shown locally by the caller (main.openEmoteWheel), sent to
+    // everyone else here. Returns false when rate-limited so nothing is shown.
+    sendPlayerEmote(emoteId) {
+        if (this.localSpectator || !this._claimLocalEmote(emoteId)) return false;
+        this._sendEmotePacket(emoteId);
+        return true;
+    }
+
+    // Local spectator: emote from the stands (host rate-limits + rebroadcasts).
+    sendSpectatorEmote(emoteId) {
+        if (!this.localSpectator || !this._claimLocalEmote(emoteId)) return false;
+        this.showSpectatorEmote(this.network?.playerId, emoteId);
+        this._sendEmotePacket(emoteId);
+        return true;
+    }
+
+    // Network emote from anyone else: a seated fan or a player on the court.
+    showNetworkEmote(playerId, emoteId) {
+        if (!isEmoteId(emoteId) || !playerId || playerId === this.network?.playerId) return false;
+        if (this.spectators.has(playerId)) return this.showSpectatorEmote(playerId, emoteId);
+        const player = this.remotePlayers.get(playerId);
+        if (!player || player.isBotEntity || player.queuedForNextRound || player.alive === false) return false;
+        // Remote players carry eye height in position.y (the rig stands 1.2 lower).
+        return this.emotes.show(player, emoteId, { offsetY: PLAYER_EMOTE_OFFSET_Y });
+    }
+
+    // Everyone: an emote above a seated avatar. A fan emoting right after a big
+    // play (elimination) whips the whole crowd up.
+    showSpectatorEmote(playerId, emoteId) {
+        if (!isEmoteId(emoteId) || !this.spectators.has(playerId)) return false;
+        const entity = this.spectatorCrowd.entityFor(playerId);
+        if (entity) this.emotes.show(entity, emoteId);
+        this.spectatorCrowd.hop(playerId);
+        const now = performance.now();
+        if (now - this._lastBigPlayAt < 3500 && now - this._crowdHypeAt > 6000) {
+            this._crowdHypeAt = now;
+            this.spectatorCrowd.cheer();
+            this.ui?.showMessage?.('THE CROWD GOES WILD!', 1400);
+        }
+        return true;
+    }
+
+    _onCrowdBigPlay() {
+        this._lastBigPlayAt = performance.now();
+        if (this.spectators.size) this.spectatorCrowd.cheer();
+    }
+
+    // Per frame, before any hit-stop early return: court rule, crowd, emotes and the
+    // local-spectator invariant (a spectator's own player is never alive/simulated).
+    _updateSpectatorLayer(dt) {
+        this.player.courtSide = this.localSpectator ? 0 : this.getCourtConfinementSide(this.player.team);
+        const seats = this.getSpectatorSeats();
+        if (seats !== this._crowdSeats) {
+            this._crowdSeats = seats;
+            if (this.network?.isHost && this.spectators.reseat(seats)) this._spectatorsChanged();
+            else this.spectatorCrowd.sync(this.spectators.list(), seats);
+        }
+        this.spectatorCrowd.update(dt);
+        this.emotes.update(dt);
+        if (this.localSpectator) {
+            if (this.player.alive !== false) {
+                this.player.alive = false;
+                this.player.hp = 0;
+                this.player.setHandTemporarilyVisible?.(false);
+            }
+            // startGame() lists the local player; a spectator is not a player.
+            if (this.scoreboard?.players?.get?.(this.playerName)?.isYou) this.scoreboard.removePlayer(this.playerName);
+        }
     }
 
     getAllTargets() {
@@ -2031,6 +2261,15 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 && [STATES.COUNTDOWN, STATES.PLAYING, STATES.ROUND_END, STATES.CELEBRATION].includes(this.state);
             updateEntityCosmetics(localCosmetics, performance.now() / 1000);
         }
+        this._updateSpectatorLayer?.(dt);
+        // Keep the spatial-audio listener camera-accurate every frame, before
+        // any hit-stop early return below, so ball SFX pan correctly even on
+        // the same frame a hit-stop begins.
+        const audioCamera = this.player.camera;
+        if (audioCamera?.getWorldDirection) {
+            audioCamera.getWorldDirection(this._audioListenerForward);
+            this.audio?.setListener?.(this.player.getPosition(), this._audioListenerForward.x, this._audioListenerForward.z);
+        }
         // Advance skin finisher effects on RAW dt, before juice's hit-stop can early-return
         // below: an elimination triggers hit-stop at the same instant the finisher spawns,
         // so gating it on effectiveDt would freeze the very effect the kill just started.
@@ -2479,8 +2718,8 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 this._applyRallyHeat();
                 this.player.onSuccessfulDeflect?.();
                 this.audio.playSfx('tf2_hit', 0.35);
-                this.audio.playDeflect('flat');
-                this.audio.playWhoosh(this.ball.getSpeed());
+                this.audio.playDeflect('flat', this.ball.position);
+                this.audio.playWhoosh(this.ball.getSpeed(), this.ball.position);
             }
         } else if (this.player.didSpinDodge() && this.ball.isInAttackRange(this.player.getPosition())) {
             // A-D-A-D trigger: orbit the ball around you
@@ -2550,7 +2789,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 this.ball.state = 'homing';
                 this.ball._homingAge = 0;
             }
-            if (bounced && !this.juice._hitStopActive) this.audio.playBounce?.();
+            if (bounced && !this.juice._hitStopActive) this.audio.playBounce?.(this.ball.position);
             if (this.ball.active) {
                 this._analyticsSampleTimer = (this._analyticsSampleTimer || 0) - dt;
                 if (this._analyticsSampleTimer <= 0) {
@@ -2992,6 +3231,8 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 vx: this.ball.velocity.x, vy: this.ball.velocity.y, vz: this.ball.velocity.z
             };
             this._ballTargetTime = performance.now();
+            // Hold back host ball packets stamped before the host can have seen this attack.
+            this._ballPredictGuardUntil = this.network?.predictionGuardHostTime?.() || 0;
             // Send attack intent to host for authoritative processing
             const localFlick = this.player.getFlick();
             this.network?.sendAttack?.({
@@ -3007,8 +3248,8 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             // Effects
             this.player.kick(result.shot);
             this.audio.playSfx(result.shot === 'spike' ? 'tf2_frying_pan' : 'tf2_hit', 0.35);
-            this.audio.playDeflect(result.shot);
-            this.audio.playWhoosh(this.ball.getSpeed());
+            this.audio.playDeflect(result.shot, pos);
+            this.audio.playWhoosh(this.ball.getSpeed(), pos);
             const slashDir = new THREE.Vector3().subVectors(this.ball.position, pos).normalize();
             this.juice.slashEffect(pos.clone().add(new THREE.Vector3(0, 1, 0)), slashDir, 0x00ffee);
             this.juice.sparks(this.ball.position.clone(), 0xff8844, 6);
@@ -3061,8 +3302,8 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         // Shot-dependent SFX: spike=pan clang, flat=standard hit
         const shotSfx = result.shot === 'spike' ? 'tf2_frying_pan' : 'tf2_hit';
         this.audio.playSfx(shotSfx, 0.35);
-        this.audio.playDeflect(result.shot);
-        this.audio.playWhoosh(this.ball.getSpeed());
+        this.audio.playDeflect(result.shot, pos);
+        this.audio.playWhoosh(this.ball.getSpeed(), pos);
 
         // Camera punch + screen kick for game feel
         this.player.kick(result.shot);
@@ -3197,7 +3438,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             this._applyRallyHeat();
             this.scoreboard.recordDeflection(bot.name);
             this.audio.playSfx('tf2_hit', 0.3);
-            this.audio.playDeflect();
+            this.audio.playDeflect(undefined, pos);
             return;
         }
 
@@ -3239,8 +3480,8 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         bot.onSuccessfulDeflect();
         this.scoreboard.recordDeflection(bot.name);
         this.audio.playSfx('tf2_hit', 0.35);
-        this.audio.playDeflect();
-        this.audio.playWhoosh(this.ball.getSpeed());
+        this.audio.playDeflect(undefined, pos);
+        this.audio.playWhoosh(this.ball.getSpeed(), pos);
 
         const spd = Math.round((this.ball.getSpeed() / this.ball.baseSpeed) * 100);
         this.ui.showMessage(`🏐 Rally ${this.rallyCount} — ${spd}%`, 800);
@@ -3425,6 +3666,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         this.audio.playSfx('tf2_explosion', 0.5);
         window.addKillFeed?.(attackerName, victimName, '⚔');
         this.audio.playExplosion();
+        this._onCrowdBigPlay?.();
         return true;
     }
 
@@ -3471,7 +3713,8 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         const isClient = this.network?.connected && !this.network?.isHost;
         // Hasar hesapla: miss ramp + karakter deflectPower + pasifler + combo bonusu
         const base = missRampDamage(BASE_HIT_DAMAGE, hitTarget.consecutiveMisses);
-        const comboMul = this.juice.getComboMultiplier();
+        // juice.combo is the local player's perfect-deflect streak — it must not buff bots/remotes.
+        const comboMul = attacker === this.player ? this.juice.getComboMultiplier() : 1;
         let dmg = calcDamage(Math.round(base * comboMul), attacker, hitTarget, shot);
         const damageMultiplier = attacker?._powerUpDamageMul
             || (attacker === this.player ? this._damageMul : null);
@@ -3648,7 +3891,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         if (isLethal && presentedLethal && hitTarget === this.player) {
             this.audio.playSfx('tf2_you_are_dead', 0.5);
         }
-        this.audio.playHit();
+        this.audio.playHit(hitPos);
 
         // Hit-flash animation on screen
         if (isLethal && presentedLethal && typeof document !== 'undefined') {
@@ -4861,25 +5104,26 @@ spawnPowerUp() {
         return list;
     }
 
-    _pushPosBuffer(p, x, y, z, time, vx = 0, vy = 0, vz = 0) {
-        if (!p._posBuffer) p._posBuffer = [];
-        // Teleport check (>5m jump) → clear buffer, jump instantly
-        if (p._posBuffer.length > 0) {
-            const last = p._posBuffer[p._posBuffer.length - 1];
-            const dx = x - last.x, dy = y - last.y, dz = z - last.z;
-            if (dx*dx + dy*dy + dz*dz > 25) {
-                p._posBuffer.length = 0;
-                p.position.set(x, y, z);
-                p.group.position.copy(p.position).add(new THREE.Vector3(0, -1.2, 0));
-                return;
-            }
+    // Feeds the remote entity's snapshot-interpolation buffer (js/net-interp.js).
+    // `time` is the sender's host-clock stamp (arrival host time when unstamped);
+    // p._posBuffer stays the sorted {x,y,z,time} sample array for host lag compensation.
+    _pushPosBuffer(p, x, y, z, time, vx = 0, vy = 0, vz = 0, ry = undefined, hasVel = false, arrival = time) {
+        if (!p._interp) {
+            p._interp = new RemoteInterp();
+            p._posBuffer = p._interp.samples;
         }
-        p._posBuffer.push({ x, y, z, vx, vy, vz, time });
-        if (p._posBuffer.length > 12) p._posBuffer.shift();
+        const result = p._interp.push(time, arrival, x, y, z, vx, vy, vz, ry, hasVel);
+        if (result === 'snap') {
+            // Teleport/respawn: place the entity now instead of waiting a render delay.
+            p.position.set(x, y, z);
+            p.group.position.set(x, y + (p.isBotEntity ? 0 : -1.2), z);
+        }
     }
 
     updateRemotePlayer(playerId, data, peerId = data.peerId || playerId) {
         if (playerId === this.network?.playerId || peerId === this.network?.peer?.id) return;
+        // A spectator is never a remote player, whatever a packet claims.
+        if (this.spectators?.has(playerId)) return;
         const p = this.addRemotePlayer(playerId, data.name || `P-${playerId.slice(0, 4)}`, data.team, null, peerId);
         if (!p) return;
         if (p.queuedForNextRound) {
@@ -4887,9 +5131,20 @@ spawnPowerUp() {
             p.group.visible = false;
             return;
         }
-        this._pushPosBuffer(p, data.x, data.y, data.z, performance.now(), data.vx, data.vy, data.vz);
+        // Host authority for the cross-court rule: a remote report past the midline
+        // is clamped back onto the player's own half (host team, not packet team).
+        const courtSide = this.network?.isHost ? (this.getCourtConfinementSide?.(p.team) || 0) : 0;
+        if (courtSide) {
+            const z = clampToCourtHalf(data.z, courtSide, p.radius || 0.7);
+            if (z !== data.z) data = { ...data, z };
+        }
+        // Sender host-clock stamp → jitter-free sample time; unstamped packets use arrival.
+        const arrival = this.network?.hostNow?.() ?? performance.now();
+        const stamp = this.network?.stampToHostTime?.(data.t, arrival);
+        this._pushPosBuffer(p, data.x, data.y, data.z, Number.isFinite(stamp) ? stamp : arrival,
+            data.vx, data.vy, data.vz, data.ry, data.vx !== undefined, arrival);
         p.lastPacketTime = performance.now();
-        p.group.rotation.y = data.ry || 0;
+        if (!p._interp) p.group.rotation.y = data.ry || 0;
         p.team = data.team || p.team;
         // Position packets are movement reports, not authority to heal or revive.
         // Guests still reconcile the host's snapshots; the host keeps its own life state.
@@ -4913,6 +5168,9 @@ spawnPowerUp() {
             const lastSeen = this._peerLastSeen?.get(playerId) || 0;
             if (now - lastSeen > 500) {
                 this.network.broadcast({ ...data, type: 'position', playerId, peerId, hp: p.hp, alive: p.alive });
+            } else {
+                // Spectators are outside the P2P mesh — the host forwards movement to them.
+                this.network.relayPositionToSpectators?.(data, playerId, peerId, p);
             }
             if (!this._peerLastSeen) this._peerLastSeen = new Map();
             this._peerLastSeen.set(playerId, now);
@@ -4929,52 +5187,48 @@ spawnPowerUp() {
         return safe;
     }
 
+    // Snapshot interpolation (js/net-interp.js): each remote renders an adaptive delay
+    // behind host time — Hermite between samples, bounded extrapolation on gaps, decaying
+    // error offset on corrections. The experimental-netcode settings, when enabled, pin the
+    // interpolation margin / extrapolation cap as before. Allocation-free per frame.
     invokeRemoteSnapshots(dt) {
         if (!this.remotePlayers.size) return;
-        const netcode = normalizeNetcode(this.experimentalNetcode);
-        const interpDelay = netcode.enabled ? netcode.interpolationMs : 60;
+        if (this._netcodeSource !== this.experimentalNetcode || !this._netcodeCache) {
+            this._netcodeSource = this.experimentalNetcode;
+            this._netcodeCache = normalizeNetcode(this.experimentalNetcode);
+        }
+        const netcode = this._netcodeCache;
         const now = performance.now();
-        const renderTime = now - interpDelay;
+        const hostNow = this.network?.hostNow?.(now) ?? now;
+        const syncEpoch = this.network?.clock?.syncEpoch ?? 0;
+        const dtMs = Math.max(0, Math.min(0.25, dt || 0)) * 1000;
+        const options = this._interpOptions ||= { fixedExtraMs: null, maxExtrapolateMs: null, strength: 1 };
+        options.fixedExtraMs = netcode.enabled ? netcode.interpolationMs : null;
+        options.maxExtrapolateMs = netcode.enabled ? netcode.maxExtrapolationMs : 100;
+        options.strength = netcode.enabled ? netcode.predictionStrength : 1;
+        const stats = this._netInterpStats ||= { count: 0, lerp: 0, jitter: 0, extrapolating: 0 };
+        let count = 0, lerpSum = 0, jitterSum = 0, extrapolating = 0;
         for (const p of this.remotePlayers.values()) {
             updateEntityCosmetics(p, now / 1000);
             p.attackTimer = Math.max(0, (p.attackTimer || 0) - dt);
-            const buf = p._posBuffer;
-            if (!buf || buf.length < 2) {
-                // Not enough data yet — stick with current pos
-                if (buf?.length === 1) {
-                    p.position.set(buf[0].x, buf[0].y, buf[0].z);
-                }
-                // ponytail: bots have feet at origin (position.y=0); real players carry height (~1.2)
-                const yOff = p.isBotEntity ? 0 : -1.2;
-                p.group.position.copy(p.position).add(new THREE.Vector3(0, yOff, 0));
-                this._stepRemoteAnimator(p, dt);
-                continue;
-            }
-            const sample = sampleSnapshots(buf, renderTime);
-            let t1 = sample.from, t2 = sample.to;
-            if (renderTime >= t2.time) {
-                const maxLead = (netcode.enabled ? netcode.maxExtrapolationMs : 80);
-                const predicted = predictPosition(t2, { x: t2.vx, y: t2.vy, z: t2.vz }, Math.min(renderTime - t2.time, maxLead),
-                    netcode.enabled ? netcode.predictionStrength : 1);
-                p.position.set(predicted.x, predicted.y, predicted.z);
-            } else if (t1 === t2 || t1.time === t2.time) {
-                p.position.set(t1.x, t1.y, t1.z);
-            } else {
-                const alpha = (renderTime - t1.time) / (t2.time - t1.time);
-                const clamped = Math.max(0, Math.min(1, alpha));
-                p.position.set(
-                    t1.x + (t2.x - t1.x) * clamped,
-                    t1.y + (t2.y - t1.y) * clamped,
-                    t1.z + (t2.z - t1.z) * clamped
-                );
-            }
-            // Garbage collect: keep at least 2, remove entries older than renderTime-100ms
-            while (buf.length > 2 && buf[1].time < renderTime - 100) {
-                buf.shift();
-            }
             // ponytail: bots have feet at origin (position.y=0); real players carry height (~1.2)
             const yOff = p.isBotEntity ? 0 : -1.2;
-            p.group.position.copy(p.position).add(new THREE.Vector3(0, yOff, 0));
+            const interp = p._interp;
+            if (interp && interp._syncEpoch !== syncEpoch) {
+                // Our host-clock estimate jumped (first sync / resync): re-anchor.
+                if (interp._syncEpoch !== undefined) interp.resetTimeline();
+                interp._syncEpoch = syncEpoch;
+            }
+            const out = interp ? interp.update(hostNow, dtMs, options) : null;
+            if (out) {
+                p.position.set(out.x, out.y, out.z);
+                p.group.rotation.y = out.ry;
+                count++;
+                lerpSum += interp.extraMs;
+                jitterSum += interp.jitter;
+                if (interp.mode === 'extrap' || interp.mode === 'hold') extrapolating++;
+            }
+            p.group.position.set(p.position.x, p.position.y + yOff, p.position.z);
             this._stepRemoteAnimator(p, dt);
 
             // Target outline pulse
@@ -4985,6 +5239,11 @@ spawnPowerUp() {
                 }
             }
         }
+        // net_graph readout (console `net_graph 1`).
+        stats.count = count;
+        stats.lerp = count ? lerpSum / count : 0;
+        stats.jitter = count ? jitterSum / count : 0;
+        stats.extrapolating = extrapolating;
     }
 
     // Drives a remote/bot-ghost entity's character-anim controller. Locomotion facts
@@ -5156,7 +5415,7 @@ spawnPowerUp() {
                 player: { id: playerId, name: p.name, team: p.team },
                 tier: remoteResolved.tier || 'normal'
             });
-            this.audio.playDeflect(result.shot);
+            this.audio.playDeflect(result.shot, this.ball.position);
             this.network.broadcast({
                 type: 'remoteAttackAnim',
                 playerId,
@@ -5218,6 +5477,15 @@ spawnPowerUp() {
 
     applyLobbyState(data, { deferLocalPlayer = false } = {}) {
         if (!data.players) return;
+        if (!this.network?.isHost) {
+            if (Array.isArray(data.spectators)) this.applySpectatorList?.(data.spectators);
+            const crossCourt = data.settings?.allowCrossCourt ?? data.allowCrossCourt;
+            if (typeof crossCourt === 'boolean') {
+                this.allowCrossCourt = crossCourt;
+                const toggle = globalThis.document?.getElementById?.('setting-allow-cross-court');
+                if (toggle) toggle.checked = crossCourt;
+            }
+        }
         // Lobby name
         if (data.lobbyName) {
             const el = document.getElementById('lobby-name-input');
@@ -5485,7 +5753,7 @@ spawnPowerUp() {
                 this.juice.hitStop(35);
                 this.juice.flash(0.22);
             }
-            this.audio.playHit();
+            this.audio.playHit(hitPos);
 
             // Kill feed
             const tag = (data.missTag || '') + (data.perfectTag || '');
@@ -6209,15 +6477,44 @@ spawnPowerUp() {
     updateBallFromNetwork(data) {
         if (this.network?.isHost) return;
         // ponytail: stale ballState guard — ignore packets older than last seen
+        // Our own deflect is being predicted: packets the host stamped before it could have
+        // seen that attack describe the pre-deflect flight — applying them would rubber-band
+        // the ball back. (Legacy/unstamped packets have no t and are never held back.)
+        if (this._ballPredictGuardUntil && Number.isFinite(data.t)) {
+            const stamp = this.network?.stampToHostTime?.(data.t);
+            // (>1 s behind the guard means a new host timeline, not an in-flight packet)
+            if (Number.isFinite(stamp) && stamp < this._ballPredictGuardUntil
+                && this._ballPredictGuardUntil - stamp < 1000) return;
+            this._ballPredictGuardUntil = 0;
+        }
         if (data.seq !== undefined) {
             if (this._ballSeq !== undefined && !isNewerSequence(data.seq, this._ballSeq)) return;
             this._ballSeq = data.seq;
         }
         // ponytail: client only renders — host runs authoritative physics
         this.ball._clientOnly = true;
-        // ponytail: store target for exponential smoothing (same approach as remote players)
-        this._ballTarget = { x: data.x, y: data.y, z: data.z, vx: data.vx, vy: data.vy, vz: data.vz };
-        this._ballTargetTime = performance.now();
+        const nowMs = performance.now();
+        // Jitter-free base time: a packet that arrived late (vs. the mean host→client
+        // transit) is valid that much earlier on our timeline, so prediction stays on the
+        // true trajectory instead of lagging by the jitter.
+        const baseTime = nowMs - (this.network?.noteBallTransit?.(data.t) || 0);
+        const next = { x: data.x, y: data.y, z: data.z, vx: data.vx, vy: data.vy, vz: data.vz };
+        const err = this._ballError ||= { x: 0, y: 0, z: 0 };
+        const previous = this._ballTarget;
+        if (previous && this._ballErrorBase === previous && this.ball.active && data.active && data.state !== 'idle') {
+            // Keep the visible ball continuous: the correction becomes a decaying offset.
+            const from = ballPredictAt(previous, this._ballTargetTime, nowMs, this._ballScratchA ||= { x: 0, y: 0, z: 0 });
+            const to = ballPredictAt(next, baseTime, nowMs, this._ballScratchB ||= { x: 0, y: 0, z: 0 });
+            err.x += from.x - to.x;
+            err.y += from.y - to.y;
+            err.z += from.z - to.z;
+            if (Math.hypot(err.x, err.y, err.z) > BALL_SMOOTHING.snapDistance) err.x = err.y = err.z = 0;
+        } else {
+            err.x = err.y = err.z = 0;
+        }
+        this._ballTarget = next;
+        this._ballErrorBase = next;
+        this._ballTargetTime = baseTime;
         this._ballTargetActive = data.active;
         // ponytail: sync currentSpeed from host — prevents client scalar drift
         if (data.speed !== undefined) this.ball.currentSpeed = data.speed;
@@ -6254,8 +6551,10 @@ spawnPowerUp() {
             this.ball.setTarget(target);
         }
         this.ball.state = data.state || this.ball.state;
-        // Sync ball affix from host
-        if (data.affix && this.currentBallAffix?.id !== data.affix) {
+        // Sync ball affix from host (netV3 delta packets omit it: absence = unchanged)
+        if (data.affixUnchanged === true) {
+            // keep current affix
+        } else if (data.affix && this.currentBallAffix?.id !== data.affix) {
             this.currentBallAffix = { id: data.affix, color: data.affixColor || 0x44ff88 };
             this.ball.affix = this.currentBallAffix;
             this.ui.updateBallAffix(this.currentBallAffix);
@@ -6268,22 +6567,30 @@ spawnPowerUp() {
 
     // ponytail: client-side ball smoothing toward host snapshot.
     // Velocity-extrapolated so fast balls don't lag behind host.
+    // Client ball = host snapshot predicted forward along its velocity (bounded) plus a
+    // decaying correction offset. At constant velocity this has zero lag (the previous
+    // exponential follow trailed a moving ball by speed/rate — ~0.8 m at base speed), and
+    // a host correction is blended over ~50–80 ms instead of snapping.
     invokeBallSmoothing(dt) {
         if (this.network?.isHost || !this._ballTarget || !this._ballTargetTime || !this.ball.active) return;
         this.ball._prevPosition ??= this.ball.position.clone();
         this.ball._prevPosition.copy(this.ball.position);
-        const elapsed = (performance.now() - this._ballTargetTime) / 1000;
-        // ponytail: extrapolate target forward by velocity × elapsed since snapshot
-        const next = networkBallStep(
-            this.ball.position,
-            { x: this._ballTarget.vx, y: this._ballTarget.vy, z: this._ballTarget.vz },
-            this._ballTarget,
-            dt,
-            elapsed
-        );
-        this.ball.position.set(next.x, next.y, next.z);
-        this.ball.velocity.set(this._ballTarget.vx, this._ballTarget.vy, this._ballTarget.vz);
-        // ponytail: mesh position handled by _clientVisualUpdate in game.update — not here
+        const base = this._ballTarget;
+        const err = this._ballError ||= { x: 0, y: 0, z: 0 };
+        if (this._ballErrorBase !== base) {
+            // Base replaced outside updateBallFromNetwork (local deflect prediction,
+            // late-join, migration restore): follow it exactly.
+            err.x = err.y = err.z = 0;
+            this._ballErrorBase = base;
+        }
+        const decay = ballErrorDecay(dt, Math.hypot(base.vx, base.vy, base.vz));
+        err.x *= decay; err.y *= decay; err.z *= decay;
+        const at = ballPredictAt(base, this._ballTargetTime, performance.now(), this._ballScratchA ||= { x: 0, y: 0, z: 0 });
+        this.ball.position.set(at.x + err.x, at.y + err.y, at.z + err.z);
+        this.ball.velocity.set(base.vx, base.vy, base.vz);
+        // The prediction is already smooth: pin the visual to it so _clientVisualUpdate's
+        // follow-lerp does not add a second, speed-proportional lag.
+        this.ball._visualPosition?.copy(this.ball.position);
     }
     updateScoresFromNetwork(data) {
         if (this.network && !this.network.isHost) {
@@ -6390,9 +6697,11 @@ spawnPowerUp() {
                 p.isBotEntity = true;
                 this.remotePlayers.set(peerId, p);
             }
-                this._pushPosBuffer(p, bd.x, bd.y, bd.z, performance.now());
+            const arrival = this.network?.hostNow?.() ?? performance.now();
+            const stamp = this.network?.stampToHostTime?.(data.t, arrival);
+            this._pushPosBuffer(p, bd.x, bd.y, bd.z, Number.isFinite(stamp) ? stamp : arrival,
+                0, 0, 0, Number.isFinite(bd.ry) ? bd.ry : 0, false, arrival);
             p.team = bd.team || p.team;
-            p.group.rotation.y = Number.isFinite(bd.ry) ? bd.ry : 0;
             p.alive = bd.alive !== false;
             p.group.visible = p.alive;
             p.hp = bd.hp ?? p.hp;
@@ -6439,7 +6748,8 @@ spawnPowerUp() {
         this._applyRallyHeat();
         this.audio?.playSfx?.('tf2_hit', 0.15);
         if (data.shot && this.audio?.playDeflect) {
-            this.audio.playDeflect(data.shot);
+            if (this.ball?.position) this.audio.playDeflect(data.shot, this.ball.position);
+            else this.audio.playDeflect(data.shot);
         }
         // Trail burst on deflect — client-side visual: dump extra trail dots for smooth comet
         if (this.ball?.active && !this.network?.isHost) {

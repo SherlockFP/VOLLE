@@ -1,7 +1,24 @@
-# STATUS — 2026-09-20
+# STATUS — 2026-09-23
 
-> Güncel çalışma: [[sessions/2026-09-20-owner-gameplay-pass]]. Paralel servis/HUD çalışması: [[sessions/2026-09-20-serve-lifecycle]]. Önceki ayarlar turu: [[sessions/2026-09-20-game-audit-settings]]. Ayrıntılı proje geçmişi `MIMO.md` içinde.
+> Güncel çalışma: [[sessions/2026-09-23-aaa-overhaul-pass1]] — plan `docs/AAA_ROADMAP.md`. Önceki: [[sessions/2026-09-20-owner-gameplay-pass]].
 
+## En yeni — AAA geçişi 2–3 ([[sessions/2026-09-23-aaa-overhaul-pass2]])
+- Ayrı viewmodel katmanı (FOV 60, stüdyo yansımaları), yeni eldivenli el, anahtar kareli CS2 tarzı animasyonlar (inspect varyantları, R twirl), 5 yeni bıçak modeli, sentez bıçak sesleri.
+- 24 eldiven, Glovebox + Blade Vault kasaları, S/A/B/C tier + Tier List, gerçek 3D ürün görselleri ve 3D kasa açılışı, MVP ekranı.
+- İzleyici modu (POV/tribün, emote), karşı saha kuralı, emote çarkı 5 hata düzeltmesi.
+- Netcode: interpolasyon, saat senkronu, binary codec, net_graph. 3 yeni harita + 8 harita cilası, daha az draw call.
+- esbuild paketi + brotli: ilk yükleme JS 132 istek/~4,2 MB → 8 dosya/~0,55 MB. Ayarlar menüsü yeniden düzenlendi.
+- Doğrulama **2179/2179 test**, 129 JS dosyası, üretim build'i OK.
+
+## En yeni — AAA geçişi 1
+- **Kritik güvenlik:** statik sunucu `data/accounts.db`, `.git`, `server/` dosyalarını sunuyordu; artık izin listesi + Docker `DATA_DIR=/data`.
+- Misafir girişi, ilk açılış eğitimi, yeni oyuncu kilitleri, tek marka VOLLE, yükleme ipuçları.
+- Viewmodel varsayılan açık; nadirlik efektleri (rim/iz/kıvılcım), deflect geri tepmesi, kasadan "Try in hand".
+- Günlük giriş/ücretsiz kasa sunucuda; combo hasar hatası; CI test kapısı; loot-box yasal kuralı testte.
+- Stereo ses, kenar vignette, rally hız tavanı + overdrive, 4 haritaya gerçek layout, 3D-imsi menü.
+- Doğrulama **2004/2004 test**, 111 JS dosyası. Kalanlar oturum notunda.
+
+## Önceki durum (2026-09-20)
 ## En yeni tamamlanan çalışma — oynanış ve Arcade
 - Botlar mevcut duvar/sütun çarpışmalarını gözetiyor; normal harekette yerel engel dolanma ve sınır içinde doğum kurtarma var. FFA yarı saha kısıtı kalktı; takım modları korunuyor. Bu, tam rota planlama değil.
 - Ölü bot hareketi duruyor; chill oyuncudaki gibi %20 yavaşlatıyor; geçersiz hareket değerleri reddediliyor. Bot isim/avatar/can barı kaynakları bir kez temizleniyor. Top fiziği ve zorluk olasılıkları değiştirilmedi.

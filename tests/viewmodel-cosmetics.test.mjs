@@ -15,7 +15,8 @@ import { MODEL_FRAME_OFFSET, VIEWMODEL_BASE_POSITION, viewmodelFrame, resolveKni
 // shim tests/ball-skins-catalog.test.mjs uses.
 const ballSource = (await readFile(new URL('../js/ball.js', import.meta.url), 'utf8'))
     .replace("import * as THREE from 'three';", 'const THREE = {};')
-    .replace("import { ObjectPool } from './objectPool.js';", 'class ObjectPool {}');
+    .replace("import { ObjectPool } from './objectPool.js';", 'class ObjectPool {}')
+    .replace("import { getBallSkinTexture, rimPowerForSkin, trailIntensityMultiplier, BallImpactFX } from './ball-skin-fx.js';", 'const getBallSkinTexture = () => null; const rimPowerForSkin = () => 5; const trailIntensityMultiplier = () => 1; class BallImpactFX { spawn() {} update() {} clear() {} get activeCount() { return 0; } }');
 const { BALL_SKINS, BALL_SHAPES, SHAPE_SPIN } = await import(`data:text/javascript;base64,${Buffer.from(ballSource).toString('base64')}`);
 
 // weapon-models.js also imports THREE; only the id list is needed here.
@@ -184,7 +185,10 @@ test('premium gloves have authored first-person accents and two complete rig att
         assert.equal(COSMETICS[id]?.type, 'gloves', `${id} missing from wearable catalog`);
     }
     assert.match(playerSource, /resolveEquippedGlove\(loadout\)/);
-    assert.match(playerSource, /gloveCuff[\s\S]*glovePalm[\s\S]*gloveKnuckles/);
+    // First-person glove: one gloved-fist rig re-skinned per glove (js/viewmodel-hand.js).
+    assert.match(playerSource, /applyGloveLook\(this\.viewmodelHand, glove, teamColor\)/);
+    const handSource = await readFile(new URL('../js/viewmodel-hand.js', import.meta.url), 'utf8');
+    assert.match(handSource, /for \(const plate of hand\.knuckles\) plate\.visible = look\.knuckles;/);
     assert.match(modelSource, /const rightClone = model\.clone\(true\)/);
     assert.match(modelSource, /handL\.add\(leftClone\)[\s\S]*handR\.add\(rightClone\)/);
 });

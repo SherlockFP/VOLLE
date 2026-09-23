@@ -1,13 +1,45 @@
-// spectator.js - target cameras, noclip free-roam, coach ping
+// spectator.js - target cameras, noclip free-roam, coach ping, seated stands view
+import { SEATED_EYE_HEIGHT } from './spectator-seats.js'
+
 export const CAMERA_MODES = Object.freeze({
     FIRST_PERSON: 'first-person',
     CHASE: 'chase',
-    FREE_ROAM: 'free-roam'
+    FREE_ROAM: 'free-roam',
+    STANDS: 'stands'
 })
 
+// Joined spectators (lobby "Spectate"): watch a player's POV / chase, or sit in the
+// sideline stands. No free-roam - a spectator never enters the court.
+export const JOINED_SPECTATOR_MODES = Object.freeze([
+    CAMERA_MODES.FIRST_PERSON, CAMERA_MODES.CHASE, CAMERA_MODES.STANDS
+])
+// Look-around limits while seated, relative to facing the court.
+export const STANDS_YAW_LIMIT = 1.3
+export const STANDS_PITCH_MIN = -0.75
+export const STANDS_PITCH_MAX = 0.45
+const POV_FORWARD_OFFSET = 0.55
+const SEAT_HOP_SECONDS = 0.35
+const SEAT_HOP_HEIGHT = 0.6
+
+export function clampStandsLook(yaw, pitch, seatYaw) {
+    const base = finite(seatYaw)
+    let delta = finite(yaw) - base
+    delta = Math.atan2(Math.sin(delta), Math.cos(delta))
+    return {
+        yaw: base + clamp(delta, -STANDS_YAW_LIMIT, STANDS_YAW_LIMIT),
+        pitch: clamp(finite(pitch), STANDS_PITCH_MIN, STANDS_PITCH_MAX)
+    }
+}
+
+// Remote players carry their eye height in position.y (~1.7); bots stand at y=0.
+export function povEyeOffset(target) {
+    if (Number.isFinite(target?.eyeHeight)) return target.eyeHeight
+    return finite(target?.position?.y) > 0.6 ? 0.1 : 1.55
+}
+
 const CAMERA_MODE_SET = new Set(Object.values(CAMERA_MODES))
-const clamp = (value, min, max) => Math.min(max, Math.max(min, value))
-const finite = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback
+function clamp(value, min, max) { return Math.min(max, Math.max(min, value)) }
+function finite(value, fallback = 0) { return Number.isFinite(Number(value)) ? Number(value) : fallback }
 
 export function computeFreeCamMovement(state, keys, dt) {
     const yaw = finite(state.yaw)
@@ -60,6 +92,70 @@ export class SpectatorClass {
         this._lastMouseY = null
         this._bound = false
         this._pings = []
+        this.allowedModes = null   // null = every mode (dead-player spectate / replay)
+        this.seat = null           // stands anchor { x, y, z, yaw }
+        this._seatPos = { x: 0, y: 0, z: 0 }
+        this._hopFrom = { x: 0, y: 0, z: 0 }
+        this._hopT = 0
+    }
+
+    // Joined spectators: restrict modes (no free roam) - pass null to lift.
+    setAllowedModes(modes) {
+        this.allowedModes = Array.isArray(modes) ? modes.filter(mode => CAMERA_MODE_SET.has(mode)) : null
+        if (this.allowedModes && !this.allowedModes.includes(this.cameraMode)) {
+            this.setCameraMode(this.allowedModes[0])
+        }
+        return this.allowedModes
+    }
+
+    isModeAllowed(mode) {
+        return CAMERA_MODE_SET.has(mode) && (!this.allowedModes || this.allowedModes.includes(mode))
+    }
+
+    // Seat the stands camera. A seat change is a short hop (arc) instead of a cut.
+    setSeat(seat, { instant = false } = {}) {
+        if (!seat || ![seat.x, seat.y, seat.z].every(Number.isFinite)) return false
+        const first = !this.seat
+        const sameSide = !first && Math.sign(this.seat.x) === Math.sign(seat.x)
+        if (!first && !instant && this.cameraMode === CAMERA_MODES.STANDS) {
+            this._hopFrom.x = this._seatPos.x
+            this._hopFrom.y = this._seatPos.y
+            this._hopFrom.z = this._seatPos.z
+            this._hopT = SEAT_HOP_SECONDS
+        } else {
+            this._hopT = 0
+            this._seatPos.x = seat.x
+            this._seatPos.y = seat.y
+            this._seatPos.z = seat.z
+        }
+        this.seat = { x: seat.x, y: seat.y, z: seat.z, yaw: finite(seat.yaw) }
+        if (first || !sameSide) {
+            this.yaw = this.seat.yaw
+            this.pitch = -0.18
+        }
+        this._notify()
+        return true
+    }
+
+    clearSeat() {
+        this.seat = null
+        this._hopT = 0
+    }
+
+    // Small in-place jump while seated (Space) - purely visual.
+    hop() {
+        if (this.cameraMode !== CAMERA_MODES.STANDS || !this.seat || this._hopT > 0) return false
+        this._hopFrom.x = this.seat.x
+        this._hopFrom.y = this.seat.y
+        this._hopFrom.z = this.seat.z
+        this._hopT = SEAT_HOP_SECONDS
+        return true
+    }
+
+    toggleStands() {
+        return this.setCameraMode(this.cameraMode === CAMERA_MODES.STANDS
+            ? CAMERA_MODES.FIRST_PERSON
+            : CAMERA_MODES.STANDS)
     }
 
     enter(game, options = {}) {
@@ -118,7 +214,12 @@ export class SpectatorClass {
     _gatherTargets() {
         if (!this.game) return []
         const targets = this.game.getAllTargets ? this.game.getAllTargets() : [this.game.player]
-        return (targets || []).filter(target => target?.position)
+        // A joined spectator's own (never-alive) player is not someone to watch.
+        const withPosition = (targets || []).filter(target => target?.position
+            && !(this.game.localSpectator && target === this.game.player))
+        if (!this.allowedModes) return withPosition
+        const alive = withPosition.filter(target => target.alive !== false)
+        return alive.length ? alive : withPosition
     }
 
     refreshTargets() {
@@ -165,7 +266,8 @@ export class SpectatorClass {
     }
 
     setCameraMode(mode) {
-        if (!CAMERA_MODE_SET.has(mode)) return false
+        if (!this.isModeAllowed(mode)) return false
+        if (mode === CAMERA_MODES.STANDS && !this.seat) return false
         const changed = this.cameraMode !== mode
         this.cameraMode = mode
         this.freeCam = mode === CAMERA_MODES.FREE_ROAM
@@ -193,6 +295,10 @@ export class SpectatorClass {
 
     handleWheel(event) {
         if (!this.active) return false
+        if (this.cameraMode === CAMERA_MODES.STANDS) {
+            event?.preventDefault?.()
+            return true
+        }
         const delta = Number(event?.deltaY) || 0
         this.chaseDistance = clamp(this.chaseDistance + Math.sign(delta) * 1.15, 0.5, 14)
         this.setCameraMode(this.chaseDistance <= 1 ? CAMERA_MODES.FIRST_PERSON : CAMERA_MODES.CHASE)
@@ -240,7 +346,8 @@ export class SpectatorClass {
             targetIndex: this.targetIdx,
             target: this.getTarget(),
             targetName: this.getTargetName(),
-            freeCamState: this.getFreeCamState()
+            freeCamState: this.getFreeCamState(),
+            ...(this.allowedModes ? { context: 'joined' } : {})
         }
     }
 
@@ -249,6 +356,10 @@ export class SpectatorClass {
         this._updatePings(dt)
         if (this.cameraMode === CAMERA_MODES.FREE_ROAM) {
             this._updateFreeCam(dt)
+            return
+        }
+        if (this.cameraMode === CAMERA_MODES.STANDS) {
+            this._updateStands(dt)
             return
         }
         this.refreshTargets()
@@ -260,11 +371,44 @@ export class SpectatorClass {
 
     _updateFirstPerson(target) {
         const position = target.position
-        const eyeHeight = finite(target.eyeHeight, 1.6)
+        const eyeHeight = this.allowedModes ? povEyeOffset(target) : finite(target.eyeHeight, 1.6)
         this.camera.position.set(position.x, position.y + eyeHeight, position.z)
         if (target.camera?.quaternion && this.camera.quaternion?.copy) {
             this.camera.quaternion.copy(target.camera.quaternion)
             return
+        }
+        if (this.allowedModes) {
+            // Remote humans stream their aim; bots (no aim stream) watch the ball.
+            // The eye is pushed just in front of the face so the watched player's own
+            // head mesh never fills the screen.
+            const aim = target.aimDir
+            const isBot = target.isBotEntity === true || typeof target.tryDeflect === 'function'
+            let dx = 0
+            let dy = 0
+            let dz = 0
+            const ball = this.game?.ball?.position
+            if (!isBot && aim && Number.isFinite(aim.x) && (aim.x * aim.x + aim.y * aim.y + aim.z * aim.z) > 0.25) {
+                dx = aim.x; dy = aim.y; dz = aim.z
+            } else if (ball && Number.isFinite(ball.x) && this.game?.ball?.active !== false
+                && Math.hypot(ball.x - position.x, ball.z - position.z) > 2.5) {
+                dx = ball.x - this.camera.position.x
+                dy = ball.y - this.camera.position.y
+                dz = ball.z - this.camera.position.z
+            } else {
+                // No live ball to track: face the opponents' half (red defends z < 0).
+                dz = target.team === 'blue' ? -1 : 1
+            }
+            const length = Math.hypot(dx, dy, dz)
+            if (length > 1e-4) {
+                dx /= length; dy /= length; dz /= length
+                this.camera.position.set(
+                    this.camera.position.x + dx * POV_FORWARD_OFFSET,
+                    this.camera.position.y + dy * POV_FORWARD_OFFSET,
+                    this.camera.position.z + dz * POV_FORWARD_OFFSET
+                )
+                this.camera.lookAt(this.camera.position.x + dx, this.camera.position.y + dy, this.camera.position.z + dz)
+                return
+            }
         }
         const yaw = finite(target.yaw ?? target.euler?.y ?? target.rotation?.y)
         const pitch = finite(target.pitch ?? target.euler?.x ?? target.rotation?.x)
@@ -287,6 +431,34 @@ export class SpectatorClass {
             position.z + Math.cos(yaw) * horizontal
         )
         this.camera.lookAt(position.x, position.y + 1.25, position.z)
+    }
+
+    _updateStands(dt) {
+        const seat = this.seat
+        if (!seat) return
+        const look = clampStandsLook(this.yaw, this.pitch, seat.yaw)
+        this.yaw = look.yaw
+        this.pitch = look.pitch
+        let lift = 0
+        if (this._hopT > 0) {
+            this._hopT = Math.max(0, this._hopT - Math.max(0, finite(dt)))
+            const t = 1 - this._hopT / SEAT_HOP_SECONDS
+            this._seatPos.x = this._hopFrom.x + (seat.x - this._hopFrom.x) * t
+            this._seatPos.y = this._hopFrom.y + (seat.y - this._hopFrom.y) * t
+            this._seatPos.z = this._hopFrom.z + (seat.z - this._hopFrom.z) * t
+            lift = Math.sin(t * Math.PI) * SEAT_HOP_HEIGHT
+        } else {
+            this._seatPos.x = seat.x
+            this._seatPos.y = seat.y
+            this._seatPos.z = seat.z
+        }
+        this.camera.position.set(this._seatPos.x, this._seatPos.y + SEATED_EYE_HEIGHT + lift, this._seatPos.z)
+        const cp = Math.cos(this.pitch)
+        this.camera.lookAt(
+            this.camera.position.x - Math.sin(this.yaw) * cp,
+            this.camera.position.y + Math.sin(this.pitch),
+            this.camera.position.z - Math.cos(this.yaw) * cp
+        )
     }
 
     _updateFreeCam(dt) {

@@ -37,7 +37,7 @@ test('minimum rarity rolls only within the eligible case pool', () => {
 });
 
 test('premium cases expose local butterfly and karambit finishes', () => {
-    assert.deepEqual(Object.keys(CASES).sort(), ['arsenal', 'chroma', 'companions', 'elemental', 'kickoff', 'mythic']);
+    assert.deepEqual(Object.keys(CASES).sort(), ['arsenal', 'blades', 'chroma', 'companions', 'elemental', 'gloves', 'kickoff', 'mythic']);
     assert.equal(KNIVES.doppler.model, 'butterfly');
     assert.equal(KNIVES.fade.model, 'karambit');
     assert.equal(KNIVES.crimson_web.rarity, 'epic');

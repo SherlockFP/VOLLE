@@ -55,6 +55,10 @@ export class Juice {
 
         // Flash
         this.flashAmt = 0;
+        // ponytail: which tint the current flash pulse reads as — 'kill' (warm
+        // gold) vs 'generic' (white). Chosen by amt in flash() below and held
+        // until the pulse fully decays so it doesn't flip mid-fade.
+        this.flashKind = 'generic';
         this.screenShakeEnabled = true;
         this.screenFlashEnabled = true;
         this.reducedMotion = false;
@@ -100,9 +104,16 @@ export class Juice {
         return 1 + Math.min(2, this.combo * 0.2);
     }
 
-    // Flash ekran (beyaz/kırmızı). Hit alınca.
-    flash(amt = 0.5) {
+    // Flash ekran (edge vignette/glow — see docs/V3_GAMEPLAY.md, center stays
+    // clear). Hit/kill anında. `kind` is optional (existing call sites pass
+    // only `amt`); when omitted it's inferred from `amt` so a kill-sized pulse
+    // (>=0.4, e.g. game.js's flash(0.55) on kills) reads warm gold and smaller
+    // hit pulses read neutral white. Only re-tags the kind when this call's
+    // amt raises the running peak, mirroring the Math.max below so an
+    // overlapping smaller pulse can't downgrade an in-flight kill flash.
+    flash(amt = 0.5, kind) {
         if (!this.screenFlashEnabled) return;
+        if (amt >= this.flashAmt) this.flashKind = kind || (amt >= 0.4 ? 'kill' : 'generic');
         this.flashAmt = Math.max(this.flashAmt, amt);
     }
 
@@ -348,6 +359,7 @@ export class Juice {
         this.slowMoTarget = 1;
         this.resetCombo();
         this.flashAmt = 0;
+        this.flashKind = 'generic';
         this.particles.forEach(p => this._releaseParticle(p.mesh));
         this.particles = [];
     }

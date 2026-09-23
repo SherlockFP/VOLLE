@@ -1,5 +1,8 @@
-const item = (id, type, name, price, rarity, colors, style, description) => Object.freeze({
-    id, type, name, price, rarity, colors: Object.freeze(colors), style, description
+const item = (id, type, name, price, rarity, colors, style, description, look = null) => Object.freeze({
+    id, type, name, price, rarity, colors: Object.freeze(colors), style, description,
+    // First-person glove look (js/viewmodel-hand.js resolveGloveLook): pattern/finish/
+    // knuckles/glow. Optional — only gloves carry it; every other type stays untouched.
+    look: look ? Object.freeze({ ...look }) : null
 });
 
 export const COSMETIC_TYPES = Object.freeze({
@@ -139,7 +142,42 @@ export const COSMETICS = Object.freeze({
     // new builder; the accent sits above the 0.78 bloom threshold so the trim actually glows.
     cape_dark_eater: item('cape_dark_eater', 'cape', 'Dark Eater Shroud', 560, 'legendary', ['#c48cff', '#0b0416'], 'void', 'Torn voidcloth that drinks the arena light.'),
     aura_dark_eater: item('aura_dark_eater', 'aura', 'Dark Eater Halo', 540, 'legendary', ['#e6ccff', '#1a0b2e'], 'void', 'A starved ring of dark energy circles you.'),
-    trail_dark_eater: item('trail_dark_eater', 'trail', 'Dark Eater Trail', 500, 'legendary', ['#c48cff', '#2a0f4d'], 'void', 'Each step leaves a bite taken out of the light.')
+    trail_dark_eater: item('trail_dark_eater', 'trail', 'Dark Eater Trail', 500, 'legendary', ['#c48cff', '#2a0f4d'], 'void', 'Each step leaves a bite taken out of the light.'),
+
+    // Glovebox Case wave: 24 new gloves (8 rare / 8 epic / 8 legendary — see
+    // server/case-catalog.js CASES.gloves and js/tiers.js for the rarity->tier map).
+    // `style` reuses an existing js/cosmetic-models.js createGloves() silhouette
+    // (kinetic/prism/royal/leather/metal/frost) so third-person rendering needs no
+    // new geometry. `look` drives the first-person glove in js/viewmodel-hand.js.
+    // Rare: leather/rubber finishes, no glow, simple patterns.
+    gloves_windrunner: item('gloves_windrunner', 'gloves', 'Windrunner Wraps', 280, 'rare', ['#2b3d52', '#7fd9ff', '#1a2733'], 'kinetic', 'Breathable court wraps built for a fast release.', { pattern: 'stripes', finish: 'leather', knuckles: true, glow: 0 }),
+    gloves_clay_court: item('gloves_clay_court', 'gloves', 'Clay Court Grips', 260, 'rare', ['#7a3b25', '#e8935a', '#3a1a10'], 'leather', 'Sun-baked leather grips with a dusty orange trim.', { pattern: 'plain', finish: 'leather', knuckles: true, glow: 0 }),
+    gloves_riptide: item('gloves_riptide', 'gloves', 'Riptide Cuffs', 300, 'rare', ['#123b4a', '#3fd0c9', '#0a2530'], 'frost', 'Textured cuffs that shed water between rallies.', { pattern: 'checker', finish: 'rubber', knuckles: true, glow: 0 }),
+    gloves_sandstorm: item('gloves_sandstorm', 'gloves', 'Sandstorm Wraps', 260, 'rare', ['#4a3a22', '#c9a15a', '#2a2012'], 'leather', 'Dune-camo wraps for a low-glare court look.', { pattern: 'camo', finish: 'leather', knuckles: true, glow: 0 }),
+    gloves_thornback: item('gloves_thornback', 'gloves', 'Thornback Grips', 300, 'rare', ['#24331f', '#7ec850', '#141d10'], 'kinetic', 'Hex-plated grips with a mossy field finish.', { pattern: 'hex', finish: 'rubber', knuckles: true, glow: 0 }),
+    gloves_ashfall: item('gloves_ashfall', 'gloves', 'Ashfall Mitts', 280, 'rare', ['#2a2a2e', '#8d8d99', '#151517'], 'leather', 'Soot-grey mitts dusted in fine carbon ash.', { pattern: 'carbon', finish: 'rubber', knuckles: true, glow: 0 }),
+    gloves_lowlight: item('gloves_lowlight', 'gloves', 'Lowlight Grips', 260, 'rare', ['#1c1c26', '#5865f2', '#101018'], 'kinetic', 'Night-court grips with a soft indigo stripe.', { pattern: 'stripes', finish: 'leather', knuckles: true, glow: 0 }),
+    gloves_terra: item('gloves_terra', 'gloves', 'Terra Bands', 260, 'rare', ['#4a2e18', '#c98a3a', '#2a1a0c'], 'leather', 'Earth-toned bands worn in from years on court.', { pattern: 'plain', finish: 'leather', knuckles: true, glow: 0 }),
+
+    // Epic: rubber/metal/iridescent finishes, circuit/scales/camo/flame patterns, light glow.
+    gloves_neon_pulse: item('gloves_neon_pulse', 'gloves', 'Neon Pulse Grips', 400, 'epic', ['#1b1030', '#ff5cf0', '#3a1550'], 'prism', 'Circuit threads pulse pink with every deflect.', { pattern: 'circuit', finish: 'iridescent', knuckles: true, glow: 0.35 }),
+    gloves_ironclad: item('gloves_ironclad', 'gloves', 'Ironclad Knuckles', 420, 'epic', ['#2c2f36', '#9fb4c9', '#14161a'], 'metal', 'Scaled steel plating over a reinforced palm.', { pattern: 'scales', finish: 'metal', knuckles: true, glow: 0 }),
+    gloves_wildfire: item('gloves_wildfire', 'gloves', 'Wildfire Grips', 440, 'epic', ['#401207', '#ff7a2e', '#ffcf6b'], 'prism', 'Flame licks up the wrist on every swing.', { pattern: 'flame', finish: 'emissive', knuckles: true, glow: 0.3 }),
+    gloves_deep_current: item('gloves_deep_current', 'gloves', 'Deep Current Grips', 400, 'epic', ['#072436', '#39c7ff', '#04121c'], 'prism', 'Iridescent scales shimmer like deep water.', { pattern: 'scales', finish: 'iridescent', knuckles: true, glow: 0.2 }),
+    gloves_grid_runner: item('gloves_grid_runner', 'gloves', 'Grid Runner Gauntlets', 420, 'epic', ['#101820', '#5cf2c0', '#0a0f14'], 'metal', 'Etched circuit plating over a matte chassis.', { pattern: 'circuit', finish: 'metal', knuckles: true, glow: 0.25 }),
+    gloves_venom_weave: item('gloves_venom_weave', 'gloves', 'Venom Weave Grips', 380, 'epic', ['#16240f', '#a4ff3d', '#0b1508'], 'kinetic', 'Toxic-green camo weave with a rubberized grip.', { pattern: 'camo', finish: 'rubber', knuckles: true, glow: 0.15 }),
+    gloves_frostbyte: item('gloves_frostbyte', 'gloves', 'Frostbyte Gauntlets', 400, 'epic', ['#0c2733', '#8fe9ff', '#062028'], 'frost', 'Hex-etched ice plating that never quite melts.', { pattern: 'hex', finish: 'iridescent', knuckles: true, glow: 0.2 }),
+    gloves_crimson_circuit: item('gloves_crimson_circuit', 'gloves', 'Crimson Circuit Grips', 440, 'epic', ['#2b0710', '#ff3b5c', '#170308'], 'metal', 'Red circuitry threaded through polished plate.', { pattern: 'circuit', finish: 'metal', knuckles: true, glow: 0.25 }),
+
+    // Legendary: metal/iridescent/emissive finishes, galaxy/flame/circuit/scales patterns, strong glow.
+    gloves_supernova: item('gloves_supernova', 'gloves', 'Supernova Gauntlets', 620, 'legendary', ['#1a0b30', '#ffb84d', '#3a1560'], 'royal', 'A collapsing star swirls across each knuckle.', { pattern: 'galaxy', finish: 'emissive', knuckles: true, glow: 0.7 }),
+    gloves_voidforge: item('gloves_voidforge', 'gloves', 'Voidforge Gauntlets', 600, 'legendary', ['#0a0612', '#9b5cff', '#1a0f2e'], 'royal', 'Forged from a rift that never fully closes.', { pattern: 'galaxy', finish: 'iridescent', knuckles: true, glow: 0.6 }),
+    gloves_phoenix_ember: item('gloves_phoenix_ember', 'gloves', 'Phoenix Ember Grips', 640, 'legendary', ['#3a0d02', '#ff8a2e', '#ffe08a'], 'prism', 'Ember plumage that reignites on every hit.', { pattern: 'flame', finish: 'emissive', knuckles: true, glow: 0.65 }),
+    gloves_aurora_veil: item('gloves_aurora_veil', 'gloves', 'Aurora Veil Gauntlets', 600, 'legendary', ['#062a2c', '#5bf2c8', '#e28bff'], 'prism', 'Shifting aurora scales that never repeat a hue.', { pattern: 'scales', finish: 'iridescent', knuckles: true, glow: 0.55 }),
+    gloves_titanium_crest: item('gloves_titanium_crest', 'gloves', 'Titanium Crest Gauntlets', 580, 'legendary', ['#23262c', '#e7ecf2', '#8fa3b8'], 'metal', 'Aerospace-grade plating etched with a champion crest.', { pattern: 'circuit', finish: 'metal', knuckles: true, glow: 0.3 }),
+    gloves_dragon_lord: item('gloves_dragon_lord', 'gloves', 'Dragon Lord Gauntlets', 660, 'legendary', ['#2a0505', '#ff4d1a', '#ffcf3d'], 'royal', 'Molten dragon scale plating, warm to the touch.', { pattern: 'scales', finish: 'emissive', knuckles: true, glow: 0.6 }),
+    gloves_starforged: item('gloves_starforged', 'gloves', 'Starforged Grips', 620, 'legendary', ['#0d1030', '#7fd9ff', '#ffe08a'], 'metal', 'Meteor-forged plate flecked with starlight.', { pattern: 'galaxy', finish: 'metal', knuckles: true, glow: 0.5 }),
+    gloves_eclipse_king: item('gloves_eclipse_king', 'gloves', 'Eclipse King Gauntlets', 680, 'legendary', ['#08060f', '#ffd66b', '#2a1f45'], 'royal', 'A crown-line gauntlet cast in eclipse gold.', { pattern: 'circuit', finish: 'emissive', knuckles: true, glow: 0.75 })
 });
 
 // ponytail: loadout shape is derived from COSMETIC_TYPES so new types never need a second hardcoded list.

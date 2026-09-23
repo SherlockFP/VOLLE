@@ -17,7 +17,8 @@ import { Audio } from './audio.js';
 import { UI } from './ui.js';
 import { Network } from './network.js';
 import { VoiceChat } from './voice.js';
-import { Store } from './store.js';
+import { Store, isNewPlayerProfile, shouldShowFtueWelcome } from './store.js';
+import { attachViewmodelFx, disposeViewmodelFx } from './viewmodel-fx.js';
 import { DEFAULT_LOADOUT } from './skills.js';
 import { ARENA_CARDS, CARD_RARITIES } from './cards.js';
 import { AvatarPainter, AVATAR_SKINS, resolveAvatarAtlas } from './avatar.js';
@@ -39,6 +40,7 @@ import { getReward as getBattlepassRewardEntry } from './battlepass.js';
 import { Replay, extractReplayHighlight } from './replay.js';
 import { ReplayView } from './replay-view.js';
 import { CAMERA_MODES, Spectator } from './spectator.js';
+import { JOINED_SPECTATOR_MODES } from './spectator.js';
 import { BALL_SKINS, ballShapeParts } from './ball.js';
 import { accountRankLabel, MATCH_XP, matchXp, prestigeTitle } from './prestige.js';
 import { Console } from './console.js';
@@ -86,6 +88,7 @@ import {
     normalizeCrosshairConfig,
     renderCrosshair
 } from './crosshair.js';
+import { selectMvp, resolveMvpLoadout } from './mvp-select.js';
 
 const SOCIAL_DISCOVERY_KEY = 'warrball.social.discovery.v1';
 const PARTY_FOLLOW_SCREENS = new Set(['mainMenu', 'multiplayerMenu', 'joinMenu']);
@@ -94,7 +97,8 @@ const PARTY_INVITE_BLOCKED_STATES = new Set([STATES.PLAYING, STATES.COUNTDOWN, S
 const SPECTATOR_MODE_LABELS = Object.freeze({
     [CAMERA_MODES.FIRST_PERSON]: 'PLAYER CAM',
     [CAMERA_MODES.CHASE]: 'CHASE CAM',
-    [CAMERA_MODES.FREE_ROAM]: 'FREE CAM'
+    [CAMERA_MODES.FREE_ROAM]: 'FREE CAM',
+    [CAMERA_MODES.STANDS]: 'STANDS'
 });
 
 function renderSpectatorHUD(name, state = {}) {
@@ -150,6 +154,19 @@ const CARD_EFFECT_ICON_IDS = Object.freeze({
 const HOST_CHECKPOINT_INTERVAL_MS = 750;
 const HOST_CHECKPOINT_SIGNATURE_MAX_CHARS = 64 * 1024;
 
+// Meta surfaces that mean nothing before a first match; shown locked, not hidden.
+const NEW_PLAYER_LOCKED_SELECTOR = '#btn-ranked, #btn-battlepass, #btn-tournament';
+
+// Economy/account-only controls. Guests see a free-account prompt instead.
+const GUEST_GATED_SELECTOR = [
+    '.shop-buy', '.live-offer-buy', '#case-inspector-open', '#cosmetic-practice-buy', '#shop-earn-slot button',
+    '.bp-claim', '.bp-premium-buy', '.bp-boost-activate',
+    '.daily-claim', '.daily-login-claim', '.daily-case-open', '.contract-claim', '#menu-streak-badge',
+    '.card-equip', '#btn-card-tradeup',
+    '#btn-ranked', '#btn-ranked-play', '#btn-tournament',
+    '#btn-menu-party-invite', '#btn-menu-squad-center', '#btn-social-center', '#btn-social-lobby'
+].join(', ');
+
 class App {
     constructor() {
         // Lifetime owner for every App-level DOM/window listener. This must exist
@@ -190,6 +207,8 @@ class App {
             registerCustomMap(entry.id, normalizeMapConfig(entry.config));
         }
         window.__store = this.store; // ui.js avatar lookup
+        // Dev-only inspection handle: http://host/?debug exposes the app in devtools.
+        if (typeof location !== 'undefined' && new URLSearchParams(location.search).has('debug')) window.__volle = this;
         // Init new setting toggles from store
         const portalsToggle = document.getElementById('setting-portals');
         if (portalsToggle) portalsToggle.checked = this.store.get('portalsEnabled') !== false;
@@ -227,10 +246,14 @@ class App {
             portalsEnabled: this.store.get('portalsEnabled') !== false
         });
         this.player = new Player(this.renderer, this.camera, this.arena);
+        // Players must see the knife they own; `sv_hand 0` persists an opt-out.
+        this.player.setHandVisible(this.store.get('showViewmodel') !== false);
+        if (this.store.get('viewmodel')) this.player.setViewmodelOptions(this.store.get('viewmodel'));
         this.audio = new Audio();
         this.ui = new UI();
         this.ui.audio = this.audio;
         this._setupAuthModal();
+        this._setupGuestGate();
         this.ui.onCaseRewardReveal = reward => {
             if (reward?.type === 'knife') this._renderCosmeticPreview(document.getElementById('case-reward-preview'), reward);
         };
@@ -254,6 +277,7 @@ class App {
             return this._showMatchLoading(900, data);
         };
         this.game.onLateJoinActivated = team => this._exitLateJoinSpectator(team);
+        this.game.onSpectatorsChanged = list => this._renderSpectatorRoster(list);
         this.game.onMatchEnded = () => {
             if (!Number.isFinite(this._analyticsGameplayEndedAt)) this._analyticsGameplayEndedAt = Date.now();
         };
@@ -272,6 +296,13 @@ class App {
                 connectedIds,
                 queuedIds
             ));
+            // MVP 3D showcase hook: resolve the knife/gloves/ball the match's MVP has
+            // equipped from live game state (js/mvp-select.js#resolveMvpLoadout — local
+            // player + Store, or js/game.js#remotePlayers/#bots for everyone else) and
+            // stash it for js/ui.js#showPostGame, which runs right after this and pairs
+            // it with the same scoreboard-derived MVP identity.
+            const mvp = selectMvp(this.game.scoreboard.getPlayerStats());
+            this.ui.setPostGameMvpShowcase?.(this.game.matchId, mvp && resolveMvpLoadout(mvp, { game: this.game, player: this.player, store: this.store }));
             this.awardMatchRewards();
             this.productAnalytics.track('match_complete', {
                 mode: this.game.mode?.id || 'classic',
@@ -296,8 +327,8 @@ class App {
                 ? 'ranked'
                 : (this._analyticsMatchEntry === 'rematch' && this._lastMatchAuthorityMode === 'ranked' ? 'ranked' : 'casual'));
             this._lastMatchAuthorityMode = this._activeMatchMode;
-            this._matchAuthorityReady = this.store.remoteReady && !this.game._practiceMode
-                ? this.store.beginMatchRemote({ matchId: this.game.matchId, mode: this._activeMatchMode, lobbyCode: this._lobbyCode || '' })
+            this._matchAuthorityReady = this.store.remoteReady && !this.game._practiceMode && !this.game.localSpectator
+                ?this.store.beginMatchRemote({ matchId: this.game.matchId, mode: this._activeMatchMode, lobbyCode: this._lobbyCode || '' })
                 : Promise.resolve(false);
             const networkRole = this.network.isHost ? 'host' : this.network.connected ? 'client' : 'solo';
             this._pendingMatchStartAnalytics = {
@@ -479,6 +510,11 @@ class App {
                 return;
             }
             if (isEditableTarget(e.target) && e.code !== 'Escape') return;
+            // This handler runs in the capture phase, before the emote wheel's own
+            // keydown: while the wheel has focus it owns Enter/Space/arrows/Esc
+            // (Enter used to both send the emote and open chat). G/Z still toggle it.
+            if (this.game.emotes?.wheelOpen && e.target?.closest?.('#emote-wheel')
+                && e.code !== 'KeyG' && e.code !== 'KeyZ') return;
 
             if (e.code === 'Tab' && [STATES.PLAYING, STATES.COUNTDOWN, STATES.CELEBRATION, STATES.ROUND_END].includes(this.game.state)) {
                 e.preventDefault();
@@ -508,6 +544,7 @@ class App {
             // Spectator controls — but let M still open the team menu so you can
             // leave spectator from it. Chat açıkken M menü açmasın.
             if (Spectator.active && !this.chatOpen) {
+                if (this._handleJoinedSpectatorKey(e)) return;
                 if (e.code === 'Escape' && Replay.playing) {
                     e.preventDefault();
                     this._exitReplay();
@@ -563,7 +600,8 @@ class App {
                 }
             }
             // Z or G → emote wheel toggle
-            if ((e.code === 'KeyZ' || e.code === 'KeyG') && (this.game.state === STATES.PLAYING || this.game.state === STATES.SOCIAL_HUB)) {
+            // (who may emote when: Game.canUseEmoteWheel - live players, social hub, spectators)
+            if ((e.code === 'KeyZ' || e.code === 'KeyG') && (this.game.emotes.wheelOpen || this.game.canUseEmoteWheel())) {
                 e.preventDefault();
                 if (this.game.emotes.wheelOpen) {
                     this.closeEmoteWheel();
@@ -685,6 +723,10 @@ class App {
     }
 
     async _beginAuthenticatedBoot() {
+        if (!account.isLoggedIn() && this.store.get('guestMode') === true) {
+            this._enterGuestMode();
+            return;
+        }
         this._showAuthGate('Checking your saved session…');
         const restored = await account.restore();
         if (!restored.ok) {
@@ -697,6 +739,7 @@ class App {
 
     _showAuthGate(status, { retry = false } = {}) {
         this._authenticated = false;
+        this._setGuest(false);
         this.ui?.hideAll();
         const modal = document.getElementById('auth-modal');
         const statusEl = document.getElementById('auth-status');
@@ -718,8 +761,9 @@ class App {
         const connected = await this.store.connectRemote(profileName);
         if (!connected) return this._showAuthGate('Your account is valid, but profile sync failed. Retry connection.', { retry: true });
         this._authenticated = true;
+        this._setGuest(false);
+        this.store.set('guestMode', false);
         document.getElementById('auth-modal')?.classList.add('hidden');
-        this.store.set('onboardingSeen', true);
         void this.productAnalytics.flush();
         this.applyLoadout();
         this.game.selectMode(this.game.mode.id);
@@ -727,6 +771,84 @@ class App {
         this.ui.showScreen('mainMenu');
         this._setupPresenceHeartbeat();
         this._startSocialPolling();
+        this._maybeShowFirstRunWelcome();
+    }
+
+    // ===== Guest play =====
+    // Guests play every casual mode immediately with a device-local profile. Nothing
+    // guest-side is sent to or merged into an account: the server never accepts
+    // client-authored currency, so economy actions ask for a free account instead.
+    _enterGuestMode() {
+        let name = this.store.get('guestName');
+        if (typeof name !== 'string' || !/^Guest\d{4}$/.test(name)) {
+            name = `Guest${String(Math.floor(1000 + Math.random() * 9000))}`;
+            this.store.set('guestName', name);
+        }
+        this.store.set('guestMode', true);
+        this.store.set('playerName', name);
+        this.game.playerName = name;
+        const nameInput = document.getElementById('player-name-input');
+        if (nameInput) { nameInput.value = name; nameInput.readOnly = true; }
+        this._setGuest(true);
+        document.getElementById('auth-modal')?.classList.add('hidden');
+        this.productAnalytics.track('guest_start', { returning: this.store.get('ftueSeen') === true });
+        this.applyLoadout();
+        this.game.selectMode(this.game.mode.id);
+        this.refreshMetaStats();
+        this.ui.showScreen('mainMenu');
+        this._maybeShowFirstRunWelcome();
+    }
+
+    _setGuest(guest) {
+        this._guest = guest === true;
+        if (typeof document === 'undefined') return;
+        document.body.classList.toggle('is-guest', this._guest);
+        // From a gated action the guest CTA means "back to the game", not "start".
+        const cta = document.getElementById('auth-guest');
+        if (cta) {
+            cta.innerHTML = this._guest ? 'Keep playing as guest' : 'Play Now <small>No account needed</small>';
+            cta.classList.toggle('btn-primary', !this._guest);
+            cta.classList.toggle('btn-secondary', this._guest);
+        }
+        const title = document.getElementById('auth-modal-title');
+        if (title) title.textContent = this._guest ? 'Save your progress' : 'Enter the arena';
+    }
+
+    // Capture-phase gate so no individual economy handler can forget the guest check.
+    _setupGuestGate() {
+        document.addEventListener('click', event => {
+            const locked = document.body.classList.contains('is-new-player')
+                && event.target?.closest?.(NEW_PLAYER_LOCKED_SELECTOR);
+            if (locked) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                this.ui.showMessage?.('Finish your first match to unlock this — try Arcade → Warm-up.', 2600);
+                return;
+            }
+            if (!this._guest) return;
+            const gated = event.target?.closest?.(GUEST_GATED_SELECTOR);
+            if (!gated) return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            this._promptAccount(gated.dataset.guestReason || 'Create a free account to keep rewards, open cases and play Ranked.');
+        }, { capture: true, signal: this._mainAbort.signal });
+    }
+
+    _promptAccount(reason) {
+        this.productAnalytics.track('guest_account_prompt', {});
+        const modal = document.getElementById('auth-modal');
+        const statusEl = document.getElementById('auth-status');
+        if (statusEl) statusEl.textContent = reason;
+        modal?.classList.remove('hidden');
+        document.querySelector('.auth-tab-btn[data-tab="register"]')?.click();
+    }
+
+    // First launch (guest or account) opens the 40s guided drill offer once.
+    _maybeShowFirstRunWelcome() {
+        if (!shouldShowFtueWelcome(this.store.get('ftueSeen'))) return;
+        this.store.set('ftueSeen', true);
+        if (this.store.remoteReady) void this.store.syncOnboarding?.({ ftueSeen: true });
+        this.showFtueWelcome({ source: 'first_run' });
     }
 
     _setupAuthModal() {
@@ -780,6 +902,13 @@ class App {
         });
         
         document.getElementById('auth-retry')?.addEventListener('click', () => this._beginAuthenticatedBoot());
+        document.getElementById('btn-guest-save')?.addEventListener('click', () => {
+            this._promptAccount('Create a free account so your next wins earn coins, cases and Battle Pass XP.');
+        });
+        document.getElementById('auth-guest')?.addEventListener('click', () => {
+            if (this._guest) document.getElementById('auth-modal')?.classList.add('hidden');
+            else this._enterGuestMode();
+        });
     }
 
     async _handleLogin() {
@@ -1190,6 +1319,8 @@ class App {
 
     refreshMetaStats() {
         this.ui.updateMetaStats?.(this.store);
+        // Progressive disclosure: competitive/meta surfaces unlock after match one.
+        document.body.classList.toggle('is-new-player', isNewPlayerProfile(this.store.data));
         const showcase = document.getElementById('menu-character-showcase');
         if (showcase) {
             const charId = this.store.get('selectedChar') || 'rally';
@@ -1414,12 +1545,31 @@ class App {
         const badge = document.getElementById('menu-streak-badge');
         if (!badge || badge.disabled) return;
         badge.disabled = true;
+        await this._claimStreakReward();
+    }
+
+    // Menu badge and Daily tab share one server-owned login reward.
+    async _claimStreakReward() {
         const requestId = `streak:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
         const result = await this.store.claimLoginStreak(requestId);
-        if (result?.ok) {
-            this.ui.showMessage?.(`Daily Streak Day ${result.day}: +${result.reward} coins`, 2500);
-        }
+        this.ui.showMessage?.(result?.ok
+            ? `Daily Streak Day ${result.day}: +${result.reward} coins`
+            : 'Daily login already claimed.', 2500);
         this._renderRetentionBadge();
+        this.refreshMetaStats();
+        return result;
+    }
+
+    async _openDailyFreeCase(caseId) {
+        const result = this.store.remoteReady
+            ? await this.store.openCaseRemote(caseId, { daily: true })
+            : this.store.openDailyCase(caseId);
+        this.ui.showMessage?.(result
+            ? `${result.duplicate ? `Duplicate +${result.refund} coins` : 'Unlocked'}: ${result.reward.name}`
+            : 'Free case already opened today.');
+        this.ui.renderDaily(Daily, this.store);
+        this.refreshMetaStats();
+        return result;
     }
 
     // Maç sonu reward: coins + xp, battlepass tier dolum, istatistik, achievement, daily.
@@ -1427,6 +1577,7 @@ class App {
         if (!isTerminalRematchState(this.game.state)) return;
         if (this.game._rewardsClaimed) return;
         this.game._rewardsClaimed = true;
+        if (this.game.localSpectator) return; // watching a match earns no match rewards
         if (this.game._practiceMode) {
             this.game._practiceMode = false;
             return; // practice'ten reward yok
@@ -1687,6 +1838,7 @@ class App {
             onMove(e);
         };
         document.addEventListener('mousemove', handler, { signal: this._mainAbort.signal });
+        this._setupMenuDepth(menu);
         document.addEventListener('mousedown', onDown, { signal: this._mainAbort.signal });
         document.addEventListener('mouseup', onUp, { signal: this._mainAbort.signal });
         // Hide custom cursor when leaving the menu
@@ -1694,14 +1846,51 @@ class App {
         menu.addEventListener('mouseenter', () => { cursor.style.opacity = '1'; });
     }
 
-    // ===== Manual help / practice entry =====
-    // Authentication lands directly on the menu. This panel opens only when the
-    // player asks for help and never interrupts a first session automatically.
-    showFtueWelcome() {
+    // Menu depth: eased pointer position (-1..1) drives CSS parallax and panel tilt
+    // (css/menu-depth.css). Two custom properties per frame, only while the menu is
+    // visible and the pointer is still settling; reduced motion pins them at 0.
+    _setupMenuDepth(menu) {
+        const target = { x: 0, y: 0 };
+        const current = { x: 0, y: 0 };
+        let frame = 0;
+        const reduced = () => document.body.classList.contains('reduced-motion')
+            || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+        const tick = () => {
+            frame = 0;
+            if (menu.classList.contains('hidden') || reduced()) {
+                menu.style.setProperty('--px', '0');
+                menu.style.setProperty('--py', '0');
+                return;
+            }
+            current.x += (target.x - current.x) * 0.12;
+            current.y += (target.y - current.y) * 0.12;
+            menu.style.setProperty('--px', current.x.toFixed(4));
+            menu.style.setProperty('--py', current.y.toFixed(4));
+            if (Math.abs(target.x - current.x) > 0.001 || Math.abs(target.y - current.y) > 0.001) {
+                frame = requestAnimationFrame(tick);
+            }
+        };
+        document.addEventListener('mousemove', event => {
+            if (menu.classList.contains('hidden')) return;
+            target.x = (event.clientX / window.innerWidth) * 2 - 1;
+            target.y = (event.clientY / window.innerHeight) * 2 - 1;
+            if (!frame) frame = requestAnimationFrame(tick);
+        }, { signal: this._mainAbort.signal });
+        menu.addEventListener('mouseleave', () => {
+            target.x = 0;
+            target.y = 0;
+            if (!frame) frame = requestAnimationFrame(tick);
+        }, { signal: this._mainAbort.signal });
+    }
+
+    // ===== Help / practice entry =====
+    // Opens automatically once on first launch (_maybeShowFirstRunWelcome), then
+    // only when the player asks for help.
+    showFtueWelcome({ source = 'manual' } = {}) {
         if (this.game.state !== STATES.MENU) return;
-        this._ftueWelcomeFirstRun = false;
+        this._ftueWelcomeFirstRun = source === 'first_run';
         document.getElementById('ftue-welcome')?.classList.remove('hidden');
-        this.productAnalytics.track('ftue_view', { source: 'manual' });
+        this.productAnalytics.track('ftue_view', { source });
     }
 
     hideFtueWelcome({ reason = 'dismiss', trackExit = false } = {}) {
@@ -1882,13 +2071,17 @@ class App {
         });
 
         bind('btn-join-connect', async () => {
+            // "Spectate" reuses this exact join flow with the spectator role armed.
+            const spectator = this._joinAsSpectator === true;
+            this._joinAsSpectator = false;
             try {
                 const code = document.getElementById('join-code-input')?.value;
                 const name = document.getElementById('join-name-input')?.value || 'Player';
                 const password = document.getElementById('join-pass-input')?.value || '';
                 if (!code) return;
                 this._setupClientNetHandlers();
-                await this.network.joinGame(code, name, password);
+                this._beginSpectatorSession(spectator);
+                await this.network.joinGame(code, name, password, { spectator });
                 this._lobbyCode = code;
                 await this._confirmLobbyAdmission(code);
                 this.game.playerName = name;
@@ -1898,9 +2091,15 @@ class App {
                 this._startBgLoop();
                 this.ui.showScreen('lobby');
                 this._finalizeClientLobbyJoin(code);
+                this._renderSpectatorRoster();
             } catch (e) {
+                if (spectator) this._resetSpectatorSession();
                 alert('Failed to join: ' + e.message);
             }
+        });
+        bind('btn-join-spectate', () => {
+            this._joinAsSpectator = true;
+            document.getElementById('btn-join-connect')?.click();
         });
 
         bind('btn-join-back', () => {
@@ -2544,7 +2743,7 @@ class App {
                 this._registerLobby(
                     this._lobbyCode,
                     this._lobbyName || 'Lobby',
-                    this.network.connections.size + 1,
+                    (this.network.getPlayerConnectionCount?.() ?? this.network.connections.size) + 1,
                     this.arena?.config?.name || 'Unknown',
                     this.game.mode?.name || 'Classic'
                 );
@@ -2713,6 +2912,8 @@ bind('btn-remove-bot', () => {
                 this.game.setState(STATES.MENU);
                 this.ui.showScreen('mainMenu');
                 this.refreshMetaStats();
+            } else if (action === 'create_account') {
+                this._promptAccount('Create a free account so your next wins earn coins, cases and Battle Pass XP.');
             }
         };
 
@@ -3171,6 +3372,11 @@ const updateCSLobbyInfo = () => {
         option.disabled = !this.game?._ffa;
     });
     if (modifierSelect) modifierSelect.value = this.game.matchModifier || 'none';
+    const crossCourtToggle = document.getElementById('setting-allow-cross-court');
+    if (crossCourtToggle) {
+        crossCourtToggle.checked = this.game.allowCrossCourt === true;
+        crossCourtToggle.disabled = !host;
+    }
     document.querySelectorAll('.mode-btn').forEach(button => {
         const selected = button.dataset.mode === this.game?.mode?.id;
         button.classList.toggle('selected', selected);
@@ -3185,7 +3391,7 @@ const updateCSLobbyInfo = () => {
         this._registerLobby(
             this._lobbyCode,
             this._lobbyName || 'Lobby',
-            this.network?.connections.size + 1 || 1,
+            (this.network?.getPlayerConnectionCount?.() ?? 0) + 1 || 1,
             this.arena?.config?.name || 'Unknown',
             this.game?.mode?.name || 'Classic'
         );
@@ -3246,6 +3452,16 @@ document.getElementById('match-modifier')?.addEventListener('change', event => {
         return;
     }
     this.game.setMatchModifier(event.target.value);
+});
+// Host rule: may players cross the midline into the opposite half? (default OFF)
+document.getElementById('setting-allow-cross-court')?.addEventListener('change', event => {
+    if (!this.isLobbyHost()) {
+        event.target.checked = this.game.allowCrossCourt === true;
+        return;
+    }
+    const allowed = this.game.setAllowCrossCourt(event.target.checked);
+    this.ui.showMessage?.(allowed ? 'Players may cross into the opposite half.' : 'Players stay on their own half.', 1600);
+    this.broadcastLobbyState();
 });
 this.game.onModeChange = updateCSLobbyInfo;
 this.game.onMapChange = updateCSLobbyInfo;
@@ -3588,12 +3804,8 @@ updateCSLobbyInfo();
             }
             const loginClaim = e.target.closest('.daily-login-claim');
             if (loginClaim) {
-                const reward = this.store.claimDailyLogin();
-                this.ui.showMessage?.(reward
-                    ? `Daily login: +${reward.coins} coins - ${reward.streak} day streak`
-                    : 'Daily login already claimed.');
-                this.ui.renderDaily(Daily, this.store);
-                this.refreshMetaStats();
+                loginClaim.disabled = true;
+                void this._claimStreakReward().then(() => this.ui.renderDaily(Daily, this.store));
                 return;
             }
             const contractClaim = e.target.closest('.contract-claim');
@@ -3611,12 +3823,8 @@ updateCSLobbyInfo();
             }
             const dailyCase = e.target.closest('.daily-case-open');
             if (dailyCase) {
-                const result = this.store.openDailyCase(dailyCase.dataset.id);
-                this.ui.showMessage?.(result
-                    ? `${result.duplicate ? `Duplicate +${result.refund} coins` : 'Unlocked'}: ${result.reward.name}`
-                    : 'Free case already opened today.');
-                this.ui.renderDaily(Daily, this.store);
-                this.refreshMetaStats();
+                dailyCase.disabled = true;
+                void this._openDailyFreeCase(dailyCase.dataset.id);
                 return;
             }
             // Tournament bracket play
@@ -3693,6 +3901,25 @@ updateCSLobbyInfo();
                     const totals = rates.reduce((acc, entry) => ({ ...acc, [entry.rarity]: (acc[entry.rarity] || 0) + entry.chance }), {});
                     ratesEl.innerHTML = `<small>VERIFIED DROP RATES</small>${['rare', 'epic', 'legendary'].filter(rarity => totals[rarity]).map(rarity => `<span class="rarity-${rarity}">${rarity} <b>${(totals[rarity] * 100).toFixed(1)}%</b></span>`).join('')}`;
                 }
+                // Try-before-you-open: every knife in the case can be test-driven in hand.
+                const knivesEl = document.getElementById('case-inspector-knives');
+                if (knivesEl) {
+                    const knives = rates.filter(entry => entry.type === 'knife' && KNIVES[entry.id]);
+                    knivesEl.replaceChildren();
+                    if (knives.length) {
+                        const label = document.createElement('small');
+                        label.textContent = 'TRY IN HAND';
+                        knivesEl.appendChild(label);
+                        for (const entry of knives) {
+                            const button = document.createElement('button');
+                            button.type = 'button';
+                            button.className = `knife-try rarity-${entry.rarity}`;
+                            button.dataset.id = entry.id;
+                            button.textContent = entry.name;
+                            knivesEl.appendChild(button);
+                        }
+                    }
+                }
                 if (open) {
                     open.dataset.id = box.id;
                     open.disabled = false;
@@ -3701,6 +3928,13 @@ updateCSLobbyInfo();
                 inspector?.classList.remove('hidden');
                 this.ui._openExclusive('caseInspector', () => { document.getElementById('case-inspector')?.classList.add('hidden'); });
                 open?.focus();
+                return;
+            }
+            const knifeTry = e.target.closest('.knife-try');
+            if (knifeTry) {
+                document.getElementById('case-inspector')?.classList.add('hidden');
+                this.ui._closeExclusive('caseInspector');
+                this.startKnifeTestDrive(knifeTry.dataset.id);
                 return;
             }
             const caseOpen = e.target.closest('#case-inspector-open');
@@ -3924,7 +4158,7 @@ updateCSLobbyInfo();
         this.network.onPlayerJoin = (name, playerId, avatar, peerId) => {
             this.network.broadcast({ type: 'newPeer', playerId, peerId, name });
             this._registerSocialHub(code);
-            this._appendSocialLobbyChat('WARRBALL', `${name} entered the hub.`, true);
+            this._appendSocialLobbyChat('VOLLE', `${name} entered the hub.`, true);
         };
         this.network.onPlayerLeave = playerId => {
             this.socialLobby.removeRemoteVisitor(playerId);
@@ -4009,7 +4243,7 @@ updateCSLobbyInfo();
             if (!this.socialLobby.active || !status) return;
             status.textContent = `${map.name} - public room active`;
         });
-        this._appendSocialLobbyChat('WARRBALL', `Welcome to ${map.name}. Explore and chat with the room.`, true);
+        this._appendSocialLobbyChat('VOLLE', `Welcome to ${map.name}. Explore and chat with the room.`, true);
         if (autoLock) this.player.lock();
     }
 
@@ -4396,9 +4630,12 @@ updateCSLobbyInfo();
         this.player.unlock();
         const cx = window.innerWidth / 2;
         const cy = window.innerHeight / 2;
+        this.game.emotes.onWheelCancel = () => this.closeEmoteWheel();
         this.game.emotes.showWheel({ x: cx, y: cy });
         this.game.emotes.onEmoteSelect = (emoteId) => {
-            this.game.showEmote(this.player, emoteId);
+            // Spectators emote from their seat; the host rate-limits and rebroadcasts.
+            if (this.game.localSpectator) this.game.sendSpectatorEmote(emoteId);
+            else if (this.game.sendPlayerEmote(emoteId)) this.game.showEmote(this.player, emoteId);
             this.closeEmoteWheel();
         };
     }
@@ -5656,23 +5893,32 @@ updateCarousel() {
         const skinId = this.store.get('equippedAvatarSkin');
         this._syncAvatarPreview(this.menuHero, skinId);
         // Apply equipped cosmetics to the hero avatar
-        if (this.menuHero?.root?.rig) {
-            const knifeId = this.store.get('equippedKnife');
-            const rig = this.menuHero.root.rig;
-            // Dispose old knife if any
+        const heroRig = this.menuHero?.avatar?.rig || this.menuHero?.root?.rig;
+        if (heroRig) {
+            // The hero shows off the equipped knife (it used to read a non-existent
+            // `equippedKnife` key and pass a missing `.style`, so it never appeared).
+            const equipped = this.store.get('equippedKnives') || {};
+            const knifeId = equipped.red || equipped.blue || 'training';
+            const rig = heroRig;
             if (this.menuHero._heroKnife) {
+                disposeViewmodelFx(this.menuHero._heroKnife.userData.viewmodelFx);
                 disposeObject3D(this.menuHero._heroKnife);
                 this.menuHero._heroKnife = null;
             }
-            // Attach new knife unless it's the training knife (default, not a cosmetic)
-            if (knifeId && knifeId !== 'training') {
-                const knifeStyle = KNIVES[knifeId]?.style || '';
-                const knifeModel = createKnifeModel(knifeStyle);
-                if (knifeModel && rig.sockets.handR) {
-                    rig.sockets.handR.add(knifeModel);
-                    this.menuHero._heroKnife = knifeModel;
-                }
+            if (knifeId !== 'training' && KNIVES[knifeId] && rig.sockets.handR) {
+                const style = this._getKnifeStyle(knifeId);
+                const knifeModel = createKnifeModel(style);
+                attachViewmodelFx(knifeModel, style, null, { reduceMotion: document.body.classList.contains('reduced-motion') });
+                // Presented by the 'showoff' pose: blade up and out beside the face, flat
+                // side toward the camera (solved in-browser against the pose at t=0).
+                knifeModel.scale.setScalar(1.1);
+                knifeModel.rotation.set(-2.639, -0.837, 2.964);
+                knifeModel.position.set(0, -0.02, 0.04);
+                rig.sockets.handR.add(knifeModel);
+                this.menuHero._heroKnife = knifeModel;
             }
+            // Present an owned knife at chest height; stay relaxed with the default one.
+            this.menuHero.setAnimation?.(this.menuHero._heroKnife ? 'showoff' : 'idle');
         }
         this.menuHero?.resize();
     }
@@ -5848,6 +6094,15 @@ updateCarousel() {
             return false;
         }
         const restore = this._practiceSessionRestore;
+        if (this._knifeTrialId) {
+            this._knifeTrialId = null;
+            this.game._knifeTrial = false;
+            clearTimeout(this._knifeTrialInspectTimer);
+            // Restore only the owned knife; a full applyLoadout would also need a mode re-sync.
+            const ownedKnife = this.store.get('equippedKnives')?.[this.player.team] || 'training';
+            this.player.setKnifeStyle?.(this._getKnifeStyle(ownedKnife));
+            this.player.restoreHandVisibility();
+        }
         this.game.cancelGuidedDrill();
         this.game.clearPowerUps?.();
         this.game.affixes?.clearRound();
@@ -5933,6 +6188,24 @@ updateCarousel() {
         }
         // Practice lobby'sinde farklı butonlar göster
         this.ui.showMessage?.('Practice Lab: R spawn, F reposition, T reset', 3000);
+    }
+
+    // Knife test drive: the Free Lab with any catalogue knife in hand, first-person,
+    // with its full rarity presentation. Purely local and never persisted — leaving
+    // the lab restores the owned loadout (_exitPracticeSession → applyLoadout).
+    startKnifeTestDrive(knifeId) {
+        const knife = KNIVES[knifeId];
+        if (!knife) return false;
+        this.productAnalytics.track('knife_trial_start', { knifeId, rarity: knife.rarity });
+        this.startPractice({ launch: true, track: false });
+        this._knifeTrialId = knifeId;
+        this.game._knifeTrial = true;
+        this.player.setKnifeStyle?.(this._getKnifeStyle(knifeId));
+        this.player.setHandTemporarilyVisible(true);
+        clearTimeout(this._knifeTrialInspectTimer);
+        this._knifeTrialInspectTimer = setTimeout(() => this.player.inspectKnife?.(), 700);
+        this.ui.showMessage?.(`Trying ${knife.name} — click swing · F inspect · R twirl · Esc leave`, 4500);
+        return true;
     }
 
     _startMovementTrial(trialId) {
@@ -6213,11 +6486,16 @@ updateCarousel() {
         this.network.onLateJoinTeam = (playerId, team) => {
             if (this.game.selectQueuedRemoteTeam(playerId, team)) this.broadcastLobbyState();
         };
+        // Spectators end their session when the old host leaves (they are not in the
+        // migration roster), so the mirrored crowd is stale on the new host.
+        this.game.spectators?.clear?.();
+        this.game._spectatorsChanged?.();
+        this._installSpectatorHostHandlers?.(code);
         this._lobbyCode = code;
         this._registerLobby(
             code,
             this._lobbyName || 'Migrated Lobby',
-            this.network.connections.size + 1,
+            (this.network.getPlayerConnectionCount?.() ?? this.network.connections.size) + 1,
             this.arena.config?.name || 'Unknown',
             this.game.mode?.name || 'Classic'
         );
@@ -6226,7 +6504,7 @@ updateCarousel() {
         clearInterval(this._lobbyKeepAlive);
         this._lobbyKeepAlive = setInterval(() => {
             if (this.network.connected && this.network.isHost) {
-                this._registerLobby(this._lobbyCode || code, this._lobbyName || 'Migrated Lobby', this.network.connections.size + 1, this.arena?.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
+                this._registerLobby(this._lobbyCode || code, this._lobbyName || 'Migrated Lobby', (this.network.getPlayerConnectionCount?.() ?? this.network.connections.size) + 1, this.arena?.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
             }
         }, 12000);
     }
@@ -6245,9 +6523,138 @@ updateCarousel() {
             settings: {
                 matchTime: parseInt(document.getElementById('setting-match-time')?.value || 300),
                 maxRounds: parseInt(document.getElementById('setting-max-rounds')?.value || 16),
-                botDifficulty: document.getElementById('setting-bot-difficulty')?.value || 'hard'
-            }
+                botDifficulty: document.getElementById('setting-bot-difficulty')?.value || 'hard',
+                allowCrossCourt: this.game.allowCrossCourt === true
+            },
+            spectators: this.game.getSpectatorList()
         });
+    }
+
+    // ---- Spectating (join as spectator, stands view, crowd emotes) --------------------
+    // Host: spectators never become remote players — they get a seat, a crowd avatar
+    // and a line in the lobby list, nothing else (network.js whitelists their packets).
+    _installSpectatorHostHandlers(code) {
+        this.network.onSpectatorJoin = (name, playerId) => {
+            const entry = this.game.addSpectator(playerId, name);
+            if (!entry) return;
+            this.game.broadcastSystemMessage(`${entry.name} is watching from the stands.`);
+            this.broadcastLobbyState();
+            this._registerLobby(this._lobbyCode || code, this._lobbyName, (this.network.getPlayerConnectionCount?.() ?? this.network.connections.size) + 1, this.arena?.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
+        };
+        this.network.onSpectatorLeave = playerId => {
+            if (!this.game.removeSpectator(playerId)) return;
+            this.broadcastLobbyState();
+            this._registerLobby(this._lobbyCode || code, this._lobbyName, (this.network.getPlayerConnectionCount?.() ?? this.network.connections.size) + 1, this.arena?.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
+        };
+        this.network.onSpectatorSeat = (playerId, seat) => {
+            // Rejected moves still rebroadcast so the requester snaps back to its real seat.
+            this.game.moveSpectatorSeat(playerId, seat);
+            this.broadcastLobbyState();
+        };
+        // Emote wheel relay (players and spectators): show here, then rebroadcast.
+        this.network.onEmote = (playerId, emote) => {
+            if (!this.game.showNetworkEmote(playerId, emote)) return;
+            this.network.broadcast({ type: 'emote', playerId, emote });
+        };
+    }
+
+    // Client: prepare (or clear) the local spectator role before the transport opens,
+    // so the welcome packet already finds game.localSpectator set.
+    _beginSpectatorSession(spectator) {
+        this._resetSpectatorSession();
+        if (!spectator) return;
+        this.game.setLocalSpectator(true);
+        document.body.classList.add('joined-spectator');
+        document.getElementById('lobby-screen')?.classList.add('lobby-spectator');
+    }
+
+    _resetSpectatorSession() {
+        this.game.setLocalSpectator(false);
+        this.game.spectators.clear();
+        this.game.spectatorCrowd.clear();
+        this.game.onSpectatorsChanged = list => this._renderSpectatorRoster(list);
+        if (Spectator.allowedModes) {
+            Spectator.exit('spectator-session-end');
+            Spectator.setAllowedModes(null);
+        }
+        Spectator.clearSeat();
+        document.body.classList.remove('joined-spectator');
+        document.getElementById('lobby-screen')?.classList.remove('lobby-spectator');
+        this._renderSpectatorRoster([]);
+    }
+
+    // Lobby strip + in-match HUD chip: who is watching.
+    _renderSpectatorRoster(list = this.game.getSpectatorList()) {
+        const names = (list || []).map(entry => entry.name);
+        const strip = document.getElementById('lobby-spectators');
+        if (strip) {
+            strip.classList.toggle('hidden', names.length === 0 && !this.game.localSpectator);
+            const count = document.getElementById('lobby-spectators-count');
+            if (count) count.textContent = String(names.length);
+            const names$ = document.getElementById('lobby-spectators-names');
+            if (names$) names$.textContent = names.length ? names.join(', ') : 'No spectators yet';
+        }
+        const chip = document.getElementById('hud-spectator-count');
+        if (chip) {
+            chip.classList.toggle('hidden', names.length === 0);
+            chip.textContent = `👁 ${names.length} watching`;
+            chip.title = names.join(', ');
+        }
+    }
+
+    // Per frame (before Spectator.update): keep a joined spectator's camera in the
+    // stands / POV while a match runs, and seated where the host put them.
+    _syncJoinedSpectatorView() {
+        if (!this.game.localSpectator) return;
+        const inMatch = [STATES.PLAYING, STATES.COUNTDOWN, STATES.ROUND_END, STATES.CELEBRATION].includes(this.game.state);
+        if (!inMatch || Replay.playing) return;
+        const seat = this.game.getLocalSpectatorSeat();
+        if (seat && (!Spectator.seat || Spectator.seat.x !== seat.x || Spectator.seat.y !== seat.y || Spectator.seat.z !== seat.z)) {
+            Spectator.setSeat(seat);
+        }
+        if (!Spectator.active) {
+            Spectator.setAllowedModes(JOINED_SPECTATOR_MODES);
+            Spectator.enter(this.game, { mode: seat ? CAMERA_MODES.STANDS : CAMERA_MODES.FIRST_PERSON });
+            if (seat) Spectator.setCameraMode(CAMERA_MODES.STANDS);
+            this.ui.spectating = true;
+            this.game.spectatorCrowd.setHidden(this.network?.playerId);
+            if (!this._joinedSpectatorHintShown) {
+                this._joinedSpectatorHintShown = true;
+                this.ui.showMessage?.('👁 Spectating — C: stands / player view · arrows: change seat · G: emotes', 3200);
+            }
+        }
+        this.game.spectatorCrowd.setHidden(Spectator.cameraMode === CAMERA_MODES.STANDS ? this.network?.playerId : null);
+    }
+
+    // Per frame: an open emote wheel never outlives the situation that allowed it
+    // (death, round end for players, match end, leaving to a menu).
+    _syncEmoteWheel() {
+        if (this.game.emotes?.wheelOpen && !this.game.canUseEmoteWheel?.()) this.closeEmoteWheel();
+    }
+
+    // Keys while a joined spectator is watching. Returns true when consumed.
+    _handleJoinedSpectatorKey(e) {
+        if (!this.game.localSpectator || !Spectator.active || this.chatOpen) return false;
+        if (e.code === 'KeyC') { Spectator.toggleStands(); return true; }
+        if (e.code === 'KeyF') return true; // F/R belong to the knife; never free cam for a joined spectator
+        if (e.code === 'KeyM') return true; // no team menu: a spectator has no team
+        if (Spectator.cameraMode !== CAMERA_MODES.STANDS) return false;
+        const direction = {
+            ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right',
+            ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', KeyX: 'across'
+        }[e.code];
+        if (direction) {
+            e.preventDefault?.();
+            this.game.requestSpectatorSeatMove(direction);
+            return true;
+        }
+        if (e.code === 'Space') {
+            e.preventDefault?.();
+            Spectator.hop();
+            this.game.spectatorCrowd.hop(this.network?.playerId);
+            return true;
+        }
+        return false;
     }
 
     async _syncWearableLoadout() {
@@ -6330,6 +6737,7 @@ updateCarousel() {
 
     _setupClientNetHandlers() {
         this._setupReconnectUI();
+        this.network.onEmote = (playerId, emote) => this.game.showNetworkEmote(playerId, emote);
         this.network.onKicked = (reason) => {
             this._exitToMenu(reason === 'password' ? 'Wrong lobby password.' : 'You were kicked from the lobby.');
         };
@@ -6358,8 +6766,9 @@ updateCarousel() {
                     }
                 }
             }
-            // Mesh: on welcome, connect to all existing peers directly (skip host relay)
-            if (data?.type === 'welcome' && !this.network.isHost && data.players) {
+            // Mesh: on welcome, connect to all existing peers directly (skip host relay).
+            // Spectators stay off the mesh — the host relays movement to them.
+            if (data?.type === 'welcome' && !this.network.isHost && data.players && !this.network.spectatorMode) {
                 void this._syncWearableLoadout();
                 const myId = this.network.playerId;
                 const myPeerId = this.network.peer?.id;
@@ -6449,6 +6858,7 @@ updateCarousel() {
         document.getElementById('practice-lab-hud')?.classList.add('hidden');
         // Tell peers + tear down the P2P connection.
         this.network?.closeLobby?.();
+        this._resetSpectatorSession();
         this.game.cancelPreGame?.();
         this.game.ball.deactivate();
         this.game.setState(STATES.MENU);
@@ -6468,6 +6878,7 @@ updateCarousel() {
         this._exitPracticeSession();
         document.getElementById('practice-lab-hud')?.classList.add('hidden');
         this.network?.disconnect();
+        this._resetSpectatorSession();
         this.game.cancelPreGame?.();
         this._cleanupLobbyEntities();
         this.game.ball.deactivate();
@@ -6763,6 +7174,7 @@ updateCarousel() {
             focusHandler: null
         };
         this._activeSportSession = session;
+        this.game.sport = session;
 
         this.game.cancelPreGame?.();
         this.game.cancelGuidedDrill?.();
@@ -6875,6 +7287,7 @@ updateCarousel() {
         const session = this._activeSportSession;
         if (!session) return false;
         this._activeSportSession = null;
+        this.game.sport = null;
         window.removeEventListener('keydown', session.escapeHandler, true);
         document.removeEventListener('mousemove', session.lookHandler, true);
         window.removeEventListener('mousedown', session.mouseDownHandler, true);
@@ -6946,6 +7359,7 @@ updateCarousel() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 code, name, hostName: this.game.playerName, players, map, mode,
+                spectators: this.network?.getSpectatorConnectionCount?.() || 0,
                 sportId: sportRoute.sportId,
                 rulesetId: sportRoute.rulesetId,
                 mapId: sportRoute.mapId,
@@ -6964,10 +7378,12 @@ updateCarousel() {
     async _confirmLobbyAdmission(code) {
         const proof = await this.network.waitForLobbyAdmissionProof();
         if (!proof) throw new Error('Lobby admission proof was not received. Please try again.');
+        // Spectators do not take one of the registry's player slots.
+        const spectator = this.network?.spectatorMode === true;
         const admitted = await this._lobbyApi(`/api/lobbies/${encodeURIComponent(code)}/join`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ admissionToken: proof })
+            body: JSON.stringify({ admissionToken: proof, ...(spectator ? { spectator: true } : {}) })
         });
         if (!admitted?.ok) throw new Error('Lobby admission failed. Please try again.');
         this._adoptTrustedLobbySport?.(admitted);
@@ -7066,8 +7482,9 @@ updateCarousel() {
                 </div>
                 <div class="lobby-sport-badge">${this._esc(sport.name)}</div>
                 <div class="lobby-mode-badge">MODE: ${this._esc(l.mode || 'Classic')}</div>
-                <div class="lobby-players">${players}/${maxPlayers}</div>
+                <div class="lobby-players">${players}/${maxPlayers}${Number(l.spectators) > 0 ? `<small class="lobby-spectator-count" title="Spectators">👁 ${Math.min(99, Math.floor(Number(l.spectators)))}</small>` : ''}</div>
                 <button class="btn btn-primary btn-join btn-small">Join</button>
+                <button class="btn btn-secondary btn-spectate btn-small" type="button" title="Watch without taking a team slot">Spectate</button>
             </div>
         `;
         }).join('');
@@ -7076,6 +7493,10 @@ updateCarousel() {
             card.querySelector('.btn-join').addEventListener('click', (e) => {
                 e.stopPropagation();
                 this._quickJoin(card.dataset.code);
+            });
+            card.querySelector('.btn-spectate')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this._spectateLobby(card.dataset.code);
             });
         });
     }
@@ -7150,11 +7571,20 @@ updateCarousel() {
 
     _esc(s) { return String(s).replace(/[<>&"']/g, m => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[m])); }
 
+    // Lobby browser "Spectate": same join flow, spectator role armed (no team slot).
+    _spectateLobby(code) {
+        this._pendingSpectateJoin = true;
+        return this._quickJoin(code);
+    }
+
     async _quickJoin(code, quickPlay = null) {
         const name = document.getElementById('player-name-input')?.value || 'Player';
+        const spectator = this._pendingSpectateJoin === true;
+        this._pendingSpectateJoin = false;
         try {
             this._setupClientNetHandlers();
-            await this.network.joinGame(code, name);
+            this._beginSpectatorSession(spectator);
+            await this.network.joinGame(code, name, '', { spectator });
             this._lobbyCode = code;
             await this._confirmLobbyAdmission(code);
             this.game.playerName = name;
@@ -7162,7 +7592,8 @@ updateCarousel() {
             this._startBgLoop();
             this.ui.showScreen('lobby');
             this._finalizeClientLobbyJoin(code);
-            this.ui.showMessage?.('🔗 Joined lobby!', 2000);
+            this._renderSpectatorRoster();
+            this.ui.showMessage?.(spectator ? '👁 Spectating — you will watch from the stands.' : '🔗 Joined lobby!', 2000);
             this.productAnalytics.track('lobby_join', { networkRole: 'client' });
             this.productAnalytics.track('network_role', { networkRole: 'client' });
             if (quickPlay?.quickPlayStartedAt) {
@@ -7180,6 +7611,7 @@ updateCarousel() {
             if (quickPlay?.quickPlayStartedAt) this.productAnalytics.track('quick_play_failure', {
                 queue: quickPlay.queue, mode: quickPlay.mode, map: quickPlay.map, result: 'join_error'
             });
+            if (spectator) this._resetSpectatorSession();
             alert('Failed to join: ' + e.message);
             return false;
         }
@@ -7216,7 +7648,7 @@ updateCarousel() {
                 if (v !== this._lobbyName) {
                     this._lobbyName = v;
                     this.broadcastLobbyState();
-                    this._registerLobby(code, v, this.network.connections.size + 1, this.arena?.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
+                    this._registerLobby(code, v, (this.network.getPlayerConnectionCount?.() ?? this.network.connections.size) + 1, this.arena?.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
                 }
             };
             const onLobbyNameInput = () => {
@@ -7238,7 +7670,7 @@ updateCarousel() {
                 // Mesh: tell existing clients to P2P-connect to the new peer
                 this.network.broadcast({ type: 'newPeer', playerId, peerId, name: pName });
                 this.broadcastLobbyState();
-                this._registerLobby(code, this._lobbyName, this.network.connections.size + 1, this.arena?.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
+                this._registerLobby(code, this._lobbyName, (this.network.getPlayerConnectionCount?.() ?? this.network.connections.size) + 1, this.arena?.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
             };
             this.network.onPlayerLeave = (playerId, peerId) => {
                 this.game.removeRemotePlayer(playerId);
@@ -7249,7 +7681,7 @@ updateCarousel() {
                 this.network.broadcast({ type: 'peerLeft', playerId, peerId });
                 this.broadcastLobbyState();
                 this._syncRematchRoster?.();
-                this._registerLobby(code, this._lobbyName, this.network.connections.size, this.arena.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
+                this._registerLobby(code, this._lobbyName, (this.network.getPlayerConnectionCount?.() ?? this.network.connections.size), this.arena.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
             };
             // Host: client kendi takımını değiştirmek isterse uygula, sonra broadcast et.
             this.network.onTeamChange = (pName, team, playerId) => {
@@ -7270,6 +7702,8 @@ updateCarousel() {
                 this.game.broadcastSystemMessage(`${p.name} will join ${team.toUpperCase()} next round.`);
                 this.broadcastLobbyState();
             };
+            this._resetSpectatorSession?.();
+            this._installSpectatorHostHandlers?.(code);
             this.network.onGameState = (data) => {
                 if (data.type === 'welcome') this.game.applyLobbyState(data);
             };
@@ -7288,7 +7722,7 @@ updateCarousel() {
             // Auto-re-register every 12s to keep lobby alive
             this._lobbyKeepAlive = setInterval(() => {
                 if (this.network.connected && this.network.isHost) {
-                    this._registerLobby(this._lobbyCode || code, this._lobbyName, this.network.connections.size + 1, this.arena?.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
+                    this._registerLobby(this._lobbyCode || code, this._lobbyName, (this.network.getPlayerConnectionCount?.() ?? this.network.connections.size) + 1, this.arena?.config?.name || 'Unknown', this.game.mode?.name || 'Classic');
                 }
             }, 12000);
             this._lobbyCode = code;
@@ -8299,6 +8733,8 @@ updateCarousel() {
         }
 
         // Spectator mode overrides player input
+        this._syncJoinedSpectatorView();
+        this._syncEmoteWheel();
         if (Spectator.active) {
             Spectator.update(dt);
         }
@@ -8406,6 +8842,7 @@ updateCarousel() {
         // Practice mode özel tuşlar
         if (this.game._practiceMode
             && !this.game._cosmeticPractice
+            && !this.game._knifeTrial
             && !this.game.guidedDrill.active
             && !this.game._guidedDrillResultOpen
             && this.game.state === STATES.PLAYING) {

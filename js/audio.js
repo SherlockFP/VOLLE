@@ -7,6 +7,62 @@ export function createThreatAudioState() {
     return { urgency: 0, lastCueAt: null };
 }
 
+// Pure helper: camera-relative stereo pan + distance/behind attenuation for a
+// world-space sound source. No allocation beyond the returned plain object —
+// safe to call from a hot path as long as the caller doesn't retain garbage
+// from its own arguments.
+// - listenerPos: {x,y,z} — usually the camera/player position.
+// - fwdX, fwdZ: listener forward direction (XZ plane; need not be normalized).
+// - sourcePos: {x,y,z} — the sound's world position.
+// - opts.maxPan: pan clamp (default 0.85 — never hard-panned).
+// - opts.refDistance: distance under which there's no attenuation (default 6).
+// - opts.maxDistance: distance at which attenuation bottoms out (default 60).
+// - opts.behindDip: max fractional volume cut when source is directly behind (default 0.35).
+export function computeStereoPan(listenerPos, fwdX, fwdZ, sourcePos, opts = {}) {
+    const maxPan = Number.isFinite(opts.maxPan) ? opts.maxPan : 0.85;
+    const refDistance = Number.isFinite(opts.refDistance) ? opts.refDistance : 6;
+    const maxDistance = Number.isFinite(opts.maxDistance) ? opts.maxDistance : 60;
+    const behindDip = Number.isFinite(opts.behindDip) ? opts.behindDip : 0.35;
+
+    if (!listenerPos || !sourcePos) return { pan: 0, gain: 1, behind: false };
+
+    const dx = (sourcePos.x || 0) - (listenerPos.x || 0);
+    const dz = (sourcePos.z || 0) - (listenerPos.z || 0);
+    const horizDist = Math.hypot(dx, dz);
+    const dy = (sourcePos.y || 0) - (listenerPos.y || 0);
+    const dist3 = Math.hypot(horizDist, dy);
+
+    const fLen = Math.hypot(fwdX, fwdZ) || 1;
+    const fx = fwdX / fLen;
+    const fz = fwdZ / fLen;
+    // Right vector = forward rotated -90deg around Y (matches Three.js default
+    // forward (0,0,-1) -> right (1,0,0)).
+    const rx = -fz;
+    const rz = fx;
+
+    let pan = 0;
+    let behind = false;
+    let behindFactor = 1;
+    if (horizDist > 1e-4) {
+        pan = (dx * rx + dz * rz) / horizDist;
+        const fwdDot = (dx * fx + dz * fz) / horizDist;
+        if (fwdDot < 0) {
+            behind = true;
+            behindFactor = 1 - behindDip * Math.min(1, -fwdDot);
+        }
+    }
+    pan = Math.max(-maxPan, Math.min(maxPan, pan));
+
+    let distGain = 1;
+    if (dist3 > refDistance) {
+        const span = Math.max(1, maxDistance - refDistance);
+        const t = Math.min(1, (dist3 - refDistance) / span);
+        distGain = 1 - t * 0.7; // floor at 0.3x so distant sounds stay audible
+    }
+
+    return { pan, gain: Math.max(0, distGain * behindFactor), behind };
+}
+
 function classifyThreat(distance, speed, thresholdFactor = 1) {
     if (!Number.isFinite(distance) || !Number.isFinite(speed) || distance < 0 || speed <= 0) return 0;
     const seconds = distance / speed;
@@ -65,6 +121,48 @@ export class Audio {
         this._kenneyBuffers = new Map();
         this._kenneyLoads = new Map();
         this._kenneyLastPlayed = Object.create(null);
+        // Reused objects for the positional-audio listener — updated in place
+        // from setListener() every frame, never reallocated.
+        this._listenerPos = { x: 0, y: 0, z: 0 };
+        this._listenerFwd = { x: 0, z: -1 };
+        this._listenerSet = false;
+    }
+
+    // Call once per frame (e.g. from the game's update loop) with the camera/
+    // player world position and forward direction so playWhoosh/playHit/
+    // playDeflect/playBounce can pan relative to it when given a `pos`. Copies
+    // fields into reused objects — no allocation. Passing a falsy position
+    // clears the listener, after which positional args are ignored and
+    // playback falls back to today's non-spatial behaviour.
+    setListener(position, forwardX, forwardZ) {
+        if (!position) {
+            this._listenerSet = false;
+            return;
+        }
+        this._listenerPos.x = position.x || 0;
+        this._listenerPos.y = position.y || 0;
+        this._listenerPos.z = position.z || 0;
+        if (Number.isFinite(forwardX)) this._listenerFwd.x = forwardX;
+        if (Number.isFinite(forwardZ)) this._listenerFwd.z = forwardZ;
+        this._listenerSet = true;
+    }
+
+    // Returns the node a one-shot sound's gain stages should connect to.
+    // With no listener/position (today's behaviour) that's masterGain
+    // directly. With both set, builds a small gain->panner->masterGain chain
+    // (created per one-shot sound, same lifecycle as the oscillators/buffers
+    // themselves — no per-frame allocation).
+    _spatialOutput(pos) {
+        if (!pos || !this._listenerSet || !this.ctx || !this.masterGain) return this.masterGain;
+        const panner = this.ctx.createStereoPanner?.();
+        if (!panner) return this.masterGain;
+        const { pan, gain } = computeStereoPan(this._listenerPos, this._listenerFwd.x, this._listenerFwd.z, pos);
+        const spatialGain = this.ctx.createGain();
+        spatialGain.gain.value = gain;
+        panner.pan.value = pan;
+        spatialGain.connect(panner);
+        panner.connect(this.masterGain);
+        return spatialGain;
     }
 
     // ===== Named cue API with retrigger guard and graceful fallback =====
@@ -342,29 +440,142 @@ export class Audio {
     }
 
     // Soft, rounded "pock" on deflect — varies by shot type, never harsh.
-    playKnife(action = 'slash') {
+    // Knife foley, synthesized (no asset files): air whoosh from band-passed noise,
+    // metallic "shing" from inharmonic partials, and mechanical clicks for flips.
+    // action: draw | slash | stab | heavy | inspect ; model tweaks the character.
+    playKnife(action = 'slash', model = 'classic') {
         if (!this.ctx || !this.masterGain) return;
         const t = this.ctx.currentTime;
-        const duration = action === 'inspect' ? 0.12 : action === 'stab' ? 0.16 : 0.2;
-        const oscillator = this.ctx.createOscillator();
-        const gain = this.ctx.createGain();
-        oscillator.type = action === 'inspect' ? 'sine' : 'triangle';
-        oscillator.frequency.setValueAtTime(action === 'inspect' ? 1450 : 620, t);
-        oscillator.frequency.exponentialRampToValueAtTime(action === 'stab' ? 260 : 190, t + duration);
-        gain.gain.setValueAtTime(action === 'inspect' ? 0.035 : 0.055, t);
-        gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
-        oscillator.connect(gain);
-        gain.connect(this.masterGain);
-        oscillator.start(t);
-        oscillator.stop(t + duration + 0.01);
+        const out = this.masterGain;
+        if (action === 'slash' || action === 'heavy') {
+            const heavy = action === 'heavy';
+            this._knifeWhoosh(t, heavy ? 0.26 : 0.2, heavy ? 0.22 : 0.17, heavy ? 700 : 950, heavy ? 2600 : 3400, out);
+            // Low body layer under the bright air so the swing has weight, not just hiss.
+            this._knifeWhoosh(t + 0.015, heavy ? 0.3 : 0.23, heavy ? 0.09 : 0.06, 260, 780, out);
+            if (heavy) this._knifeThump(t + 0.05, 0.1, out);
+        } else if (action === 'stab') {
+            this._knifeWhoosh(t, 0.14, 0.15, 1200, 2800, out);
+            this._knifeThump(t + 0.06, 0.08, out);
+        } else if (action === 'draw') {
+            // Unsheathe: rising scrape, then a short bright ring.
+            this._knifeScrape(t, 0.22, 0.08, out);
+            this._knifeRing(t + 0.2, 0.055, model === 'karambit' ? 1.12 : 1, out);
+            if (model === 'butterfly') this._knifeClicks(t + 0.04, 3, 0.07, out);
+        } else if (action === 'twirl') {
+            this._knifeWhoosh(t + 0.06, 0.34, 0.07, 600, 2400, out);
+            if (model === 'butterfly') this._knifeClicks(t + 0.05, 4, 0.08, out);
+            else this._knifeRing(t + 0.5, 0.03, 1.35, out);
+        } else if (action === 'inspect') {
+            this._knifeRing(t + 0.05, 0.04, 1.2, out);
+            this._knifeScrape(t + 0.45, 0.28, 0.035, out);
+            if (model === 'butterfly') this._knifeClicks(t + 0.3, 5, 0.09, out);
+            else if (model === 'karambit') this._knifeWhoosh(t + 0.35, 0.3, 0.06, 500, 1800, out);
+        }
     }
 
-    playDeflect(shot = 'flat') {
+    _knifeNoiseBuffer() {
+        if (this._knifeNoise) return this._knifeNoise;
+        const length = Math.floor(this.ctx.sampleRate * 0.6);
+        const buffer = this.ctx.createBuffer(1, length, this.ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < length; i++) data[i] = Math.random() * 2 - 1;
+        this._knifeNoise = buffer;
+        return buffer;
+    }
+
+    _knifeWhoosh(t, duration, peak, fromHz, toHz, out) {
+        const src = this.ctx.createBufferSource();
+        src.buffer = this._knifeNoiseBuffer();
+        const band = this.ctx.createBiquadFilter();
+        band.type = 'bandpass';
+        band.Q.value = 1.4;
+        band.frequency.setValueAtTime(fromHz, t);
+        band.frequency.exponentialRampToValueAtTime(toHz, t + duration * 0.45);
+        band.frequency.exponentialRampToValueAtTime(fromHz * 0.6, t + duration);
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0.0001, t);
+        gain.gain.exponentialRampToValueAtTime(peak, t + duration * 0.35);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+        src.connect(band); band.connect(gain); gain.connect(out);
+        src.start(t);
+        src.stop(t + duration + 0.02);
+    }
+
+    _knifeScrape(t, duration, peak, out) {
+        const src = this.ctx.createBufferSource();
+        src.buffer = this._knifeNoiseBuffer();
+        const high = this.ctx.createBiquadFilter();
+        high.type = 'highpass';
+        high.frequency.value = 2500;
+        const band = this.ctx.createBiquadFilter();
+        band.type = 'bandpass';
+        band.Q.value = 6;
+        band.frequency.setValueAtTime(3200, t);
+        band.frequency.linearRampToValueAtTime(6200, t + duration);
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0.0001, t);
+        gain.gain.linearRampToValueAtTime(peak, t + duration * 0.3);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+        src.connect(high); high.connect(band); band.connect(gain); gain.connect(out);
+        src.start(t);
+        src.stop(t + duration + 0.02);
+    }
+
+    // Metallic ring: inharmonic partials with fast, staggered decays read as steel.
+    _knifeRing(t, peak, pitch, out) {
+        const partials = [[2310, 1, 0.5], [3690, 0.6, 0.32], [5270, 0.4, 0.22], [7110, 0.25, 0.14]];
+        for (const [hz, amp, decay] of partials) {
+            const osc = this.ctx.createOscillator();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(hz * pitch, t);
+            const gain = this.ctx.createGain();
+            gain.gain.setValueAtTime(0.0001, t);
+            gain.gain.exponentialRampToValueAtTime(peak * amp, t + 0.004);
+            gain.gain.exponentialRampToValueAtTime(0.0001, t + decay);
+            osc.connect(gain); gain.connect(out);
+            osc.start(t);
+            osc.stop(t + decay + 0.02);
+        }
+    }
+
+    _knifeThump(t, peak, out) {
+        const osc = this.ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(140, t);
+        osc.frequency.exponentialRampToValueAtTime(55, t + 0.09);
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(peak, t);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.1);
+        osc.connect(gain); gain.connect(out);
+        osc.start(t);
+        osc.stop(t + 0.12);
+    }
+
+    _knifeClicks(t, count, spacing, out) {
+        for (let i = 0; i < count; i++) {
+            const at = t + i * spacing * (0.85 + (i % 2) * 0.3);
+            const src = this.ctx.createBufferSource();
+            src.buffer = this._knifeNoiseBuffer();
+            const band = this.ctx.createBiquadFilter();
+            band.type = 'bandpass';
+            band.Q.value = 9;
+            band.frequency.value = 4200 + (i % 3) * 600;
+            const gain = this.ctx.createGain();
+            gain.gain.setValueAtTime(0.09, at);
+            gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.025);
+            src.connect(band); band.connect(gain); gain.connect(out);
+            src.start(at, (i * 0.037) % 0.5);
+            src.stop(at + 0.03);
+        }
+    }
+
+    playDeflect(shot = 'flat', pos = null) {
         if (!this.ctx) return;
         // Foley is a quiet body layer; the synth below keeps spike/lob/flat
         // readable through their distinct pitch, envelope and spike thump.
         this._playKenneyClip('deflect-soft', shot === 'spike' ? 0.16 : 0.11, 55);
         const t = this.ctx.currentTime;
+        const output = this._spatialOutput(pos);
 
         // Base pitch by shot: spike = punchy/low, lob = soft/high, flat = mid.
         const base = shot === 'spike' ? 520 : shot === 'lob' ? 900 : 700;
@@ -380,7 +591,7 @@ export class Audio {
         g1.gain.exponentialRampToValueAtTime(0.22 * peak, t + 0.008); // soft attack
         g1.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
         osc1.connect(g1);
-        g1.connect(this.masterGain);
+        g1.connect(output);
         osc1.start(t);
         osc1.stop(t + 0.24);
 
@@ -392,7 +603,7 @@ export class Audio {
         g2.gain.setValueAtTime(0.12 * peak, t);
         g2.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
         osc2.connect(g2);
-        g2.connect(this.masterGain);
+        g2.connect(output);
         osc2.start(t);
         osc2.stop(t + 0.2);
 
@@ -406,16 +617,17 @@ export class Audio {
             g3.gain.setValueAtTime(0.18, t);
             g3.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
             osc3.connect(g3);
-            g3.connect(this.masterGain);
+            g3.connect(output);
             osc3.start(t);
             osc3.stop(t + 0.16);
         }
     }
 
     // Soft thud + cute "bonk" on hit
-    playHit() {
+    playHit(pos = null) {
         if (!this.ctx) return;
         const t = this.ctx.currentTime;
+        const output = this._spatialOutput(pos);
 
         // Low bonk
         const osc = this.ctx.createOscillator();
@@ -426,7 +638,7 @@ export class Audio {
         g.gain.setValueAtTime(0.35, t);
         g.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
         osc.connect(g);
-        g.connect(this.masterGain);
+        g.connect(output);
         osc.start(t);
         osc.stop(t + 0.3);
 
@@ -439,16 +651,17 @@ export class Audio {
         g2.gain.setValueAtTime(0.15, t + 0.05);
         g2.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
         osc2.connect(g2);
-        g2.connect(this.masterGain);
+        g2.connect(output);
         osc2.start(t + 0.05);
         osc2.stop(t + 0.4);
     }
 
     // Gentle airy "swish" — soft-pass filtered noise that sweeps down.
     // Quiet and rounded; no bandpass scream, no harshness at high speed.
-    playWhoosh(speed) {
+    playWhoosh(speed, pos = null) {
         if (!this.ctx) return;
         const t = this.ctx.currentTime;
+        const output = this._spatialOutput(pos);
         const dur = 0.16;
         const bufSize = Math.floor(this.ctx.sampleRate * dur);
         const buf = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
@@ -473,7 +686,7 @@ export class Audio {
         g.gain.value = 0.11;
         src.connect(filter);
         filter.connect(g);
-        g.connect(this.masterGain);
+        g.connect(output);
         src.start(t);
     }
 
@@ -595,9 +808,10 @@ export class Audio {
     }
 
     // Bounce sound — soft rounded "boing" that bends down in pitch.
-    playBounce() {
+    playBounce(pos = null) {
         if (!this.ctx) return;
         const t = this.ctx.currentTime;
+        const output = this._spatialOutput(pos);
         const osc = this.ctx.createOscillator();
         const g = this.ctx.createGain();
         osc.type = 'sine';
@@ -607,7 +821,7 @@ export class Audio {
         g.gain.exponentialRampToValueAtTime(0.1, t + 0.006);
         g.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
         osc.connect(g);
-        g.connect(this.masterGain);
+        g.connect(output);
         osc.start(t);
         osc.stop(t + 0.13);
     }
@@ -757,5 +971,96 @@ export class Audio {
         gain.connect(this.masterGain);
         osc.start(t);
         osc.stop(t + 0.006);
+    }
+
+    // Case-reel detent, synthesized in the same style as the knife foley above:
+    // a band-passed noise "click" (the pawl) over a short pitched "tock" (the body).
+    // `progress` is 0..1 through the spin and `gapMs` the time since the previous
+    // tick — as the reel slows the gaps widen, so the tick gets lower, fuller and a
+    // little louder, and its tail rings longer. The last crawling ticks land like a
+    // ratchet instead of the flat 4ms beep of playCaseTick.
+    playCaseReelTick(progress = 0, gapMs = 60) {
+        if (!this.ctx || !this.masterGain || this.soundVolume <= 0) return;
+        const t = this.ctx.currentTime;
+        const p = Math.max(0, Math.min(1, Number(progress) || 0));
+        const slow = Math.max(0, Math.min(1, ((Number(gapMs) || 0) - 25) / 260));
+        const out = this.masterGain;
+        const click = this.ctx.createBufferSource();
+        click.buffer = this._knifeNoiseBuffer();
+        const band = this.ctx.createBiquadFilter();
+        band.type = 'bandpass';
+        band.Q.value = 3.5;
+        band.frequency.value = 4600 - slow * 1500;
+        const clickGain = this.ctx.createGain();
+        const clickDecay = 0.008 + slow * 0.014;
+        clickGain.gain.setValueAtTime(0.07 + slow * 0.05 + p * 0.02, t);
+        clickGain.gain.exponentialRampToValueAtTime(0.0001, t + clickDecay);
+        click.connect(band); band.connect(clickGain); clickGain.connect(out);
+        click.start(t, (p * 0.37) % 0.5);
+        click.stop(t + clickDecay + 0.01);
+
+        const body = this.ctx.createOscillator();
+        body.type = 'triangle';
+        const pitch = 1250 - slow * 520 + p * 90;
+        body.frequency.setValueAtTime(pitch, t);
+        body.frequency.exponentialRampToValueAtTime(pitch * 0.72, t + 0.03 + slow * 0.03);
+        const bodyGain = this.ctx.createGain();
+        const bodyDecay = 0.022 + slow * 0.05;
+        bodyGain.gain.setValueAtTime(0.0001, t);
+        bodyGain.gain.exponentialRampToValueAtTime(0.045 + slow * 0.05, t + 0.002);
+        bodyGain.gain.exponentialRampToValueAtTime(0.0001, t + bodyDecay);
+        body.connect(bodyGain); bodyGain.connect(out);
+        body.start(t);
+        body.stop(t + bodyDecay + 0.01);
+    }
+
+    // Reveal sting under the 3D reveal stage. rare: a soft steel shimmer; epic: a
+    // rising shimmer + ring; legendary/exotic: sub boom, bright rising sweep, a
+    // three-note steel chord and a long ring tail — deliberately bigger than epic.
+    playCaseRevealSting(rarity = 'rare') {
+        if (!this.ctx || !this.masterGain || this.soundVolume <= 0) return;
+        const t = this.ctx.currentTime;
+        const out = this.masterGain;
+        const key = String(rarity || '').toLowerCase();
+        if (key === 'legendary' || key === 'exotic') {
+            const boom = this.ctx.createOscillator();
+            boom.type = 'sine';
+            boom.frequency.setValueAtTime(95, t);
+            boom.frequency.exponentialRampToValueAtTime(38, t + 0.55);
+            const boomGain = this.ctx.createGain();
+            boomGain.gain.setValueAtTime(0.0001, t);
+            boomGain.gain.exponentialRampToValueAtTime(0.32, t + 0.02);
+            boomGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.7);
+            boom.connect(boomGain); boomGain.connect(out);
+            boom.start(t);
+            boom.stop(t + 0.75);
+            this._knifeWhoosh(t, 0.55, 0.12, 500, 5200, out);
+            this._knifeRing(t + 0.06, 0.07, 0.9, out);
+            this._knifeRing(t + 0.14, 0.06, 1.2, out);
+            this._knifeRing(t + 0.22, 0.055, 1.5, out);
+            [523.25, 659.25, 783.99, 1046.5].forEach((hz, index) => {
+                const osc = this.ctx.createOscillator();
+                osc.type = 'triangle';
+                const start = t + 0.08 + index * 0.05;
+                osc.frequency.setValueAtTime(hz, start);
+                const gain = this.ctx.createGain();
+                gain.gain.setValueAtTime(0.0001, start);
+                gain.gain.exponentialRampToValueAtTime(0.05, start + 0.02);
+                gain.gain.exponentialRampToValueAtTime(0.0001, start + 1.3);
+                osc.connect(gain); gain.connect(out);
+                osc.start(start);
+                osc.stop(start + 1.35);
+            });
+            return;
+        }
+        if (key === 'epic') {
+            this._knifeWhoosh(t, 0.36, 0.08, 700, 4200, out);
+            this._knifeRing(t + 0.05, 0.055, 1.1, out);
+            this._knifeRing(t + 0.16, 0.04, 1.4, out);
+            return;
+        }
+        if (key === 'rare') {
+            this._knifeRing(t + 0.02, 0.035, 1.25, out);
+        }
     }
 }

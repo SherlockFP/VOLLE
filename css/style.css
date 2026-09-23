@@ -106,6 +106,17 @@ canvas { display: block; }
     0%, 100% { opacity: 0.4; }
     50% { opacity: 0.9; }
 }
+.loading-tip {
+    max-width: min(420px, calc(100vw - 48px)); min-height: 2.8em; margin: 18px auto 0;
+    color: var(--ui-text-muted, #9edce4); font-size: 0.9rem; line-height: 1.4; text-align: center;
+    animation: loadTipIn 2.6s ease-in-out infinite;
+}
+@keyframes loadTipIn {
+    0% { opacity: 0; transform: translateY(4px); }
+    12%, 88% { opacity: 1; transform: none; }
+    100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .loading-tip { animation: none; } }
 
 /* Menu particle canvas */
 #menu-particles {

@@ -2,6 +2,7 @@
 // skin system, portal teleport, freeze support.
 import * as THREE from 'three';
 import { ObjectPool } from './objectPool.js';
+import { getBallSkinTexture, rimPowerForSkin, trailIntensityMultiplier, BallImpactFX } from './ball-skin-fx.js';
 
 export const STEERING_CONTROL_WINDOW = 0.074;
 export const BOUNCE_ROUTE_OWNERSHIP_WINDOW = 0.082;
@@ -602,8 +603,10 @@ export class Ball {
         this.baseSpeed = 17;
         this.currentSpeed = this.baseSpeed;
         this.rallySpeedStep = 0.30;             // 100 -> 130 -> 160 ...
-        // Rally speed is intentionally uncapped: each successful return raises
-        // the reaction/skill check. Protocol validation remains bounded.
+        // A raw Ball (no game mode applied) stays uncapped: each successful
+        // return raises the reaction/skill check with no ceiling. Game modes
+        // (see gamemodes.js applyMode) set a real maxSpeed; once currentSpeed
+        // reaches it, _clampSpeed() holds it there and isOverdrive flips on.
         this.maxRallyMultiplier = Infinity;
         this.maxSpeed = Infinity;
         this.deflections = 0;
@@ -729,6 +732,22 @@ export class Ball {
         this.heatShell.scale.setScalar(1.08);
         this.mesh.add(this.heatShell);
 
+        // Legendary-rarity accent — a thin pulsing additive shell, same shared glow
+        // geometry as heatShell (no extra buffer). Hidden for every other rarity;
+        // toggled in _applySkinMaterial() and pulsed in update()/_clientVisualUpdate().
+        this.legendaryRimMat = new THREE.MeshBasicMaterial({
+            color: 0xffffff, transparent: true, opacity: 0,
+            blending: THREE.AdditiveBlending, depthWrite: false, depthTest: true
+        });
+        this.legendaryRim = new THREE.Mesh(glowGeo, this.legendaryRimMat);
+        this.legendaryRim.scale.setScalar(1.22);
+        this.legendaryRim.visible = false;
+        this.mesh.add(this.legendaryRim);
+
+        // Pooled skin-colored impact burst — see js/ball-skin-fx.js. Bounded, reused
+        // across every bounce/deflect; never allocates per frame.
+        this._impactFX = new BallImpactFX(this.scene);
+
         this.mesh.visible = false;
         this.scene.add(this.mesh);
     }
@@ -741,9 +760,33 @@ export class Ball {
         this.starMat.color.setHex(skin.starColor);
         this.skinConfig = skin;
         this._applyShape(skin.shape || 'sphere');
+        this._applySkinMaterial(skin);
         this.clearTrail();
         this.updateColor();
         return resolvedId;
+    }
+
+    // Procedural per-skin surface detail (js/ball-skin-fx.js) + rarity accents. Visual
+    // only — never touches this.radius/this.velocity, so equipping a skin cannot change
+    // how the ball collides or homes (see tests/viewmodel-cosmetics.test.mjs).
+    _applySkinMaterial(skin) {
+        const quality = this.renderer?._quality || 'medium';
+        const texture = getBallSkinTexture(this.skinId, skin, quality);
+        this.mat.uniforms.uTexture.value = texture;
+        this.mat.uniforms.uTextureEnabled.value = !!texture;
+        const rimPower = rimPowerForSkin(skin);
+        this.mat.uniforms.uRimPower.value = rimPower;
+        if (this._shapeMat) {
+            this._shapeMat.uniforms.uTexture.value = texture;
+            this._shapeMat.uniforms.uTextureEnabled.value = !!texture;
+            this._shapeMat.uniforms.uRimPower.value = rimPower;
+        }
+        const legendary = skin.rarity === 'legendary' && quality !== 'low';
+        if (this.legendaryRim) {
+            this.legendaryRim.visible = legendary;
+            this.legendaryRimMat.opacity = 0;
+            if (legendary) this.legendaryRimMat.color.setHex(skin.glow ?? skin.color ?? 0xffffff);
+        }
     }
 
     // Swap the VISUAL mesh only. this.radius / this.visualRadius / every physics field
@@ -1265,6 +1308,9 @@ export class Ball {
                 1 + squashFactor * 0.8
             );
             this._squashTimer = 0.18;
+            // Bounce impact burst — skin-colored spark/ring, gated by quality inside
+            // _triggerImpactFX (Low quality = no extra FX).
+            this._triggerImpactFX(this.position, 0.4 + Math.min(1.2, bounceSpeed * 0.01));
         }
 
         // Portal teleport — top portala girince diğerinden çıkar + hız bonusu
@@ -1331,11 +1377,16 @@ export class Ball {
         if (this._affixGlowColor) {
             this.glowMat.color.setHex(this._affixGlowColor);
         }
-        const srGlow = Math.min(4, this.currentSpeed / this.baseSpeed);
+        // Overdrive forces the glow to its brightest existing step regardless
+        // of the raw speed/baseSpeed ratio (that ratio can sit under 4 for
+        // low-multiplier modes even while pinned at their own cap).
+        const srGlow = this.isOverdrive ? 4 : Math.min(4, this.currentSpeed / this.baseSpeed);
         const spinGlow = Math.min(0.15, Math.abs(this.spin) * 0.02);
         this.glowMat.opacity = Math.min(0.5, 0.06 + srGlow * 0.035 + spinGlow);
         this.glow.scale.setScalar(Math.min(1.5, 1 + srGlow * 0.05 + spinGlow * 0.5));
         this._updateHeatVisual();
+        this._updateLegendaryRim();
+        this._impactFX?.update(dt);
 
         // Trail — denser when moving fast for a smooth comet streak.
         this._emitTrail(dt);
@@ -1543,6 +1594,13 @@ export class Ball {
     _clampSpeed() {
         if (!Number.isFinite(this.currentSpeed)) this.currentSpeed = this.baseSpeed;
         this.currentSpeed = Math.max(0, this.currentSpeed);
+        // Mode-imposed ceiling (see gamemodes.js applyMode). A raw/uncapped
+        // Ball keeps maxSpeed = Infinity, so this is a no-op for it — every
+        // other speed-setting path (deflect, spike, orbit, charge) funnels
+        // through here, so capping in one place caps them all.
+        if (Number.isFinite(this.maxSpeed) && this.currentSpeed > this.maxSpeed) {
+            this.currentSpeed = this.maxSpeed;
+        }
         if (!finitePoint(this.velocity)) {
             const fallback = this._steeringInitialDir || new THREE.Vector3(1, 0, 0);
             this.velocity.copy(fallback).multiplyScalar(this.currentSpeed);
@@ -1573,11 +1631,49 @@ export class Ball {
         return this.baseSpeed * this.getRallyMultiplier() * (this.skinConfig?.speedBonus || 1);
     }
 
+    // True once _clampSpeed() has pinned currentSpeed at the mode's maxSpeed
+    // ceiling. Infinity maxSpeed (no mode applied) can never be reached, so a
+    // raw Ball is always false here — matches its uncapped-safe default.
+    get isOverdrive() {
+        return Number.isFinite(this.maxSpeed) && this.currentSpeed >= this.maxSpeed;
+    }
+
     _updateHeatVisual() {
+        // Overdrive (speed pinned at the mode cap) always reads as the
+        // hottest existing heat tier, even for modes whose cap sits below
+        // the tier's natural speed ratio (e.g. Speedball's maxSpeedMul).
+        if (this.isOverdrive) {
+            const overdriveTier = BALL_HEAT_TIERS[BALL_HEAT_TIERS.length - 1];
+            this.heatMat.color.setHex(overdriveTier.color);
+            this.heatMat.opacity = 0.3;
+            this.heatShell.scale.setScalar(1.24);
+            return;
+        }
         const heat = ballHeatLevel(this.currentSpeed, this.baseSpeed);
         this.heatMat.color.setHex(heat.color);
         this.heatMat.opacity = heat.intensity * 0.3;
         this.heatShell.scale.setScalar(1.08 + heat.intensity * 0.16);
+    }
+
+    // Legendary-rarity pulse — cheap sine wave on an already-visible/hidden shell.
+    // No allocation, no-op (early return) for every non-legendary skin.
+    _updateLegendaryRim() {
+        if (!this.legendaryRim || !this.legendaryRim.visible) return;
+        const t = performance.now() / 1000;
+        this.legendaryRimMat.opacity = 0.10 + 0.09 * (0.5 + 0.5 * Math.sin(t * 2.4));
+    }
+
+    // Pooled skin-colored spark/ring burst — bounce/deflect/hit. Skips entirely on
+    // 'low' quality (task requirement: Low quality = no extra FX) and no-ops if the
+    // pool was never built (isolated unit tests construct a bare Ball.prototype).
+    _triggerImpactFX(position, intensity = 1) {
+        if (!this._impactFX) return;
+        const quality = this.renderer?._quality || 'medium';
+        if (quality === 'low') return;
+        const color = this.isOverdrive
+            ? BALL_HEAT_TIERS[BALL_HEAT_TIERS.length - 1].color
+            : (this._affixGlowColor ?? this.skinConfig?.glow ?? this.skinConfig?.color ?? 0xffffff);
+        this._impactFX.spawn(position, color, { intensity });
     }
 
     updateColor() {
@@ -1668,6 +1764,7 @@ export class Ball {
         this._beginPlayerSteering(target, this.velocity);
         this.lastShot = shot;
         this.updateColor();
+        this._triggerImpactFX(this.position, 1.1);
         // Return affix: ball reverses after 0.6s, single use
         if (this._affixReturn) {
             this._affixReturnTimer = 0.6;
@@ -1698,6 +1795,7 @@ export class Ball {
         this._clampSpeed();
         this.lastShot = 'flat'; // bots throw flat shots
         this.updateColor();
+        this._triggerImpactFX(this.position, 0.9);
         this.curveSpin = 0;
     }
 
@@ -1847,9 +1945,18 @@ export class Ball {
                         : this.skinId === 'rainbow' ? 'prism'
                             : this.skinId === 'abyss' ? 'void' : 'comet');
         const profile = TRAIL_STYLE_PROFILES[style] || TRAIL_STYLE_PROFILES.comet;
-        const skinTrailMul = this.skinConfig?.burstTrail ? 1.7 : this.skinConfig?.frostTrail ? 1.35 : style === 'spark' ? 1.18 : 1;
+        // Rarity + overdrive push width/opacity on top of the existing style bonuses —
+        // a legendary skin's trail reads visibly thicker, and overdrive intensifies it
+        // further on every rarity (see js/ball-skin-fx.js#trailIntensityMultiplier).
+        const rarityTrailMul = trailIntensityMultiplier(this.skinConfig?.rarity, this.isOverdrive);
+        const skinTrailMul = (this.skinConfig?.burstTrail ? 1.7 : this.skinConfig?.frostTrail ? 1.35 : style === 'spark' ? 1.18 : 1) * rarityTrailMul;
         const r = Math.min(0.3, 0.055 * skinTrailMul * (1 + sr * 0.58 + spinFactor * 0.35));
-        const trailColor = this._affixTrailColor ?? (this.skinConfig?.trail || 0xff2222);
+        // Overdrive shifts the trail hue to the same icy tone the heat shell
+        // uses at its hottest tier — a visible cue that the ball is pinned at
+        // the mode's speed cap, without any new material/asset.
+        const trailColor = this.isOverdrive
+            ? BALL_HEAT_TIERS[BALL_HEAT_TIERS.length - 1].color
+            : (this._affixTrailColor ?? (this.skinConfig?.trail || 0xff2222));
         const dot = this._trailPool.acquire();
         dot.visible = true;
         dot.geometry = this._trailGeometries[profile.geometry];
@@ -1859,7 +1966,7 @@ export class Ball {
             : THREE.NormalBlending;
         dot.material.depthWrite = false;
         dot.material.depthTest = true;
-        const opacity = Math.min(0.94, 0.58 + sr * 0.08 + (this.skinConfig?.frostTrail ? 0.12 : 0));
+        const opacity = Math.min(0.94, 0.58 + sr * 0.08 + (this.skinConfig?.frostTrail ? 0.12 : 0) + (rarityTrailMul - 1) * 0.1);
         dot.material.opacity = opacity;
         dot.scale.set(r * profile.x, r * profile.y, r * profile.z);
         dot.position.copy(position);
@@ -1934,11 +2041,16 @@ export class Ball {
         if (this._affixGlowColor) {
             this.glowMat.color.setHex(this._affixGlowColor);
         }
-        const srGlow = Math.min(4, this.currentSpeed / this.baseSpeed);
+        // Overdrive forces the glow to its brightest existing step regardless
+        // of the raw speed/baseSpeed ratio (that ratio can sit under 4 for
+        // low-multiplier modes even while pinned at their own cap).
+        const srGlow = this.isOverdrive ? 4 : Math.min(4, this.currentSpeed / this.baseSpeed);
         const spinGlow = Math.min(0.15, Math.abs(this.spin) * 0.02);
         this.glowMat.opacity = Math.min(0.5, 0.06 + srGlow * 0.035 + spinGlow);
         this.glow.scale.setScalar(Math.min(1.5, 1 + srGlow * 0.05 + spinGlow * 0.5));
         this._updateHeatVisual();
+        this._updateLegendaryRim();
+        this._impactFX?.update(dt);
 
         // Trail
         this._emitTrail(dt);

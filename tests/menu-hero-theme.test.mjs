@@ -50,7 +50,11 @@ test('1.1 — _menuAccent removed', () => {
 });
 
 test('1.2 — wearables applied to menu hero', () => {
-    assert.match(mainJs, /createKnifeModel\(knifeStyle\)/);
+    // Reads the real equipped-knife map and the showcase's avatar rig (the old code read a
+    // non-existent `equippedKnife` key and `menuHero.root`, so the knife never appeared).
+    assert.match(mainJs, /this\.store\.get\('equippedKnives'\)/);
+    assert.match(mainJs, /this\.menuHero\?\.avatar\?\.rig/);
+    assert.match(mainJs, /createKnifeModel\(style\)/);
     assert.match(mainJs, /rig\.sockets\.handR\.add/);
 });
 
@@ -68,7 +72,7 @@ test('1.2 — old knife disposed', () => {
 });
 
 test('1.2 — knife model created', () => {
-    assert.match(mainJs, /createKnifeModel\(knifeStyle\)/);
+    assert.match(mainJs, /const style = this\._getKnifeStyle\(knifeId\);\s*const knifeModel = createKnifeModel\(style\);/);
 });
 
 test('1.2 — knife attached to handR', () => {

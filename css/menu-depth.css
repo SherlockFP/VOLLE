@@ -1,0 +1,184 @@
+/* menu-depth.css — a light 3D layer over the main menu.
+   --px / --py (-1..1) come from App#_setupMenuDepth (eased pointer). Layers move at
+   different depths (parallax) and the side panels lean in towards the hero like a
+   HUD wrapped around the player. Individual `translate`/`rotate` properties are used
+   on elements that already own a `transform`, so nothing upstream is overridden.
+   Loaded last; everything is disabled under reduced motion. */
+
+#main-menu {
+    --px: 0;
+    --py: 0;
+    --depth-ease: cubic-bezier(.2, .8, .2, 1);
+}
+/* No `perspective` on #main-menu itself: it would become the containing block for
+   its position:fixed descendants (hero canvas, rails) and shift the whole layout.
+   Each tilted panel carries its own perspective instead. */
+
+/* ---------- Parallax: far → near ---------- */
+#main-menu .menu-arena-plate {
+    translate: calc(var(--px) * -14px) calc(var(--py) * -8px);
+    scale: 1.04;
+}
+#main-menu .ow-sun-disc { translate: calc(var(--px) * -8px) calc(var(--py) * -5px); }
+#main-menu .ow-hero-stage { translate: calc(var(--px) * 6px) calc(var(--py) * 3px); }
+#main-menu .ow-splash { translate: calc(var(--px) * 16px) calc(var(--py) * 9px); }
+#main-menu .menu-player-card { translate: calc(var(--px) * 20px) calc(var(--py) * 11px); }
+
+/* Floor glow + vignette give the hero a stage to stand on. */
+#main-menu .ow-showcase::after {
+    content: '';
+    position: absolute;
+    inset: auto 8% 4% 8%;
+    height: 22%;
+    background: radial-gradient(50% 60% at 50% 60%, color-mix(in srgb, var(--ui-primary, #6ef0dc) 22%, transparent), transparent 70%);
+    filter: blur(6px);
+    pointer-events: none;
+    translate: calc(var(--px) * 6px) 0;
+    z-index: 0;
+}
+#main-menu::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(120% 90% at 50% 45%, transparent 55%, rgba(2, 8, 14, .55) 100%);
+    pointer-events: none;
+    z-index: 0;
+}
+
+/* ---------- Side panels lean towards the hero ---------- */
+#main-menu .ow-action-panel {
+    perspective: 900px;
+    transform-style: preserve-3d;
+    transform-origin: 0% 50%;
+    transform: perspective(1400px) rotateY(calc(6deg + var(--px) * -2.5deg)) rotateX(calc(var(--py) * 1.6deg));
+    transition: transform .5s var(--depth-ease);
+    box-shadow:
+        0 1px 0 color-mix(in srgb, var(--ui-primary, #6ef0dc) 18%, transparent) inset,
+        24px 30px 60px -20px rgba(0, 0, 0, .65),
+        0 0 0 1px color-mix(in srgb, var(--ui-primary, #6ef0dc) 10%, transparent);
+    animation: menuPanelIn .7s var(--depth-ease) both;
+}
+#main-menu .friends-sidebar:not(.collapsed) {
+    transform-origin: 100% 50%;
+    transform: perspective(1400px) rotateY(calc(-5deg + var(--px) * -2deg));
+    transition: transform .5s var(--depth-ease);
+}
+
+/* ---------- Header: glass bar with depth ---------- */
+#main-menu .ow-tab {
+    position: relative;
+    transition: color .18s ease, translate .18s var(--depth-ease), text-shadow .18s ease;
+}
+#main-menu .ow-tab::after {
+    content: '';
+    position: absolute;
+    left: 18%;
+    right: 18%;
+    bottom: -6px;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--ui-primary, #6ef0dc);
+    box-shadow: 0 0 12px var(--ui-primary, #6ef0dc);
+    opacity: 0;
+    scale: .4 1;
+    transition: opacity .2s ease, scale .25s var(--depth-ease);
+}
+#main-menu .ow-tab:hover, #main-menu .ow-tab:focus-visible {
+    translate: 0 -2px;
+    text-shadow: 0 0 14px color-mix(in srgb, var(--ui-primary, #6ef0dc) 55%, transparent);
+}
+#main-menu .ow-tab:hover::after, #main-menu .ow-tab:focus-visible::after,
+#main-menu .ow-tab[aria-current="page"]::after, #main-menu .ow-tab.active::after { opacity: 1; scale: 1 1; }
+
+/* ---------- Primary CTA: a physical, glossy slab ---------- */
+#main-menu .ow-play {
+    position: relative;
+    overflow: hidden;
+    transform: translateZ(18px);
+    box-shadow:
+        0 1px 0 rgba(255, 255, 255, .25) inset,
+        0 -3px 0 rgba(0, 0, 0, .25) inset,
+        0 14px 30px -10px rgba(230, 60, 80, .55),
+        0 4px 0 -1px rgba(0, 0, 0, .35);
+    transition: transform .22s var(--depth-ease), box-shadow .22s ease, filter .22s ease;
+}
+#main-menu .ow-play::after {
+    content: '';
+    position: absolute;
+    inset: -40% auto -40% -30%;
+    width: 38%;
+    background: linear-gradient(100deg, transparent, rgba(255, 255, 255, .35), transparent);
+    rotate: 12deg;
+    translate: -120% 0;
+    animation: menuSheen 4.8s ease-in-out 1.2s infinite;
+    pointer-events: none;
+}
+#main-menu .ow-play:hover, #main-menu .ow-play:focus-visible {
+    transform: translateZ(30px) translateY(-2px);
+    filter: brightness(1.08) saturate(1.1);
+    box-shadow:
+        0 1px 0 rgba(255, 255, 255, .3) inset,
+        0 -3px 0 rgba(0, 0, 0, .25) inset,
+        0 22px 40px -12px rgba(230, 60, 80, .7),
+        0 6px 0 -1px rgba(0, 0, 0, .35);
+}
+#main-menu .ow-play:active { transform: translateZ(10px) translateY(1px); transition-duration: .06s; }
+
+/* Secondary cards lift off the panel on hover. */
+#main-menu .ow-social-lobby,
+#main-menu .ow-sbtn,
+#main-menu .ow-retention-card,
+#main-menu .ow-link {
+    transform: translateZ(0);
+    transition: transform .2s var(--depth-ease), box-shadow .2s ease, border-color .2s ease;
+}
+#main-menu .ow-social-lobby:hover, #main-menu .ow-social-lobby:focus-visible,
+#main-menu .ow-retention-card:hover, #main-menu .ow-retention-card:focus-visible {
+    transform: translateZ(16px) translateY(-2px);
+    box-shadow: 0 16px 28px -14px rgba(0, 0, 0, .7), 0 0 0 1px color-mix(in srgb, var(--ui-primary, #6ef0dc) 40%, transparent);
+}
+#main-menu .ow-sbtn:hover, #main-menu .ow-sbtn:focus-visible,
+#main-menu .ow-link:hover, #main-menu .ow-link:focus-visible { transform: translateZ(10px) translateY(-1px); }
+
+/* Logo: a slow breathing glow so the brand feels alive. */
+#main-menu .ow-logo { animation: menuLogoGlow 5.5s ease-in-out infinite; }
+#main-menu .brand-mark-menu { filter: drop-shadow(0 8px 18px rgba(0, 0, 0, .5)); }
+
+/* ---------- Entrance choreography ---------- */
+#main-menu:not(.hidden) .ow-splash { animation: menuRise .8s var(--depth-ease) .12s both; }
+#main-menu:not(.hidden) .menu-player-card { animation: menuRise .8s var(--depth-ease) .22s both; }
+#main-menu:not(.hidden) .ow-tabs { animation: menuDrop .6s var(--depth-ease) both; }
+
+@keyframes menuPanelIn {
+    from { opacity: 0; transform: perspective(1400px) rotateY(28deg) translateX(-40px); }
+}
+@keyframes menuRise {
+    from { opacity: 0; translate: 0 18px; }
+}
+@keyframes menuDrop {
+    from { opacity: 0; translate: 0 -12px; }
+}
+@keyframes menuSheen {
+    0%, 70% { translate: -120% 0; }
+    100% { translate: 420% 0; }
+}
+@keyframes menuLogoGlow {
+    0%, 100% { text-shadow: 0 0 18px color-mix(in srgb, var(--ui-primary, #6ef0dc) 30%, transparent); }
+    50% { text-shadow: 0 0 34px color-mix(in srgb, var(--ui-primary, #6ef0dc) 60%, transparent), 0 0 2px #fff; }
+}
+
+/* Touch/narrow screens: no tilt (no pointer to follow, and space is tight). */
+@media (max-width: 900px), (pointer: coarse) {
+    #main-menu .ow-action-panel,
+    #main-menu .friends-sidebar:not(.collapsed) { transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #main-menu *, #main-menu *::before, #main-menu *::after { animation: none !important; }
+    #main-menu .ow-action-panel,
+    #main-menu .friends-sidebar:not(.collapsed) { transform: none; }
+    #main-menu .menu-arena-plate, #main-menu .ow-sun-disc, #main-menu .ow-hero-stage,
+    #main-menu .ow-splash, #main-menu .menu-player-card { translate: none; }
+}
+body.reduced-motion #main-menu *, body.reduced-motion #main-menu *::before, body.reduced-motion #main-menu *::after { animation: none !important; }
+body.reduced-motion #main-menu .ow-action-panel { transform: none; }

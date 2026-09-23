@@ -4,7 +4,7 @@
 // PeerJS/WebRTC signaling and /api/* calls are never intercepted — P2P
 // networking and the account/lobby backend must always hit the network live.
 // New deploy? bump CACHE_V1 so clients drop the stale shell.
-const CACHE_V1 = 'volle-shell-v4';
+const CACHE_V1 = 'volle-shell-v8';
 
 const SHELL_URLS = [
     './',
@@ -20,7 +20,11 @@ const SHELL_URLS = [
     'css/cosmetic-icons.css',
     'css/solo-paths.css',
     'css/arena-interface.css',
-    'css/menu-rework.css',
+    'css/shop-studio.css',
+    'css/settings-workbench.css',
+    'css/menu-depth.css',
+    'css/spectator.css',
+    'css/postgame.css',
     'vendor/three/three.module.js',
     'vendor/peerjs/peerjs.min.js'
 ];
@@ -61,6 +65,9 @@ self.addEventListener('fetch', (event) => {
                 }
                 return response;
             })
-            .catch(() => caches.match(request).then((cached) => cached || caches.match('index.html')))
+            // Only page navigations may fall back to the shell; a stylesheet or module
+            // answered with index.html silently breaks the whole page.
+            .catch(() => caches.match(request).then((cached) => cached
+                || (request.mode === 'navigate' ? caches.match('index.html') : Response.error())))
     );
 });

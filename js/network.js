@@ -15,6 +15,20 @@ import {
 } from './host-migration.js';
 import { isSafeMatchId } from './rematch.js';
 import { COSMETIC_TYPES, normalizeWearableLoadout } from './cosmetic-catalog.js';
+import {
+    NET_BIN,
+    decodeBallQ,
+    decodeBotSync,
+    decodePositionBatch,
+    decodePositionQ,
+    encodeBallQ,
+    encodeBotSync,
+    encodePositionBatch,
+    encodePositionQ,
+    unwrapTime32
+} from './net-codec.js';
+import { ClockSync } from './net-clock.js';
+import { TransitTracker } from './net-interp.js';
 
 const COSMETIC_TYPE_IDS = Object.freeze(Object.keys(COSMETIC_TYPES));
 
@@ -74,17 +88,55 @@ const SHA256_K = Uint32Array.of(
 const RESUME_TOKEN_MAX_LENGTH = TARGET_ID_MAX_BYTES;
 const RESUME_HANDSHAKE_TTL_MS = 5000;
 const RECONNECT_TIMEOUT_MS = 5000;
+export const MAX_LOBBY_SPECTATORS = 16;
+// Everything a spectator transport may send the host. Anything else (position,
+// attack, skillUse, teamChange, powerUpPickup, mapVote, ...) is gameplay authority
+// a spectator must never have — whitelist, so new gameplay packets are blocked by default.
+export const SPECTATOR_ALLOWED_TYPES = Object.freeze([
+    'join', 'capabilities', 'ping', 'pong', 'chat', 'emote', 'spectatorSeat'
+]);
+const SPECTATOR_ALLOWED_TYPE_SET = new Set(SPECTATOR_ALLOWED_TYPES);
+export function isSpectatorAllowedMessage(type) {
+    return SPECTATOR_ALLOWED_TYPE_SET.has(type);
+}
+const EMOTE_ID_PATTERN = /^[a-z]{1,16}$/;
+// netV3: quantized + host-clock-stamped position/ball/bot packets (js/net-codec.js) and
+// batched spectator relays. Peers without it keep receiving the legacy encodings.
 const PROTOCOL_CAPABILITIES = Object.freeze({
     positionV2: true,
-    migrationVotes: true
+    migrationVotes: true,
+    netV3: true
 });
 
 function normalizeProtocolCapabilities(value) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
     return Object.freeze({
         positionV2: value.positionV2 === true,
-        migrationVotes: value.migrationVotes === true
+        migrationVotes: value.migrationVotes === true,
+        ...(value.netV3 === true ? { netV3: true } : {})
     });
+}
+
+// Hot-path send tuning (see broadcastBallState / relayPositionToSpectators).
+const BALL_MIN_INTERVAL_MS = 1000 / 30 - 4;   // floor: at least ~30 Hz while the ball flies
+const BALL_KEYFRAME_EVERY = 15;               // target/affix/skin re-sent every Nth packet
+const BALL_META_REDUNDANCY = 3;               // …and on the next N packets after a change
+const BALL_DEVIATION_M = 0.05;                // send early when linear prediction drifts
+const SPECTATOR_BATCH_MS = 1000 / 30;         // one batched relay per ~30 Hz tick
+const CONGESTED_BUFFER_BYTES = 256 * 1024;    // skip superseded hot packets above this
+const PLAYER_ID_EVERY = 32;                   // POS_Q repeats playerId every Nth packet
+const PEER_OPEN_TIMEOUT_MS = 20000;           // signalling broker must answer within this
+const PING_BURST = Object.freeze([60, 160, 300, 500, 800]);
+const NET_ID_MAX = 250;
+
+function connectionCongested(conn) {
+    const buffered = conn?.dataChannel?.bufferedAmount;
+    return (Number.isFinite(buffered) && buffered > CONGESTED_BUFFER_BYTES) || conn?._buffering === true;
+}
+
+function approxPacketBytes(data) {
+    if (data instanceof Uint8Array || data instanceof ArrayBuffer) return data.byteLength;
+    try { return JSON.stringify(data)?.length || 0; } catch (_) { return 0; }
 }
 
 export function isSafeTargetId(value) {
@@ -106,6 +158,7 @@ function isBoundedFinite(value, bound) {
 function isValidPositionPacket(data) {
     return [data.x, data.y, data.z]
         .every(value => isBoundedFinite(value, NETWORK_WORLD_BOUND))
+        && (data.t === undefined || (Number.isFinite(data.t) && data.t >= 0 && data.t < 0x100000000))
         && ['ry', 'ax', 'ay', 'az'].every(key =>
             data[key] === undefined || isBoundedFinite(data[key], NETWORK_WORLD_BOUND))
         && ['vx', 'vy', 'vz'].every(key =>
@@ -120,6 +173,7 @@ function isValidBallPacket(data) {
         && Number.isFinite(data.speed)
         && data.speed >= 0
         && data.speed <= NETWORK_BALL_SPEED_BOUND
+        && (data.t === undefined || (Number.isFinite(data.t) && data.t >= 0 && data.t < 0x100000000))
         && (data.skinId === undefined || isSafeBallSkinId(data.skinId));
 }
 
@@ -583,12 +637,281 @@ export class Network {
         this._lastMigrationAttemptEpoch = 0;
         this._nextMigrationOrder = 0;
         this._sessionStartedAt = Date.now();
+        // Spectating (see SPECTATOR_ALLOWED_TYPES): client-side flag + host callbacks.
+        this.spectatorMode = false;
+        this.onSpectatorJoin = null;
+        this.onSpectatorLeave = null;
+        this.onEmote = null;          // (playerId, emoteId, fromSpectator) - emote wheel
+        this.onSpectatorSeat = null;
+        // --- netcode: clock sync, hot-path send state, debug counters (net_graph) ---
+        this.clock = new ClockSync();
+        this._pings = new Map();          // nonce -> local send time
+        this._peerRtt = new Map();        // host: peerId -> smoothed RTT
+        this._pingBurstTimers = [];
+        this._ballTransit = new TransitTracker();
+        this._ballSend = {
+            valid: false, t: 0, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, active: false, state: '',
+            targetPlayerId: undefined, targetPeerId: undefined, targetName: undefined,
+            affixId: undefined, affixColor: undefined, skinId: undefined, count: 0, metaLeft: 0
+        };
+        this._specRelay = new Map();      // host: playerId -> latest relayed movement (batched)
+        this._specRelayPool = [];
+        this._specRelayLastFlush = 0;
+        this._specRelayTimer = null;
+        this._netIds = new Map();         // host: playerId -> { id, peerId }
+        this._netIdVersion = 0;
+        this._netIdsFromHost = new Map(); // spectator: id -> { playerId, peerId }
+        this.peerOpenTimeoutMs = PEER_OPEN_TIMEOUT_MS;
+        this.netGraphEnabled = false;
+        this._netCounters = { inPackets: 0, outPackets: 0, inBytes: 0, outBytes: 0 };
+        this._netRates = { at: 0, inPackets: 0, outPackets: 0, inBytes: 0, outBytes: 0, inPps: 0, outPps: 0, inBps: 0, outBps: 0 };
+        this._spectatorFollow = null;
+    }
+
+    // --- netcode helpers -------------------------------------------------------------
+
+    _supportsNetV3(peerId) {
+        return this.peerCapabilities.get(peerId)?.netV3 === true;
+    }
+
+    // Host clock estimate in ms. The host IS the clock; everyone else applies the
+    // filtered ping offset (js/net-clock.js).
+    hostNow(localNow = performance.now()) {
+        return this.isHost ? localNow : this.clock.hostNow(localNow);
+    }
+
+    _countOut(data) {
+        const counters = this._netCounters;
+        counters.outPackets++;
+        if (data instanceof Uint8Array || data instanceof ArrayBuffer) counters.outBytes += data.byteLength;
+        else if (this.netGraphEnabled) counters.outBytes += approxPacketBytes(data);
+    }
+
+    _countIn(data) {
+        const counters = this._netCounters;
+        counters.inPackets++;
+        if (data instanceof Uint8Array || data instanceof ArrayBuffer) counters.inBytes += data.byteLength;
+        else if (this.netGraphEnabled) counters.inBytes += approxPacketBytes(data);
+    }
+
+    // Client: ball packets are stamped with host time. Returns how late (+ms) this one
+    // arrived versus the running mean transit so the renderer can place it on a
+    // jitter-free timeline (same average timeline as arrival-time, minus the jitter).
+    noteBallTransit(stamp) {
+        if (!Number.isFinite(stamp) || this.isHost || !this.clock.synced) return 0;
+        if (this._ballTransitEpoch !== this.clock.syncEpoch) {
+            this._ballTransitEpoch = this.clock.syncEpoch;
+            this._ballTransit.reset();
+        }
+        const now = this.hostNow();
+        return this._ballTransit.note(now - unwrapTime32(stamp, now));
+    }
+
+    // Wire uint32 host-clock stamp → unwrapped host ms near `reference` (NaN if absent).
+    stampToHostTime(stamp, reference = this.hostNow()) {
+        return Number.isFinite(stamp) ? unwrapTime32(stamp, reference) : NaN;
+    }
+
+    // Client: host time before which ball packets predate the host seeing our deflect.
+    predictionGuardHostTime() {
+        if (this.isHost || !this.clock.synced) return 0;
+        const oneWay = (this.clock.rtt || 0) / 2;
+        const guard = Math.min(300, oneWay + 2 * (this.clock.jitter || 0) + 10);
+        return this.hostNow() + guard;
+    }
+
+    getNetGraph(game = this.game) {
+        const now = performance.now();
+        const rates = this._netRates;
+        const counters = this._netCounters;
+        const elapsed = now - rates.at;
+        if (!rates.at || elapsed >= 500) {
+            if (rates.at && elapsed > 0) {
+                const scale = 1000 / elapsed;
+                rates.inPps = (counters.inPackets - rates.inPackets) * scale;
+                rates.outPps = (counters.outPackets - rates.outPackets) * scale;
+                rates.inBps = (counters.inBytes - rates.inBytes) * scale;
+                rates.outBps = (counters.outBytes - rates.outBytes) * scale;
+            }
+            rates.at = now;
+            rates.inPackets = counters.inPackets;
+            rates.outPackets = counters.outPackets;
+            rates.inBytes = counters.inBytes;
+            rates.outBytes = counters.outBytes;
+        }
+        const interp = game?._netInterpStats || null;
+        return {
+            role: this.isHost ? 'host' : this.spectatorMode ? 'spectator' : 'client',
+            ping: this.getPing(),
+            jitter: this.isHost ? (interp?.jitter || 0) : Math.max(this.clock.jitter || 0, this._ballTransit.jitter || 0),
+            lerp: interp?.lerp || 0,
+            extrapolating: interp?.extrapolating || 0,
+            entities: interp?.count || 0,
+            clockOffset: this.clock.offset,
+            clockSynced: this.isHost || this.clock.synced,
+            inPps: rates.inPps,
+            outPps: rates.outPps,
+            inBps: rates.inBps,
+            outBps: rates.outBps,
+            peers: this.connections.size
+        };
+    }
+
+    _startPingBurst() {
+        this._pingBurstTimers.forEach(timer => clearTimeout(timer));
+        this._pingBurstTimers = PING_BURST.map(delay => {
+            const timer = setTimeout(() => this.sendPing(), delay);
+            timer?.unref?.();
+            return timer;
+        });
+    }
+
+    // A new host means a new clock: resync from scratch and re-anchor transit trackers.
+    _resetNetTimeline() {
+        this.clock.reset();
+        this._ballTransit.reset();
+        this._ballSend.valid = false;
+        this._pings.clear();
+        this._peerRtt.clear();
+        if (!this.isHost && this.hostConn) this._startPingBurst();
+    }
+
+    // Host: is this transport an admitted spectator (no team slot, no gameplay authority)?
+    isSpectatorPeer(peerId) {
+        return this.connections.get(peerId)?._spectator === true;
+    }
+
+    // Players only — spectators never count toward lobby size / team slots.
+    getPlayerConnectionCount() {
+        let count = 0;
+        this.connections.forEach(conn => { if (conn?._spectator !== true) count++; });
+        return count;
+    }
+
+    getSpectatorConnectionCount() {
+        let count = 0;
+        this.connections.forEach(conn => { if (conn?._spectator === true) count++; });
+        return count;
+    }
+
+    // Host → spectators: spectators are not part of the P2P mesh, so the host forwards
+    // every player movement report to them (players still mesh directly with each other).
+    // netV3 spectators get ONE batched binary snapshot per ~30 Hz tick for all players
+    // (js/net-codec.js encodePositionBatch); legacy spectators keep the per-player JSON.
+    // Packets carrying rare identity fields (name/team/charId/knifeId change) still go out
+    // as JSON so nothing a spectator used to receive is lost.
+    relayPositionToSpectators(data, playerId, peerId, entity = null) {
+        if (!this.isHost) return;
+        let packet = null;
+        let batched = false;
+        const rare = data.name !== undefined || data.team !== undefined
+            || data.charId !== undefined || data.knifeId !== undefined;
+        this.connections.forEach((conn, connPeerId) => {
+            if (conn?._spectator !== true || !conn.open || connPeerId === peerId) return;
+            if (!rare && this._supportsNetV3(connPeerId)) {
+                batched = true;
+                return;
+            }
+            packet ||= {
+                ...data, type: 'position', playerId, peerId,
+                ...(entity ? { hp: entity.hp, alive: entity.alive } : {})
+            };
+            conn.send(packet);
+            this._sentPackets++;
+            this._countOut(packet);
+        });
+        if (batched) this._queueSpectatorRelay(data, playerId, peerId, entity);
+    }
+
+    _queueSpectatorRelay(data, playerId, peerId, entity) {
+        let entry = this._specRelay.get(playerId);
+        if (!entry) {
+            entry = this._specRelayPool.pop() || {};
+            this._specRelay.set(playerId, entry);
+        }
+        entry.playerId = playerId;
+        entry.peerId = peerId;
+        entry.seq = data.seq;
+        entry.t = data.t;
+        entry.x = data.x; entry.y = data.y; entry.z = data.z;
+        entry.ry = data.ry;
+        entry.ax = data.ax; entry.ay = data.ay; entry.az = data.az;
+        entry.vx = data.vx; entry.vy = data.vy; entry.vz = data.vz;
+        entry.hp = entity ? entity.hp : data.hp;
+        entry.alive = entity ? entity.alive : data.alive;
+        const now = performance.now();
+        if (now - this._specRelayLastFlush >= SPECTATOR_BATCH_MS) {
+            this._flushSpectatorRelay(now);
+        } else if (!this._specRelayTimer) {
+            this._specRelayTimer = setTimeout(() => {
+                this._specRelayTimer = null;
+                this._flushSpectatorRelay(performance.now());
+            }, Math.max(1, SPECTATOR_BATCH_MS - (now - this._specRelayLastFlush)));
+        }
+    }
+
+    _netIdFor(playerId, peerId) {
+        let record = this._netIds.get(playerId);
+        if (record && record.peerId === peerId) return record.id;
+        if (!record && this._netIds.size >= NET_ID_MAX) {
+            this._netIds.clear();
+        }
+        const used = new Set([...this._netIds.values()].map(entry => entry.id));
+        let id = record?.id || 1;
+        while (!record && used.has(id)) id++;
+        record = { id, peerId };
+        this._netIds.set(playerId, record);
+        this._netIdVersion++;
+        return id;
+    }
+
+    _flushSpectatorRelay(now = performance.now()) {
+        if (this._specRelayTimer) {
+            clearTimeout(this._specRelayTimer);
+            this._specRelayTimer = null;
+        }
+        if (!this.isHost || !this._specRelay.size) return false;
+        this._specRelayLastFlush = now;
+        const entries = [];
+        for (const entry of this._specRelay.values()) {
+            if (!isSafeTargetId(entry.playerId) || !isSafeTargetId(entry.peerId)) continue;
+            entry.netId = this._netIdFor(entry.playerId, entry.peerId);
+            entries.push(entry);
+        }
+        let batch = null;
+        let idTable = null;
+        this.connections.forEach((conn, connPeerId) => {
+            if (conn?._spectator !== true || !conn.open || !this._supportsNetV3(connPeerId)) return;
+            if (conn._netIdVersion !== this._netIdVersion) {
+                idTable ||= {
+                    type: 'netIds',
+                    ids: [...this._netIds.entries()].map(([playerId, record]) => [record.id, playerId, record.peerId])
+                };
+                conn.send(idTable);
+                conn._netIdVersion = this._netIdVersion;
+                this._sentPackets++;
+                this._countOut(idTable);
+            }
+            if (!entries.length || connectionCongested(conn)) return;
+            batch ||= encodePositionBatch(entries);
+            conn.send(batch);
+            this._sentPackets++;
+            this._countOut(batch);
+        });
+        for (const entry of this._specRelay.values()) this._specRelayPool.push(entry);
+        this._specRelay.clear();
+        return Boolean(batch);
     }
 
     async initPeer() {
         const rtcConfig = await fetchRtcConfig();
         return new Promise((resolve, reject) => {
             this._peerOpened = false;
+            // P2P_HOST_FIXES.md: a broker that accepts the socket but never answers left
+            // hostGame/joinGame pending forever. PeerJS normally opens in < 2 s; the
+            // deadline is deliberately generous so slow networks are not cut off.
+            let openTimer = null;
+            const settleTimeout = () => { clearTimeout(openTimer); openTimer = null; };
             const peerOptions = { debug: 0 };
             if (rtcConfig.iceServers?.length) {
                 peerOptions.config = { iceServers: rtcConfig.iceServers };
@@ -597,19 +920,32 @@ export class Network {
             if (rtcConfig.peer?.port) peerOptions.port = rtcConfig.peer.port;
             if (rtcConfig.peer?.path) peerOptions.path = rtcConfig.peer.path;
             if (rtcConfig.peer?.secure !== undefined) peerOptions.secure = rtcConfig.peer.secure;
-            this.peer = new Peer(undefined, peerOptions);
-            this.peer.on('open', id => {
+            const peer = new Peer(undefined, peerOptions);
+            this.peer = peer;
+            const timeoutMs = Number(this.peerOpenTimeoutMs);
+            if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
+                openTimer = setTimeout(() => {
+                    openTimer = null;
+                    if (this._peerOpened || this.peer !== peer) return;
+                    try { peer.destroy?.(); } catch (_) {}
+                    if (this.peer === peer) this.peer = null;
+                    reject(new Error('Could not reach the matchmaking server — check your connection and try again.'));
+                }, timeoutMs);
+            }
+            peer.on('open', id => {
+                settleTimeout();
                 this.roomCode = id;
                 this.connected = true;
                 this._peerOpened = true;
                 this._signalReconnectAttempts = 0;
                 resolve(id);
             });
-            this.peer.on('error', err => {
+            peer.on('error', err => {
                 // PeerJS can lose its *signalling* WebSocket after WebRTC data
                 // channels are established. Rejecting only matters before open;
                 // tearing down a live P2P match here would be a false disconnect.
                 if (!this._peerOpened) {
+                    settleTimeout();
                     console.error('Peer error:', err);
                     reject(err);
                     return;
@@ -642,6 +978,7 @@ export class Network {
         this._resetLobbyAdmissionProof();
         this.playerName = playerName;
         this.isHost = true;
+        this.spectatorMode = false;
         try {
             await this.initPeer();
         } catch (error) {
@@ -664,8 +1001,11 @@ export class Network {
         return this.roomCode;
     }
 
-    joinGame(roomCode, playerName, password = '') {
+    joinGame(roomCode, playerName, password = '', options = {}) {
         if (this._joinPromise) return this._joinPromise;
+        // Spectators join without a team slot; the host re-derives the role from the
+        // transport metadata and never trusts later packets to change it.
+        this.spectatorMode = options?.spectator === true;
         // Normalize here, not at the call sites: a pasted room code routinely carries
         // surrounding whitespace/newlines, and peer.connect() on a padded id silently
         // targets a peer that does not exist.
@@ -695,7 +1035,8 @@ export class Network {
                 name: playerName,
                 password,
                 playerId: this.playerId,
-                capabilities: PROTOCOL_CAPABILITIES
+                capabilities: PROTOCOL_CAPABILITIES,
+                ...(this.spectatorMode ? { spectator: true } : {})
             }
         });
 
@@ -716,6 +1057,7 @@ export class Network {
                 this.hostConn = conn;
                 this.connections.set(roomCode, conn);
                 this.setupDataHandlers(conn);
+                this._resetNetTimeline();
                 resolve();
             });
             // Host went away (closed game / left lobby) → kick us back to menu.
@@ -796,7 +1138,8 @@ export class Network {
                     name: this.playerName,
                     password: this.joinPassword,
                     playerId: this.playerId,
-                    capabilities: PROTOCOL_CAPABILITIES
+                    capabilities: PROTOCOL_CAPABILITIES,
+                    ...(this.spectatorMode ? { spectator: true } : {})
                 }
             });
         } catch (_) {
@@ -819,6 +1162,13 @@ export class Network {
             this.hostConn = conn;
             this.connections.set(roomCode, conn);
             this.setupDataHandlers(conn);
+            this._resetNetTimeline();
+            if (this._spectatorFollow) {
+                // Spectator re-attached to the migrated host: the normal resume/welcome
+                // handshake takes over from here.
+                this._spectatorFollow = null;
+                this._manualDisconnect = false;
+            }
             this.onReconnectState?.('connected', 0);
         });
         // Keep these transport-local guards after cleanup: late open/error/close
@@ -968,14 +1318,18 @@ export class Network {
             conn._admitted = true;
             conn._identityAdmissionManaged = true;
             this.setupDataHandlers(conn);
-            this._updateMigrationRoster([
-                ...this.migrationRoster.values(),
-                { playerId, peerId: conn.peer, name, team: 'red' }
-            ]);
-            this.broadcast({
-                type: 'migrationRoster',
-                roster: [...this.migrationRoster.values()]
-            });
+            // Spectators stay out of the migration roster: they are not mesh peers,
+            // never host candidates, and must not appear as players to anyone.
+            if (conn._spectator !== true) {
+                this._updateMigrationRoster([
+                    ...this.migrationRoster.values(),
+                    { playerId, peerId: conn.peer, name, team: 'red' }
+                ]);
+                this.broadcast({
+                    type: 'migrationRoster',
+                    roster: [...this.migrationRoster.values()]
+                });
+            }
         } catch (_) {
             if (this.connections.get(conn.peer) === conn) this.connections.delete(conn.peer);
             if (this.peerToPlayerId.get(conn.peer) === playerId) this.peerToPlayerId.delete(conn.peer);
@@ -998,7 +1352,10 @@ export class Network {
             snapshot: this._withBallAppearance(this.game.snapshotState?.() || {}),
             migrationRoster: [...this.migrationRoster.values()],
             migrationEpoch: this.migrationEpoch,
-            checkpoint: this.latestHostCheckpoint
+            checkpoint: this.latestHostCheckpoint,
+            spectators: this.game.getSpectatorList?.() || [],
+            allowCrossCourt: this.game.allowCrossCourt === true,
+            ...(conn._spectator === true ? { spectator: true } : {})
         });
         if (this._latestGameStart && conn.open) {
             try { conn.send(this._latestGameStart); } catch (_) {}
@@ -1012,7 +1369,8 @@ export class Network {
             this.playerConnections.delete(playerId);
             this._lastPositionSeq.delete(playerId);
             this._removeMigrationPeer(conn.peer, playerId, conn);
-            if (this.onPlayerLeave) this.onPlayerLeave(playerId, conn.peer);
+            if (conn._spectator === true) this.onSpectatorLeave?.(playerId, conn.peer);
+            else if (this.onPlayerLeave) this.onPlayerLeave(playerId, conn.peer);
         });
         return true;
     }
@@ -1115,7 +1473,8 @@ export class Network {
                 avatar,
                 avatarModel,
                 resumeToken: token,
-                capabilities: PROTOCOL_CAPABILITIES
+                capabilities: PROTOCOL_CAPABILITIES,
+                ...(this.spectatorMode ? { spectator: true } : {})
             });
         } catch (_) {
             conn.close();
@@ -1218,7 +1577,8 @@ export class Network {
                 const joinArgs = [name, playerId, earlyJoin.avatar, conn.peer];
                 if (earlyJoin.avatarModel === 'slim') joinArgs.push('slim');
                 try {
-                    this.onPlayerJoin?.(...joinArgs);
+                    if (conn._spectator === true) this.onSpectatorJoin?.(name, playerId, conn.peer);
+                    else this.onPlayerJoin?.(...joinArgs);
                 } catch (_) {
                     // Gameplay/UI callbacks must not invalidate transport admission.
                 }
@@ -1271,6 +1631,7 @@ export class Network {
             && data.avatar.length <= PENDING_JOIN_AVATAR_MAX_LENGTH
             && isAvatarModel(data.avatarModel)
             && normalizeProtocolCapabilities(data.capabilities)
+            && (data.spectator === undefined || typeof data.spectator === 'boolean')
             && (!this.lobbyPassword || data.password === this.lobbyPassword)
             && (!this.lobbyPassword || conn.metadata?.password === this.lobbyPassword);
         if (!valid) {
@@ -1289,6 +1650,21 @@ export class Network {
         if (proofReserved && !isSafeResumeProof(expectedProof)) {
             this._rejectIdentityConnection(conn, name);
             return;
+        }
+        // Either signal only ever lowers privileges, so honour whichever is set.
+        if (conn.metadata?.spectator === true || data.spectator === true) {
+            if (this.getSpectatorConnectionCount() >= MAX_LOBBY_SPECTATORS) {
+                this._rejectIdentityConnection(conn, name, 'spectators_full');
+                return;
+            }
+            try {
+                Object.defineProperty(conn, '_spectator', {
+                    value: true, enumerable: false, writable: false, configurable: false
+                });
+            } catch (_) {
+                conn.close();
+                return false;
+            }
         }
         const capabilities = normalizeProtocolCapabilities(data.capabilities);
         return Promise.resolve(this._beginIdentityAdmission(
@@ -1486,6 +1862,19 @@ export class Network {
             || !Number.isSafeInteger(attempt)
             || attempt < 0
             || attempt >= HOST_MIGRATION_MAX_ATTEMPTS) return;
+        // A spectator is outside the player roster and can never be (or elect) a
+        // host. It cannot vote either, but it knows the roster and the election order,
+        // so it follows the migration by knocking on the likely winners in order (a
+        // non-host peer refuses non-mesh transports; the elected host admits spectators).
+        // Only when every candidate refused does the viewing session end.
+        if (this.spectatorMode && this._followMigratedHost()) return;
+        if (this.spectatorMode) {
+            this._spectatorFollow = null;
+            this._manualDisconnect = true;
+            this.onHostLeft?.();
+            this.disconnect();
+            return;
+        }
         this._cancelReconnect();
         this._migrationActive = true;
         this._clearMigrationTimers();
@@ -1591,6 +1980,38 @@ export class Network {
                 }
             }, migrationBackoffMs(attempt));
         }, HOST_MIGRATION_TIMEOUT_MS);
+    }
+
+    // Spectator: pick the next roster player to try as the migrated host. Mirrors the
+    // players' election order (migrationOrder; the old host excluded). Each candidate gets
+    // the usual 3 reconnect attempts (~3.5 s, covering the vote window) before moving on.
+    _followMigratedHost(now = Date.now()) {
+        if (!this.peer || this._manualDisconnect) return false;
+        let follow = this._spectatorFollow;
+        if (!follow) {
+            follow = this._spectatorFollow = {
+                startedAt: now,
+                tried: new Set([this.hostRoomCode, this.hostConn?.peer].filter(Boolean))
+            };
+        }
+        if (now - follow.startedAt > 30000) return false;
+        const candidates = [...this.migrationRoster.values()]
+            .filter(player => player.playerId !== this.playerId
+                && isSafeTargetId(player.peerId)
+                && player.peerId !== this.peer?.id
+                && !follow.tried.has(player.peerId))
+            .sort((left, right) => (left.migrationOrder ?? 0) - (right.migrationOrder ?? 0));
+        const next = candidates[0];
+        if (!next) return false;
+        follow.tried.add(next.peerId);
+        this.hostRoomCode = next.peerId;
+        this.hostConn = null;
+        this._reconnectAttempts = 0;
+        this._netIdsFromHost.clear();
+        this._lastPositionSeq.clear();
+        this.onReconnectState?.('migrating', 0);
+        this._scheduleReconnect();
+        return true;
     }
 
     _migrationVotes(election = this._migrationElection) {
@@ -1708,6 +2129,7 @@ export class Network {
         });
         this._migrationActive = false;
         this._migrationElection = null;
+        this._resetNetTimeline();
         this.onReconnectState?.('connected', 0);
         this.onHostMigrated?.({ isHost: true, epoch, roomCode: this.peer.id });
     }
@@ -1751,6 +2173,7 @@ export class Network {
             playerId: this.playerId,
             name: this.playerName
         });
+        this._resetNetTimeline();
         this.onReconnectState?.('connected', 0);
         this.onHostMigrated?.({ isHost: false, epoch: data.epoch, roomCode: peerId });
     }
@@ -1861,6 +2284,10 @@ export class Network {
                 ? { windowMs: 10000, max: 6 }
             : type === 'rematchReady'
                 ? { windowMs: 1000, max: 4 }
+            : type === 'emote'
+                ? { windowMs: 4000, max: 3 }
+            : type === 'spectatorSeat'
+                ? { windowMs: 1000, max: 6 }
                 : { windowMs: 1000, max: 30 };
         const key = `${peerId}:${type}`;
         let entry = this._socialRate.get(key);
@@ -1904,6 +2331,19 @@ export class Network {
             if (t === BIN.BALL) return this._decodeBallState(dv);
             if (t === BIN.POS) return this._decodePositionLayout(dv, false, false);
             if (t === BIN.POS_V2) return this._decodePositionLayout(dv, true, true);
+            if (t === NET_BIN.POS_Q) {
+                const msg = decodePositionQ(dv, { validateId: isSafeTargetId });
+                return msg && isValidPositionPacket(msg) ? msg : null;
+            }
+            if (t === NET_BIN.BALL_Q) {
+                const msg = decodeBallQ(dv, { validateId: isSafeTargetId, validateSkin: isSafeBallSkinId });
+                return msg && isValidBallPacket(msg) ? msg : null;
+            }
+            if (t === NET_BIN.POS_BATCH) {
+                const entries = decodePositionBatch(dv);
+                return entries ? { type: 'positionBatch', entries } : null;
+            }
+            if (t === NET_BIN.BOT_Q) return decodeBotSync(dv);
         } catch (_) {
             return null;
         }
@@ -2154,11 +2594,11 @@ export class Network {
     }
 
     broadcastBinary(u8) {
-        this.connections.forEach(conn => { if (conn.open) conn.send(u8); });
+        this.connections.forEach(conn => { if (conn.open) { conn.send(u8); this._countOut(u8); } });
     }
 
     broadcastAllBinary(u8) {
-        this.connections.forEach(conn => { if (conn.open) conn.send(u8); });
+        this.connections.forEach(conn => { if (conn.open) { conn.send(u8); this._countOut(u8); } });
     }
 
     // ponytail: validate critical message fields to reject rogue peer data
@@ -2301,6 +2741,36 @@ export class Network {
         case 'rematchStart':
             return isSafeMatchId(data.sourceMatchId)
                 && isSafeMatchId(data.matchId);
+        case 'emote':
+            return typeof data.emote === 'string'
+                && EMOTE_ID_PATTERN.test(data.emote)
+                && (data.playerId === undefined || isSafeTargetId(data.playerId));
+        case 'spectatorSeat':
+            return Number.isSafeInteger(data.seat) && data.seat >= 0 && data.seat < 1024;
+        case 'ping':
+            return typeof data.nonce === 'string' && data.nonce.length > 0 && data.nonce.length <= 32;
+        case 'pong':
+            return typeof data.nonce === 'string' && data.nonce.length > 0 && data.nonce.length <= 32
+                && (data.remoteTime === undefined || Number.isFinite(data.remoteTime));
+        case 'netIds':
+            return Array.isArray(data.ids)
+                && data.ids.length <= NET_ID_MAX
+                && data.ids.every(entry => Array.isArray(entry)
+                    && entry.length === 3
+                    && Number.isSafeInteger(entry[0]) && entry[0] >= 1 && entry[0] <= 255
+                    && isSafeTargetId(entry[1])
+                    && isSafeTargetId(entry[2]));
+        case 'positionBatch':
+            return Array.isArray(data.entries) && data.entries.length <= 64;
+        case 'botSync':
+            return Array.isArray(data.bots)
+                && data.bots.length <= 64
+                && (data.t === undefined || (Number.isFinite(data.t) && data.t >= 0 && data.t < 0x100000000))
+                && data.bots.every(bot => bot
+                    && typeof bot.name === 'string'
+                    && bot.name.length > 0
+                    && bot.name.length <= 32
+                    && [bot.x, bot.y, bot.z].every(value => isBoundedFinite(value, NETWORK_WORLD_BOUND)));
         default:
                 return true;
         }
@@ -2308,6 +2778,7 @@ export class Network {
 
     handleMessage(data, peerId) {
         this._receivedPackets++;
+        this._countIn(data);
         // ponytail: decode binary hot-path packets to plain objects
         if (data instanceof ArrayBuffer || data instanceof Uint8Array) {
             data = this._decodeBinary(data);
@@ -2331,13 +2802,42 @@ export class Network {
         if (this.isHost && data.type !== 'join' && data.type !== 'migrationJoin'
             && data.type !== 'capabilities'
             && (!sourceConn || !sourceConn._admitted)) return;
+        // Spectators have no gameplay authority (ball, score, movement, teams, votes):
+        // the host drops everything outside the spectator whitelist.
+        if (this.isHost && sourceConn?._spectator === true
+            && !isSpectatorAllowedMessage(data.type)) return;
         switch (data.type) {
             case 'capabilities':
                 if (sourceConn) {
                     this.peerCapabilities.set(peerId, Object.freeze({
                         positionV2: data.positionV2 === true,
-                        migrationVotes: data.migrationVotes === true
+                        migrationVotes: data.migrationVotes === true,
+                        ...(data.netV3 === true ? { netV3: true } : {})
                     }));
+                    // A fresh peer needs target/affix/skin on the next ball packets.
+                    if (this.isHost) this._ballSend.metaLeft = BALL_META_REDUNDANCY;
+                }
+                break;
+            case 'positionBatch':
+                // Host → spectator relay: one packet, every watched player.
+                if (!this.isHost && peerId === this.hostConn?.peer) {
+                    for (const entry of data.entries) {
+                        const identity = this._netIdsFromHost.get(entry.netId);
+                        if (!identity) continue;
+                        entry.playerId = identity.playerId;
+                        entry.peerId = identity.peerId;
+                        delete entry.netId;
+                        if (!this._validateMsg(entry)) continue;
+                        this._applyPositionPacket(entry, peerId);
+                    }
+                }
+                break;
+            case 'netIds':
+                if (!this.isHost && peerId === this.hostConn?.peer) {
+                    this._netIdsFromHost.clear();
+                    for (const [id, playerId, idPeerId] of data.ids) {
+                        this._netIdsFromHost.set(id, { playerId, peerId: idPeerId });
+                    }
                 }
                 break;
             case 'join':
@@ -2352,6 +2852,12 @@ export class Network {
                     }
                     if (conn._admitted) break;
                     conn._admitted = true;
+                    if (conn._spectator === true) {
+                        this._sendLobbyAdmissionProof(conn);
+                        try { this.onSpectatorJoin?.(conn._playerName, playerId, peerId); } catch (_) {}
+                        try { conn._sendWelcome?.(); } catch (_) {}
+                        break;
+                    }
                     this._updateMigrationRoster([
                         ...this.migrationRoster.values(),
                         {
@@ -2373,22 +2879,7 @@ export class Network {
                 }
                 break;
             case 'position':
-                {
-                    const trustedRelay = !this.isHost && peerId === this.hostConn?.peer;
-                    const transportPeerId = trustedRelay && data.peerId ? data.peerId : peerId;
-                    const boundPlayerId = this.peerToPlayerId.get(peerId);
-                    if (!trustedRelay && boundPlayerId && data.playerId && data.playerId !== boundPlayerId) return;
-                    const playerId = trustedRelay
-                        ? (data.playerId || this.peerToPlayerId.get(transportPeerId) || transportPeerId)
-                        : (boundPlayerId || data.playerId || peerId);
-                    if (trustedRelay) this.peerToPlayerId.set(transportPeerId, playerId);
-                if (data.seq !== undefined) {
-                    const previous = this._lastPositionSeq.get(playerId);
-                    if (previous !== undefined && !isNewerSequence(data.seq, previous)) return;
-                    this._lastPositionSeq.set(playerId, data.seq);
-                }
-                    this.game.updateRemotePlayer(playerId, data, transportPeerId);
-                }
+                this._applyPositionPacket(data, peerId);
                 break;
             case 'cosmeticLoadout':
                 {
@@ -2419,8 +2910,14 @@ export class Network {
                 if (this.isHost) {
                     const playerId = this.peerToPlayerId.get(peerId);
                     const player = this.game.remotePlayers.get(playerId);
-                    if (!player) break;
-                    const trusted = { ...data, name: player.name };
+                    const spectator = sourceConn?._spectator === true
+                        ? this.game.spectators?.get?.(playerId)
+                        : null;
+                    if (!player && !spectator) break;
+                    const trusted = {
+                        ...data,
+                        name: player ? player.name : `${String(spectator.name).slice(0, 20)} (spectator)`
+                    };
                     this.game.addChatMessage(trusted.name, trusted.text);
                     this.broadcast(trusted);
                 } else if (peerId === this.hostConn?.peer && data.name !== this.playerName) {
@@ -2555,16 +3052,32 @@ export class Network {
                 this._sendToConn(peerId, { type: 'pong', nonce: data.nonce, remoteTime: performance.now() });
                 break;
             case 'pong':
-                // RTT hesaplayan client tarafında kayıtlı nonce eşleşirse ping kayıt edilir.
-                if (this._pingAwait && data.nonce === this._pingAwait.nonce) {
+                // Several pings may be in flight (connect burst + periodic); each nonce
+                // yields one RTT sample. Clients feed the host clock filter; the host only
+                // tracks per-peer RTT (it is the reference clock).
+                {
+                    const sentAt = this._pings.get(data.nonce);
+                    if (sentAt === undefined) break;
                     const now = performance.now();
-                    const rtt = now - this._pingAwait.t;
-                    this._lastPing = rtt;
-                    if (typeof data.remoteTime === 'number') {
-                        const sample = data.remoteTime - (this._pingAwait.t + now) * 0.5;
-                        this._clockOffset += (sample - this._clockOffset) * 0.2;
+                    const rtt = now - sentAt;
+                    if (this.isHost) {
+                        const previous = this._peerRtt.get(peerId);
+                        this._peerRtt.set(peerId, previous === undefined ? rtt : previous + (rtt - previous) / 4);
+                        let sum = 0;
+                        for (const value of this._peerRtt.values()) sum += value;
+                        this._lastPing = this._peerRtt.size ? sum / this._peerRtt.size : rtt;
+                        break;
                     }
+                    if (peerId !== this.hostConn?.peer) break;
+                    this._pings.delete(data.nonce);
                     this._pingAwait = null;
+                    if (typeof data.remoteTime === 'number'
+                        && this.clock.addSample(sentAt, data.remoteTime, now)) {
+                        this._lastPing = this.clock.rtt;
+                        this._clockOffset = this.clock.offset;
+                    } else {
+                        this._lastPing = rtt;
+                    }
                 }
                 break;
             case 'ballState':
@@ -2609,7 +3122,8 @@ export class Network {
                         const meshPlayerId = player?.playerId || meshPeerId;
                         if (meshPeerId && meshPlayerId) {
                             this.allowedMeshPeers.set(meshPeerId, meshPlayerId);
-                            if (meshPeerId !== this.peer?.id
+                            if (!this.spectatorMode
+                                && meshPeerId !== this.peer?.id
                                 && meshPeerId !== this.hostConn?.peer) {
                                 this.connectToPeer(meshPeerId, meshPlayerId);
                             }
@@ -2686,7 +3200,8 @@ export class Network {
                 if (!this.isHost) this.game.handleRemoteAttackAnim(data);
                 break;
             case 'botSync':
-                if (!this.isHost) this.game.applyBotSync(data);
+                // Bots are host-simulated: only the host transport may move them.
+                if (!this.isHost && peerId === this.hostConn?.peer) this.game.applyBotSync(data);
                 break;
 case 'mapChange':
     if (!this.isHost && peerId === this.hostConn?.peer) this.game.applyMapChange(data);
@@ -2724,7 +3239,7 @@ case 'modeChange':
                 break;
             case 'newPeer':
                 // Host tells us another client joined — establish mesh connection
-                if (!this.isHost && peerId === this.hostConn?.peer
+                if (!this.isHost && !this.spectatorMode && peerId === this.hostConn?.peer
                     && data.peerId && data.peerId !== this.peer?.id && data.peerId !== this.hostConn?.peer) {
                     this.allowedMeshPeers.set(data.peerId, data.playerId || data.peerId);
                     this.connectToPeer(data.peerId, data.playerId);
@@ -2740,6 +3255,24 @@ case 'modeChange':
                 break;
             case 'taunt':
                 if (this.game) this.game.handleRemoteTaunt(data);
+                break;
+            case 'emote':
+                // Emote wheel (players and spectators). The host is the only relay:
+                // it re-stamps identity from the transport, rate-limits, then rebroadcasts.
+                if (this.isHost) {
+                    if (!sourceConn || !this._allowSocialPacket(peerId, 'emote')) break;
+                    const playerId = this.peerToPlayerId.get(peerId);
+                    if (playerId) this.onEmote?.(playerId, data.emote, sourceConn._spectator === true);
+                } else if (peerId === this.hostConn?.peer && isSafeTargetId(data.playerId)) {
+                    this.onEmote?.(data.playerId, data.emote, false);
+                }
+                break;
+            case 'spectatorSeat':
+                if (this.isHost && sourceConn?._spectator === true
+                    && this._allowSocialPacket(peerId, 'spectatorSeat')) {
+                    const playerId = this.peerToPlayerId.get(peerId);
+                    if (playerId) this.onSpectatorSeat?.(playerId, data.seat);
+                }
                 break;
             case 'blackHoleSpawn':
                 if (!this.isHost && this.game.spawnBlackHoleAt) this.game.spawnBlackHoleAt(data.x, data.y, data.z);
@@ -2760,6 +3293,23 @@ case 'modeChange':
                 this.disconnect();
                 break;
         }
+    }
+
+    _applyPositionPacket(data, peerId) {
+        const trustedRelay = !this.isHost && peerId === this.hostConn?.peer;
+        const transportPeerId = trustedRelay && data.peerId ? data.peerId : peerId;
+        const boundPlayerId = this.peerToPlayerId.get(peerId);
+        if (!trustedRelay && boundPlayerId && data.playerId && data.playerId !== boundPlayerId) return;
+        const playerId = trustedRelay
+            ? (data.playerId || this.peerToPlayerId.get(transportPeerId) || transportPeerId)
+            : (boundPlayerId || data.playerId || peerId);
+        if (trustedRelay) this.peerToPlayerId.set(transportPeerId, playerId);
+        if (data.seq !== undefined) {
+            const previous = this._lastPositionSeq.get(playerId);
+            if (previous !== undefined && !isNewerSequence(data.seq, previous)) return;
+            this._lastPositionSeq.set(playerId, data.seq);
+        }
+        this.game.updateRemotePlayer(playerId, data, transportPeerId);
     }
 
     // Host: drop a connection whose player metadata name matches.
@@ -2822,8 +3372,37 @@ case 'modeChange':
     }
 
     broadcast(data) {
+        if (data?.type === 'botSync' && this.isHost) {
+            this._broadcastBotSync(data);
+            return;
+        }
         this.connections.forEach(conn => {
-            if (conn.open) { conn.send(data); this._sentPackets++; }
+            if (conn.open) { conn.send(data); this._sentPackets++; this._countOut(data); }
+        });
+    }
+
+    // Bot movement (host → all, 10 Hz from main.js): host-clock stamped for snapshot
+    // interpolation; netV3 peers get the compact binary form (~30 B/bot vs ~170 B JSON).
+    _broadcastBotSync(data) {
+        const t = this.hostNow();
+        let binary;
+        let json = null;
+        this.connections.forEach((conn, peerId) => {
+            if (!conn.open) return;
+            let packet = null;
+            if (this._supportsNetV3(peerId)) {
+                if (binary === undefined) binary = encodeBotSync(data.bots, t);
+                packet = binary;
+            }
+            if (!packet) {
+                if (connectionCongested(conn)) return;
+                packet = json ||= { ...data, t: Math.round(t) };
+            } else if (connectionCongested(conn)) {
+                return;
+            }
+            conn.send(packet);
+            this._sentPackets++;
+            this._countOut(packet);
         });
     }
 
@@ -2848,7 +3427,7 @@ case 'modeChange':
     }
 
     sendToHost(data) {
-        if (this.hostConn && this.hostConn.open) { this.hostConn.send(data); this._sentPackets++; }
+        if (this.hostConn && this.hostConn.open) { this.hostConn.send(data); this._sentPackets++; this._countOut(data); }
     }
 
     send(data) {
@@ -2861,6 +3440,7 @@ case 'modeChange':
 
     // Sync player pos — goes directly to ALL peers (mesh, skip host relay)
     sendPosition(position, rotation, extra = {}) {
+        if (this.spectatorMode) return;
         this._positionSeq = (this._positionSeq + 1) & 0xffff;
         const payload = {
             seq: this._positionSeq,
@@ -2877,27 +3457,52 @@ case 'modeChange':
         }
         let legacyPacket = null;
         let v2Packet = null;
+        let v3Packet = null;
         for (const [peerId, conn] of this.connections) {
             if (!conn?.open) continue;
-            const supportsV2 = this.peerCapabilities.get(peerId)?.positionV2 === true;
-            const packet = supportsV2
-                ? (v2Packet ||= this.encodePosition(payload))
-                : (legacyPacket ||= this.encodeLegacyPosition(payload));
+            const capabilities = this.peerCapabilities.get(peerId);
+            let packet;
+            if (capabilities?.netV3 === true) {
+                // Movement is superseded by the next packet: under congestion drop it
+                // rather than queue latency (identity/life fields ride again on change).
+                if (connectionCongested(conn) && extra.name === undefined && extra.team === undefined
+                    && extra.alive === undefined && extra.hp === undefined) continue;
+                packet = v3Packet ||= encodePositionQ(this._positionQPayload(payload), { validateId: isSafeTargetId });
+            } else {
+                packet = capabilities?.positionV2 === true
+                    ? (v2Packet ||= this.encodePosition(payload))
+                    : (legacyPacket ||= this.encodeLegacyPosition(payload));
+            }
             conn.send(packet);
             this._sentPackets++;
+            this._countOut(packet);
         }
+    }
+
+    // POS_Q payload: host-clock stamp once synced, and the (bound-per-transport) playerId
+    // only on the first/every Nth packet instead of 36 bytes on every packet.
+    _positionQPayload(payload) {
+        const stamped = this.isHost || this.clock.synced;
+        const includeId = payload.seq % PLAYER_ID_EVERY === 1 || payload.name !== undefined;
+        return {
+            ...payload,
+            t: stamped ? this.hostNow() : undefined,
+            playerId: includeId ? payload.playerId : undefined
+        };
     }
 
     _sendToConn(peerId, data) {
         const conn = this.connections.get(peerId);
-        if (conn && conn.open) { conn.send(data); this._sentPackets++; }
+        if (conn && conn.open) { conn.send(data); this._sentPackets++; this._countOut(data); }
     }
 
     sendAttack(extra = {}) {
+        if (this.spectatorMode) return;
         this.send({ type: 'attack', ...extra });
     }
 
     sendSkillUse(extra = {}) {
+        if (this.spectatorMode) return;
         this.send({ type: 'skillUse', ...extra });
     }
 
@@ -2909,14 +3514,23 @@ case 'modeChange':
     // RTT ölçümü — nonce işaretlenir, periyodik olarak peer'a yollanır.
     sendPing() {
         if (!this.connected) return;
-        this._pingAwait = { nonce: Math.random().toString(36).slice(2), t: performance.now() };
-        this.send({ type: 'ping', nonce: this._pingAwait.nonce });
+        const now = performance.now();
+        // Expire unanswered pings (lost / peer gone) so the map stays bounded.
+        for (const [nonce, sentAt] of this._pings) {
+            if (now - sentAt > 5000) this._pings.delete(nonce);
+        }
+        const nonce = Math.random().toString(36).slice(2, 14);
+        this._pings.set(nonce, now);
+        this._pingAwait = { nonce, t: now };
+        this.send({ type: 'ping', nonce });
     }
 
     getPing() { return this._lastPing || 0; }
     getDiagnostics() {
         return {
             ping: this.getPing(),
+            jitter: this.clock.jitter || 0,
+            clockSynced: this.isHost || this.clock.synced,
             peers: this.connections.size,
             sent: this._sentPackets,
             received: this._receivedPackets,
@@ -2925,7 +3539,7 @@ case 'modeChange':
             migrationEpoch: this.migrationEpoch
         };
     }
-    getClockOffset() { return this._clockOffset || 0; }
+    getClockOffset() { return this.isHost ? 0 : (this.clock.synced ? this.clock.offset : this._clockOffset || 0); }
 
     broadcastBlackHoleSpawn(x, y, z) {
         if (!this.isHost) return;
@@ -2963,7 +3577,7 @@ case 'modeChange':
                 }
             }
         }
-        this.broadcastBinary(this.encodeBallState({
+        const snapshot = {
             seq: packetSeq,
             x: ball.position.x,
             y: ball.position.y,
@@ -2979,7 +3593,98 @@ case 'modeChange':
             targetPeerId: target === this.game?.player ? this.peer?.id || null : target?.peerId || null,
             affix: ball.affix ? { id: ball.affix.id || ball.affix.name, color: ball.affix.color } : null,
             skinId: ball.skinId || 'classic'
-        }));
+        };
+        const now = performance.now();
+        const decision = this._ballSendDecision(snapshot, now);
+        if (!decision.send) return false;
+        let legacy = 0;
+        let modern = 0;
+        this.connections.forEach((conn, peerId) => {
+            if (!conn?.open) return;
+            if (this._supportsNetV3(peerId)) modern++;
+            else legacy++;
+        });
+        if (!modern) {
+            // Legacy-only audience: identical wire format and fan-out as before netV3.
+            this.broadcastBinary(this.encodeBallState(snapshot));
+            return true;
+        }
+        snapshot.t = this.hostNow(now);
+        let legacyPacket = null;
+        let modernPacket = null;
+        this.connections.forEach((conn, peerId) => {
+            if (!conn?.open) return;
+            // A congested link skips superseded continuous updates, never discontinuities.
+            if (!decision.meta && !decision.discontinuity && connectionCongested(conn)) return;
+            const packet = this._supportsNetV3(peerId)
+                ? (modernPacket ||= encodeBallQ(snapshot, {
+                    meta: decision.meta,
+                    validateId: isSafeTargetId,
+                    validateSkin: isSafeBallSkinId
+                }))
+                : (legacyPacket ||= this.encodeBallState(snapshot));
+            conn.send(packet);
+            this._countOut(packet);
+        });
+        return true;
+    }
+
+    // Adaptive ball send (host). main.js offers a state every 60 Hz frame; we transmit when
+    // the client's linear prediction would drift, on any discontinuity (deflect, bounce,
+    // state/target change), and at least every ~33 ms. target/affix/skin ride only on
+    // change (+ BALL_META_REDUNDANCY repeats, unordered channel) and periodic keyframes.
+    _ballSendDecision(b, now) {
+        const s = this._ballSend;
+        const affixId = b.affix ? b.affix.id : null;
+        const affixColor = b.affix ? b.affix.color : null;
+        let send = false;
+        let discontinuity = false;
+        if (!s.valid || b.active !== s.active || b.state !== s.state) {
+            send = true;
+            discontinuity = true;
+        }
+        if (b.targetPlayerId !== s.targetPlayerId || b.targetPeerId !== s.targetPeerId
+            || b.targetName !== s.targetName || affixId !== s.affixId
+            || affixColor !== s.affixColor || b.skinId !== s.skinId) {
+            send = true;
+            s.metaLeft = BALL_META_REDUNDANCY;
+            s.targetPlayerId = b.targetPlayerId;
+            s.targetPeerId = b.targetPeerId;
+            s.targetName = b.targetName;
+            s.affixId = affixId;
+            s.affixColor = affixColor;
+            s.skinId = b.skinId;
+        }
+        if (!send) {
+            const dtMs = now - s.t;
+            const dt = dtMs / 1000;
+            const px = s.x + s.vx * dt, py = s.y + s.vy * dt, pz = s.z + s.vz * dt;
+            const deviation = Math.hypot(b.x - px, b.y - py, b.z - pz);
+            const dv = Math.hypot(b.vx - s.vx, b.vy - s.vy, b.vz - s.vz);
+            const speed = Math.hypot(s.vx, s.vy, s.vz);
+            if (deviation > BALL_DEVIATION_M || dv > Math.max(0.5, 0.03 * speed)) {
+                send = true;
+                discontinuity = deviation > 0.5 || dv > Math.max(2, 0.2 * speed);
+            } else if (dtMs >= BALL_MIN_INTERVAL_MS) {
+                send = true;
+            }
+        }
+        const decision = this._ballDecision ||= { send: false, meta: false, discontinuity: false };
+        decision.send = send;
+        decision.meta = false;
+        decision.discontinuity = discontinuity;
+        if (!send) return decision;
+        s.count++;
+        const meta = s.metaLeft > 0 || s.count % BALL_KEYFRAME_EVERY === 1 || !s.valid;
+        if (s.metaLeft > 0) s.metaLeft--;
+        s.valid = true;
+        s.t = now;
+        s.x = b.x; s.y = b.y; s.z = b.z;
+        s.vx = b.vx; s.vy = b.vy; s.vz = b.vz;
+        s.active = b.active;
+        s.state = b.state;
+        decision.meta = meta;
+        return decision;
     }
 
     _withBallAppearance(snapshot = {}) {
@@ -3105,6 +3810,7 @@ case 'modeChange':
         this._resetLobbyAdmissionProof();
         this._ensureIdentityMaps();
         this._manualDisconnect = true;
+        this.spectatorMode = false;
         this._cancelReconnect();
         if (this._signalReconnectTimer) {
             clearTimeout(this._signalReconnectTimer);
@@ -3114,6 +3820,19 @@ case 'modeChange':
         this._gameStartRetryTimers = [];
         this._latestGameStart = null;
         this._clearMigrationTimers();
+        this._pingBurstTimers.forEach(timer => clearTimeout(timer));
+        this._pingBurstTimers = [];
+        if (this._specRelayTimer) clearTimeout(this._specRelayTimer);
+        this._specRelayTimer = null;
+        this._specRelay.clear();
+        this._netIds.clear();
+        this._netIdsFromHost.clear();
+        this._spectatorFollow = null;
+        this._pings.clear();
+        this._peerRtt.clear();
+        this.clock.reset();
+        this._ballTransit.reset();
+        this._ballSend.valid = false;
         const conns = [...this.connections.values()];
         conns.forEach(conn => conn.close());
         this.connections.clear();

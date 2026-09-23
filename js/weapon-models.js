@@ -2,7 +2,10 @@ import * as THREE from 'three';
 
 // Every knife silhouette this module can build. js/knife-animation.js keeps one
 // viewmodel frame entry per id — tests/viewmodel-cosmetics.test.mjs pins them in sync.
-export const KNIFE_MODELS = Object.freeze(['classic', 'bayonet', 'karambit', 'butterfly', 'tanto', 'cleaver', 'dagger']);
+export const KNIFE_MODELS = Object.freeze([
+    'classic', 'bayonet', 'karambit', 'butterfly', 'tanto', 'cleaver', 'dagger',
+    'kukri', 'gut', 'huntsman', 'talon', 'flip'
+]);
 
 function mat(color, metalness = 0.2, roughness = 0.55, emissive = 0x000000) {
     return new THREE.MeshStandardMaterial({ color, metalness, roughness, emissive });
@@ -54,6 +57,50 @@ function bladeGeometry(length, width, profile = 'drop') {
         shape.lineTo(-width * 0.06, length);
         shape.lineTo(width * 0.5, length * 0.66);
         shape.lineTo(width * 0.5, 0);
+        shape.closePath();
+        return extrudeBlade(shape);
+    }
+    if (profile === 'crescent') {
+        // Karambit claw: one continuous crescent, spine sweeping out to a hooked tip.
+        shape.moveTo(-width * 0.5, 0);
+        shape.quadraticCurveTo(-width * 0.7, length * 0.72, width * 1.45, length);
+        shape.quadraticCurveTo(width * 0.2, length * 0.62, width * 0.5, 0);
+        shape.closePath();
+        return extrudeBlade(shape);
+    }
+    if (profile === 'talon') {
+        shape.moveTo(-width * 0.5, 0);
+        shape.quadraticCurveTo(-width * 0.55, length * 0.78, width * 0.95, length);
+        shape.quadraticCurveTo(width * 0.25, length * 0.7, width * 0.5, 0);
+        shape.closePath();
+        return extrudeBlade(shape);
+    }
+    if (profile === 'kukri') {
+        // Forward-drooping recurve: narrow at the guard, heavy belly near the tip.
+        shape.moveTo(-width * 0.38, 0);
+        shape.quadraticCurveTo(-width * 0.2, length * 0.55, width * 0.45, length);
+        shape.quadraticCurveTo(width * 1.3, length * 0.62, width * 0.4, 0);
+        shape.closePath();
+        return extrudeBlade(shape);
+    }
+    if (profile === 'gut') {
+        // Drop point with a gut-hook notch cut into the spine.
+        shape.moveTo(-width * 0.5, 0);
+        shape.lineTo(-width * 0.5, length * 0.5);
+        shape.lineTo(-width * 0.22, length * 0.56);
+        shape.quadraticCurveTo(-width * 0.12, length * 0.6, -width * 0.36, length * 0.66);
+        shape.quadraticCurveTo(-width * 0.32, length * 0.9, 0, length);
+        shape.quadraticCurveTo(width * 0.62, length * 0.7, width * 0.52, 0);
+        shape.closePath();
+        return extrudeBlade(shape);
+    }
+    if (profile === 'clip') {
+        // Huntsman clip point: straight spine that drops sharply into the tip.
+        shape.moveTo(-width * 0.5, 0);
+        shape.lineTo(-width * 0.5, length * 0.62);
+        shape.lineTo(-width * 0.12, length * 0.86);
+        shape.lineTo(0, length);
+        shape.quadraticCurveTo(width * 0.66, length * 0.72, width * 0.52, 0);
         shape.closePath();
         return extrudeBlade(shape);
     }
@@ -140,25 +187,119 @@ function addCombatKnife(group, materials, bayonet = false) {
 
 function addKarambit(group, materials) {
     const claw = new THREE.Group();
-    const outer = new THREE.Mesh(new THREE.TorusGeometry(0.205, 0.046, 8, 32, Math.PI * 1.24), materials.blade);
-    outer.rotation.set(Math.PI / 2, 0.1, -0.62);
-    const edge = new THREE.Mesh(new THREE.TorusGeometry(0.205, 0.012, 5, 32, Math.PI * 1.12), materials.edge);
-    edge.rotation.copy(outer.rotation);
-    edge.position.y = -0.042;
-    const point = new THREE.Mesh(new THREE.ConeGeometry(0.047, 0.17, 8), materials.blade);
-    point.rotation.set(-Math.PI / 2, 0, -0.7);
-    point.position.set(-0.17, 0, -0.24);
-    claw.add(outer, edge, point);
-    claw.position.set(0.02, 0, -0.22);
-    const handle = new THREE.Mesh(new THREE.CapsuleGeometry(0.072, 0.23, 4, 10), materials.grip);
+    const blade = new THREE.Mesh(bladeGeometry(0.42, 0.11, 'crescent'), materials.blade);
+    const edgeShape = new THREE.Shape();
+    edgeShape.moveTo(0.047, 0.02);
+    edgeShape.quadraticCurveTo(0.012, 0.26, 0.155, 0.415);
+    edgeShape.quadraticCurveTo(0.03, 0.25, 0.062, 0.02);
+    edgeShape.closePath();
+    const edgeGeo = new THREE.ExtrudeGeometry(edgeShape, { depth: 0.034, bevelEnabled: false });
+    edgeGeo.translate(0, 0, -0.017);
+    edgeGeo.rotateX(-Math.PI / 2);
+    const edge = new THREE.Mesh(edgeGeo, materials.edge);
+    claw.add(blade, edge);
+    claw.position.set(-0.01, 0, 0.03);
+    const guard = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.05, 0.05), materials.edge);
+    guard.position.z = 0.045;
+    const handle = new THREE.Mesh(new THREE.CapsuleGeometry(0.052, 0.22, 4, 12), materials.grip);
     handle.rotation.x = Math.PI / 2;
-    handle.position.z = 0.16;
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.078, 0.02, 8, 18), materials.edge);
-    ring.rotation.x = Math.PI / 2;
-    ring.position.z = 0.36;
-    group.add(saveInspectBase(claw), handle, ring);
-    addGripRibs(group, materials.dark, 0.16, 5, 0.21);
+    handle.position.z = 0.19;
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.018, 8, 22), materials.edge);
+    ring.rotation.y = Math.PI / 2;
+    ring.position.set(0, 0, 0.38);
+    group.add(saveInspectBase(claw), guard, handle, ring);
+    addGripRibs(group, materials.dark, 0.19, 4, 0.18);
     group.userData.inspectParts = [claw];
+}
+
+// Kukri: heavy forward-weighted recurve with a notched ricasso and a flared grip.
+function addKukri(group, materials) {
+    addBlade(group, materials, { length: 0.56, width: 0.15, profile: 'kukri', z: 0.02 });
+    const bolster = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.05, 12), materials.edge);
+    bolster.rotation.x = Math.PI / 2;
+    bolster.position.z = 0.045;
+    const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.068, 0.27, 12), materials.grip);
+    handle.rotation.x = Math.PI / 2;
+    handle.position.z = 0.21;
+    const flare = new THREE.Mesh(new THREE.SphereGeometry(0.075, 12, 8), materials.dark);
+    flare.scale.set(1, 0.8, 0.6);
+    flare.position.z = 0.36;
+    group.add(bolster, handle, flare);
+    addGripRibs(group, materials.edge, 0.21, 3, 0.16);
+}
+
+// Gut knife: drop point with a spine hook, finger-grooved handle.
+function addGut(group, materials) {
+    addBlade(group, materials, { length: 0.5, width: 0.15, profile: 'gut', z: 0.02 });
+    const guard = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.05, 0.05), materials.edge);
+    guard.position.z = 0.045;
+    const handle = new THREE.Mesh(new THREE.CapsuleGeometry(0.06, 0.24, 4, 12), materials.grip);
+    handle.rotation.x = Math.PI / 2;
+    handle.position.z = 0.21;
+    group.add(guard, handle);
+    for (let index = 0; index < 3; index++) {
+        const groove = new THREE.Mesh(new THREE.TorusGeometry(0.063, 0.01, 6, 14), materials.dark);
+        groove.rotation.x = Math.PI / 2;
+        groove.position.z = 0.13 + index * 0.075;
+        group.add(groove);
+    }
+}
+
+// Huntsman: clip point, serrated spine, full guard and lanyard pommel.
+function addHuntsman(group, materials) {
+    addBlade(group, materials, { length: 0.6, width: 0.16, profile: 'clip', z: 0.02 });
+    for (let index = 0; index < 7; index++) {
+        const tooth = new THREE.Mesh(new THREE.ConeGeometry(0.014, 0.03, 4), materials.edge);
+        tooth.rotation.z = Math.PI / 2;
+        tooth.position.set(-0.09, 0, -0.06 - index * 0.042);
+        group.add(tooth);
+    }
+    const guard = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.05, 0.05), materials.edge);
+    guard.position.z = 0.045;
+    const handle = new THREE.Mesh(new THREE.CapsuleGeometry(0.064, 0.25, 4, 12), materials.grip);
+    handle.rotation.x = Math.PI / 2;
+    handle.position.z = 0.22;
+    const pommel = new THREE.Mesh(new THREE.TorusGeometry(0.035, 0.012, 6, 14), materials.edge);
+    pommel.position.z = 0.4;
+    group.add(guard, handle, pommel);
+    addGripRibs(group, materials.dark, 0.22, 5, 0.22);
+}
+
+// Talon: long flowing claw on a slim skeletonised handle.
+function addTalon(group, materials) {
+    const claw = new THREE.Group();
+    claw.add(new THREE.Mesh(bladeGeometry(0.5, 0.1, 'talon'), materials.blade));
+    claw.position.z = 0.03;
+    const handle = new THREE.Mesh(new THREE.CapsuleGeometry(0.048, 0.26, 4, 12), materials.grip);
+    handle.rotation.x = Math.PI / 2;
+    handle.position.z = 0.2;
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.015, 8, 20), materials.edge);
+    ring.rotation.y = Math.PI / 2;
+    ring.position.z = 0.38;
+    group.add(saveInspectBase(claw), handle, ring);
+    for (let index = 0; index < 3; index++) {
+        const cut = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.1, 0.05), materials.dark);
+        cut.position.set(0, 0, 0.12 + index * 0.08);
+        group.add(cut);
+    }
+    group.userData.inspectParts = [claw];
+}
+
+// Flip knife: modern drop point with a flipper tab and clean scales.
+function addFlip(group, materials) {
+    addBlade(group, materials, { length: 0.5, width: 0.14, profile: 'drop', z: 0.02 });
+    const flipper = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.03, 0.06), materials.edge);
+    flipper.position.set(0.1, 0, 0.03);
+    flipper.rotation.y = 0.5;
+    const pivot = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.08, 12), materials.edge);
+    pivot.position.z = 0.05;
+    const scales = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.07, 0.32), materials.grip);
+    scales.position.z = 0.22;
+    const liner = new THREE.Mesh(new THREE.BoxGeometry(0.106, 0.03, 0.31), materials.dark);
+    liner.position.z = 0.22;
+    const clip = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.012, 0.22), materials.edge);
+    clip.position.set(-0.055, 0.03, 0.24);
+    group.add(flipper, pivot, scales, liner, clip);
 }
 
 function addButterfly(group, materials) {
@@ -263,6 +404,11 @@ export function createKnifeModel(style = {}) {
     else if (model === 'tanto') addTanto(group, materials);
     else if (model === 'cleaver') addCleaver(group, materials);
     else if (model === 'dagger') addDagger(group, materials);
+    else if (model === 'kukri') addKukri(group, materials);
+    else if (model === 'gut') addGut(group, materials);
+    else if (model === 'huntsman') addHuntsman(group, materials);
+    else if (model === 'talon') addTalon(group, materials);
+    else if (model === 'flip') addFlip(group, materials);
     else addCombatKnife(group, materials, model === 'bayonet');
 
     const seed = Math.abs(Math.trunc(Number(style.patternSeed) || 0));

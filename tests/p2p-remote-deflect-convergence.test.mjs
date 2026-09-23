@@ -4,6 +4,7 @@ import test from 'node:test';
 import { runInNewContext } from 'node:vm';
 
 import { isNewerSequence, Network } from '../js/network.js';
+import { BALL_SMOOTHING, ballErrorDecay, ballPredictAt } from '../js/net-interp.js';
 import { compileGameMethod } from './game-source.mjs';
 
 // ball.js imports Three.js, so compile its pure smoothing helper from the shipped
@@ -180,11 +181,17 @@ function makeTrace({ currentSpeed, ping = 0 } = {}) {
     clientGame.network = client;
     clientGame.updateBallFromNetwork = compileGameMethod('updateBallFromNetwork', {
         performance: { now: () => now },
-        isNewerSequence
+        isNewerSequence,
+        ballPredictAt,
+        BALL_SMOOTHING,
+        Math
     });
     clientGame.invokeBallSmoothing = compileGameMethod('invokeBallSmoothing', {
         performance: { now: () => now },
-        networkBallStep
+        networkBallStep,
+        ballPredictAt,
+        ballErrorDecay,
+        Math
     });
 
     function sendAttack(id, { snapshotOffset = 0.5, attackOffset = 0, packetPing = ping } = {}) {

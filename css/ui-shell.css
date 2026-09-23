@@ -138,3 +138,19 @@ select:disabled,
 .reduce-motion #unified-settings .theme-swatch-card {
   transition-duration: 0.001ms;
 }
+
+/* Progressive disclosure: before a first match, meta tabs read as goals, not clutter. */
+body.is-new-player #btn-ranked,
+body.is-new-player #btn-battlepass,
+body.is-new-player #btn-tournament { position: relative; opacity: .5; }
+body.is-new-player #btn-ranked::after,
+body.is-new-player #btn-battlepass::after,
+body.is-new-player #btn-tournament::after {
+    content: '🔒';
+    margin-left: 5px;
+    font-size: .7em;
+    filter: grayscale(1);
+}
+body.is-new-player #btn-ranked:hover,
+body.is-new-player #btn-battlepass:hover,
+body.is-new-player #btn-tournament:hover { opacity: .75; }

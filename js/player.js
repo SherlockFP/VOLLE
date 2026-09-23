@@ -2,10 +2,37 @@
 // character loadout, skill/rune system, stamina-based spam protection, damage meter.
 import * as THREE from 'three';
 import { applyCharacter } from './characters.js';
+import { clampToCourtHalf } from './court-rules.js';
 import { applyRunes, tickSkillCooldowns, useSkill, DEFAULT_LOADOUT, ULTIMATES } from './skills.js';
 import { createKnifeModel, createRocketLauncherModel, disposeObject3D } from './weapon-models.js';
 import { advanceViewmodelGait, advanceViewmodelLanding, createKnifeAnimationState, knifeAnimationActionForAttack, resolveKnifePose, startKnifeAnimation, stepKnifeAnimation, triggerViewmodelLanding, viewmodelFrame } from './knife-animation.js';
 import { resolveEquippedGlove } from './cosmetic-catalog.js';
+import { attachViewmodelFx, disposeViewmodelFx, updateViewmodelFx } from './viewmodel-fx.js';
+import { applyGloveLook, buildViewmodelHand, fitGripToModel, updateViewmodelHand } from './viewmodel-hand.js';
+
+// Viewmodel camera FOV — CS/Valorant-style: narrower than the world camera so the
+// held item keeps its proportions at any gameplay FOV.
+// Default framing pulls the viewmodel camera back a little from the authored arm pose
+// so knives read as held objects rather than filling the lower third of the screen.
+const VIEWMODEL_CAMERA_BACKSET = 0.1;
+// Tuned in-game: item sits bottom-right, blade clear of the crosshair (CS-like framing).
+export const VIEWMODEL_DEFAULTS = Object.freeze({ fov: 60, x: 1.2, y: -0.4, z: 0.8 });
+export const VIEWMODEL_SCALE = 0.82;
+export const VIEWMODEL_LIMITS = Object.freeze({ fov: [54, 80], offset: [-2, 2] });
+
+// Pure: clamps player viewmodel options (console viewmodel_fov / viewmodel_offset_*).
+export function normalizeViewmodelOptions(options = {}) {
+    const clamp = (value, [min, max], fallback) => {
+        const n = Number(value);
+        return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fallback;
+    };
+    return {
+        fov: clamp(options.fov, VIEWMODEL_LIMITS.fov, VIEWMODEL_DEFAULTS.fov),
+        x: clamp(options.x, VIEWMODEL_LIMITS.offset, VIEWMODEL_DEFAULTS.x),
+        y: clamp(options.y, VIEWMODEL_LIMITS.offset, VIEWMODEL_DEFAULTS.y),
+        z: clamp(options.z, VIEWMODEL_LIMITS.offset, VIEWMODEL_DEFAULTS.z)
+    };
+}
 
 const STAMINA_PER_DEFLECT = 7;
 const RAPID_DEFLECT_COST_STEP = 2;
@@ -35,11 +62,6 @@ export const LONG_JUMP_STAMINA_COST = 30;
 // therefore need to face north (+Z); blue begins north and faces south (-Z).
 export function spawnYawForTeam(team) {
     return team === 'red' ? Math.PI : 0;
-}
-
-function setViewmodelMaterialColor(material, color) {
-    const target = material?.uniforms?.uColor?.value || material?.color;
-    target?.set?.(color);
 }
 
 export function applyGroundFriction(velocity, friction, stopSpeed, dt) {
@@ -490,57 +512,17 @@ export class Player {
         this.armGroup = new THREE.Group();
         this.armGroup.position.set(0.25, -0.2, -0.1);
 
-        // Premium blocky mitt: team sleeve -> cosmetic cuff/knuckle shell -> compact fist.
-        // The four capsule "fingers" and the capsule glove that used to sit at z -0.36/-0.40
-        // are gone: they straddled the exact span the knife handle occupies, so every held
-        // item speared straight through them. The fist is now one closed box and the item's
-        // GRIP (not its pommel) is what lands inside it — see knife-animation.js
-        // VIEWMODEL_BASE_POSITION and the per-model z offsets that keep that true.
-        const armGeo = new THREE.BoxGeometry(0.12, 0.105, 0.31);
-        this.armMat = this.renderer.createToonMaterial(
-            this.team === 'red' ? 0xee5555 : 0x5577dd,
-        );
-        this.armMesh = new THREE.Mesh(armGeo, this.armMat);
-        this.armMesh.position.set(0, 0.022, -0.06);
-        this.armGroup.add(this.armMesh);
-
-        this.gloveMat = this.renderer.createToonMaterial(
-            this.team === 'red' ? 0xee5555 : 0x5577dd,
-        );
-        this.gloveMesh = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.13, 0.075), this.gloveMat);
-        this.gloveMesh.position.set(0, -0.016, -0.23);
-        this.armGroup.add(this.gloveMesh);
-
-        this.gloveAccentMat = this.renderer.createToonMaterial(0x9bdcff);
-        this.glovePalmMat = this.renderer.createToonMaterial(0x1a2635);
-        this.gloveCuff = new THREE.Mesh(new THREE.BoxGeometry(0.165, 0.145, 0.055), this.gloveAccentMat);
-        this.gloveCuff.position.set(0, -0.018, -0.205);
-        this.armGroup.add(this.gloveCuff);
-        this.glovePalm = new THREE.Mesh(new THREE.BoxGeometry(0.115, 0.085, 0.025), this.glovePalmMat);
-        this.glovePalm.position.set(0, -0.1, -0.325);
-        this.armGroup.add(this.glovePalm);
-        this.gloveKnuckles = new THREE.Group();
-        for (let index = 0; index < 3; index++) {
-            const plate = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.024, 0.03), this.gloveAccentMat);
-            plate.position.set((index - 1) * 0.043, 0, 0);
-            this.gloveKnuckles.add(plate);
-        }
-        this.gloveKnuckles.position.set(0, -0.035, -0.405);
-        this.armGroup.add(this.gloveKnuckles);
-
-        const handGeo = new THREE.BoxGeometry(0.145, 0.14, 0.19);
-        const handMat = this.renderer.createToonMaterial(0xf5c6a0);
-        this.handMesh = new THREE.Mesh(handGeo, handMat);
-        this.handMesh.position.set(0.005, -0.065, -0.32);
-        this.armGroup.add(this.handMesh);
-
-        // Single thumb block, parented to the fist so hiding the hand hides it too.
-        // Still a group: _updateKnifeViewmodel() curls its children on slash/stab.
-        this.fingerGroup = new THREE.Group();
-        const thumb = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.055, 0.095), this.gloveMat);
-        thumb.position.set(-0.067, 0.058, -0.03);
-        this.fingerGroup.add(thumb);
-        this.handMesh.add(this.fingerGroup);
+        // Tapered team sleeve + gloved fist whose fingers wrap the held item's handle
+        // (js/viewmodel-hand.js). The fist rides a wrist group that follows the item's
+        // animation, so grips never slide off mid-swing. Field names below are kept
+        // for game.js (handMesh visibility, gloveMat celebration tint).
+        const teamColor = this.team === 'red' ? 0xee5555 : 0x5577dd;
+        this.viewmodelHand = buildViewmodelHand(this.armGroup, color => this.renderer.createToonMaterial(color), teamColor);
+        this.armMat = this.viewmodelHand.sleeveMat;
+        this.armMesh = this.viewmodelHand.sleeve;
+        this.gloveMat = this.viewmodelHand.gloveMat;
+        this.handMesh = this.viewmodelHand.handMesh;
+        this.fingerGroup = this.viewmodelHand.fingerGroup;
 
         this._viewmodelGloveId = null;
         this._syncViewmodelGlove();
@@ -549,8 +531,26 @@ export class Player {
         this.knifeGroup = createKnifeModel(this.knifeStyle);
         this._applyViewmodelFrame(this.knifeGroup, 'classic');
         this.armGroup.add(this.knifeGroup);
+        this._viewKick = 0;
 
-        this.camera.add(this.armGroup);
+        // Viewmodel lives in its own scene with a narrow, fixed FOV camera (see
+        // Renderer#setViewmodel): the world FOV slider (60-110) no longer balloons the
+        // hand, and the knife can't clip into walls. armGroup keeps camera-local coords.
+        this.viewmodelScene = new THREE.Scene();
+        this.viewmodelCamera = new THREE.PerspectiveCamera(VIEWMODEL_DEFAULTS.fov, window.innerWidth / window.innerHeight, 0.01, 20);
+        this.viewmodelScene.add(this.viewmodelCamera);
+        this.viewmodelScene.add(new THREE.HemisphereLight(0xe6fbff, 0x2b2436, 1.5));
+        const keyLight = new THREE.DirectionalLight(0xfff3e0, 2.2);
+        keyLight.position.set(1.2, 2, 1.5);
+        const rimLight = new THREE.DirectionalLight(0x7fe9ff, 1.1);
+        rimLight.position.set(-1.5, 0.6, -1);
+        this.viewmodelScene.add(keyLight, rimLight);
+        // Scene root, not a camera child: moving the camera (viewmodel_offset_*) must reframe the arm.
+        this.viewmodelScene.add(this.armGroup);
+        this.renderer.setViewmodel?.(this.viewmodelScene, this.viewmodelCamera, () => this.armGroup.visible);
+        // Whole hand + item scaled together so the fist keeps its grip on every handle.
+        this.armGroup.scale.setScalar(VIEWMODEL_SCALE);
+        this.setViewmodelOptions(VIEWMODEL_DEFAULTS);
         this.armGroup.visible = false;
 
         // ponytail: tek el — sol el kaldırıldı
@@ -562,6 +562,7 @@ export class Player {
         this.armGroup.visible = Boolean(on);
         if (on && !wasVisible && this.knifeGroup?.userData.weaponType === 'knife') {
             startKnifeAnimation(this.knifeAnimation, 'draw');
+            this.game?.audio?.playKnife?.('draw', this.knifeGroup.userData.model);
         }
     }
 
@@ -580,6 +581,18 @@ export class Player {
         this._renderHandVisibility(this._handRequested && this.alive !== false);
     }
 
+    // CS-style viewmodel_fov / viewmodel_offset_x|y|z. Offsets move the viewmodel
+    // camera (not the arm) so every animation keeps its authored pose.
+    setViewmodelOptions(options = {}) {
+        const next = normalizeViewmodelOptions(options);
+        this.viewmodelOptions = next;
+        if (!this.viewmodelCamera) return next;
+        this.viewmodelCamera.fov = next.fov;
+        this.viewmodelCamera.position.set(-next.x * 0.05, -next.y * 0.05, next.z * 0.06 + VIEWMODEL_CAMERA_BACKSET);
+        this.viewmodelCamera.updateProjectionMatrix();
+        return next;
+    }
+
     setKnifeStyle(style = {}) {
         this.knifeStyle = { ...style };
         this._syncViewmodelWeapon();
@@ -596,14 +609,18 @@ export class Player {
     _syncViewmodelWeapon() {
         if (!this.armGroup) return;
         const visible = this.knifeGroup?.visible !== false;
+        disposeViewmodelFx(this.knifeGroup?.userData.viewmodelFx);
         disposeObject3D(this.knifeGroup);
         if (this.charId === 'soldier') {
             this.knifeGroup = createRocketLauncherModel(this.team);
             this._applyViewmodelFrame(this.knifeGroup, 'rocket');
         } else {
             this.knifeGroup = createKnifeModel(this.knifeStyle);
+            // Rarity layer is measured at identity, before the in-hand frame transform.
+            attachViewmodelFx(this.knifeGroup, this.knifeStyle, this.armGroup, { reduceMotion: this._prefersReducedMotion() });
             this._applyViewmodelFrame(this.knifeGroup, this.knifeGroup.userData.model);
             this.knifeAnimation = createKnifeAnimationState(this.knifeGroup.userData.model);
+            if (this.viewmodelHand) fitGripToModel(this.viewmodelHand, this.knifeGroup.userData.model);
         }
         this.knifeGroup.visible = visible;
         this.armGroup.add(this.knifeGroup);
@@ -679,10 +696,16 @@ export class Player {
                 this._skillQueued = true;
             }
             const isInspectKey = e.code === 'KeyF' || e.code === 'KeyI';
-            const practiceOwnsF = e.code === 'KeyF'
+            // Free Lab uses F/R for ball tools, except during a knife test drive.
+            const practiceOwnsKey = (e.code === 'KeyF' || e.code === 'KeyR')
                 && this.game?._practiceMode
-                && !this.game?._cosmeticPractice;
-            if (isInspectKey && !e.repeat && !practiceOwnsF
+                && !this.game?._cosmeticPractice
+                && !this.game?._knifeTrial;
+            const canFlourish = !e.repeat && !practiceOwnsKey
+                && this.alive && this.game?.state === 'PLAYING'
+                && !this.game?.ui?.spectating && !this.game?.sport;
+            if (e.code === 'KeyR' && canFlourish) this.twirlKnife();
+            if (isInspectKey && !e.repeat && !practiceOwnsKey
                 && this.alive && this.game?.state === 'PLAYING'
                 && !this.game?.ui?.spectating) {
                 this.inspectKnife();
@@ -704,10 +727,20 @@ export class Player {
         }, { signal });
     }
 
+    // R: quick CS2-style flourish. Presses during a twirl queue one follow-up so
+    // spamming chains smoothly instead of snapping back to the start.
+    twirlKnife() {
+        if (this.attackCooldown > 0 || this.charId === 'soldier' || !this.knifeGroup || this.knifeGroup.userData.weaponType !== 'knife') return false;
+        const chaining = this.knifeAnimation.action === 'twirl';
+        startKnifeAnimation(this.knifeAnimation, 'twirl');
+        if (!chaining) this.game?.audio?.playKnife?.('twirl', this.knifeGroup.userData.model);
+        return true;
+    }
+
     inspectKnife() {
         if (this.attackCooldown > 0 || this.charId === 'soldier' || !this.knifeGroup || this.knifeGroup.userData.weaponType !== 'knife') return false;
         startKnifeAnimation(this.knifeAnimation, 'inspect');
-        this.game?.audio?.playKnife?.('inspect');
+        this.game?.audio?.playKnife?.('inspect', this.knifeGroup.userData.model);
         return true;
     }
 
@@ -725,6 +758,16 @@ export class Player {
         const pose = resolveKnifePose(this.knifeAnimation, context);
         this.armGroup.position.set(...pose.armPosition);
         this.armGroup.rotation.set(...pose.armRotation);
+        // Deflect recoil: the hand snaps back and up, then springs home.
+        if (this._viewKick > 0.001) {
+            const kick = this._viewKick * (context.reduceMotion ? 0.3 : 1);
+            this.armGroup.position.z += kick * 0.055;
+            this.armGroup.position.y += kick * 0.012;
+            this.armGroup.rotation.x += kick * 0.16;
+            this._viewKick *= Math.exp(-16 * dt);
+        } else {
+            this._viewKick = 0;
+        }
         this.knifeGroup.position.set(...pose.knifePosition);
         this.knifeGroup.rotation.set(...pose.knifeRotation);
         const inspectParts = this.knifeGroup.userData.inspectParts;
@@ -738,14 +781,11 @@ export class Player {
                 part.rotation.set((base?.x || 0) + (delta.x || 0), (base?.y || 0) + (delta.y || 0), (base?.z || 0) + (delta.z || 0));
             }
         }
+        updateViewmodelFx(this.knifeGroup.userData.viewmodelFx, dt, pose);
         const grip = pose.action === 'heavy' || pose.action === 'stab' || pose.action === 'slash'
             ? Math.sin(pose.progress * Math.PI)
             : 0;
-        const fingers = this.fingerGroup?.children;
-        for (let index = 0; index < (fingers?.length || 0); index++) {
-            const finger = fingers[index];
-            finger.rotation.z = -0.22 - grip * (0.18 + index * 0.015);
-        }
+        updateViewmodelHand(this.viewmodelHand, pose, this.knifeAnimation._frame, grip, this.knifeAnimation.clock, !context.reduceMotion);
     }
 
     _syncViewmodelGlove() {
@@ -757,13 +797,7 @@ export class Player {
         if (this._viewmodelGloveId === id) return;
         this._viewmodelGloveId = id;
         const teamColor = this.team === 'red' ? 0xee5555 : 0x5577dd;
-        setViewmodelMaterialColor(this.gloveMat, glove?.colors?.[0] || teamColor);
-        setViewmodelMaterialColor(this.gloveAccentMat, glove?.colors?.[1] || 0x9bdcff);
-        setViewmodelMaterialColor(this.glovePalmMat, glove ? 0x111923 : 0x27313b);
-        const premium = Boolean(glove);
-        this.glovePalm.visible = premium;
-        this.gloveKnuckles.visible = premium;
-        this.gloveCuff.scale.set(premium ? 1.04 : .86, premium ? 1.04 : .86, 1);
+        if (this.viewmodelHand) applyGloveLook(this.viewmodelHand, glove, teamColor);
     }
 
     _prefersReducedMotion() {
@@ -830,7 +864,7 @@ export class Player {
         this.knifeAttackType = action === 'stab' ? 'stab' : 'slash';
         if (this.knifeGroup?.userData.weaponType === 'knife') {
             startKnifeAnimation(this.knifeAnimation, knifeAnimationActionForAttack(this.knifeAttackType));
-            this.game?.audio?.playKnife?.(this.knifeAttackType);
+            this.game?.audio?.playKnife?.(knifeAnimationActionForAttack(this.knifeAttackType), this.knifeGroup?.userData.model);
         }
         this._p2pAttackQueued = true; // main.js P2P attack intent yollar
         return true;
@@ -877,6 +911,7 @@ export class Player {
     // Camera recoil punch when deflecting.
     kick(shot) {
         this.kickAmt = shot === 'spike' ? 0.12 : shot === 'lob' ? 0.06 : 0.08;
+        this._viewKick = Math.min(1, this.kickAmt / 0.12);
     }
 
     // Short FOV punch on a charged deflect release — see fovKickAmt decay in update().
@@ -1176,6 +1211,15 @@ export class Player {
         } else if (this.position.z > maxZ) {
             this.position.z = maxZ;
             this._clipHorizontalVelocity(0, -1, wasDashing);
+        }
+        // Cross-court rule: game.js sets courtSide (-1 red half, +1 blue half, 0 free);
+        // the midline is then a wall for the player only (js/court-rules.js).
+        if (this.courtSide) {
+            const halfZ = clampToCourtHalf(this.position.z, this.courtSide, this.radius);
+            if (halfZ !== this.position.z) {
+                this.position.z = halfZ;
+                this._clipHorizontalVelocity(0, this.courtSide, wasDashing);
+            }
         }
 
         // Collision with map props (trees, pillars, walls, etc.)

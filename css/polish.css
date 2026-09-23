@@ -3088,10 +3088,9 @@ body.high-contrast #main-menu :is(.ow-topbar, .ow-showcase, .ow-action-panel, .f
 .case-reel-item.rarity-legendary { --reel-glow: #ffd36b; }
 .case-reel-orb.avatar { border-radius: 8px; background: linear-gradient(135deg, #ffd1b3 0 34%, #46d8cf 35% 70%, #172d5b 71%); }
 .case-reel-result strong { text-shadow: 0 0 18px rgba(109, 255, 237, .45); }
-@media (prefers-reduced-motion: reduce) {
-    .case-reel-track.spin { animation-duration: var(--ui-motion-base) !important; }
-    .case-reel-window::after { animation: none; }
-}
+/* Only the in-game Reduce motion setting shortens the reel (see UI#_isCaseReelReduced). */
+.reduced-motion .case-reel-track.spin, .reduce-motion .case-reel-track.spin { animation-duration: var(--ui-motion-base) !important; }
+@media (prefers-reduced-motion: reduce) { .case-reel-window::after { animation: none; } }
 .case-reel-track.case-reel-reduced { opacity: 0; }
 .case-reel-track.case-reel-reduced-in { opacity: 1; transition: opacity var(--ui-motion-base) ease-out; }
 
@@ -8161,3 +8160,38 @@ body:not(.practice-lab-active) .network-diagnostics {
 }
 body.reduced-motion #post-game-screen .pg-detail-disclosure > summary i,
 .reduce-motion #post-game-screen .pg-detail-disclosure > summary i { transition: none; }
+
+/* ===== JUICE FLASH — edge-only vignette (overrides css/style.css's older
+   full-screen wash; loaded after it so same-specificity `.juice-flash`
+   here wins). docs/V3_GAMEPLAY.md: "No full-screen flash hiding the
+   trajectory" — the center (ball/crosshair) must stay fully clear even on
+   back-to-back kills in chaotic modes. Transparent through ~55% radius,
+   glow ramps in only at the rim. js/ui.js#updateFlash() still drives this
+   via `opacity` only (clamped to 0.5) — no layout, compositor-friendly.
+   `data-tint="kill"` (set by updateFlash when amt >= 0.4, e.g. game.js's
+   flash(0.55) on kills) swaps the rim to warm gold; default rim is white. */
+.juice-flash {
+    position: fixed;
+    inset: 0;
+    z-index: 175;
+    pointer-events: none;
+    background: radial-gradient(ellipse at center,
+        rgba(255,255,255,0) 0%,
+        rgba(255,255,255,0) 55%,
+        rgba(255,255,255,0.85) 100%);
+    opacity: 0;
+    /* Fast decay so a flash reads as a pulse, not a hold — matches juice.js's
+       flashAmt decay (dt*3, i.e. ~180ms for the 0.55 kill amt). */
+    transition: opacity 180ms var(--ui-ease);
+}
+.juice-flash[data-tint="kill"] {
+    background: radial-gradient(ellipse at center,
+        rgba(255,255,255,0) 0%,
+        rgba(255,255,255,0) 55%,
+        rgba(255,205,90,0.9) 100%);
+}
+@media (prefers-reduced-motion: reduce) {
+    .juice-flash { transition: none; }
+}
+body.reduced-motion .juice-flash,
+.reduce-motion .juice-flash { transition: none; }

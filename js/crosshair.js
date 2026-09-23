@@ -1,5 +1,6 @@
-export const CROSSHAIR_CODE_PREFIX = 'WARRBALL-X1';
-const LEGACY_CROSSHAIR_CODE_PREFIXES = Object.freeze(['VOLLE-X1']);
+export const CROSSHAIR_CODE_PREFIX = 'VOLLE-X1';
+// Codes shared during the Warrball naming period keep importing.
+const LEGACY_CROSSHAIR_CODE_PREFIXES = Object.freeze(['WARRBALL-X1']);
 export const MAX_CROSSHAIR_CODE_LENGTH = 2048;
 export const CROSSHAIR_STYLES = Object.freeze(['cross', 'dot', 'circle']);
 

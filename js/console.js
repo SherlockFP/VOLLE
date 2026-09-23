@@ -3,6 +3,64 @@
 import { GAME_MODES } from './gamemodes.js';
 import { MAPS } from './arena.js';
 
+// Persists through the store so the framing survives reloads (applied on boot in main.js).
+function setViewmodelOption(game, key, raw, log) {
+    const value = Number(raw);
+    if (raw === undefined || !Number.isFinite(value)) {
+        log(`Current viewmodel ${key}: ${game.player?.viewmodelOptions?.[key]}`);
+        return true;
+    }
+    const current = window.__store?.get?.('viewmodel') || {};
+    const applied = game.player?.setViewmodelOptions?.({ ...current, [key]: value });
+    if (!applied) return false;
+    window.__store?.set?.('viewmodel', applied);
+    log(`viewmodel ${key} → ${applied[key]}`);
+    return true;
+}
+
+// net_graph overlay (CS-style): polls Network#getNetGraph at 4 Hz, text only, no DOM
+// churn beyond one textContent write. Styles are inline so no stylesheet is touched.
+export function formatNetGraph(stats) {
+    if (!stats) return 'net_graph\noffline';
+    const kb = bytes => (bytes / 1024).toFixed(bytes >= 10240 ? 0 : 1);
+    const ms = value => (Number.isFinite(value) ? Math.round(value) : 0);
+    return [
+        `net_graph  ${stats.role} · ${stats.peers} peer${stats.peers === 1 ? '' : 's'}`,
+        `ping ${ms(stats.ping)} ms  jitter ${(stats.jitter || 0).toFixed(1)} ms`,
+        `lerp ${ms(stats.lerp)} ms  extrap ${stats.extrapolating || 0}/${stats.entities || 0}`,
+        `in  ${ms(stats.inPps)} pkt/s  ${kb(stats.inBps || 0)} KB/s`,
+        `out ${ms(stats.outPps)} pkt/s  ${kb(stats.outBps || 0)} KB/s`,
+        `clock ${stats.clockSynced ? 'synced' : 'syncing…'}`
+    ].join('\n');
+}
+
+export function setNetGraph(game, enabled) {
+    clearInterval(game._netGraphTimer);
+    game._netGraphTimer = null;
+    if (game.network) game.network.netGraphEnabled = enabled;
+    let el = document.getElementById('net-graph');
+    if (!enabled) {
+        el?.remove();
+        return false;
+    }
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'net-graph';
+        el.setAttribute('aria-hidden', 'true');
+        el.style.cssText = 'position:fixed;right:12px;bottom:84px;z-index:9998;pointer-events:none;'
+            + 'font:11px/1.35 monospace;color:#d8ffd8;background:rgba(0,0,0,0.55);padding:6px 8px;'
+            + 'border-radius:4px;white-space:pre;text-shadow:0 1px 0 #000;';
+        document.body.appendChild(el);
+    }
+    const render = () => {
+        const network = game.network;
+        el.textContent = formatNetGraph(network?.connected ? network.getNetGraph?.(game) : null);
+    };
+    render();
+    game._netGraphTimer = setInterval(render, 250);
+    return true;
+}
+
 export const COMMANDS = {
     help: {
         desc: 'Show all commands',
@@ -205,9 +263,11 @@ export const COMMANDS = {
             if (val === -1) {
                 const next = !game.player.armGroup.visible;
                 game.player.setHandVisible(next);
+                window.__store?.set?.('showViewmodel', next);
                 log(`Hand model → ${next ? 'ON' : 'OFF'}`);
             } else if (val === 0 || val === 1) {
                 game.player.setHandVisible(val === 1);
+                window.__store?.set?.('showViewmodel', val === 1);
                 log(`Hand model → ${val === 1 ? 'ON' : 'OFF'}`);
             } else {
                 log('Usage: sv_hand 0 (off) or 1 (on) — no arg toggles');
@@ -306,6 +366,26 @@ export const COMMANDS = {
             return true;
         }
     },
+    viewmodel_fov: {
+        desc: 'Viewmodel field of view (54-80, default 60)',
+        args: '<54-80>',
+        run: (game, args, log) => setViewmodelOption(game, 'fov', args[0], log)
+    },
+    viewmodel_offset_x: {
+        desc: 'Viewmodel horizontal offset (-2..2, + = right)',
+        args: '<-2..2>',
+        run: (game, args, log) => setViewmodelOption(game, 'x', args[0], log)
+    },
+    viewmodel_offset_y: {
+        desc: 'Viewmodel vertical offset (-2..2, + = up)',
+        args: '<-2..2>',
+        run: (game, args, log) => setViewmodelOption(game, 'y', args[0], log)
+    },
+    viewmodel_offset_z: {
+        desc: 'Viewmodel depth offset (-2..2, + = further away)',
+        args: '<-2..2>',
+        run: (game, args, log) => setViewmodelOption(game, 'z', args[0], log)
+    },
     cl_showfps: {
         desc: 'Show FPS counter (0/1)',
         args: '<0|1>',
@@ -322,6 +402,17 @@ export const COMMANDS = {
             el.style.display = v ? '' : 'none';
             game._showFps = !!v;
             log(`FPS counter → ${v ? 'ON' : 'OFF'}`);
+            return true;
+        }
+    },
+    net_graph: {
+        desc: 'Network overlay: ping, jitter, interp delay, packets & bytes/s (0/1)',
+        args: '<0|1>',
+        run: (game, args, log) => {
+            const v = args[0] === undefined ? (game._netGraphTimer ? 0 : 1) : Number(args[0]);
+            if (v !== 0 && v !== 1) { log('Usage: net_graph <0|1>'); return false; }
+            setNetGraph(game, v === 1);
+            log(`net_graph → ${v ? 'ON' : 'OFF'}`);
             return true;
         }
     },
@@ -400,7 +491,7 @@ export class Console {
         this.game = game;
         this.buildUI();
         this.bindKeys();
-        this.log('═══ WARRBALL Console ═══');
+        this.log('═══ VOLLE Console ═══');
         this.log('Type help for commands');
     }
 

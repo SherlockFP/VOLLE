@@ -8,7 +8,8 @@ import { BALL_PRICES } from '../js/battlepass.js';
 const source = await readFile(new URL('../js/ball.js', import.meta.url), 'utf8');
 const testableSource = source
     .replace("import * as THREE from 'three';", 'const THREE = {};')
-    .replace("import { ObjectPool } from './objectPool.js';", 'class ObjectPool {}');
+    .replace("import { ObjectPool } from './objectPool.js';", 'class ObjectPool {}')
+    .replace("import { getBallSkinTexture, rimPowerForSkin, trailIntensityMultiplier, BallImpactFX } from './ball-skin-fx.js';", 'const getBallSkinTexture = () => null; const rimPowerForSkin = () => 5; const trailIntensityMultiplier = () => 1; class BallImpactFX { spawn() {} update() {} clear() {} get activeCount() { return 0; } }');
 const { BALL_SKINS } = await import(`data:text/javascript;base64,${Buffer.from(testableSource).toString('base64')}`);
 
 // ponytail: the 6 skins added in the NewSkins content pass. Kept in sync with

@@ -117,9 +117,11 @@ test('gait phase only advances through speed changes and reduced motion preserve
         armY: regular.armPosition[1], armZ: regular.armPosition[2],
         knifeZ: regular.knifeRotation[2], progress: regular.progress
     };
+    // The keyframed slash moves the arm on Y itself; measure only what gait adds.
+    const stillY = poseFor(state, { phase: 0, weight: 0, speed: 0 }).armPosition[1];
     const reduced = poseFor(state, activeGait, true);
-    const regularBob = Math.abs(regularSnapshot.armY - (-0.3));
-    const reducedBob = Math.abs(reduced.armPosition[1] - (-0.3));
+    const regularBob = Math.abs(regularSnapshot.armY - stillY);
+    const reducedBob = Math.abs(reduced.armPosition[1] - stillY);
     assert.ok(reducedBob <= regularBob * 0.25 + 1e-9);
     assert.equal(reduced.action, 'slash');
     assert.equal(reduced.progress, regularSnapshot.progress);
@@ -221,13 +223,14 @@ test('reduced motion scales the landing-only viewmodel offset without suppressin
     startKnifeAnimation(state, 'slash');
     state.elapsed = state.duration * 0.5;
     const context = { landingElapsed: 0.05, landingDepth: 0.006, gaitPhase: 0, gaitWeight: 0, gaitSpeed: 0 };
+    const stillY = resolveKnifePose(state, { ...context, landingElapsed: 0, landingDepth: 0 }).armPosition[1];
     const regular = resolveKnifePose(state, context);
     const regularSnapshot = { armY: regular.armPosition[1], armZ: regular.armPosition[2], progress: regular.progress };
     const reduced = resolveKnifePose(state, { ...context, reduceMotion: true });
     assert.equal(reduced.action, 'slash');
     assert.equal(reduced.progress, regularSnapshot.progress);
     assert.equal(reduced.armPosition[2], regularSnapshot.armZ);
-    assert.ok(Math.abs(reduced.armPosition[1] + 0.3) <= Math.abs(regularSnapshot.armY + 0.3) * 0.25 + 1e-9);
+    assert.ok(Math.abs(reduced.armPosition[1] - stillY) <= Math.abs(regularSnapshot.armY - stillY) * 0.25 + 1e-9);
 });
 
 test('bhop-scale landing pulse stays at forty percent of the full visual cap', () => {

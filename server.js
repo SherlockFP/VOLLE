@@ -12,10 +12,14 @@ const { verifyMatchReceipt } = require('./server/match-receipt');
 const { CreatorMapStore } = require('./server/creator-map-store');
 const { RequestLimiter } = require('./server/request-limiter');
 const { buildRtcConfig } = require('./server/rtc-config');
-const { PaymentLedger, verifyPaymentEvent } = require('./server/payment-ledger');
+const { GEM_PRICES, PaymentLedger, publicPackCatalog, verifyPaymentEvent } = require('./server/payment-ledger');
+const { createCheckoutSession, paymentEventFromStripe, readRawBody, stripeConfig, verifyStripeSignature } = require('./server/stripe');
 const { TelemetryStore } = require('./server/telemetry');
 const { ProductAnalyticsStore } = require('./server/product-analytics');
 const { MatchAuthority } = require('./server/match-authority');
+const { resolvePublicPath, resolveEntryHtml, isImmutableAsset } = require('./server/static-policy');
+const { CompressionCache } = require('./server/compress');
+const staticCompression = new CompressionCache();
 const { createLiveMarket, findLiveOffer } = require('./server/live-market');
 const {
     normalizeEquippedCosmetics,
@@ -51,7 +55,17 @@ let matchAuthority;
 const MATCH_REWARD_SECRET = process.env.MATCH_REWARD_SECRET || '';
 const CREATOR_MODERATION_KEY = process.env.CREATOR_MODERATION_KEY || '';
 const PAYMENT_WEBHOOK_SECRET = process.env.PAYMENT_WEBHOOK_SECRET || '';
-const COSMETIC_ENTITLEMENT_SECRET = crypto.randomBytes(32);
+// Set in production so entitlements survive restarts and are shared by every instance;
+// the random fallback invalidates live lobbies' cosmetic tokens on each deploy.
+const COSMETIC_ENTITLEMENT_SECRET = process.env.COSMETIC_ENTITLEMENT_SECRET?.length >= 32
+    ? Buffer.from(process.env.COSMETIC_ENTITLEMENT_SECRET)
+    : crypto.randomBytes(32);
+if (process.env.NODE_ENV === 'production') {
+    for (const [name, value] of [['COSMETIC_ENTITLEMENT_SECRET', process.env.COSMETIC_ENTITLEMENT_SECRET],
+        ['MATCH_REWARD_SECRET', MATCH_REWARD_SECRET], ['PAYMENT_WEBHOOK_SECRET', PAYMENT_WEBHOOK_SECRET]]) {
+        if (!value || value.length < 32) console.warn(`[server] ${name} is unset or shorter than 32 chars; the dependent feature is disabled or non-persistent.`);
+    }
+}
 const requestLimiter = new RequestLimiter();
 const RATE_LIMITS = {
     session: [10, 60000],
@@ -79,8 +93,46 @@ const RATE_LIMITS = {
     paymentWebhook: [40, 60000],
     telemetry: [120, 60000],
     productAnalytics: [120, 60000],
-    rtcConfig: [60, 60000]
+    rtcConfig: [60, 60000],
+    leaderboard: [60, 60000]
 };
+
+// --- Leaderboard cache -----------------------------------------------------
+// Ranked/season/wins boards are re-sorted from ProfileStore at most once per
+// LEADERBOARD_CACHE_TTL window (O(n log n) once, not per request); every
+// request in that window reads the precomputed arrays below. rankIndex lets
+// `around=me` locate the caller's row in O(1) instead of a linear scan.
+const LEADERBOARD_CACHE_TTL = 30000;
+let leaderboardCache = null;
+
+function stripProfileId({ profileId, ...publicEntry }) {
+    return publicEntry;
+}
+
+function buildLeaderboardCache(now) {
+    const eligible = profiles.leaderboardEntries().filter(entry => entry.placed);
+    const sorters = {
+        ranked: (a, b) => b.elo - a.elo || a.profileId.localeCompare(b.profileId),
+        season: (a, b) => (b.seasonDelta - a.seasonDelta) || (b.elo - a.elo) || a.profileId.localeCompare(b.profileId),
+        wins: (a, b) => (b.wins - a.wins) || (b.winRate - a.winRate) || (b.elo - a.elo) || a.profileId.localeCompare(b.profileId)
+    };
+    const boards = {};
+    const rankIndex = {};
+    for (const [board, sorter] of Object.entries(sorters)) {
+        const sorted = [...eligible].sort(sorter).map((entry, index) => ({ ...entry, rank: index + 1 }));
+        boards[board] = sorted;
+        rankIndex[board] = new Map(sorted.map((entry, index) => [entry.profileId, index]));
+    }
+    return { builtAt: now, boards, rankIndex, total: eligible.length };
+}
+
+function getLeaderboardCache() {
+    const now = Date.now();
+    if (!leaderboardCache || now - leaderboardCache.builtAt >= LEADERBOARD_CACHE_TTL) {
+        leaderboardCache = buildLeaderboardCache(now);
+    }
+    return leaderboardCache;
+}
 
 function validModerationKey(req) {
     if (CREATOR_MODERATION_KEY.length < 32) return false;
@@ -107,7 +159,9 @@ const MIME = {
 
 // --- In-memory lobby registry for the lobby browser (no external deps) ---
 // Hosts register their room code + metadata; clients list + quick-join.
-const lobbies = new Map(); // code -> { code, name, players, map, mode, hostName, updatedAt }
+const lobbies = new Map(); // code -> { code, name, players, spectators, map, mode, hostName, updatedAt }
+// Mirrors MAX_LOBBY_SPECTATORS in js/network.js (host-side P2P cap).
+const MAX_LOBBY_SPECTATORS = 16;
 const LOBBY_SPORTS = Object.freeze({
     dodgeball: Object.freeze({
         rulesets: new Set(['classic', 'speedball', 'lowgrav', 'instagib', 'tanky', 'multiball', 'tiny', 'giant', 'freeze', 'hotpotato', 'ffa', 'competitive', 'rally_duel', 'pinball', 'goal_rush']),
@@ -227,6 +281,7 @@ function requireAuth(req, res, body = null) {
 function publicLobby(record) {
     if (!record) return null;
     const { ownerAccountId, memberProfileIds, admissionToken, ...visible } = record;
+    delete visible.spectatorProfileIds; // private, like memberProfileIds
     return visible;
 }
 
@@ -529,6 +584,50 @@ const server = http.createServer(async (req, res) => {
         if (auth) sendJson(res, { profile: profiles._public(auth.profile), account: auth.account });
         return;
     }
+    // Public ranked/season/wins ladder. Auth is optional — guests see the
+    // board, only `around=me` needs a session — and every entry is a
+    // publicCode + display name, never the internal profile id.
+    if (urlPath === '/api/leaderboard' && req.method === 'GET') {
+        if (!allowRequest(req, res, 'leaderboard')) return;
+        const params = new URLSearchParams(req.url.split('?')[1] || '');
+        const boardParam = params.get('board') || 'ranked';
+        if (!['ranked', 'season', 'wins'].includes(boardParam)) {
+            sendJson(res, { error: 'unsupported board' }, 400);
+            return;
+        }
+        const seasonParam = params.get('season') || 'current';
+        if (seasonParam !== 'current') {
+            sendJson(res, { error: 'unsupported season' }, 400);
+            return;
+        }
+        const requestedLimit = Math.floor(Number(params.get('limit')));
+        const limit = Number.isFinite(requestedLimit) ? Math.min(50, Math.max(1, requestedLimit)) : 50;
+        const cache = getLeaderboardCache();
+        const list = cache.boards[boardParam];
+        const response = {
+            board: boardParam,
+            season: seasonParam,
+            generatedAt: cache.builtAt,
+            total: cache.total,
+            entries: list.slice(0, limit).map(stripProfileId)
+        };
+        if (params.get('around') === 'me') {
+            const profileId = resolveAuth(req)?.profile?.id;
+            const index = profileId ? cache.rankIndex[boardParam].get(profileId) : undefined;
+            if (index === undefined) {
+                response.me = null;
+            } else {
+                const windowStart = Math.max(0, index - 2);
+                const windowEnd = Math.min(list.length, index + 3);
+                response.me = {
+                    entry: stripProfileId(list[index]),
+                    neighbours: list.slice(windowStart, windowEnd).map(stripProfileId)
+                };
+            }
+        }
+        sendJson(res, response);
+        return;
+    }
     if (urlPath === '/api/profile/onboarding' && req.method === 'POST') {
         if (!allowRequest(req, res, 'onboarding')) return;
         const body = await readBody(req, 512);
@@ -775,7 +874,7 @@ const server = http.createServer(async (req, res) => {
         const profile = requireAuth(req, res, body)?.profile;
         if (!profile) return;
         const requestId = req.headers['idempotency-key'] || body.requestId;
-        const result = profiles.openCase(profile, body.caseId, requestId);
+        const result = profiles.openCase(profile, body.caseId, requestId, null, { dailyFree: body.daily === true });
         sendJson(res, result.error ? { error: result.error } : {
             profile: result.profile,
             result: result.result,
@@ -948,6 +1047,8 @@ const server = http.createServer(async (req, res) => {
             memberProfileIds,
             admissionToken,
             players: b.players || 1,
+            spectators: Math.max(0, Math.min(MAX_LOBBY_SPECTATORS, Math.floor(Number(b.spectators) || 0))),
+            spectatorProfileIds: prior?.spectatorProfileIds instanceof Set ? new Set(prior.spectatorProfileIds) : new Set(),
             map: b.map || 'Unknown',
             mode: b.mode || 'Classic',
             ranked: b.ranked === true,
@@ -973,8 +1074,16 @@ const server = http.createServer(async (req, res) => {
         const expected = Buffer.from(String(lobby.admissionToken || ''));
         if (!expected.length || expected.length !== proof.length || !crypto.timingSafeEqual(expected, proof)) { sendJson(res, { error: 'invalid lobby admission proof' }, 403); return; }
         lobby.memberProfileIds = lobby.memberProfileIds instanceof Set ? lobby.memberProfileIds : new Set([lobby.ownerProfileId].filter(Boolean));
-        if (!lobby.memberProfileIds.has(auth.profile.id) && lobby.memberProfileIds.size >= lobby.maxPlayers) { sendJson(res, { error: 'lobby full' }, 409); return; }
-        lobby.memberProfileIds.add(auth.profile.id);
+        if (b.spectator === true) {
+            // Spectators never take a player slot (and are not match members); they
+            // have their own small cap so a full lobby can still be watched.
+            lobby.spectatorProfileIds = lobby.spectatorProfileIds instanceof Set ? lobby.spectatorProfileIds : new Set();
+            if (!lobby.spectatorProfileIds.has(auth.profile.id) && lobby.spectatorProfileIds.size >= MAX_LOBBY_SPECTATORS) { sendJson(res, { error: 'spectator seats full' }, 409); return; }
+            lobby.spectatorProfileIds.add(auth.profile.id);
+        } else {
+            if (!lobby.memberProfileIds.has(auth.profile.id) && lobby.memberProfileIds.size >= lobby.maxPlayers) { sendJson(res, { error: 'lobby full' }, 409); return; }
+            lobby.memberProfileIds.add(auth.profile.id);
+        }
         lobby.lastSeen = Date.now();
         sendJson(res, {
             ok: true,
@@ -990,7 +1099,7 @@ const server = http.createServer(async (req, res) => {
         const code = decodeURIComponent(urlPath.slice('/api/lobbies/'.length, -'/leave'.length)); const lobby = lobbies.get(code);
         if (!lobby) { sendJson(res, { error: 'lobby unavailable' }, 404); return; }
         if (lobby.ownerAccountId === auth.account.id) { sendJson(res, { error: 'host must close lobby' }, 403); return; }
-        lobby.memberProfileIds?.delete(auth.profile.id); lobby.lastSeen = Date.now(); sendJson(res, { ok: true }); return;
+        lobby.memberProfileIds?.delete(auth.profile.id); lobby.spectatorProfileIds?.delete(auth.profile.id); lobby.lastSeen = Date.now(); sendJson(res, { ok: true }); return;
     }
     if (urlPath.startsWith('/api/lobbies/') && (req.method === 'DELETE' || req.method === 'POST')) {
         if (!allowRequest(req, res, 'lobbyWrite')) return;
@@ -1053,11 +1162,13 @@ const server = http.createServer(async (req, res) => {
     }
     // sendBeacon can only POST — used by the client's beforeunload to close a lobby.
     // --- Static files ---
-    let filePath = urlPath === '/' ? '/index.html' : urlPath;
-    const fullPath = path.join(ROOT, filePath);
-    // Prevent path traversal
-    if (!fullPath.startsWith(ROOT)) {
-        res.writeHead(403); res.end('Forbidden'); return;
+    const filePath = urlPath === '/' ? '/index.html' : urlPath;
+    // Allowlist: data/ (accounts.db), server/, .git and docs live under ROOT too.
+    const fullPath = urlPath === '/' || urlPath === '/index.html'
+        ? resolveEntryHtml(ROOT)
+        : resolvePublicPath(ROOT, urlPath);
+    if (!fullPath) {
+        res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('404 Not Found'); return;
     }
     fs.readFile(fullPath, (err, data) => {
         if (err) {
@@ -1068,11 +1179,19 @@ const server = http.createServer(async (req, res) => {
         }
         const ext = path.extname(fullPath).toLowerCase();
         const headers = { 'Content-Type': MIME[ext] || 'application/octet-stream' };
-        if (ext === '.html' || ext === '.css' || ext === '.js') {
+        if (isImmutableAsset(urlPath)) {
+            headers['Cache-Control'] = 'public, max-age=31536000, immutable';
+        } else if (ext === '.html' || ext === '.css' || ext === '.js') {
             headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
         }
+        const { body, encoding } = staticCompression.encode(data, ext, req.headers['accept-encoding']);
+        if (encoding) {
+            headers['Content-Encoding'] = encoding;
+            headers['Vary'] = 'Accept-Encoding';
+        }
+        headers['Content-Length'] = body.length;
         res.writeHead(200, headers);
-        res.end(data);
+        res.end(body);
     });
 });
 

@@ -7,6 +7,10 @@ import { createKnifeModel, disposeObject3D } from './weapon-models.js';
 import { KNIVES } from './cosmetics.js';
 import { createCharacterRig } from './character-rig.js';
 import { createCharacterAnimator } from './character-anim.js';
+import { clampToCourtHalf } from './court-rules.js';
+
+// Bot body radius used against the cross-court midline.
+export const BOT_MIDLINE_MARGIN = 0.6;
 
 // ponytail: depthTest:true — sprites hide behind walls, no punch-through
 const DISABLE_SPRITES = false;
@@ -522,6 +526,14 @@ export class Bot {
             const pushUp = (ballZ > 5 ? 3 : 1) + this._tendencyDepthBias;
             this._walkMinZ = Math.max(this._walkMinZ, pushUp);
             if (this.position.z < pushUp) this.position.z = pushUp;
+        }
+        // Cross-court rule (js/court-rules.js): an aggressive depth bias may push the
+        // line above past z=0 — while crossing is locked the midline is a hard wall.
+        const courtSide = this._gameRef?.getCourtConfinementSide?.(this.team) || 0;
+        if (courtSide) {
+            this.position.z = clampToCourtHalf(this.position.z, courtSide, BOT_MIDLINE_MARGIN);
+            if (courtSide < 0) this._walkMaxZ = Math.min(this._walkMaxZ, -BOT_MIDLINE_MARGIN);
+            else this._walkMinZ = Math.max(this._walkMinZ, BOT_MIDLINE_MARGIN);
         }
 
         this.position.y = 0;

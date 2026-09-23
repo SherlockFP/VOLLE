@@ -42,7 +42,7 @@ test('ball catalog contains the new cosmetic skin collection', () => {
 test('wearable catalog is server-priced and migrated through its own ownership field', t => {
     const { dir, store } = tempStore();
     t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-    assert.equal(Object.keys(CATALOG.cosmetic).length, 96);
+    assert.equal(Object.keys(CATALOG.cosmetic).length, 120);
     const session = store.session('', 'Player', {
         currency: 1000,
         ownedCosmetics: ['cape_ember', 'unknown_cosmetic']
@@ -80,6 +80,24 @@ test('server case opening is priced, persistent, and idempotent', t => {
     const replay = store.openCase(profile, 'elemental', 'case:elemental:first', 0.99);
     assert.equal(replay.replayed, true);
     assert.equal(profile.currency, 810);
+});
+
+test('daily free case is server-owned: once per UTC day, Kickoff only, never charges', t => {
+    const { dir, store } = tempStore();
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const session = store.session('', 'Daily', { currency: 500 });
+    const profile = store.authenticate(session.token);
+    const dayOne = Date.UTC(2026, 8, 23, 12);
+    const dayTwo = Date.UTC(2026, 8, 24, 1);
+    const first = store.openCase(profile, 'kickoff', 'daily:first-open', 0, { dailyFree: true, now: dayOne });
+    assert.equal(first.status, 200);
+    assert.equal(first.result.free, true);
+    assert.ok(profile.currency >= 500, 'a free opening never debits credits');
+    const replay = store.openCase(profile, 'kickoff', 'daily:first-open', 0.9, { dailyFree: true, now: dayOne });
+    assert.equal(replay.replayed, true);
+    assert.equal(store.openCase(profile, 'kickoff', 'daily:second-open', 0, { dailyFree: true, now: dayOne }).status, 409);
+    assert.equal(store.openCase(profile, 'mythic', 'daily:wrong-case', 0, { dailyFree: true, now: dayTwo }).status, 400);
+    assert.equal(store.openCase(profile, 'kickoff', 'daily:next-day', 0, { dailyFree: true, now: dayTwo }).status, 200);
 });
 
 test('legacy migration clamps currency and filters unknown ownership', t => {

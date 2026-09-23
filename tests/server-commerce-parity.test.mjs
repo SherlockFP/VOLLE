@@ -25,7 +25,8 @@ const { CATALOG, ProfileStore } = require('../server/profile-store');
 const ballSource = await readFile(new URL('../js/ball.js', import.meta.url), 'utf8');
 const testableBallSource = ballSource
     .replace("import * as THREE from 'three';", 'const THREE = {};')
-    .replace("import { ObjectPool } from './objectPool.js';", 'class ObjectPool {}');
+    .replace("import { ObjectPool } from './objectPool.js';", 'class ObjectPool {}')
+    .replace("import { getBallSkinTexture, rimPowerForSkin, trailIntensityMultiplier, BallImpactFX } from './ball-skin-fx.js';", 'const getBallSkinTexture = () => null; const rimPowerForSkin = () => 5; const trailIntensityMultiplier = () => 1; class BallImpactFX { spawn() {} update() {} clear() {} get activeCount() { return 0; } }');
 const { BALL_SKINS } = await import(`data:text/javascript;base64,${Buffer.from(testableBallSource).toString('base64')}`);
 
 test('every purchasable BALL_SKINS id is server-authorized at the exact client price', () => {

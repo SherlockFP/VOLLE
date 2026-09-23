@@ -9,7 +9,7 @@ export const JOINTS = Object.freeze([
 
 export const POSE_STATES = Object.freeze([
     'idle', 'walk', 'run', 'jump', 'fall', 'land',
-    'throw', 'deflect', 'hit', 'dead', 'emote', 'victory'
+    'throw', 'deflect', 'hit', 'dead', 'emote', 'victory', 'showoff'
 ]);
 
 const TAU = Math.PI * 2;
@@ -170,6 +170,23 @@ export function poseFor(state, time = 0, params = {}) {
             pose.hipL.x = -.18; pose.kneeL.x = .3;
             pose.offsetY = Math.abs(Math.sin(phase)) * .16;
             pose.head.x = -.18;
+            break;
+        }
+        case 'showoff': {
+            // Menu hero: right forearm raised across the chest presenting the held
+            // knife; the upper arm slowly rolls so both blade faces catch the light.
+            const phase = t * 1.6 + seed;
+            pose.offsetY = Math.sin(phase) * .018;
+            pose.torso.x = Math.sin(phase) * .022;
+            pose.torso.y = -.12;
+            pose.shoulderR.x = -1.05 + Math.sin(phase * .5) * .05;
+            pose.shoulderR.z = .28;
+            pose.shoulderR.y = Math.sin(t * .9 + seed) * .32;
+            pose.elbowR.x = -1.3;
+            pose.shoulderL.x = Math.sin(phase) * .05;
+            pose.shoulderL.z = -.1;
+            pose.head.x = .16;
+            pose.head.y = -.22 + Math.sin(phase * .42) * .05;
             break;
         }
         case 'idle':

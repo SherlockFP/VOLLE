@@ -5,7 +5,8 @@ import { readFile } from 'node:fs/promises';
 const source = await readFile(new URL('../js/ball.js', import.meta.url), 'utf8');
 const testableSource = source
     .replace("import * as THREE from 'three';", 'const THREE = {};')
-    .replace("import { ObjectPool } from './objectPool.js';", 'class ObjectPool {}');
+    .replace("import { ObjectPool } from './objectPool.js';", 'class ObjectPool {}')
+    .replace("import { getBallSkinTexture, rimPowerForSkin, trailIntensityMultiplier, BallImpactFX } from './ball-skin-fx.js';", 'const getBallSkinTexture = () => null; const rimPowerForSkin = () => 5; const trailIntensityMultiplier = () => 1; class BallImpactFX { spawn() {} update() {} clear() {} get activeCount() { return 0; } }');
 const { Ball, BALL_SKINS } = await import(
     `data:text/javascript;base64,${Buffer.from(testableSource).toString('base64')}`
 );
@@ -27,6 +28,9 @@ test('setSkin normalizes the id and refreshes shape, trail, and live material', 
     const context = {
         starMat: { color: new ColorValue() },
         _applyShape: shape => calls.push(['shape', shape]),
+        // ball-skin-fx.js pass: setSkin() now also refreshes the procedural per-skin
+        // surface material (texture/rim power/legendary rim) before recomputing color.
+        _applySkinMaterial: skin => calls.push(['skin-material', skin.name]),
         clearTrail: () => calls.push(['trail']),
         updateColor: () => calls.push(['material'])
     };
@@ -34,7 +38,7 @@ test('setSkin normalizes the id and refreshes shape, trail, and live material', 
     assert.equal(Ball.prototype.setSkin.call(context, 'dark_eater'), 'dark_eater');
     assert.equal(context.skinId, 'dark_eater');
     assert.equal(context.skinConfig, BALL_SKINS.dark_eater);
-    assert.deepEqual(calls, [['shape', 'orb'], ['trail'], ['material']]);
+    assert.deepEqual(calls, [['shape', 'orb'], ['skin-material', BALL_SKINS.dark_eater.name], ['trail'], ['material']]);
 
     assert.equal(Ball.prototype.setSkin.call(context, 'missing_skin'), 'classic');
     assert.equal(context.skinId, 'classic');

@@ -115,7 +115,7 @@ test('success retains identity and admission routing and removes the deadline li
     const conn = f.start();
     assert.deepEqual(f.requests[0].options.metadata, {
         name: 'Returning player', password: 'private-lobby', playerId: identity[0],
-        capabilities: { positionV2: true, migrationVotes: true }
+        capabilities: { positionV2: true, migrationVotes: true, netV3: true }
     });
     conn.openNow();
     conn.openNow();

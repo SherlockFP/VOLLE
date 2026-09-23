@@ -13,7 +13,7 @@ const indexHtml = await readFile(new URL('index.html', root), 'utf8');
 
 test('manifest.webmanifest is valid JSON with required installability fields', () => {
     const manifest = JSON.parse(manifestRaw);
-    assert.equal(manifest.name, 'Warrball');
+    assert.equal(manifest.name, 'VOLLE');
     assert.equal(typeof manifest.short_name, 'string');
     assert.ok(manifest.short_name.length > 0);
     assert.equal(manifest.start_url, '.');

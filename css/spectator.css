@@ -1,0 +1,143 @@
+/* spectator.css — join-as-spectator lobby UI, stands HUD, cross-court toggle. */
+
+/* ---- Lobby browser card ---- */
+.mp-lobby-card .btn-spectate {
+    margin-left: 6px;
+}
+
+.lobby-spectator-count {
+    display: block;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--ui-muted, #a4c8cc);
+}
+
+/* ---- Lobby screen: rule toggle + spectator list ---- */
+.cs-section-spectate {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.cross-court-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--ui-text, #effffd);
+    cursor: pointer;
+}
+
+.cross-court-toggle input {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--ui-primary, #36d8ca);
+}
+
+.cross-court-toggle input:disabled,
+.cross-court-toggle input:disabled + span {
+    cursor: default;
+    opacity: 0.72;
+}
+
+.lobby-spectators {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 10px;
+    border: 1px solid var(--ui-border, #27606b);
+    border-radius: 6px;
+    background: rgb(6 21 27 / 0.6);
+    font-size: 12px;
+    color: var(--ui-muted, #a4c8cc);
+}
+
+.lobby-spectators.hidden {
+    display: none;
+}
+
+.lobby-spectators-label {
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    color: var(--ui-info, #70ddff);
+}
+
+.lobby-spectators-names {
+    overflow-wrap: anywhere;
+}
+
+.lobby-spectator-self {
+    display: none;
+    font-weight: 700;
+    color: var(--ui-warning, #ffc665);
+}
+
+/* A spectator has no team slot: hide team/ready/bot controls. */
+#lobby-screen.lobby-spectator .lobby-spectator-self {
+    display: block;
+}
+
+#lobby-screen.lobby-spectator .cs-team-actions,
+#lobby-screen.lobby-spectator #btn-party-ready,
+#lobby-screen.lobby-spectator #btn-start-game {
+    display: none;
+}
+
+/* ---- In-match HUD ---- */
+.hud-spectator-count {
+    position: fixed;
+    top: 72px;
+    right: 16px;
+    z-index: 110;
+    padding: 4px 10px;
+    border: 1px solid rgb(112 221 255 / 0.45);
+    border-radius: 999px;
+    background: rgb(5 17 30 / 0.78);
+    color: #bfe9ff;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    pointer-events: none;
+}
+
+.hud-spectator-count.hidden {
+    display: none;
+}
+
+.spectator-joined-hint,
+#spectator-info [data-spectator-mode="stands"] {
+    display: none;
+}
+
+#spectator-info[data-context="joined"] .spectator-joined-hint {
+    display: block;
+}
+
+#spectator-info[data-context="joined"] [data-spectator-mode="stands"] {
+    display: inline-flex;
+}
+
+#spectator-info[data-context="joined"] .spectator-hint:not(.spectator-joined-hint),
+#spectator-info[data-context="joined"] [data-spectator-mode="free-roam"] {
+    display: none;
+}
+
+/* Joined spectators are not playing: no vitals, no skill bar. */
+body.joined-spectator #vitals {
+    display: none;
+}
+
+@media (max-width: 720px) {
+    .hud-spectator-count {
+        top: 60px;
+        right: 12px;
+        font-size: 11px;
+    }
+
+    .mp-lobby-card .btn-spectate {
+        margin-left: 0;
+        margin-top: 4px;
+    }
+}

@@ -14,7 +14,7 @@ class MockAudioContext {
         this.destination = {};
     }
     createGain() {
-        return { gain: { value: 0.5, setValueAtTime: () => {}, exponentialRampToValueAtTime: () => {} }, connect: () => {} };
+        return { gain: { value: 0.5, setValueAtTime: () => {}, linearRampToValueAtTime: () => {}, exponentialRampToValueAtTime: () => {} }, connect: () => {} };
     }
     createOscillator() {
         const osc = { type: 'sine', frequency: { value: 440, setValueAtTime: () => {}, exponentialRampToValueAtTime: () => {}, linearRampToValueAtTime: () => {} }, detune: { value: 0 }, connect: () => {}, start: () => {}, stop: () => {} };
@@ -22,7 +22,7 @@ class MockAudioContext {
         return osc;
     }
     createBiquadFilter() {
-        return { type: 'lowpass', frequency: { value: 1000, setValueAtTime: () => {}, exponentialRampToValueAtTime: () => {} }, Q: { value: 0.5 }, connect: () => {} };
+        return { type: 'lowpass', frequency: { value: 1000, setValueAtTime: () => {}, linearRampToValueAtTime: () => {}, exponentialRampToValueAtTime: () => {} }, Q: { value: 0.5 }, connect: () => {} };
     }
     createDynamicsCompressor() {
         return { threshold: { value: -14 }, knee: { value: 24 }, ratio: { value: 8 }, attack: { value: 0.003 }, release: { value: 0.2 }, connect: () => {} };
@@ -36,7 +36,7 @@ class MockAudioContext {
         };
     }
     createBufferSource() {
-        return { buffer: null, connect: () => {}, start: () => {} };
+        return { buffer: null, connect: () => {}, start: () => {}, stop: () => {} };
     }
     resume() {
         return Promise.resolve();

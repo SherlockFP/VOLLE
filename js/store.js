@@ -229,6 +229,16 @@ export function shouldShowFtueWelcome(ftueSeen) {
     return ftueSeen !== true;
 }
 
+// Pure: a player who has not finished a match yet. Local stats alone are not
+// enough — an account on a new device carries server ranked/battle pass progress.
+export function isNewPlayerProfile(data) {
+    if (Math.max(0, Number(data?.stats?.gamesPlayed) || 0) > 0) return false;
+    if (Math.max(0, Number(data?.rankedState?.currentSeason?.record?.games) || 0) > 0) return false;
+    const pass = data?.battlepass;
+    if ((Number(pass?.xp) || 0) > 0 || (Number(pass?.tier) || 0) > 1) return false;
+    return true;
+}
+
 // Pure: whether the first-solo-match HUD hints should arm, given the persisted flag.
 export function shouldArmFirstMatchHints(ftueMatchHintsSeen) {
     return ftueMatchHintsSeen !== true;
@@ -368,7 +378,7 @@ class StoreClass {
         const fields = [
             'currency', 'gems', 'ownedBalls',
             'ownedSkills', 'ownedItems', 'ownedAvatarSkins', 'ownedKnives',
-            'ownedCosmetics', 'casePity', 'earnedCases', 'caseDropDrought', 'equippedWearables', 'economyRevision', 'adRewards', 'dailyStreak', 'dailyChallenges',
+            'ownedCosmetics', 'casePity', 'earnedCases', 'caseDropDrought', 'equippedWearables', 'economyRevision', 'adRewards', 'dailyStreak', 'dailyChallenges', 'dailyFreeCaseDay',
             'cardCollection', 'equippedCards', 'arenaCache', 'rankedState', 'battlepass', 'battlepassBoosts', 'battlepassActiveBoost'
         ];
         fields.forEach(field => {
@@ -1222,7 +1232,7 @@ class StoreClass {
         const refund = duplicate ? ((free || usesEarned) ? 35 : Math.floor(box.price * 0.35)) : 0;
         if (refund) this.data.currency += refund;
         else if (owned.length < 64) owned.push(reward.id);
-        const premium = reward.rarity === 'epic' || reward.rarity === 'legendary';
+        const premium = ['epic', 'legendary', 'exotic'].includes(reward.rarity);
         this.data.casePity = { ...(this.data.casePity || {}), [caseId]: premium ? 0 : pityBefore + 1 };
         this.save();
         return {
@@ -1262,7 +1272,7 @@ class StoreClass {
         if (this._caseOpenRequests.get(scope)?.requestId === requestId) this._caseOpenRequests.delete(scope);
     }
 
-    async _performCaseOpenRemote(caseId, scope, requestId) {
+    async _performCaseOpenRemote(caseId, scope, requestId, daily = false) {
         try {
             const response = await fetch('/api/profile/cases/open', {
                 method: 'POST',
@@ -1271,7 +1281,7 @@ class StoreClass {
                     'Idempotency-Key': requestId,
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ caseId, requestId })
+                body: JSON.stringify(daily ? { caseId, requestId, daily: true } : { caseId, requestId })
             });
             if (!response.ok) {
                 if (isDefinitiveCaseOpenRejection(response.status)) this._clearCaseOpenRequest(scope, requestId);
@@ -1290,14 +1300,14 @@ class StoreClass {
         }
     }
 
-    async openCaseRemote(caseId) {
+    async openCaseRemote(caseId, { daily = false } = {}) {
         if (!this.remoteReady && !await this.connectRemote(this.get('playerName'))) return null;
         if (!CASES[caseId]) return null;
-        const scope = this._caseOpenScope(caseId);
+        const scope = this._caseOpenScope(daily ? `daily:${caseId}` : caseId);
         const active = this._caseOpenFlights.get(scope);
         if (active) return active;
         const requestId = this._caseOpenRequest(scope, caseId);
-        const operation = this._performCaseOpenRemote(caseId, scope, requestId);
+        const operation = this._performCaseOpenRemote(caseId, scope, requestId, daily);
         this._caseOpenFlights.set(scope, operation);
         try {
             return await operation;
@@ -1385,23 +1395,12 @@ class StoreClass {
         return {
             today,
             loginClaimed: rewards.lastLoginClaim === today,
-            freeCaseClaimed: rewards.lastFreeCase === today,
+            freeCaseClaimed: this.remoteReady
+                ? this.data.dailyFreeCaseDay === utcDateKey(now)
+                : rewards.lastFreeCase === today,
             streak: nextStreak,
             loginCoins: 40 + nextStreak * 10
         };
-    }
-
-    claimDailyLogin(now = new Date()) {
-        const state = this.getDailyRewardState(now);
-        if (!state.today || state.loginClaimed) return null;
-        this.data.dailyRewards = {
-            ...(this.data.dailyRewards || DEFAULTS.dailyRewards),
-            lastLoginClaim: state.today,
-            loginStreak: state.streak
-        };
-        this.data.currency += state.loginCoins;
-        this.save();
-        return { coins: state.loginCoins, streak: state.streak };
     }
 
     openDailyCase(caseId = 'kickoff', random = Math.random, now = new Date()) {

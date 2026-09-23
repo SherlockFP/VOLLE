@@ -171,3 +171,71 @@ test('mouse sway remains bounded under hostile input', () => {
     assert.ok(Math.abs(pose.armPosition[0]) < 1);
     assert.ok(Math.abs(pose.armPosition[1]) < 1);
 });
+
+test('keyframed tracks start and end at rest (full turns count as rest)', async () => {
+    const { KNIFE_TRACKS } = await import('../js/knife-animation.js');
+    const turn = Math.PI * 2;
+    const atRest = (value, index) => {
+        // Knife rotations (key columns 7-9 → indices 6-8 after slice(1)) may end on whole turns.
+        const isRotation = index >= 6 && index <= 8;
+        const r = isRotation ? ((value % turn) + turn) % turn : Math.abs(value);
+        return Math.min(r, isRotation ? turn - r : r) < 1e-9;
+    };
+    for (const [name, track] of Object.entries(KNIFE_TRACKS)) {
+        const first = track[0];
+        const last = track[track.length - 1];
+        assert.equal(first[0], 0, `${name} must start at t=0`);
+        assert.equal(last[0], 1, `${name} must end at t=1`);
+        assert.ok(last.slice(1).every(atRest), `${name} must settle back to rest`);
+        if (name !== 'draw') assert.ok(first.slice(1).every(atRest), `${name} must start from rest`);
+        for (let i = 1; i < track.length; i++) assert.ok(track[i][0] > track[i - 1][0], `${name} keys must be time-ordered`);
+    }
+});
+
+test('track sampling passes through every key and reuses the output buffer', async () => {
+    const { KNIFE_TRACKS, sampleKnifeTrack } = await import('../js/knife-animation.js');
+    const out = new Float64Array(12);
+    for (const track of Object.values(KNIFE_TRACKS)) {
+        for (const k of track) {
+            const sampled = sampleKnifeTrack(track, k[0], out);
+            assert.equal(sampled, out);
+            for (let c = 0; c < 12; c++) assert.ok(Math.abs(sampled[c] - k[c + 1]) < 1e-9);
+        }
+    }
+});
+
+test('repeated inspects alternate face-flip and edge-look; rare stays rare', () => {
+    const state = createKnifeAnimationState('classic');
+    const variants = [];
+    for (let i = 0; i < 4; i++) { startKnifeAnimation(state, 'inspect', () => 0.5); variants.push(state.variant); }
+    assert.deepEqual(variants, ['standard', 'edge', 'standard', 'edge']);
+    startKnifeAnimation(state, 'inspect', () => 0.01);
+    assert.equal(state.variant, 'rare');
+});
+
+test('twirl ends on rest, and a press mid-twirl queues exactly one seamless follow-up', () => {
+    const state = createKnifeAnimationState('classic');
+    startKnifeAnimation(state, 'twirl');
+    assert.equal(state.action, 'twirl');
+    stepKnifeAnimation(state, state.duration * 0.5);
+    startKnifeAnimation(state, 'twirl');
+    startKnifeAnimation(state, 'twirl'); // extra spam does not stack beyond one
+    const before = state.elapsed;
+    assert.ok(before > 0, 'a queued press must not restart the current twirl');
+    stepKnifeAnimation(state, 0.1);
+    stepKnifeAnimation(state, 0.1);
+    stepKnifeAnimation(state, 0.1);
+    assert.equal(state.action, 'twirl', 'the queued twirl chains on');
+    for (let i = 0; i < 20; i++) stepKnifeAnimation(state, 0.1);
+    assert.equal(state.action, 'idle');
+});
+
+test('hook and butterfly twirls spin their parts; others flip the whole item a full turn', () => {
+    for (const model of ['karambit', 'talon', 'butterfly', 'classic', 'kukri']) {
+        const state = createKnifeAnimationState(model);
+        startKnifeAnimation(state, 'twirl');
+        state.elapsed = state.duration * 0.999;
+        const pose = resolveKnifePose(state);
+        for (const value of [...pose.armPosition, ...pose.knifeRotation]) assert.ok(Number.isFinite(value), model);
+    }
+});

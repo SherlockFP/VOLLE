@@ -2,12 +2,38 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
+// The ONE real-money catalog. Checkout (server/stripe.js), the webhook price
+// check below and the client Gems tab (/api/payments/catalog) all read this;
+// the browser never sends a price. See docs/PAYMENTS.md.
 const PREMIUM_PACKS = Object.freeze({
-    gems_100: Object.freeze({ gems: 100, amountMinor: 199, currency: 'USD' }),
-    gems_550: Object.freeze({ gems: 550, amountMinor: 899, currency: 'USD' }),
-    gems_1200: Object.freeze({ gems: 1200, amountMinor: 1699, currency: 'USD' })
+    gems_100: Object.freeze({ gems: 100, amountMinor: 199, currency: 'USD', label: '100 Gems' }),
+    gems_550: Object.freeze({ gems: 550, amountMinor: 899, currency: 'USD', label: '550 Gems' }),
+    gems_1200: Object.freeze({ gems: 1200, amountMinor: 1699, currency: 'USD', label: '1,200 Gems' })
+});
+// Everything gems can buy. Direct, non-random items only: docs/V3_ECONOMY.md and
+// tests/loot-box-policy.test.cjs forbid any case, key or other random reward here.
+const GEM_PRICES = Object.freeze({
+    battlepass_premium: 500
 });
 const EVENT_ID_PATTERN = /^[A-Za-z0-9._:-]{8,96}$/;
+
+// Bonus % is relative to the smallest pack's gems-per-cent rate; the best value
+// tag goes to the highest rate. Derived, so a price edit can never mislabel.
+function publicPackCatalog() {
+    const entries = Object.entries(PREMIUM_PACKS);
+    const rate = pack => pack.gems / pack.amountMinor;
+    const baseRate = Math.min(...entries.map(([, pack]) => rate(pack)));
+    const bestRate = Math.max(...entries.map(([, pack]) => rate(pack)));
+    return entries.map(([id, pack]) => ({
+        id,
+        label: pack.label,
+        gems: pack.gems,
+        amountMinor: pack.amountMinor,
+        currency: pack.currency,
+        bonusPct: Math.max(0, Math.round((rate(pack) / baseRate - 1) * 100)),
+        bestValue: entries.length > 1 && rate(pack) === bestRate
+    }));
+}
 
 function normalizePaymentEvent(input) {
     if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
@@ -114,8 +140,10 @@ class PaymentLedger {
 }
 
 module.exports = {
+    GEM_PRICES,
     PREMIUM_PACKS,
     PaymentLedger,
+    publicPackCatalog,
     normalizePaymentEvent,
     signPaymentEvent,
     verifyPaymentEvent

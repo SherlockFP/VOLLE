@@ -289,12 +289,23 @@ test('Card Collection render uses sprite art, rarity/state datasets, and respons
     assert.match(css, /@media \(max-width: 700px\)[\s\S]*?\.card-collection-grid\s*\{\s*grid-template-columns:\s*1fr/);
 });
 
-test('authentication never auto-launches FTUE or timed first-match hints', async () => {
+test('first launch offers the welcome once; the drill itself is always the player choice', async () => {
     const source = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
-    const authStart = source.indexOf('async _completeAuthentication()');
-    const authEnd = source.indexOf('_setupAuthModal()', authStart);
-    const authSlice = source.slice(authStart, authEnd);
-    assert.doesNotMatch(authSlice, /showFtueWelcome|startGuidedDeflectDrill/);
-    assert.doesNotMatch(source, /shouldShowFtueWelcome|shouldArmFirstMatchHints|_pendingFirstMatchHints|_runFirstMatchHints/);
+    const firstRun = source.slice(source.indexOf('    _maybeShowFirstRunWelcome() {'), source.indexOf('    // ===== Help / practice entry'));
+    assert.match(firstRun, /if \(!shouldShowFtueWelcome\(this\.store\.get\('ftueSeen'\)\)\) return;/);
+    assert.match(firstRun, /this\.store\.set\('ftueSeen', true\);[\s\S]*this\.showFtueWelcome\(\{ source: 'first_run' \}\)/, 'marks seen before showing so it never repeats');
+    assert.doesNotMatch(firstRun, /startGuidedDeflectDrill/, 'the welcome offers the drill; it never auto-starts a match');
+    const auth = source.slice(source.indexOf('async _completeAuthentication()'), source.indexOf('    // ===== Guest play'));
+    assert.match(auth, /this\._maybeShowFirstRunWelcome\(\);/);
+    assert.doesNotMatch(source, /shouldArmFirstMatchHints|_pendingFirstMatchHints|_runFirstMatchHints/, 'timed in-match hints stay off');
     assert.match(source, /bind\('btn-how-to-play', \(\) => this\.showFtueWelcome\(\)\)/, 'manual help remains available');
+});
+
+test('new-player profile: locked until any real progress exists', async () => {
+    const { isNewPlayerProfile } = await import('../js/store.js');
+    assert.equal(isNewPlayerProfile({ stats: { gamesPlayed: 0 } }), true);
+    assert.equal(isNewPlayerProfile({ stats: { gamesPlayed: 1 } }), false);
+    assert.equal(isNewPlayerProfile({ stats: { gamesPlayed: 0 }, rankedState: { currentSeason: { record: { games: 3 } } } }), false, 'account on a new device');
+    assert.equal(isNewPlayerProfile({ stats: { gamesPlayed: 0 }, battlepass: { tier: 1, xp: 40 } }), false);
+    assert.equal(isNewPlayerProfile(undefined), true);
 });

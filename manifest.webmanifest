@@ -1,7 +1,7 @@
 {
-    "name": "Warrball",
-    "short_name": "Warrball",
-    "description": "Warrball is a fast, competitive first-person ball combat game.",
+    "name": "VOLLE",
+    "short_name": "VOLLE",
+    "description": "VOLLE is a fast, competitive first-person ball combat game.",
     "start_url": ".",
     "display": "standalone",
     "orientation": "landscape",

@@ -183,17 +183,19 @@ test('movement trials reward first clear and keep only faster personal bests', (
     assert.equal(Store.getMovementTrialBest('test-run').time, 5000);
 });
 
-test('daily login and free case can be claimed once per local day', () => {
+test('guest daily login uses the shared streak and free case opens once per local day', () => {
     Store.reset();
-    const dayOne = new Date(2026, 6, 19, 12);
-    const dayTwo = new Date(2026, 6, 20, 12);
-    const login = Store.claimDailyLogin(dayOne);
-    assert.deepEqual(login, { coins: 50, streak: 1 });
-    assert.equal(Store.claimDailyLogin(dayOne), null);
+    const dayOne = new Date(Date.UTC(2026, 6, 19, 12));
+    const dayTwo = new Date(Date.UTC(2026, 6, 20, 12));
+    assert.equal(typeof Store.claimDailyLogin, 'undefined', 'the second, local-only login reward is retired');
+    const login = Store._claimLoginStreakLocal(dayOne);
+    assert.equal(login.ok, true);
+    assert.equal(login.day, 1);
+    assert.equal(Store._claimLoginStreakLocal(dayOne).ok, false);
     const free = Store.openDailyCase('kickoff', () => 0.5, dayOne);
     assert.equal(free.free, true);
     assert.equal(Store.openDailyCase('kickoff', () => 0.5, dayOne), null);
-    assert.deepEqual(Store.claimDailyLogin(dayTwo), { coins: 60, streak: 2 });
+    assert.equal(Store._claimLoginStreakLocal(dayTwo).day, 2);
     assert.equal(Store.getDailyRewardState(dayTwo).freeCaseClaimed, false);
 });
 

@@ -31,6 +31,8 @@ const {
     normalizeDailyState,
     publicDailyState
 } = require('./daily-challenge-service');
+const { GEM_PRICES } = require('./payment-ledger');
+const GEM_SPEND_REQUEST_ID_PATTERN = /^[A-Za-z0-9._:-]{8,96}$/;
 
 const CATALOG = {
     character: {
@@ -84,6 +86,9 @@ const FIRST_MATCH_OF_DAY_BONUS = 80;
 // doesn't cap). Independent of the client's local-only Daily Login card.
 const LOGIN_STREAK_DAILY_COINS = 20;
 const LOGIN_STREAK_DAY7_COINS = 150;
+const DAILY_FREE_CASE_ID = 'kickoff';
+// Epic+ drops satisfy (and reset) the 10-open pity guarantee; exotic is S+ tier.
+const PREMIUM_RARITIES = new Set(['epic', 'legendary', 'exotic']);
 const LOGIN_STREAK_CYCLE = 7;
 const ONBOARDING_FLAGS = Object.freeze(['ftueSeen', 'ftueCompleted', 'ftueMatchHintsSeen']);
 const ONBOARDING_FLAG_SET = new Set(ONBOARDING_FLAGS);
@@ -237,6 +242,7 @@ function defaults(id, name) {
         rewardedMatches: [],
         purchaseReceipts: [],
         premiumTransactions: [],
+        gemSpendReceipts: [],
         adRewards: { day: '', count: 0, lastAt: 0, receipts: [] },
         lastFirstMatchDay: '',
         dailyStreak: { count: 0, lastClaimDay: '', receipts: [] },
@@ -389,7 +395,7 @@ class ProfileStore {
     _public(record, now = Date.now()) {
         if (this._rolloverBattlepass(record, now)) this._save();
         if (this._ensureDailyChallenges(record, now)) this._save();
-        const { tokenHash, rewardedMatches, purchaseReceipts, premiumTransactions, caseReceipts, cardRewardReceipts, cardTradeReceipts, battlepassBoostReceipts, adRewards, dailyStreak, soloRewards, dailyChallenges, ...profile } = record;
+        const { tokenHash, rewardedMatches, purchaseReceipts, premiumTransactions, gemSpendReceipts, caseReceipts, cardRewardReceipts, cardTradeReceipts, battlepassBoostReceipts, adRewards, dailyStreak, soloRewards, dailyChallenges, ...profile } = record;
         const activeBoost = normalizeBattlepassActiveBoost(record.battlepassActiveBoost);
         return {
             ...profile,
@@ -751,19 +757,24 @@ class ProfileStore {
         return { status: 200, profile: this._public(record), loadout: record.equippedWearables };
     }
 
-    openCase(record, caseId, requestId = '', random = null) {
+    // dailyFree: the Daily tab's one free Kickoff opening per UTC day. The server
+    // owns dailyFreeCaseDay so a client clock/localStorage edit cannot mint openings.
+    openCase(record, caseId, requestId = '', random = null, { dailyFree = false, now = Date.now() } = {}) {
         const box = CASES[caseId];
         if (!box) return { status: 404, error: 'case not found' };
+        if (dailyFree && caseId !== DAILY_FREE_CASE_ID) return { status: 400, error: 'case is not free today' };
         record.caseReceipts = Array.isArray(record.caseReceipts) ? record.caseReceipts : [];
         const receiptId = /^[A-Za-z0-9._:-]{8,96}$/.test(String(requestId || '')) ? requestId : '';
         const prior = receiptId ? record.caseReceipts.find(item => item.requestId === receiptId) : null;
         if (prior) return { status: 200, profile: this._public(record), result: prior.result, replayed: true };
-        const earnedCount = Math.max(0, Math.floor(Number(record.earnedCases?.[caseId]) || 0));
+        const today = utcDateKey(now);
+        if (dailyFree && record.dailyFreeCaseDay === today) return { status: 409, error: 'free case already opened today' };
+        const earnedCount = dailyFree ? 0 : Math.max(0, Math.floor(Number(record.earnedCases?.[caseId]) || 0));
         const usesEarned = earnedCount > 0;
-        if (!usesEarned && record.currency < box.price) return { status: 409, error: 'insufficient funds' };
+        if (!dailyFree && !usesEarned && record.currency < box.price) return { status: 409, error: 'insufficient funds' };
         const pityBefore = Math.min(9, Math.max(0, Number(record.casePity?.[caseId]) || 0));
         const eligible = pityBefore >= 9
-            ? box.drops.filter(([, , rarity]) => rarity === 'epic' || rarity === 'legendary')
+            ? box.drops.filter(([, , rarity]) => PREMIUM_RARITIES.has(rarity))
             : box.drops;
         const total = eligible.reduce((sum, drop) => sum + drop[3], 0);
         let roll = Number.isFinite(random) ? Math.max(0, Math.min(0.999999, random)) : crypto.randomInt(0, 0x100000000) / 0x100000000;
@@ -777,19 +788,20 @@ class ProfileStore {
         const field = PROFILE_FIELDS[kind];
         if (!field || !CATALOG[kind]?.[id]) return { status: 500, error: 'invalid case catalog' };
         const duplicate = record[field].includes(id);
-        const refund = duplicate ? (usesEarned ? 35 : Math.floor(box.price * 0.35)) : 0;
-        if (usesEarned) {
+        const refund = duplicate ? ((usesEarned || dailyFree) ? 35 : Math.floor(box.price * 0.35)) : 0;
+        if (dailyFree) record.dailyFreeCaseDay = today;
+        else if (usesEarned) {
             record.earnedCases = { ...(record.earnedCases || {}), [caseId]: earnedCount - 1 };
         } else record.currency -= box.price;
         if (refund) record.currency += refund;
         else record[field].push(id);
-        const premium = rarity === 'epic' || rarity === 'legendary';
+        const premium = PREMIUM_RARITIES.has(rarity);
         record.casePity = { ...record.casePity, [caseId]: premium ? 0 : pityBefore + 1 };
         record.economyRevision = Math.max(0, Number(record.economyRevision) || 0) + 1;
         record.updatedAt = Date.now();
         const result = {
             reward: { id, type: kind, rarity }, duplicate, refund,
-            free: usesEarned,
+            free: usesEarned || dailyFree,
             pity: { before: pityBefore, after: record.casePity[caseId], guaranteed: pityBefore >= 9 }
         };
         if (receiptId) {
@@ -1053,6 +1065,89 @@ class ProfileStore {
         record.updatedAt = Date.now();
         this._save();
         return { status: 200, replayed: false, profile: this._public(record) };
+    }
+
+    // The ONLY path that debits gems. Items come from GEM_PRICES (direct, non-random
+    // purchases); cases/keys are deliberately unreachable (tests/loot-box-policy.test.cjs).
+    // Idempotent per requestId; an already-owned item replays without a charge.
+    spendGems(record, sku, requestId, now = Date.now()) {
+        const price = Object.hasOwn(GEM_PRICES, sku) ? GEM_PRICES[sku] : 0;
+        if (!record || !Number.isSafeInteger(price) || price <= 0) return { status: 404, error: 'gem item not found' };
+        if (typeof requestId !== 'string' || !GEM_SPEND_REQUEST_ID_PATTERN.test(requestId)) {
+            return { status: 400, error: 'gem purchase requires a valid request id' };
+        }
+        record.gemSpendReceipts = Array.isArray(record.gemSpendReceipts) ? record.gemSpendReceipts : [];
+        const prior = record.gemSpendReceipts.find(receipt => receipt?.requestId === requestId);
+        if (prior) {
+            return prior.sku === sku
+                ? { status: 200, replayed: true, profile: this._public(record, now) }
+                : { status: 409, error: 'idempotency key conflict' };
+        }
+        const rolled = this._rolloverBattlepass(record, now);
+        const balance = Math.max(0, Math.floor(Number(record.gems) || 0));
+        if (sku === 'battlepass_premium' && record.battlepass.premium) {
+            if (rolled) { record.updatedAt = now; this._save(); }
+            return { status: 200, replayed: true, profile: this._public(record, now) };
+        }
+        if (balance < price) {
+            if (rolled) { record.updatedAt = now; this._save(); }
+            return { status: 409, error: 'not enough gems' };
+        }
+        if (sku === 'battlepass_premium') record.battlepass = { ...record.battlepass, premium: true };
+        else return { status: 404, error: 'gem item not found' };
+        record.gems = balance - price;
+        record.gemSpendReceipts = [...record.gemSpendReceipts, {
+            requestId, sku, gems: price, seasonId: record.battlepass.seasonId, createdAt: now
+        }].slice(-50);
+        record.economyRevision = Math.max(0, Number(record.economyRevision) || 0) + 1;
+        record.updatedAt = now;
+        this._save();
+        return { status: 200, replayed: false, profile: this._public(record, now) };
+    }
+
+    // --- Leaderboard (read-only) --------------------------------------
+    // Never leaves this file with tokenHash, email-adjacent data, or the raw
+    // profile id itself — the caller gets a one-way publicCode instead, so a
+    // public ladder can't be used to enumerate real profile ids.
+    _leaderboardPublicCode(id) {
+        return crypto.createHash('sha256').update(`leaderboard-public-code:${id}`).digest('hex').slice(0, 12);
+    }
+
+    // No server-side "equipped" avatar/knife exists (equip state for those
+    // two lives client-side in js/store.js); the priciest owned item is used
+    // as a stand-in "flair" signal for prestige on the leaderboard row.
+    _leaderboardFlair(record) {
+        const priciest = (ids, catalog) => (Array.isArray(ids) ? ids : [])
+            .reduce((best, id) => (catalog[id] || 0) >= (catalog[best] || -1) ? id : best, '');
+        return {
+            avatarId: priciest(record.ownedAvatarSkins, CATALOG.avatar) || 'default',
+            knifeId: priciest(record.ownedKnives, CATALOG.knife) || 'training'
+        };
+    }
+
+    // O(n) projection over every profile; server.js is responsible for
+    // sorting/caching per board so this stays a single pass with no sort.
+    leaderboardEntries() {
+        return Object.values(this.records).map(record => {
+            const ranked = normalizeRankedState(record.rankedState);
+            const season = ranked.currentSeason;
+            const games = season.record.games;
+            const wins = season.record.wins;
+            const flair = this._leaderboardFlair(record);
+            return {
+                profileId: record.id,
+                publicCode: this._leaderboardPublicCode(record.id),
+                displayName: String(record.playerName || 'Player').slice(0, 16),
+                elo: ranked.elo,
+                placed: season.placements.placed === true,
+                games,
+                wins,
+                winRate: games > 0 ? wins / games : 0,
+                seasonDelta: ranked.elo - season.startingElo,
+                avatarId: flair.avatarId,
+                knifeId: flair.knifeId
+            };
+        });
     }
 
     _migrate(record, legacy) {

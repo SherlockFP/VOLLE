@@ -162,3 +162,183 @@
     #shop-screen .shop-card, #shop-screen .shop-preview-controls button { animation: none; transition: none; }
 }
 body.reduce-motion #shop-screen .shop-card, body.reduce-motion #shop-screen .shop-preview-controls button { animation: none; transition: none; }
+
+/* Try-before-you-open: knife test-drive chips inside the case inspector. */
+.case-inspector-knives { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; margin: -12px 0 22px; }
+.case-inspector-knives:empty { display: none; }
+.case-inspector-knives small { width: 100%; color: var(--ui-muted); font-size: .68rem; font-weight: 900; letter-spacing: .12em; }
+.knife-try {
+    --knife-rarity: var(--ui-primary, #6ef0dc);
+    display: inline-flex; align-items: center; gap: 6px;
+    min-height: 32px; padding: 6px 11px;
+    color: #f1ffff; background: color-mix(in srgb, var(--knife-rarity) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--knife-rarity) 55%, transparent);
+    border-radius: 999px; font-size: .74rem; font-weight: 800; cursor: pointer;
+    transition: transform var(--ui-motion-fast, 120ms) ease, background-color var(--ui-motion-fast, 120ms) ease, box-shadow var(--ui-motion-fast, 120ms) ease;
+}
+.knife-try::before { content: '▶'; font-size: .6rem; opacity: .8; }
+.knife-try:hover, .knife-try:focus-visible {
+    transform: translateY(-1px);
+    background: color-mix(in srgb, var(--knife-rarity) 24%, transparent);
+    box-shadow: 0 0 18px color-mix(in srgb, var(--knife-rarity) 35%, transparent);
+    outline: none;
+}
+.knife-try.rarity-epic { --knife-rarity: #b77dff; }
+.knife-try.rarity-legendary { --knife-rarity: #ffd36b; }
+@media (prefers-reduced-motion: reduce) { .knife-try { transition: none; } .knife-try:hover { transform: none; } }
+
+/* ===== Tier badges (owner ask: "lots of gloves, tier lists") =====
+   js/tiers.js maps rarity -> letter tier (common C, uncommon C+, rare B, epic A,
+   legendary S, exotic S+). js/ui.js inserts `.tier-badge.tier-<X>` markup next to
+   every `.skin-rarity` (shop cards + locker cards) and inside case reel items. */
+.tier-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 22px; height: 18px; padding: 0 6px; margin-left: 6px;
+    border-radius: 5px; font-size: .62rem; font-weight: 900; letter-spacing: .02em;
+    line-height: 1; color: #05141c; background: var(--tier-color, #9fb4c9);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--tier-color, #9fb4c9) 60%, transparent);
+    vertical-align: middle;
+}
+.tier-badge.tier-C { --tier-color: #9fb4c9; }
+.tier-badge.tier-Cplus { --tier-color: #7fd9ff; }
+.tier-badge.tier-B { --tier-color: #6ef0dc; }
+.tier-badge.tier-A { --tier-color: #b77dff; color: #fff; }
+.tier-badge.tier-S { --tier-color: #ffd36b; }
+.tier-badge.tier-Splus { --tier-color: #ff6b5f; color: #fff; }
+
+/* Case reel items already use ::before/::after for their glow (css/polish.css) —
+   the badge here is a real child element, pinned to the corner instead. */
+.case-reel-item { position: relative; }
+.case-reel-item .tier-badge { position: absolute; top: 6px; right: 6px; z-index: 1; }
+
+/* Pure-CSS fallback badges for the two case-inspector affordances that main.js
+   renders directly (verified drop rates + "try in hand" chips) — js/ui.js does not
+   own that render path, so the tier label is appended here instead of in markup. */
+#case-inspector-rates span.rarity-common::after { content: ' · C'; }
+#case-inspector-rates span.rarity-uncommon::after { content: ' · C+'; }
+#case-inspector-rates span.rarity-rare::after { content: ' · B'; }
+#case-inspector-rates span.rarity-epic::after { content: ' · A'; }
+#case-inspector-rates span.rarity-legendary::after { content: ' · S'; }
+#case-inspector-rates span.rarity-exotic::after { content: ' · S+'; }
+.knife-try.rarity-common::after { content: ' · C'; }
+.knife-try.rarity-uncommon::after { content: ' · C+'; }
+.knife-try.rarity-rare::after { content: ' · B'; }
+.knife-try.rarity-epic::after { content: ' · A'; }
+.knife-try.rarity-legendary::after { content: ' · S'; }
+.knife-try.rarity-exotic::after { content: ' · S+'; }
+.knife-try::after { opacity: .75; font-weight: 900; }
+
+/* ===== Tier List screen (Shop > Tier List tab) =====
+   Renders straight into #shop-grid (js/ui.js _renderTierList) instead of the usual
+   .shop-card layout, so it gets its own block styling rather than the card grid. */
+#shop-screen[data-shop-tab="tierlist"] .shop-grid { display: block; }
+.shop-tierlist-intro { padding: 4px 2px 14px; color: var(--ui-text); }
+.shop-tierlist-intro strong { font-size: .95rem; }
+.shop-tierlist-intro p { margin: 4px 0 0; color: var(--ui-muted); font-size: .78rem; }
+.tierlist-group { margin-bottom: 18px; }
+.tierlist-heading {
+    display: flex; align-items: center; gap: 8px; margin: 0 0 8px;
+    padding-bottom: 6px; border-bottom: 1px solid var(--studio-line, rgba(133, 225, 241, .17));
+    font-size: .85rem; color: var(--ui-text);
+}
+.tierlist-heading .tier-badge { margin-left: 0; width: 30px; height: 24px; font-size: .78rem; }
+.tierlist-heading small { color: var(--ui-muted); font-weight: 700; }
+.tierlist-items { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+.tierlist-item {
+    padding: 10px 12px; border-radius: 10px; border: 1px solid var(--studio-line, rgba(133, 225, 241, .17));
+    background: var(--studio-card, rgba(10, 30, 45, .8));
+}
+.tierlist-item-head { display: flex; flex-direction: column; gap: 2px; margin-bottom: 6px; }
+.tierlist-item-type { font-size: .58rem; letter-spacing: .1em; text-transform: uppercase; color: var(--ui-muted); }
+.tierlist-item-name { font-size: .84rem; font-weight: 800; color: var(--ui-text); }
+.tierlist-item-sources { display: flex; flex-wrap: wrap; gap: 6px; }
+.tierlist-source {
+    display: inline-flex; align-items: center; gap: 5px; padding: 3px 7px;
+    border-radius: 999px; background: color-mix(in srgb, var(--ui-primary, #6ef0dc) 10%, transparent);
+    font-size: .64rem; color: var(--ui-muted);
+}
+.tierlist-source b { color: var(--ui-text); font-size: .68rem; }
+.tierlist-source-none { font-size: .66rem; color: var(--ui-muted); font-style: italic; }
+@media (max-width: 620px) { .tierlist-items { grid-template-columns: 1fr; } }
+
+/* ===== Real 3D item thumbnails (js/item-thumbnails.js) =====
+   The thumbnail <img class="item-thumb"> is appended into the existing art container;
+   `.has-item-thumb` hides the CSS orb/icon underneath. No WebGL → no class, and the
+   old art stays exactly as it was. */
+.item-thumb { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; user-select: none; animation: item-thumb-in 220ms ease-out; filter: drop-shadow(0 6px 10px rgba(0, 0, 0, .45)); }
+@keyframes item-thumb-in { from { opacity: 0; transform: scale(.92); } to { opacity: 1; transform: none; } }
+.reduced-motion .item-thumb, .reduce-motion .item-thumb { animation: none; }
+@media (prefers-reduced-motion: reduce) { .item-thumb { animation: none; } }
+
+.case-reel-art.has-item-thumb .case-reel-orb { display: none; }
+.case-reel-art .item-thumb { width: 100%; height: 100%; max-height: 96px; }
+.case-reel-item.is-winner .case-reel-art .item-thumb { animation: reel-winner-pop 520ms ease-out; }
+.reduced-motion .case-reel-item.is-winner .case-reel-art .item-thumb,
+.reduce-motion .case-reel-item.is-winner .case-reel-art .item-thumb { animation: none; }
+
+#shop-screen .ball-inspect-stage.has-item-thumb .ball-preview,
+#shop-screen .ball-inspect-stage.has-item-thumb .ball-inspect-trail { opacity: 0; }
+.ball-inspect-stage > .item-thumb { position: absolute; inset: 0; margin: auto; width: 100%; height: 100%; }
+.cosmetic-preview.has-item-thumb > :not(.item-thumb) { display: none; }
+.cosmetic-preview > .item-thumb { width: 100%; height: 100%; }
+.inventory-icon-area.has-item-thumb > :not(.item-thumb) { display: none; }
+.inventory-icon-area > .item-thumb { width: 100%; height: 100%; max-height: 132px; }
+
+/* Tier List rows gain an art column. */
+.tierlist-item { display: grid; grid-template-columns: 58px minmax(0, 1fr); column-gap: 10px; align-items: start; }
+.tierlist-item > .tierlist-item-head, .tierlist-item > .tierlist-item-sources { grid-column: 2; }
+.tierlist-item-art {
+    grid-column: 1; grid-row: 1 / span 2; width: 58px; height: 58px; display: grid; place-items: center; overflow: hidden;
+    border-radius: 10px;
+    background: radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--tier-art-glow, #6fe3c0) 34%, transparent), transparent 70%), rgba(255, 255, 255, .04);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tier-art-glow, #6fe3c0) 40%, transparent);
+}
+.tierlist-item-art:not(.has-item-thumb):empty::before { content: ''; width: 22px; height: 22px; border-radius: 50%; background: radial-gradient(circle at 34% 28%, #fff, var(--tier-art-glow, #6fe3c0) 45%, transparent 75%); }
+.tierlist-item-art .cosmetic-icon { transform: scale(.62); }
+.tierlist-item.rarity-rare, .case-drop-tile.rarity-rare { --tier-art-glow: #36a8ff; }
+.tierlist-item.rarity-epic, .case-drop-tile.rarity-epic { --tier-art-glow: #ae7cff; }
+.tierlist-item.rarity-legendary, .case-drop-tile.rarity-legendary { --tier-art-glow: #ffc02e; }
+.tierlist-item.rarity-exotic, .case-drop-tile.rarity-exotic { --tier-art-glow: #ff6b5f; }
+
+/* Case inspector "In this case" strip (ui.js _decorateCaseInspector). */
+.case-inspector-drops { margin: 8px 0 2px; min-width: 0; }
+.case-inspector-drops > small { display: block; margin-bottom: 6px; color: #8affeb; font-size: .62rem; font-weight: 900; letter-spacing: .14em; }
+.case-inspector-drop-list { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; scrollbar-width: thin; overscroll-behavior-x: contain; }
+.case-drop-tile {
+    position: relative; flex: 0 0 68px; margin: 0; padding: 4px 4px 5px; display: grid; gap: 3px; border-radius: 10px;
+    border: 1px solid color-mix(in srgb, var(--tier-art-glow, #6fe3c0) 45%, transparent);
+    background: radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--tier-art-glow, #6fe3c0) 28%, transparent), transparent 70%), rgba(4, 20, 34, .8);
+}
+.case-drop-art { width: 100%; aspect-ratio: 1 / 1; display: grid; place-items: center; overflow: hidden; }
+.case-drop-art:not(.has-item-thumb):empty::before { content: ''; width: 26px; height: 26px; border-radius: 50%; background: radial-gradient(circle at 34% 28%, #fff, var(--tier-art-glow, #6fe3c0) 45%, transparent 75%); }
+.case-drop-art .cosmetic-icon { transform: scale(.6); }
+.case-drop-tile figcaption { display: grid; gap: 1px; min-width: 0; font-size: .58rem; line-height: 1.15; color: #d9fbff; }
+.case-drop-tile figcaption .case-drop-name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 700; }
+.case-drop-tile figcaption b { color: var(--tier-art-glow, #6fe3c0); font-size: .62rem; }
+.case-drop-tile .tier-badge { position: absolute; top: 3px; right: 3px; margin: 0; transform: scale(.78); transform-origin: top right; }
+
+/* 3D reveal stage (js/case-reveal-3d.js) — sits over the settled reel. */
+.case-reveal-stage {
+    --stage-glow: #6fe3c0;
+    position: absolute; inset: 0; z-index: 3; overflow: hidden; border-radius: inherit; opacity: 0;
+    background:
+        radial-gradient(ellipse 58% 70% at 50% 46%, color-mix(in srgb, var(--stage-glow) 30%, transparent), transparent 72%),
+        linear-gradient(180deg, rgba(3, 14, 26, .97), rgba(1, 7, 15, .98));
+    transition: opacity 260ms ease-out;
+}
+.case-reveal-stage[hidden] { display: none; }
+.case-reveal-stage[data-rarity="rare"] { --stage-glow: #36a8ff; }
+.case-reveal-stage[data-rarity="epic"] { --stage-glow: #ae7cff; }
+.case-reveal-stage[data-rarity="legendary"] { --stage-glow: #ffc02e; }
+.case-reveal-stage[data-rarity="exotic"] { --stage-glow: #ff6b5f; }
+.case-reel.reveal-stage-playing .case-reveal-stage { opacity: 1; }
+.case-reveal-canvas { position: absolute; inset: 0; width: 100% !important; height: 100% !important; display: block; }
+.case-reveal-caption { position: absolute; left: 18px; bottom: 14px; z-index: 1; display: grid; gap: 2px; justify-items: start; max-width: calc(100% - 36px); text-align: left; pointer-events: none; }
+.case-reveal-caption .tier-badge { margin: 0 0 4px; }
+.case-reveal-caption small { color: var(--stage-glow); font-size: .64rem; font-weight: 900; letter-spacing: .16em; }
+.case-reveal-caption strong { color: #fff; font-size: clamp(1.05rem, 2.4vw, 1.45rem); line-height: 1.15; text-shadow: 0 0 18px color-mix(in srgb, var(--stage-glow) 55%, transparent); }
+.case-reel.has-reveal-stage .case-reel-window { min-height: 300px; transition: min-height 260ms ease-out; }
+.case-reel.has-reveal-stage .case-reward-preview { display: none !important; }
+.reduced-motion .case-reveal-stage, .reduce-motion .case-reveal-stage,
+.reduced-motion .case-reel.has-reveal-stage .case-reel-window, .reduce-motion .case-reel.has-reveal-stage .case-reel-window { transition: none; }
+@media (max-width: 700px) { .case-reel.has-reveal-stage .case-reel-window { min-height: 240px; } }

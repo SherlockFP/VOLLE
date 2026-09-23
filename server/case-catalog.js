@@ -13,15 +13,35 @@ const CASES = Object.freeze({
     ] },
     elemental: { price: 190, drops: [
         ['ball', 'magma', 'legendary', 4], ['ball', 'ocean', 'epic', 12], ['ball', 'moon', 'rare', 18], ['knife', 'icefang', 'epic', 14], ['knife', 'dragonclaw', 'legendary', 4],
-        ['cosmetic', 'cape_ember', 'rare', 18], ['cosmetic', 'cape_frost', 'rare', 18], ['cosmetic', 'aura_void', 'legendary', 4], ['cosmetic', 'impact_fire', 'epic', 8]
+        ['cosmetic', 'cape_ember', 'rare', 18], ['cosmetic', 'cape_frost', 'rare', 18], ['cosmetic', 'aura_void', 'legendary', 4], ['cosmetic', 'impact_fire', 'epic', 8], ['knife', 'huntsman_tide', 'rare', 8]
     ] },
     companions: { price: 210, drops: [
         ['cosmetic', 'pet_slime', 'rare', 24], ['cosmetic', 'pet_snowman', 'rare', 20], ['cosmetic', 'pet_bee', 'epic', 16], ['cosmetic', 'pet_drone', 'epic', 14], ['cosmetic', 'pet_axolotl', 'legendary', 8], ['cosmetic', 'pet_dragon', 'legendary', 4],
-        ['avatar', 'bee_runner', 'epic', 8], ['avatar', 'axolotl_scout', 'legendary', 4], ['knife', 'pixel_edge', 'rare', 2]
+        ['avatar', 'bee_runner', 'epic', 8], ['avatar', 'axolotl_scout', 'legendary', 4], ['knife', 'pixel_edge', 'rare', 2], ['knife', 'flip_carbon', 'rare', 2]
     ] },
     mythic: { price: 280, drops: [
         ['knife', 'aurora', 'legendary', 5], ['knife', 'reactor', 'legendary', 5], ['knife', 'dark_eater', 'legendary', 5], ['knife', 'rift_hook', 'legendary', 5], ['ball', 'portal', 'legendary', 10], ['ball', 'blackhole', 'legendary', 6],
         ['avatar', 'galaxy_idol', 'legendary', 10], ['avatar', 'infernal_smile', 'legendary', 10], ['cosmetic', 'cape_royal', 'legendary', 9], ['cosmetic', 'cape_glitch', 'legendary', 10], ['cosmetic', 'shoes_magma', 'legendary', 12], ['cosmetic', 'impact_glitch', 'legendary', 12], ['cosmetic', 'gloves_crown', 'legendary', 6]
+    ] },
+    // Glovebox Case: coin-only, gloves-exclusive chase box (owner ask — "lots of
+    // gloves, people should open many cases to chase items"). Legendary is kept
+    // rare by weight so the S-tier gauntlets stay a real chase, not a coinflip.
+    gloves: { price: 260, drops: [
+        ['cosmetic', 'gloves_windrunner', 'rare', 12], ['cosmetic', 'gloves_clay_court', 'rare', 12], ['cosmetic', 'gloves_riptide', 'rare', 12], ['cosmetic', 'gloves_sandstorm', 'rare', 12],
+        ['cosmetic', 'gloves_thornback', 'rare', 12], ['cosmetic', 'gloves_ashfall', 'rare', 12], ['cosmetic', 'gloves_lowlight', 'rare', 12], ['cosmetic', 'gloves_terra', 'rare', 12],
+        ['cosmetic', 'gloves_neon_pulse', 'epic', 6], ['cosmetic', 'gloves_ironclad', 'epic', 6], ['cosmetic', 'gloves_wildfire', 'epic', 6], ['cosmetic', 'gloves_deep_current', 'epic', 6],
+        ['cosmetic', 'gloves_grid_runner', 'epic', 6], ['cosmetic', 'gloves_venom_weave', 'epic', 6], ['cosmetic', 'gloves_frostbyte', 'epic', 6], ['cosmetic', 'gloves_crimson_circuit', 'epic', 6],
+        ['cosmetic', 'gloves_supernova', 'legendary', 2], ['cosmetic', 'gloves_voidforge', 'legendary', 2], ['cosmetic', 'gloves_phoenix_ember', 'legendary', 2], ['cosmetic', 'gloves_aurora_veil', 'legendary', 2],
+        ['cosmetic', 'gloves_titanium_crest', 'legendary', 2], ['cosmetic', 'gloves_dragon_lord', 'legendary', 2], ['cosmetic', 'gloves_starforged', 'legendary', 2], ['cosmetic', 'gloves_eclipse_king', 'legendary', 2]
+    ] },
+    // Blade Vault Case: the kukri/gut/huntsman/talon/flip silhouettes (js/weapon-models.js
+    // KNIFE_MODELS) get their own dedicated box instead of crowding the locked odds
+    // of kickoff/chroma/arsenal/mythic (tests/server-commerce-parity.test.mjs pins
+    // those four exactly).
+    blades: { price: 240, drops: [
+        ['knife', 'night_kukri', 'rare', 20], ['knife', 'gut_frost', 'rare', 20], ['knife', 'huntsman_brass', 'rare', 20],
+        ['knife', 'gut_circuit', 'epic', 12], ['knife', 'kukri_sunset', 'epic', 12], ['knife', 'talon_reactor', 'epic', 12], ['knife', 'flip_prism', 'epic', 12],
+        ['knife', 'huntsman_wildfire', 'legendary', 5], ['knife', 'talon_aurora', 'legendary', 5], ['knife', 'kukri_void', 'legendary', 5]
     ] }
 });
 
@@ -143,7 +163,33 @@ const COSMETIC_DESCRIPTORS = Object.freeze({
     finisher_explosion: Object.freeze({ type: 'finisher', price: 620 }),
     cape_dark_eater: Object.freeze({ type: 'cape', price: 560 }),
     aura_dark_eater: Object.freeze({ type: 'aura', price: 540 }),
-    trail_dark_eater: Object.freeze({ type: 'trail', price: 500 })
+    trail_dark_eater: Object.freeze({ type: 'trail', price: 500 }),
+
+    // Glovebox Case wave — must mirror js/cosmetic-catalog.js COSMETICS exactly (id/price).
+    gloves_windrunner: Object.freeze({ type: 'gloves', price: 280 }),
+    gloves_clay_court: Object.freeze({ type: 'gloves', price: 260 }),
+    gloves_riptide: Object.freeze({ type: 'gloves', price: 300 }),
+    gloves_sandstorm: Object.freeze({ type: 'gloves', price: 260 }),
+    gloves_thornback: Object.freeze({ type: 'gloves', price: 300 }),
+    gloves_ashfall: Object.freeze({ type: 'gloves', price: 280 }),
+    gloves_lowlight: Object.freeze({ type: 'gloves', price: 260 }),
+    gloves_terra: Object.freeze({ type: 'gloves', price: 260 }),
+    gloves_neon_pulse: Object.freeze({ type: 'gloves', price: 400 }),
+    gloves_ironclad: Object.freeze({ type: 'gloves', price: 420 }),
+    gloves_wildfire: Object.freeze({ type: 'gloves', price: 440 }),
+    gloves_deep_current: Object.freeze({ type: 'gloves', price: 400 }),
+    gloves_grid_runner: Object.freeze({ type: 'gloves', price: 420 }),
+    gloves_venom_weave: Object.freeze({ type: 'gloves', price: 380 }),
+    gloves_frostbyte: Object.freeze({ type: 'gloves', price: 400 }),
+    gloves_crimson_circuit: Object.freeze({ type: 'gloves', price: 440 }),
+    gloves_supernova: Object.freeze({ type: 'gloves', price: 620 }),
+    gloves_voidforge: Object.freeze({ type: 'gloves', price: 600 }),
+    gloves_phoenix_ember: Object.freeze({ type: 'gloves', price: 640 }),
+    gloves_aurora_veil: Object.freeze({ type: 'gloves', price: 600 }),
+    gloves_titanium_crest: Object.freeze({ type: 'gloves', price: 580 }),
+    gloves_dragon_lord: Object.freeze({ type: 'gloves', price: 660 }),
+    gloves_starforged: Object.freeze({ type: 'gloves', price: 620 }),
+    gloves_eclipse_king: Object.freeze({ type: 'gloves', price: 680 })
 });
 
 const COSMETIC_PRICES = Object.freeze(Object.fromEntries(

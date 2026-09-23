@@ -151,4 +151,7 @@ application (including the `data.ball` regression), and the lobby-browser pure
 helpers. `node --test tests/lobby-lifecycle.test.mjs` → 18/18 passed. Re-ran all
 existing network/migration-adjacent suites (`network`, `mesh-security`,
 `host-migration`, `checkpoint-lifecycle`, `lobby-browser`, `lobby-browser-mode`,
-`server-registry`, `rtc-config`, `social-lobby`) → 106/106 passed, unweakened.
+`server-registry`, `rtc-config`, `social-lobby`) → 106/106 passed, unweakened.**Update 2026-09-23 (netcode pass):** `initPeer()` now gives up after 20 s if the broker
+never fires `open`/`error`, surfacing a join failure instead of hanging. The value is a
+generous first guess; tune it once real-network join timings are collected. See
+`vault/sessions/2026-09-23-aaa-overhaul-pass2.md` for the interpolation/codec/clock work.

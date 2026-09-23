@@ -33,7 +33,24 @@ export const KNIVES = Object.freeze({
     stiletto: Object.freeze({ id: 'stiletto', name: 'Silver Stiletto', rarity: 'rare', model: 'dagger', finish: 'frost', color: '#dff4ff', accent: '#6fa4c6', teams: ['red', 'blue'] }),
     courtline: Object.freeze({ id: 'courtline', name: 'Courtline Bayonet', rarity: 'rare', model: 'bayonet', finish: 'tide', color: '#d9fbff', accent: '#19b9e6', teams: ['red', 'blue'] }),
     pulsewing: Object.freeze({ id: 'pulsewing', name: 'Pulsewing Trainer', rarity: 'epic', model: 'butterfly', finish: 'prism', color: '#7cf8ff', accent: '#e166ff', teams: ['red', 'blue'] }),
-    rift_hook: Object.freeze({ id: 'rift_hook', name: 'Rift Hook', rarity: 'legendary', model: 'karambit', finish: 'void', color: '#27203d', accent: '#b46cff', teams: ['red', 'blue'] })
+    rift_hook: Object.freeze({ id: 'rift_hook', name: 'Rift Hook', rarity: 'legendary', model: 'karambit', finish: 'void', color: '#27203d', accent: '#b46cff', teams: ['red', 'blue'] }),
+
+    // Blade Vault Case wave: kukri / gut / huntsman / talon / flip (js/weapon-models.js
+    // KNIFE_MODELS) get their first skins here. Finishes reuse existing
+    // finishMaterials() keywords (void/circuit/ember/aurora/satin/sunset/frost/brass/
+    // reactor/prism/tide) so no weapon-models.js change is needed.
+    night_kukri: Object.freeze({ id: 'night_kukri', name: 'Night Kukri', rarity: 'rare', model: 'kukri', finish: 'void', color: '#1a1f2e', accent: '#6c7a94', teams: ['red', 'blue'] }),
+    gut_circuit: Object.freeze({ id: 'gut_circuit', name: 'Gut Hook | Circuit', rarity: 'epic', model: 'gut', finish: 'circuit', color: '#0f2b1c', accent: '#57ff9e', teams: ['red', 'blue'] }),
+    huntsman_wildfire: Object.freeze({ id: 'huntsman_wildfire', name: 'Huntsman | Wildfire', rarity: 'legendary', model: 'huntsman', finish: 'ember', color: '#ff6a1f', accent: '#4a0c00', teams: ['red'] }),
+    talon_aurora: Object.freeze({ id: 'talon_aurora', name: 'Talon | Aurora', rarity: 'legendary', model: 'talon', finish: 'aurora', color: '#57f2c9', accent: '#c26bff', teams: ['red', 'blue'] }),
+    flip_carbon: Object.freeze({ id: 'flip_carbon', name: 'Flip | Carbon', rarity: 'rare', model: 'flip', finish: 'satin', color: '#2b2f36', accent: '#8f97a3', teams: ['blue'] }),
+    kukri_sunset: Object.freeze({ id: 'kukri_sunset', name: 'Kukri | Sundown', rarity: 'epic', model: 'kukri', finish: 'sunset', color: '#ffb15c', accent: '#f0508f', teams: ['red', 'blue'] }),
+    gut_frost: Object.freeze({ id: 'gut_frost', name: 'Gut Hook | Permafrost', rarity: 'rare', model: 'gut', finish: 'frost', color: '#dff6ff', accent: '#3f97cf', teams: ['blue'] }),
+    huntsman_brass: Object.freeze({ id: 'huntsman_brass', name: 'Huntsman | Brass Guard', rarity: 'rare', model: 'huntsman', finish: 'brass', color: '#e7c065', accent: '#6b4a12', teams: ['red', 'blue'] }),
+    talon_reactor: Object.freeze({ id: 'talon_reactor', name: 'Talon | Reactor Core', rarity: 'epic', model: 'talon', finish: 'reactor', color: '#b5ff42', accent: '#1c4d1f', teams: ['red', 'blue'] }),
+    flip_prism: Object.freeze({ id: 'flip_prism', name: 'Flip | Prism Cut', rarity: 'epic', model: 'flip', finish: 'prism', color: '#c58bff', accent: '#5c2e9e', teams: ['red', 'blue'] }),
+    kukri_void: Object.freeze({ id: 'kukri_void', name: 'Kukri | Void Edge', rarity: 'legendary', model: 'kukri', finish: 'void', color: '#160b2b', accent: '#a26bff', teams: ['red', 'blue'] }),
+    huntsman_tide: Object.freeze({ id: 'huntsman_tide', name: 'Huntsman | Tideline', rarity: 'rare', model: 'huntsman', finish: 'tide', color: '#3fd0d9', accent: '#0f5c73', teams: ['blue'] })
 });
 
 export const CASES = Object.freeze({
@@ -86,7 +103,8 @@ export const CASES = Object.freeze({
             { id: 'cape_ember', type: 'cosmetic', weight: 18 },
             { id: 'cape_frost', type: 'cosmetic', weight: 18 },
             { id: 'aura_void', type: 'cosmetic', weight: 4 },
-            { id: 'impact_fire', type: 'cosmetic', weight: 8 }
+            { id: 'impact_fire', type: 'cosmetic', weight: 8 },
+            { id: 'huntsman_tide', weight: 8 }
         ])
     }),
     companions: Object.freeze({
@@ -101,7 +119,8 @@ export const CASES = Object.freeze({
             { id: 'pet_dragon', type: 'cosmetic', weight: 4 },
             { id: 'bee_runner', type: 'avatar', rarity: 'epic', weight: 8 },
             { id: 'axolotl_scout', type: 'avatar', rarity: 'legendary', weight: 4 },
-            { id: 'pixel_edge', weight: 2 }
+            { id: 'pixel_edge', weight: 2 },
+            { id: 'flip_carbon', weight: 2 }
         ])
     }),
     mythic: Object.freeze({
@@ -118,6 +137,38 @@ export const CASES = Object.freeze({
             { id: 'shoes_magma', type: 'cosmetic', weight: 12 },
             { id: 'impact_glitch', type: 'cosmetic', weight: 12 },
             { id: 'gloves_crown', type: 'cosmetic', weight: 6 }
+        ])
+    }),
+    // Glovebox Case: coin-only, gloves-exclusive chase box. Legendary weighted low
+    // (2 vs rare's 12) so S-tier gauntlets stay a real grind, matching the owner's
+    // "people should open many cases to chase items" ask. Reuses chroma art —
+    // no new binary assets per the engineering rules for this pass.
+    gloves: Object.freeze({
+        id: 'gloves', name: 'Glovebox Case', price: 260,
+        art: 'assets/generated/cases/chroma-case.webp',
+        drops: Object.freeze([
+            { id: 'gloves_windrunner', type: 'cosmetic', weight: 12 }, { id: 'gloves_clay_court', type: 'cosmetic', weight: 12 },
+            { id: 'gloves_riptide', type: 'cosmetic', weight: 12 }, { id: 'gloves_sandstorm', type: 'cosmetic', weight: 12 },
+            { id: 'gloves_thornback', type: 'cosmetic', weight: 12 }, { id: 'gloves_ashfall', type: 'cosmetic', weight: 12 },
+            { id: 'gloves_lowlight', type: 'cosmetic', weight: 12 }, { id: 'gloves_terra', type: 'cosmetic', weight: 12 },
+            { id: 'gloves_neon_pulse', type: 'cosmetic', weight: 6 }, { id: 'gloves_ironclad', type: 'cosmetic', weight: 6 },
+            { id: 'gloves_wildfire', type: 'cosmetic', weight: 6 }, { id: 'gloves_deep_current', type: 'cosmetic', weight: 6 },
+            { id: 'gloves_grid_runner', type: 'cosmetic', weight: 6 }, { id: 'gloves_venom_weave', type: 'cosmetic', weight: 6 },
+            { id: 'gloves_frostbyte', type: 'cosmetic', weight: 6 }, { id: 'gloves_crimson_circuit', type: 'cosmetic', weight: 6 },
+            { id: 'gloves_supernova', type: 'cosmetic', weight: 2 }, { id: 'gloves_voidforge', type: 'cosmetic', weight: 2 },
+            { id: 'gloves_phoenix_ember', type: 'cosmetic', weight: 2 }, { id: 'gloves_aurora_veil', type: 'cosmetic', weight: 2 },
+            { id: 'gloves_titanium_crest', type: 'cosmetic', weight: 2 }, { id: 'gloves_dragon_lord', type: 'cosmetic', weight: 2 },
+            { id: 'gloves_starforged', type: 'cosmetic', weight: 2 }, { id: 'gloves_eclipse_king', type: 'cosmetic', weight: 2 }
+        ])
+    }),
+    // Blade Vault Case: first skins for the kukri/gut/huntsman/talon/flip models.
+    blades: Object.freeze({
+        id: 'blades', name: 'Blade Vault Case', price: 240,
+        art: 'assets/generated/cases/arsenal-case.webp',
+        drops: Object.freeze([
+            { id: 'night_kukri', weight: 20 }, { id: 'gut_frost', weight: 20 }, { id: 'huntsman_brass', weight: 20 },
+            { id: 'gut_circuit', weight: 12 }, { id: 'kukri_sunset', weight: 12 }, { id: 'talon_reactor', weight: 12 }, { id: 'flip_prism', weight: 12 },
+            { id: 'huntsman_wildfire', weight: 5 }, { id: 'talon_aurora', weight: 5 }, { id: 'kukri_void', weight: 5 }
         ])
     })
 });
@@ -156,7 +207,7 @@ export function secureCosmeticRandom() {
 export function rollCase(caseId, random = secureCosmeticRandom, options = {}) {
     const box = CASES[caseId];
     if (!box) return null;
-    const rarityRank = { common: 0, rare: 1, epic: 2, legendary: 3 };
+    const rarityRank = { common: 0, uncommon: 0.5, rare: 1, epic: 2, legendary: 3, exotic: 4 };
     const minimumRank = rarityRank[options.minimumRarity] ?? -1;
     const drops = box.drops.filter(drop => (rarityRank[resolveCaseDrop(drop)?.rarity] ?? 0) >= minimumRank);
     if (!drops.length) return null;
@@ -172,7 +223,7 @@ export function rollCase(caseId, random = secureCosmeticRandom, options = {}) {
 export function getCaseDropRates(caseId, options = {}) {
     const box = CASES[caseId];
     if (!box) return [];
-    const rarityRank = { common: 0, rare: 1, epic: 2, legendary: 3 };
+    const rarityRank = { common: 0, uncommon: 0.5, rare: 1, epic: 2, legendary: 3, exotic: 4 };
     const minimumRank = rarityRank[options.minimumRarity] ?? -1;
     const drops = box.drops.filter(drop => (rarityRank[resolveCaseDrop(drop)?.rarity] ?? 0) >= minimumRank);
     const total = drops.reduce((sum, drop) => sum + drop.weight, 0);

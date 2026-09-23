@@ -4,23 +4,26 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VOLLE — Enter the Arena</title>
-    <meta name="description" content="Warrball is a fast, competitive first-person ball combat game. Master movement, classes, and the arena.">
-    <link rel="icon" type="image/png" href="assets/generated/warrball-logo-transparent-v1.png">
+    <meta name="description" content="VOLLE is a fast, competitive first-person ball combat game. Master movement, classes, and the arena.">
+    <link rel="icon" type="image/png" href="assets/generated/volle-logo-512.png">
     <link rel="manifest" href="manifest.webmanifest">
     <meta name="theme-color" content="#06151b">
     <link rel="apple-touch-icon" href="assets/generated/volle-logo-512.png">
     <link rel="stylesheet" href="css/style.css?v=1.74">
     <link rel="stylesheet" href="css/ui-tokens.css?v=1">
-    <link rel="stylesheet" href="css/ui-shell.css?v=1">
+    <link rel="stylesheet" href="css/ui-shell.css?v=2">
     <link rel="stylesheet" href="css/polish.css?v=1">
-    <link rel="stylesheet" href="css/auth.css?v=1">
+    <link rel="stylesheet" href="css/auth.css?v=3">
     <link rel="stylesheet" href="css/season-polish.css?v=1">
     <link rel="stylesheet" href="css/court-skills.css?v=1">
     <link rel="stylesheet" href="css/cosmetic-icons.css?v=1">
     <link rel="stylesheet" href="css/solo-paths.css?v=1">
     <link rel="stylesheet" href="css/arena-interface.css?v=1">
-    <link rel="stylesheet" href="css/shop-studio.css?v=1">
-    <link rel="stylesheet" href="css/settings-workbench.css?v=1">
+    <link rel="stylesheet" href="css/shop-studio.css?v=2">
+    <link rel="stylesheet" href="css/settings-workbench.css?v=4">
+    <link rel="stylesheet" href="css/menu-depth.css?v=2">
+    <link rel="stylesheet" href="css/spectator.css?v=1">
+    <link rel="stylesheet" href="css/postgame.css?v=1">
     <script type="importmap">
     {
         "imports": {
@@ -76,12 +79,37 @@
     <!-- Loading Screen -->
     <div id="loading-screen">
         <div class="loading-content">
-            <img class="brand-mark brand-mark-loading" src="assets/generated/warrball-logo-transparent-v1.png" alt="">
+            <img class="brand-mark brand-mark-loading" src="assets/generated/volle-logo-512.png" alt="">
             <div class="loading-logo">VOLLE</div>
             <div class="loading-bar-track"><div class="loading-bar-fill"></div></div>
-            <div class="loading-status">Loading assets...</div>
+            <div class="loading-status" aria-live="polite">Warming up the arena…</div>
+            <p class="loading-tip" id="loading-tip"></p>
         </div>
     </div>
+    <script>
+    // Runs before the module graph finishes downloading, so first launch teaches
+    // instead of showing dead air. Stops itself once the loading screen is done.
+    (function () {
+        var tips = [
+            'Deflect late: a perfect-timed return is worth more score and speeds up the rally.',
+            'Flick your mouse up while deflecting to lob, down to spike.',
+            'Keep moving after every throw — standing still is how you get tagged.',
+            'Dash (Ctrl) through a tight angle instead of trying to out-run the ball.',
+            'Right-click stabs up close. Rare knives glow in your hand.',
+            'Listen: the ball whooshes louder on the side it is coming from.'
+        ];
+        var el = document.getElementById('loading-tip');
+        var screen = document.getElementById('loading-screen');
+        if (!el || !screen) return;
+        var index = Math.floor(Math.random() * tips.length);
+        el.textContent = tips[index];
+        var timer = setInterval(function () {
+            if (screen.classList.contains('done')) { clearInterval(timer); return; }
+            index = (index + 1) % tips.length;
+            el.textContent = tips[index];
+        }, 2600);
+    })();
+    </script>
     <div id="match-loading" class="match-loading hidden" aria-live="polite">
         <div class="match-loading-card">
             <div class="match-loading-kicker">MATCH FOUND</div>
@@ -89,7 +117,7 @@
                 <span></span><i></i><b></b>
             </div>
             <div class="match-loading-copy">
-                <img class="brand-mark brand-mark-match" src="assets/generated/warrball-logo-transparent-v1.png" alt="">
+                <img class="brand-mark brand-mark-match" src="assets/generated/volle-logo-512.png" alt="">
                 <span id="match-loading-mode">CLASSIC</span>
                 <h2 id="match-loading-map">BEACH OPEN</h2>
                 <p id="match-loading-tip">Tip: move after every throw.</p>
@@ -103,6 +131,8 @@
     <div id="auth-modal" class="command-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title" aria-describedby="auth-status">
         <div class="command-card auth-card">
             <header><span class="shell-kicker">VOLLE ACCOUNT</span><h2 id="auth-modal-title">Enter the arena</h2><p id="auth-status" class="auth-status" role="status">Checking your saved session…</p></header>
+            <button id="auth-guest" class="btn btn-primary auth-guest-cta" type="button">Play Now <small>No account needed</small></button>
+            <p class="auth-divider"><span>or sign in to save rewards, open cases &amp; play Ranked</span></p>
             <div class="auth-tabs" role="tablist" aria-label="Account access">
                 <button class="auth-tab-btn auth-tab-active" data-tab="login" role="tab" aria-selected="true" aria-controls="auth-login-tab">Sign In</button>
                 <button class="auth-tab-btn" data-tab="register" role="tab" aria-selected="false" aria-controls="auth-register-tab">Create Account</button>
@@ -205,8 +235,8 @@
                 </div>
                 <div class="ow-splash">
                     <span class="ow-kicker">WELCOME TO THE ARENA</span>
-                    <img class="brand-mark brand-mark-menu" src="assets/generated/warrball-logo-transparent-v1.png" alt="Warrball emblem">
-                    <div class="ow-logo">WARRBALL</div>
+                    <img class="brand-mark brand-mark-menu" src="assets/generated/volle-logo-512.png" alt="VOLLE emblem">
+                    <div class="ow-logo">VOLLE</div>
                     <div class="ow-tagline">FIRST PERSON DODGEBALL</div>
                     <div class="ow-mode-chip" id="menu-mode-status"><span>QUICK PLAY</span><b>Create or join a lobby</b></div>
                 </div>
@@ -347,7 +377,7 @@
         <div class="command-card ftue-card">
             <header class="ftue-header">
                 <span class="ftue-kicker">WELCOME TO</span>
-                <h2 id="ftue-welcome-title">WARRBALL</h2>
+                <h2 id="ftue-welcome-title">VOLLE</h2>
                 <p class="ftue-pitch">First-person dodgeball — deflect the ball, outplay the enemy team, win the round.</p>
             </header>
             <div class="ftue-tips">
@@ -376,7 +406,7 @@
         <div class="social-hub-browser-card">
             <header class="social-hub-browser-header">
                 <div>
-                    <span class="social-hub-browser-kicker">WARRBALL WORLD</span>
+                    <span class="social-hub-browser-kicker">VOLLE WORLD</span>
                     <h2 id="social-hub-browser-title">SOCIAL HUBS</h2>
                     <p>Choose a world. Empty worlds open a new public room.</p>
                 </div>
@@ -399,7 +429,7 @@
                 <svg class="ui-icon"><use href="#i-globe"></use></svg>
             </div>
             <div class="social-lobby-heading">
-                <span class="social-lobby-kicker">WARRBALL WORLD</span>
+                <span class="social-lobby-kicker">VOLLE WORLD</span>
                 <strong>SOCIAL HUB</strong>
                 <span id="social-lobby-status">Exploring Neon Clubhouse</span>
             </div>
@@ -552,6 +582,7 @@
             <input type="password" id="join-pass-input" class="input" placeholder="Lobby password (if any)..." maxlength="32">
 
             <button id="btn-join-connect" class="btn btn-primary">Connect</button>
+            <button id="btn-join-spectate" class="btn btn-secondary" type="button" title="Watch the match without taking a team slot">👁 Spectate</button>
             <button id="btn-join-party-follow" class="btn btn-primary party-follow-action" type="button" hidden>Join squad</button>
             <button id="btn-join-back" class="btn btn-secondary">← Back</button>
         </div>
@@ -561,7 +592,7 @@
     <div id="lobby-screen" class="screen hidden">
         <!-- Top bar -->
         <div class="cs-topbar">
-            <div class="cs-roomcode"><img class="brand-mark brand-mark-room" src="assets/generated/warrball-logo-transparent-v1.png" alt=""> Room: <span id="room-code">LOCAL</span></div>
+            <div class="cs-roomcode"><img class="brand-mark brand-mark-room" src="assets/generated/volle-logo-512.png" alt=""> Room: <span id="room-code">LOCAL</span></div>
             <div class="cs-lobby-name">
                 <input id="lobby-name-input" class="cs-lobby-name-input" type="text" maxlength="32" placeholder="Lobby Name" value="Lobby" spellcheck="false">
             </div>
@@ -620,6 +651,19 @@
         <button type="button" class="cs-mode-btn mode-btn" data-mode="pinball" aria-pressed="false">PB Pinball</button>
                     </div>
                     <label class="match-modifier" for="match-modifier"><span>MAP MODIFIER</span><select id="match-modifier"><option value="none">Standard rules</option><option value="lowgrav">Low gravity</option><option value="pinball">Pinball bounce</option><option value="night">Night lights</option><option value="ffa_sudden" disabled>FFA sudden speed</option><option value="ffa_double" disabled>FFA double ball opening</option></select></label>
+                </div>
+
+                <!-- Match rule + who is watching (visible to everyone; toggle is host-only) -->
+                <div class="cs-section cs-section-spectate">
+                    <label class="cross-court-toggle" for="setting-allow-cross-court">
+                        <input type="checkbox" id="setting-allow-cross-court">
+                        <span>Allow crossing to opposite half</span>
+                    </label>
+                    <div id="lobby-spectators" class="lobby-spectators hidden" aria-live="polite">
+                        <span class="lobby-spectators-label">👁 SPECTATORS <b id="lobby-spectators-count">0</b></span>
+                        <span id="lobby-spectators-names" class="lobby-spectators-names">No spectators yet</span>
+                        <span class="lobby-spectator-self">You are spectating — you will watch from the stands.</span>
+                    </div>
                 </div>
 
                 <!-- Settings button (opens unified modal) -->
@@ -793,7 +837,7 @@
                         </div>
                     </div>
                     <div class="crosshair-code-row">
-                        <input id="crosshair-code-input" type="text" maxlength="2048" placeholder="WARRBALL-X1 crosshair code" aria-label="Crosshair share code">
+                        <input id="crosshair-code-input" type="text" maxlength="2048" placeholder="VOLLE-X1 crosshair code" aria-label="Crosshair share code">
                         <button id="crosshair-code-copy" class="btn btn-secondary btn-small" type="button">Copy</button>
                         <button id="crosshair-code-paste" class="btn btn-secondary btn-small" type="button">Paste</button>
                         <button id="crosshair-code-import" class="btn btn-primary btn-small" type="button">Apply</button>
@@ -1029,6 +1073,7 @@
                     <button id="shop-tab-wearables" class="shop-tab" role="tab" aria-selected="false" aria-controls="shop-grid" data-tab="wearables"><svg class="ui-icon" aria-hidden="true"><use href="#i-ticket"></use></svg><span>Wearables</span></button>
                     <button id="shop-tab-cases" class="shop-tab" role="tab" aria-selected="false" aria-controls="shop-grid" data-tab="cases"><svg class="ui-icon" aria-hidden="true"><use href="#i-shop"></use></svg><span>Cases</span></button>
                     <button id="shop-tab-boosts" class="shop-tab" role="tab" aria-selected="false" aria-controls="shop-grid" data-tab="boosts"><svg class="ui-icon" aria-hidden="true"><use href="#i-play"></use></svg><span>Boosts</span></button>
+                    <button id="shop-tab-tierlist" class="shop-tab" role="tab" aria-selected="false" aria-controls="shop-grid" data-tab="tierlist"><svg class="ui-icon" aria-hidden="true"><use href="#i-target"></use></svg><span>Tier List</span></button>
                 </div>
             </div>
             <main class="shop-showcase-layout">
@@ -1387,7 +1432,7 @@
         <div class="panel wide-panel shell-panel patchnotes-shell">
             <header class="shell-header">
                 <div class="shell-title"><span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg></span><div><span class="shell-kicker">LIVE DEVELOPMENT</span><h1>Patch Notes</h1><p>Built by Sherlock. Polished with player feedback.</p></div></div>
-                <span class="patch-version">WARRBALL v0.11</span>
+                <span class="patch-version">VOLLE v0.11</span>
             </header>
             <div class="patch-timeline">
                 <article class="patch-card current">
@@ -1436,7 +1481,7 @@
                     </ul>
                 </article>
             </div>
-            <footer class="patch-footer"><strong>By Sherlock</strong><span>Thanks for helping WARRBALL grow.</span><span>CC-BY models: see assets/cc-by/sketchfab/ATTRIBUTION.md</span></footer>
+            <footer class="patch-footer"><strong>By Sherlock</strong><span>Thanks for helping VOLLE grow.</span><span>CC-BY models: see assets/cc-by/sketchfab/ATTRIBUTION.md</span></footer>
             <button id="btn-patchnotes-back" class="btn btn-secondary shell-back"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back to menu</button>
         </div>
     </div>
@@ -1559,10 +1604,13 @@
                 <button type="button" data-spectator-mode="first-person" aria-pressed="false">Player Cam</button>
                 <button type="button" data-spectator-mode="chase" aria-pressed="true">Chase Cam</button>
                 <button type="button" data-spectator-mode="free-roam" aria-pressed="false">Free Cam</button>
+                <button type="button" data-spectator-mode="stands" aria-pressed="false">Stands</button>
             </div>
             <small class="spectator-hint"><kbd>[</kbd><kbd>]</kbd> target <span aria-hidden="true">/</span> <kbd>F</kbd> free cam <span aria-hidden="true">/</span> wheel zoom</small>
+            <small class="spectator-hint spectator-joined-hint"><kbd>C</kbd> stands / player view <span aria-hidden="true">/</span> <kbd>[</kbd><kbd>]</kbd> player <span aria-hidden="true">/</span> <kbd>&larr;</kbd><kbd>&rarr;</kbd><kbd>&uarr;</kbd><kbd>&darr;</kbd> seat <span aria-hidden="true">/</span> <kbd>X</kbd> other side <span aria-hidden="true">/</span> <kbd>Space</kbd> jump <span aria-hidden="true">/</span> <kbd>G</kbd> emote</small>
         </section>
         <div id="late-join-status" class="hidden late-join-status"></div>
+        <div id="hud-spectator-count" class="hidden hud-spectator-count" aria-live="polite"></div>
 
         <!-- Ball affix indicator — pill badge top-center -->
         <div id="ball-affix-indicator" class="hidden"></div>
@@ -1717,18 +1765,18 @@
                 <h2 id="case-inspector-title">Kickoff Case</h2>
                 <p id="case-inspector-meta">Purchase starts only when you confirm.</p>
                 <div class="case-inspector-stats"><span><small>Balance</small><strong id="case-inspector-balance">0 credits</strong></span><span><small>Epic+ protection</small><strong id="case-inspector-pity">0/10</strong></span><span><small>Earned opens</small><strong id="case-inspector-earned">0</strong></span></div>
-                <div id="case-inspector-rates" class="case-inspector-rates" aria-label="Verified case drop rates"></div>
+                <div id="case-inspector-rates" class="case-inspector-rates" aria-label="Verified case drop rates"></div><div id="case-inspector-knives" class="case-inspector-knives" aria-label="Knives in this case"></div>
                 <button id="case-inspector-open" class="btn btn-primary" type="button" data-id="kickoff"><svg class="ui-icon" aria-hidden="true"><use href="#i-play"></use></svg>Open for 120 credits</button>
             </div>
         </div>
     </div>
-    <div id="case-reel" class="case-reel hidden" role="dialog" aria-modal="true" aria-label="Case opening"><div class="case-reel-card" role="document" tabindex="-1"><div class="case-reel-top"><span>WARRBALL CASE OPENING</span><button id="case-reel-skip" type="button">SKIP</button></div><div class="case-reel-window"><div id="case-reel-track" class="case-reel-track"></div></div><div id="case-reel-result" class="case-reel-result" aria-live="polite"></div><div id="case-reward-preview" class="case-reward-preview" aria-label="3D reward preview"><i></i></div><div id="case-reel-actions" class="case-reel-actions hidden" aria-label="Case reward actions"><button id="case-reel-inspect" class="btn btn-secondary" type="button">Inspect</button><button id="case-reel-equip" class="btn btn-primary" type="button">Equip</button><button id="case-reel-open-another" class="btn btn-primary" type="button">Open another</button><button id="case-reel-close" class="btn btn-secondary" type="button">Close</button></div></div></div>
+    <div id="case-reel" class="case-reel hidden" role="dialog" aria-modal="true" aria-label="Case opening"><div class="case-reel-card" role="document" tabindex="-1"><div class="case-reel-top"><span>VOLLE CASE OPENING</span><button id="case-reel-skip" type="button">SKIP</button></div><div class="case-reel-window"><div id="case-reel-track" class="case-reel-track"></div><div id="case-reveal-stage" class="case-reveal-stage" hidden aria-hidden="true"></div></div><div id="case-reel-result" class="case-reel-result" aria-live="polite"></div><div id="case-reward-preview" class="case-reward-preview" aria-label="3D reward preview"><i></i></div><div id="case-reel-actions" class="case-reel-actions hidden" aria-label="Case reward actions"><button id="case-reel-inspect" class="btn btn-secondary" type="button">Inspect</button><button id="case-reel-equip" class="btn btn-primary" type="button">Equip</button><button id="case-reel-open-another" class="btn btn-primary" type="button">Open another</button><button id="case-reel-close" class="btn btn-secondary" type="button">Close</button></div></div></div>
 
     <!-- ===== TEAM SWITCH OVERLAY (M) ===== -->
     <div id="team-overlay" class="hidden">
         <div class="team-popup">
             <header class="team-command-header">
-                <div><span>WARRBALL COMMAND</span><h3>Choose your class</h3></div>
+                <div><span>VOLLE COMMAND</span><h3>Choose your class</h3></div>
                 <kbd>M</kbd>
             </header>
             <div class="team-popup-grid">
@@ -1909,6 +1957,10 @@
               </table>
             </div>
 
+            <div class="guest-save-banner" role="note">
+                <span><b>Playing as guest.</b> Your progress lives on this device only.</span>
+                <button id="btn-guest-save" class="btn btn-primary btn-small" type="button">Create free account</button>
+            </div>
             <div class="game-over-actions">
                 <div id="rematch-status" class="rematch-status" role="status" aria-live="polite">Instant solo rematch.</div>
                 <button id="btn-play-again" class="btn btn-primary"><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg>Rematch</button>
@@ -1963,6 +2015,17 @@
                 <header class="pg-header"><div><span class="shell-kicker">MATCH REPORT</span><h2 class="pg-title" id="pg-result"></h2></div><svg class="ui-icon pg-header-mark" aria-hidden="true"><use href="#i-trophy"></use></svg></header>
                 <span class="pg-final-score-label">FINAL SCORE</span>
                 <div class="pg-winner" id="pg-winner"></div>
+                <!-- Match MVP: name + key stats + a small 3D showcase of their equipped
+                     knife/gloves/ball (js/mvp-showcase.js). js/ui.js#_renderMvpCard fills
+                     this from the same scoreboard data the AAR table's MVP tag uses. -->
+                <section class="pg-mvp-card" id="pg-mvp-card" hidden aria-label="Match MVP">
+                    <div class="pg-mvp-stage" id="pg-mvp-stage" aria-hidden="true"></div>
+                    <div class="pg-mvp-info">
+                        <span class="pg-mvp-kicker"><svg class="ui-icon" aria-hidden="true"><use href="#i-trophy"></use></svg>MATCH MVP</span>
+                        <b class="pg-mvp-name" id="pg-mvp-name"></b>
+                        <div class="pg-mvp-stats" id="pg-mvp-stats"></div>
+                    </div>
+                </section>
                 <section class="pg-rematch-hero" aria-label="Play again">
                     <div id="pg-rematch-status" class="rematch-status" role="status" aria-live="polite">Instant solo rematch.</div>
                     <button id="pg-play-again" class="btn btn-primary"><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg>Rematch</button>
@@ -1970,6 +2033,10 @@
                 <div class="pg-level">
                     <span id="pg-prestige" class="prestige-badge" hidden></span>
                     <span id="pg-level"></span>
+                </div>
+                <div class="guest-save-banner" role="note">
+                    <span><b>Playing as guest.</b> Your progress lives on this device only.</span>
+                    <button id="pg-btn-guest-save" class="btn btn-primary btn-small" type="button">Create free account</button>
                 </div>
                 </div>
                 <section class="pg-detail-report" aria-label="Detailed match report">

@@ -67,6 +67,7 @@ export class Renderer {
         this._camera = camera;
         this._composer = new EffectComposer(this.renderer);
         this._composer.addPass(new RenderPass(this.scene, camera));
+        if (this._viewmodel) this._composer.addPass(this._viewmodel.pass);
         // ponytail: reduced bloom so center-screen glow doesn't trail the mouse.
         // radius/threshold come from the bloom profile (setBloomProfile); strength
         // starts at 0 and is set by _applyBloomStrength() via setQuality() below.
@@ -89,6 +90,10 @@ export class Renderer {
         this._applyPixelRatio();
         this.renderer.setSize(w, h);
         this._composer?.setSize(w, h);
+        if (this._viewmodel) {
+            this._viewmodel.camera.aspect = this._viewport.width / this._viewport.height;
+            this._viewmodel.camera.updateProjectionMatrix();
+        }
     }
 
     setResolutionTarget(width, height) {
@@ -273,6 +278,7 @@ export class Renderer {
 
     render(camera) {
         this._initComposer(camera);
+        if (this._viewmodel) this._viewmodel.pass.enabled = this._viewmodel.isVisible() === true;
         this._composer.render();
         if (this._vignetteScene && this._vignetteMesh?.material.uniforms.uIntensity.value > 0.01) {
             this.renderer.autoClear = false;
@@ -280,6 +286,52 @@ export class Renderer {
             this.renderer.render(this._vignetteScene, this._vignetteCam);
             this.renderer.autoClear = true;
         }
+    }
+
+    // First-person viewmodel: its own scene + narrow fixed-FOV camera, drawn as a
+    // second composer pass over the world with a cleared depth buffer. It never
+    // clips into walls, does not balloon at wide gameplay FOVs, and still goes
+    // through the same bloom + tone-mapping as the world.
+    setViewmodel(scene, camera, isVisible = () => true) {
+        const pass = new RenderPass(scene, camera);
+        pass.clear = false;
+        pass.clearDepth = true;
+        scene.environment = this._viewmodelEnvironment();
+        this._viewmodel = { scene, camera, pass, isVisible };
+        camera.aspect = this._viewport.width / this._viewport.height;
+        camera.updateProjectionMatrix();
+        if (this._composer) this._composer.insertPass(pass, 1);
+    }
+
+    // Tiny studio environment (sky gradient + softboxes) so metallic knife skins
+    // get real reflections; the world scene deliberately has none.
+    _viewmodelEnvironment() {
+        if (this._vmEnvironment !== undefined) return this._vmEnvironment;
+        try {
+            const studio = new THREE.Scene();
+            const dome = new THREE.Mesh(new THREE.SphereGeometry(10, 32, 16), new THREE.ShaderMaterial({
+                side: THREE.BackSide,
+                vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+                fragmentShader: 'varying vec3 vDir; void main(){ float h = vDir.y * 0.5 + 0.5; vec3 c = mix(vec3(0.05, 0.07, 0.09), vec3(0.55, 0.85, 0.9), smoothstep(0.25, 0.95, h)); gl_FragColor = vec4(c, 1.0); }'
+            }));
+            studio.add(dome);
+            const softbox = (w, h, x, y, z, intensity) => {
+                const panel = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(intensity, intensity, intensity), side: THREE.DoubleSide }));
+                panel.position.set(x, y, z);
+                panel.lookAt(0, 0, 0);
+                studio.add(panel);
+            };
+            softbox(6, 2.2, 0, 6, 3, 5);
+            softbox(2, 5, -6, 1.5, 1, 3);
+            softbox(2, 5, 6, 1, -2, 2.2);
+            const pmrem = new THREE.PMREMGenerator(this.renderer);
+            this._vmEnvironment = pmrem.fromScene(studio, 0.02).texture;
+            pmrem.dispose();
+            studio.traverse(o => { o.geometry?.dispose(); o.material?.dispose(); });
+        } catch {
+            this._vmEnvironment = null;
+        }
+        return this._vmEnvironment;
     }
 
     _initVignette() {

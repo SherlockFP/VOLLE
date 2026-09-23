@@ -14,7 +14,11 @@ export const ARENA_PRESENTATION_PROFILES = Object.freeze({
     beach_open: Object.freeze({ exposure: 0.98, sun: 1.70, bloomRadius: 0.16, bloomThreshold: 0.84 }),
     industrial: Object.freeze({ exposure: 1.16, sun: 2.10, bloomRadius: 0.18, bloomThreshold: 0.76 }),
     neon: Object.freeze({ exposure: 1.06, sun: 1.65, bloomRadius: 0.18, bloomThreshold: 0.72 }),
-    grand_stadium: Object.freeze({ exposure: 1.12, sun: 1.90, bloomRadius: 0.18, bloomThreshold: 0.82 })
+    grand_stadium: Object.freeze({ exposure: 1.12, sun: 1.90, bloomRadius: 0.18, bloomThreshold: 0.82 }),
+    // Map-art pass: night rooftop keeps a dim moon key so neon carries the scene.
+    neon_rooftop: Object.freeze({ exposure: 1.08, sun: 0.95, bloomRadius: 0.2, bloomThreshold: 0.7 }),
+    sunken_temple: Object.freeze({ exposure: 1.04, sun: 1.85, bloomRadius: 0.16, bloomThreshold: 0.84 }),
+    orbital_station: Object.freeze({ exposure: 1.08, sun: 2.2, bloomRadius: 0.2, bloomThreshold: 0.76 })
 });
 
 export function arenaPresentationProfile(mapId) {
@@ -162,6 +166,7 @@ export const MAPS = {
             { type: 'sphere', pos: [25, 2, -20], size: [2], color: 0xff4400 }
         ],
         weather: 'storm',
+        gameplay: { mechanics: ['net-vents', 'lava-hazards'], fallDeathY: -12, symmetric: true },
     },
     ice: {
         name: '❄️ Ice Palace',
@@ -207,7 +212,8 @@ export const MAPS = {
         courtWidth: 123, courtLength: 132, wallHeight: 22, ceilingHeight: 31,
         floorRed: 0x887a6a, floorBlue: 0x6a7a8a, wallColor: 0x9a8a7a,
         skyTop: 0x6a80a0, skyBottom: 0xd0c8b8, fogColor: 0xc8c0b0,
-        hasOcean: false, hasGlass: true, isPillar: true, size: 'large', weather: 'clear'
+        hasOcean: false, hasGlass: true, isPillar: true, size: 'large', weather: 'clear',
+        gameplay: { mechanics: ['bank-pillars', 'open-center-lane'], fallDeathY: -12, symmetric: true }
     },
     lava: {
         name: '🌋 Lava Pit',
@@ -231,7 +237,8 @@ export const MAPS = {
         floorRed: 0x556677, floorBlue: 0x445566, wallColor: 0x667788,
         skyTop: 0x334455, skyBottom: 0x8899aa, fogColor: 0x778899,
         hasOcean: false, hasGlass: true, isMecha: true, size: 'xxl',
-        hasPortals: true, weather: 'clear'
+        hasPortals: true, weather: 'clear',
+        gameplay: { mechanics: ['gantry-decks', 'high-throw-line'], fallDeathY: -12, symmetric: true }
     },
     atlantis: {
         name: '🌊 Atlantis',
@@ -428,6 +435,69 @@ export const MAPS = {
             fallDeathY: -14, playerSpawnZ: 48, symmetric: true
         },
         sky: { horizonColor: 0x1e2a31, sun: false, sunColor: 0xffb347, cloudAmount: 0 }
+    },
+    // --- Map-art pass: three procedural maps. Cover + colliders live in
+    // GAMEPLAY_LAYOUTS below; scenery outside the court is js/map-art/.
+    neon_rooftop: {
+        name: '🌃 Neon Rooftop',
+        courtWidth: 96, courtLength: 112, wallHeight: 18, ceilingHeight: 0,
+        floorRed: 0x9c2c52, floorBlue: 0x1f64a6, wallColor: 0xff4fa3,
+        skyTop: 0x04050e, skyBottom: 0x24143a, fogColor: 0x1b1030,
+        floorMaterial: { roughness: 0.38, metalness: 0.2, emissiveIntensity: 0.08 },
+        hasOcean: false, hasGlass: false, isRooftop: true, openAir: true, size: 'medium', weather: 'clear',
+        spectator: {
+            bounds: { minX: -74, maxX: 74, minY: 0, maxY: 40, minZ: -74, maxZ: 74 },
+            stands: [
+                { side: 'west', tiers: 3, length: 48, depth: 2.2, rise: 0.8, setback: 6 },
+                { side: 'east', tiers: 3, length: 48, depth: 2.2, rise: 0.8, setback: 6 }
+            ]
+        },
+        gameplay: {
+            mechanics: ['ac-unit-cover', 'open-center-lane', 'symmetric-spawns'],
+            fallDeathY: -12, playerSpawnZ: 40, symmetric: true
+        },
+        sky: { horizonColor: 0x5a2a6e, sun: true, sunColor: 0xd6ddff, cloudAmount: 0.08, stars: 1 }
+    },
+    sunken_temple: {
+        name: '🏺 Sunken Temple',
+        courtWidth: 100, courtLength: 116, wallHeight: 20, ceilingHeight: 0,
+        floorRed: 0xb5563f, floorBlue: 0x2f8584, wallColor: 0xc9b48a,
+        skyTop: 0x4f9fd6, skyBottom: 0xd6ead0, fogColor: 0xa9c7a2,
+        floorMaterial: { roughness: 0.9, metalness: 0, emissiveIntensity: 0.06 },
+        hasOcean: false, hasGlass: false, isSunkenTemple: true, openAir: true, size: 'medium', weather: 'clear',
+        spectator: {
+            bounds: { minX: -76, maxX: 76, minY: 0, maxY: 40, minZ: -80, maxZ: 80 },
+            stands: [
+                { side: 'west', tiers: 3, length: 50, depth: 2.4, rise: 0.8, setback: 7 },
+                { side: 'east', tiers: 3, length: 50, depth: 2.4, rise: 0.8, setback: 7 }
+            ]
+        },
+        gameplay: {
+            mechanics: ['broken-colonnade', 'fallen-drum-cover', 'open-center-lane', 'symmetric-spawns'],
+            fallDeathY: -12, playerSpawnZ: 42, symmetric: true
+        },
+        sky: { horizonColor: 0xcfe6c0, sun: true, sunColor: 0xfff0b0, cloudAmount: 0.4 }
+    },
+    orbital_station: {
+        name: '🛰️ Orbital Station',
+        courtWidth: 104, courtLength: 120, wallHeight: 22, ceilingHeight: 30,
+        floorRed: 0xc2415e, floorBlue: 0x3a6fd8, wallColor: 0x9fd4ff,
+        skyTop: 0x010207, skyBottom: 0x081126, fogColor: 0x0a1226,
+        floorMaterial: { roughness: 0.32, metalness: 0.45, emissiveIntensity: 0.1 },
+        hasOcean: false, hasGlass: true, isOrbital: true, size: 'medium', weather: 'indoor',
+        spectator: {
+            bounds: { minX: -78, maxX: 78, minY: 0, maxY: 44, minZ: -82, maxZ: 82 },
+            stands: [
+                { side: 'west', tiers: 3, length: 52, depth: 2.2, rise: 0.8, setback: 6 },
+                { side: 'east', tiers: 3, length: 52, depth: 2.2, rise: 0.8, setback: 6 }
+            ]
+        },
+        gameplay: {
+            // Low gravity is deliberately NOT set: the station look is visual only.
+            mechanics: ['reactor-pylons', 'cargo-cover', 'open-center-lane', 'symmetric-spawns'],
+            fallDeathY: -12, playerSpawnZ: 42, symmetric: true
+        },
+        sky: { horizonColor: 0x15224a, sun: true, sunColor: 0xfff4dc, cloudAmount: 0, stars: 1 }
     }
 };
 
@@ -447,6 +517,18 @@ function ensureMapMetadata(config) {
         config.spectator.stands = [
             { side: 'north', tiers: 3, depth: 1.4, rise: 0.65, setback: 3, length: Math.max(10, config.courtWidth * 0.28) },
             { side: 'south', tiers: 3, depth: 1.4, rise: 0.65, setback: 3, length: Math.max(10, config.courtWidth * 0.28) }
+        ];
+    }
+    // Joined spectators sit on the sidelines (west/east = left/right of the court).
+    // Maps without sideline stands get a symmetric generated pair; the numbers must
+    // match generatedSidelineStands() in js/spectator-seats.js (pinned by
+    // tests/spectator-seats.test.mjs) because seat anchors are derived from them.
+    if (!config.practiceOnly && !config.isCosmeticStudio
+        && !config.spectator.stands.some(stand => stand?.side === 'west' || stand?.side === 'east')) {
+        const length = Math.max(12, Math.min(60, Math.max(8, Number(config.courtLength) || 60) * 0.6));
+        config.spectator.stands = [
+            ...config.spectator.stands,
+            ...['west', 'east'].map(side => ({ side, tiers: 3, depth: 1.8, rise: 0.7, setback: 4, length, generated: true }))
         ];
     }
     config.gameplay ||= { mechanics: [], fallDeathY: -12 };
@@ -475,6 +557,127 @@ export function getLobbyPreviewCommands(config) {
     return config.lobbyPreview
         .filter(command => command && LOBBY_PREVIEW_KINDS.has(command.kind))
         .slice(0, 6);
+}
+
+// --- Gameplay layouts ---------------------------------------------------------
+// The in-court geometry that changes how four flagship maps play, each built
+// around one idea. Layouts are pure and RNG-free, so every client in a lobby
+// builds identical colliders, and every entry is mirrored on both axes
+// (x -> -x, z -> -z) so neither team nor either wing gets the better side.
+// Solids use the existing {pos, radius} collider contract that ball.js,
+// player.js and bot.js all read; decks use the existing one-way `platforms`
+// contract (players land from above; the ball and bots pass beneath).
+// ball.js / player.js / bot.js treat a {pos, radius} collider as a vertical
+// cylinder spanning pos.y +/- (radius + ownRadius + PROP_COLLIDER_SLACK).
+export const PROP_COLLIDER_SLACK = 2;
+
+function mirrorXZ(x, z, entry) {
+    const out = [];
+    for (const sx of x === 0 ? [1] : [-1, 1]) {
+        for (const sz of z === 0 ? [1] : [-1, 1]) {
+            out.push(Object.freeze({ ...entry, x: sx * x, z: sz * z }));
+        }
+    }
+    return out;
+}
+
+const GAMEPLAY_LAYOUTS = {
+    // Pillars: the centre lane stays open; a net quartet, wing pair and back-flank
+    // pair per half give brief cover and bank-shot angles, never a wall.
+    pillar: config => {
+        const height = config.wallHeight * 0.7;
+        return {
+            idea: 'bank-pillars',
+            columns: [
+                ...mirrorXZ(12, 12, { radius: 1.6, height, style: 'stone' }),
+                ...mirrorXZ(30, 28, { radius: 1.3, height, style: 'stone' }),
+                ...mirrorXZ(46, 46, { radius: 1.3, height, style: 'stone' })
+            ]
+        };
+    },
+    // Lanes: low pulse rails split each front court into a centre and two wing
+    // lanes. Walkers are stopped; a ball clears them above the glowing field, so
+    // cross-lane shots must be lobbed. Back court and the net gap stay open.
+    circuit_dome: () => ({
+        idea: 'front-court-lanes',
+        rails: mirrorXZ(14, 16, { halfLength: 10, radius: 0.6, height: 1.5 })
+    }),
+    // Centre feature: two basalt vents straddle the net and kick cross-court
+    // shots into sharp angles; the ball drop zone between them stays clear.
+    volcano: () => ({
+        idea: 'net-vents',
+        columns: mirrorXZ(10, 0, { radius: 3, height: 5, style: 'vent' })
+    }),
+    // Tiers: a gantry deck in each back corner, reached with a double jump,
+    // gives a high throwing line; the ball and bots pass underneath.
+    mecha: () => ({
+        idea: 'gantry-decks',
+        decks: mirrorXZ(30, 60, { halfWidth: 8, halfDepth: 5, y: 2.6, legRadius: 0.45 })
+    }),
+    // Rooftop: waist-high AC units flank the net and the back wings, exhaust
+    // stacks give full cover mid-court; the centre lane stays a clean duel line.
+    // `blocks` are boxes whose colliders are a row of circles along the long
+    // axis; low ones use honest-top colliders (see lowCoverCenterY).
+    neon_rooftop: () => ({
+        idea: 'ac-unit-cover',
+        blocks: [
+            ...mirrorXZ(24, 9, { halfWidth: 3.4, halfDepth: 1.7, height: 2.4, style: 'ac' }),
+            ...mirrorXZ(34, 30, { halfWidth: 1.8, halfDepth: 3.6, height: 2.6, style: 'ac' })
+        ],
+        columns: mirrorXZ(12, 22, { radius: 1.2, height: 4.2, style: 'stack' })
+    }),
+    // Ruins: an intact column pair near the net, broken stumps on the wings and
+    // fallen drums in front of each back line — tall, waist and knee cover.
+    sunken_temple: () => ({
+        idea: 'broken-colonnade',
+        columns: [
+            ...mirrorXZ(15, 12, { radius: 1.5, height: 8, style: 'ruin' }),
+            ...mirrorXZ(32, 24, { radius: 1.3, height: 3.4, style: 'ruin-broken', lowCover: true })
+        ],
+        blocks: mirrorXZ(20, 34, { halfWidth: 4, halfDepth: 1.1, height: 2.2, style: 'fallen' })
+    }),
+    // Station deck: reactor pylons (full cover) frame the centre, low energy
+    // barriers flank the net and cargo containers guard the back wings.
+    orbital_station: () => ({
+        idea: 'reactor-pylons',
+        columns: mirrorXZ(16, 16, { radius: 1.4, height: 9, style: 'pylon' }),
+        blocks: [
+            ...mirrorXZ(30, 7, { halfWidth: 3, halfDepth: 0.9, height: 2, style: 'barrier' }),
+            ...mirrorXZ(32, 30, { halfWidth: 1.7, halfDepth: 3.4, height: 2.8, style: 'cargo' })
+        ]
+    })
+};
+
+// Ball radius the honest-top low-cover colliders are tuned for (js/ball.js).
+export const LOW_COVER_BALL_RADIUS = 0.47;
+
+// A {pos, radius} collider blocks the ball within radius + ball + SLACK of its
+// centre height — far above a waist-high prop if the centre sits on the floor.
+// Sinking the centre puts the top of that reach at the prop's visual top while
+// grounded players (eye 1.7) and bots still collide for props >= ~1.7 tall.
+export function lowCoverCenterY(radius, height) {
+    return height - (radius + LOW_COVER_BALL_RADIUS + PROP_COLLIDER_SLACK);
+}
+
+// Circle centres covering a block footprint along its long axis (no slot a
+// ball, bot or player fits through). Pure; shared by the builder and tests.
+export function blockColliderCircles(block) {
+    const alongX = block.halfWidth >= block.halfDepth;
+    const long = alongX ? block.halfWidth : block.halfDepth;
+    const radius = alongX ? block.halfDepth : block.halfWidth;
+    const span = Math.max(0, long - radius);
+    const count = span > 0 ? Math.ceil((span * 2) / radius) + 1 : 1;
+    const circles = [];
+    for (let i = 0; i < count; i++) {
+        const offset = count === 1 ? 0 : -span + (span * 2 * i) / (count - 1);
+        circles.push({ x: block.x + (alongX ? offset : 0), z: block.z + (alongX ? 0 : offset), radius });
+    }
+    return circles;
+}
+
+export function getGameplayLayout(mapId, config = MAPS[mapId]) {
+    if (!config || !Object.hasOwn(GAMEPLAY_LAYOUTS, mapId)) return null;
+    return GAMEPLAY_LAYOUTS[mapId](config);
 }
 
 export function getArenaBounds(config, margin = 0) {
@@ -563,8 +766,63 @@ export const MAP_THEMES = {
     museum:       { '--ui-primary': '#e5d5ac', '--ui-secondary': '#8fa8e0', '--ui-bg': '#131c33', '--ui-accent': '#ffd489' },
     casino:       { '--ui-primary': '#ffd36a', '--ui-secondary': '#ff4d7d', '--ui-bg': '#1a0a28', '--ui-accent': '#ff6adf' },
     subway:       { '--ui-primary': '#ffb347', '--ui-secondary': '#6fc3d8', '--ui-bg': '#101a20', '--ui-accent': '#ffd88a' },
+    neon_rooftop: { '--ui-primary': '#ff4fa3', '--ui-secondary': '#35e0ff', '--ui-bg': '#120a22', '--ui-accent': '#ffd23d' },
+    sunken_temple: { '--ui-primary': '#d9a441', '--ui-secondary': '#3fb3a6', '--ui-bg': '#10201a', '--ui-accent': '#f4e3b0' },
+    orbital_station: { '--ui-primary': '#9fd4ff', '--ui-secondary': '#ff7a93', '--ui-bg': '#070d1e', '--ui-accent': '#ffe2a8' },
     classic:      { '--ui-primary': '#457bca', '--ui-secondary': '#6fa8dc', '--ui-bg': '#0f0f23', '--ui-accent': '#ff8800' }
 };
+
+// Per-map lighting presets (map-art pass). `sun` is the direction TOWARD the
+// sun/moon: it places the shadow-casting DirectionalLight and the sky-dome
+// disc, so shadows and the visible sun agree. Hemisphere/ambient retint the
+// renderer's fill lights; fogNear/fogFar reshape its linear fog (fog colour
+// stays owned by config.fogColor). Maps without a preset get the renderer's
+// original rig back on every switch (captured once in _applyLighting).
+// Sun intensity stays owned by ARENA_PRESENTATION_PROFILES.
+export const MAP_LIGHTING = Object.freeze({
+    beach_open: Object.freeze({ sun: [-0.55, 0.6, -0.58], sunColor: 0xffe2b8, hemiSky: 0x9fd8ff, hemiGround: 0xf2c78f, hemiIntensity: 0.5, ambient: 0x9fb4d8, ambientIntensity: 0.5, fogNear: 70, fogFar: 240 }),
+    industrial: Object.freeze({ sun: [0.35, 0.85, 0.4], sunColor: 0xf2f6ff, hemiSky: 0xdfe8f5, hemiGround: 0x8a8f98, hemiIntensity: 0.55, ambient: 0x9aa8bc, ambientIntensity: 0.55, fogNear: 55, fogFar: 210 }),
+    neon: Object.freeze({ sun: [-0.3, 0.7, 0.5], sunColor: 0xd2b4ff, hemiSky: 0x8a6ad8, hemiGround: 0x2a1840, hemiIntensity: 0.5, ambient: 0x6a5a9a, ambientIntensity: 0.55, fogNear: 45, fogFar: 180 }),
+    grand_stadium: Object.freeze({ sun: [0.4, 0.82, -0.42], sunColor: 0xfff3dc, hemiSky: 0xbfe6ff, hemiGround: 0x88b070, hemiIntensity: 0.5, ambient: 0x9ab0cc, ambientIntensity: 0.55, fogNear: 90, fogFar: 300 }),
+    pillar: Object.freeze({ sun: [-0.5, 0.7, 0.35], sunColor: 0xffe0b0, hemiSky: 0xf0dcc0, hemiGround: 0x806a50, hemiIntensity: 0.5, ambient: 0xb0a090, ambientIntensity: 0.5, fogNear: 60, fogFar: 230 }),
+    circuit_dome: Object.freeze({ sun: [0.2, 0.9, 0.3], sunColor: 0xbff6ff, hemiSky: 0x35d9cc, hemiGround: 0x0c2c42, hemiIntensity: 0.55, ambient: 0x2a6a80, ambientIntensity: 0.6, fogNear: 45, fogFar: 170 }),
+    volcano: Object.freeze({ sun: [0.6, 0.45, -0.4], sunColor: 0xff9a60, hemiSky: 0xff6a3a, hemiGround: 0x2a0800, hemiIntensity: 0.55, ambient: 0x803020, ambientIntensity: 0.5, fogNear: 32, fogFar: 150 }),
+    mecha: Object.freeze({ sun: [0.3, 0.8, -0.5], sunColor: 0xe8f0ff, hemiSky: 0xb8c8dc, hemiGround: 0x404a58, hemiIntensity: 0.5, ambient: 0x7a8aa0, ambientIntensity: 0.6, fogNear: 70, fogFar: 270 }),
+    neon_rooftop: Object.freeze({ sun: [-0.42, 0.52, -0.74], sunColor: 0xb8c4ff, hemiSky: 0x7a5ad0, hemiGround: 0x1a0f2a, hemiIntensity: 0.6, ambient: 0x5a4a8a, ambientIntensity: 0.62, fogNear: 80, fogFar: 360 }),
+    sunken_temple: Object.freeze({ sun: [0.45, 0.72, -0.52], sunColor: 0xfff0c0, hemiSky: 0xcfe8ff, hemiGround: 0x5a7a40, hemiIntensity: 0.55, ambient: 0x9ab090, ambientIntensity: 0.5, fogNear: 90, fogFar: 330 }),
+    orbital_station: Object.freeze({ sun: [-0.62, 0.58, -0.52], sunColor: 0xfff8ec, hemiSky: 0x6f9ad8, hemiGround: 0x10182a, hemiIntensity: 0.4, ambient: 0x4a5a80, ambientIntensity: 0.55, fogNear: 140, fogFar: 460 })
+});
+
+export function mapLightingPreset(mapId) {
+    return Object.hasOwn(MAP_LIGHTING, mapId) ? MAP_LIGHTING[mapId] : null;
+}
+
+// Maps that get the lazily-loaded js/map-art/ layer (identity scenery for the
+// new maps on every tier; polish for the rest on medium/high only). Mirrors
+// IDENTITY_BUILDERS / POLISH_BUILDERS in js/map-art/index.js.
+export const MAP_ART_IDENTITY = Object.freeze(['neon_rooftop', 'sunken_temple', 'orbital_station']);
+export const MAP_ART_POLISH = Object.freeze([
+    'beach_open', 'industrial', 'neon', 'grand_stadium', 'pillar', 'circuit_dome', 'volcano', 'mecha'
+]);
+
+// Soft round sprite for the ambient particle Points (shared by every map,
+// created once, never disposed — it is 32x32).
+let ambientSprite = null;
+function ambientParticleSprite() {
+    if (ambientSprite || typeof document === 'undefined') return ambientSprite;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 32;
+    const g = canvas.getContext('2d');
+    if (!g) return null;
+    const grad = g.createRadialGradient(16, 16, 0, 16, 16, 16);
+    grad.addColorStop(0, 'rgba(255,255,255,1)');
+    grad.addColorStop(0.55, 'rgba(255,255,255,0.85)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 32, 32);
+    ambientSprite = new THREE.CanvasTexture(canvas);
+    return ambientSprite;
+}
 
 export class Arena {
     // ponytail: statik MAPS — game.js pickRandomMap() için.
@@ -597,6 +855,10 @@ export class Arena {
         this.portalTimer = 0;
         this.portalSwapInterval = 30;
         this.portalSwapTimer = this.portalSwapInterval;
+        // Map-art layer (js/map-art/): one shared time uniform drives every
+        // animated art material; art CanvasTextures are disposed in clearMap().
+        this._artTime = { value: 0 };
+        this._artTextures = [];
         this.build();
         // ponytail: apply initial map theme
         this._applyTheme(this.mapId);
@@ -699,7 +961,6 @@ export class Arena {
         }
         if (this.mapId === 'industrial') this.buildIndustrialProps();
         if (this.config.isCanyon) this.buildCanyonProps();
-        if (this.config.isPillar) this.buildPillarProps();
         if (this.config.isLava) this.buildLavaProps();
         if (this.config.isCrystal) this.buildCrystalProps();
         if (this.config.isMecha) this.buildMechaProps();
@@ -713,6 +974,7 @@ export class Arena {
         if (this.config.isStadium) this.buildStadiumProps();
         if (this.config.isPinball) this.buildPinballComplex();
         if (this.config.isCosmeticStudio) this.buildCosmeticStudio();
+        this.buildGameplayLayout();
         if (!this.config.isCosmeticStudio) this.buildSpectatorStands();
         this.buildHazardVisuals();
         // Generic open-world env for open-sided maps without specific theming
@@ -734,14 +996,42 @@ export class Arena {
         if (!this.bounds.maxY) this.bounds.maxY = this.ceilingHeight || 30;
         // Ambient particles based on map theme
         const particleType = (this.config.isVolcano || this.config.isLava) ? 'ember'
-            : (this.config.isIce || this.config.isCrystal || this.config.isAquarium) ? 'crystal'
-            : (this.config.isJungle || this.config.isBeachOpen) ? 'leaf'
+            : (this.config.isIce || this.config.isCrystal || this.config.isAquarium || this.config.isOrbital) ? 'crystal'
+            : (this.config.isJungle || this.config.isBeachOpen || this.config.isSunkenTemple) ? 'leaf'
             : (this.config.weather === 'snow') ? 'snow'
             : (this.config.weather === 'rain') ? 'rain'
-            : (this.config.isSpace || this.config.isNeon || this.config.isCosmeticStudio || this.config.isCasino) ? 'spark'
+            : (this.config.isSpace || this.config.isNeon || this.config.isCosmeticStudio || this.config.isCasino || this.config.isRooftop) ? 'spark'
             : 'dust';
         this.addAmbientParticles(particleType);
         this._loadArenaDecor();
+        this._loadMapArt();
+    }
+
+    // Quality tier for the map-art layer: Low (or the hub performance mode)
+    // gets no polish props/animation; new maps keep a static identity set.
+    _mapArtTier() {
+        if (this.renderer?.shouldLightDecor && !this.renderer.shouldLightDecor()) return 'low';
+        return this.renderer?._quality === 'high' ? 'high' : 'medium';
+    }
+
+    // Lazily imports js/map-art/ (own chunk) and dresses the map. Same token
+    // guard as _loadArenaDecor: a load that resolves after a map switch is
+    // dropped. Everything it adds goes through this.add(), so clearMap()
+    // disposes it with the rest of the map.
+    _loadMapArt() {
+        const token = this._artToken = (this._artToken || 0) + 1;
+        const tier = this._mapArtTier();
+        const wanted = MAP_ART_IDENTITY.includes(this.mapId)
+            || (tier !== 'low' && MAP_ART_POLISH.includes(this.mapId));
+        if (!wanted) return;
+        Arena._mapArtModule ||= import('./map-art/index.js');
+        Arena._mapArtModule.then(mod => {
+            if (token !== this._artToken) return;
+            mod.buildMapArt(this, tier);
+        }).catch(error => {
+            Arena._mapArtModule = null;
+            console.warn('[arena] map art unavailable:', error?.message || error);
+        });
     }
 
     // Optional GLB decor (bleachers/scoreboard/floodlights/etc — js/arena-decor.js) —
@@ -1955,23 +2245,207 @@ export class Arena {
         }
     }
 
-    buildPillarProps() {
-        // Tall stone columns throughout the court + collision
-        const colMat = this.renderer.createToonMaterial(0x9a8a7a);
-        const capMat = this.renderer.createToonMaterial(0xbaa88a);
-        for (let i = 0; i < 10; i++) {
-            const x = (Math.random() - 0.5) * (this.courtWidth - 16);
-            const z = (Math.random() - 0.5) * (this.courtLength - 16);
-            const h = this.wallHeight * 0.7;
-            const col = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1.0, h, 10), colMat);
-            col.position.set(x, h / 2, z);
-            col.castShadow = true;
-            this.add(col);
-            // ponytail: collidable at ground level so players on y=0 collide
-            this.addCollidable(col, new THREE.Vector3(x, 0, z), 1.0);
-            const cap = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 0.8, 0.5, 10), capMat);
-            cap.position.set(x, h + 0.25, z);
-            this.add(cap);
+    // One ground collider stops walkers; taller props stack more so a ball
+    // cannot pass through the upper part of the mesh (see PROP_COLLIDER_SLACK).
+    _addColumnColliders(mesh, x, z, radius, height) {
+        const reach = radius + PROP_COLLIDER_SLACK;
+        for (let y = 0; ; y += reach * 2) {
+            const cy = Math.min(y, Math.max(0, height - reach));
+            this.addCollidable(mesh, new THREE.Vector3(x, cy, z), radius);
+            if (cy + reach >= height) break;
+        }
+    }
+
+    // Build-time only: shared geometries/materials per layout, nothing per frame.
+    buildGameplayLayout() {
+        const layout = getGameplayLayout(this.mapId, this.config);
+        if (!layout) return;
+        const columns = layout.columns || [];
+        const stone = columns.some(col => col.style === 'stone') && {
+            body: this.renderer.createToonMaterial(0x9a8a7a),
+            cap: this.renderer.createToonMaterial(0xbaa88a)
+        };
+        const vent = columns.some(col => col.style === 'vent') && {
+            body: this.renderer.createToonMaterial(0x3a1a1a),
+            crown: new THREE.MeshBasicMaterial({ color: 0xff4400 }),
+            core: new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.85 })
+        };
+        // Map-art pass styles (rooftop stacks, temple ruins, station pylons)
+        // share one lazily created material set per build.
+        const mats = {};
+        const mat = (key, make) => (mats[key] ||= make());
+        const toon = color => mat(`toon-${color}`, () => this.renderer.createToonMaterial(color));
+        const glow = (color, opacity = 1) => mat(`glow-${color}-${opacity}`, () => new THREE.MeshBasicMaterial(
+            opacity < 1 ? { color, transparent: true, opacity, depthWrite: false } : { color }));
+        for (const col of columns) {
+            if (col.style === 'stack' || col.style === 'ruin' || col.style === 'ruin-broken' || col.style === 'pylon') {
+                this._buildArtColumn(col, toon, glow);
+                continue;
+            }
+            const isVent = col.style === 'vent';
+            const body = this._placeMesh(
+                new THREE.CylinderGeometry(col.radius * 0.85, col.radius * (isVent ? 1.05 : 1), col.height, isVent ? 9 : 12),
+                isVent ? vent.body : stone.body, col.x, col.height / 2, col.z
+            );
+            body.castShadow = true;
+            body.receiveShadow = true;
+            if (isVent) {
+                const crown = this._placeMesh(
+                    new THREE.TorusGeometry(col.radius * 0.85, 0.2, 6, 18), vent.crown, col.x, col.height, col.z
+                );
+                crown.rotation.x = Math.PI / 2;
+                const core = this._placeMesh(
+                    new THREE.CircleGeometry(col.radius * 0.8, 18), vent.core, col.x, col.height + 0.02, col.z
+                );
+                core.rotation.x = -Math.PI / 2;
+            } else {
+                this._placeMesh(
+                    new THREE.CylinderGeometry(col.radius * 1.3, col.radius * 0.85, 0.5, 12),
+                    stone.cap, col.x, col.height + 0.25, col.z
+                );
+            }
+            this._addColumnColliders(body, col.x, col.z, col.radius, col.height);
+        }
+
+        const rails = layout.rails || [];
+        if (rails.length) {
+            const railMat = this.renderer.createToonMaterial(this.config.wallColor);
+            const glowMat = new THREE.MeshBasicMaterial({ color: 0xb7ff43 });
+            // The field's top is exactly where a ball starts to clear the rail.
+            const fieldMat = new THREE.MeshBasicMaterial({
+                color: this.config.wallColor, transparent: true, opacity: 0.16,
+                side: THREE.DoubleSide, depthWrite: false
+            });
+            for (const rail of rails) {
+                const length = rail.halfLength * 2;
+                const thickness = rail.radius * 1.6;
+                const fieldTop = rail.radius + PROP_COLLIDER_SLACK;
+                const body = this._placeMesh(
+                    new THREE.BoxGeometry(thickness, rail.height, length + thickness), railMat,
+                    rail.x, rail.height / 2, rail.z
+                );
+                body.castShadow = true;
+                this._placeMesh(
+                    new THREE.BoxGeometry(thickness + 0.1, 0.12, length + thickness + 0.1), glowMat,
+                    rail.x, rail.height + 0.06, rail.z
+                );
+                this._placeMesh(
+                    new THREE.PlaneGeometry(length + thickness, fieldTop - rail.height), fieldMat,
+                    rail.x, (rail.height + fieldTop) / 2, rail.z, Math.PI / 2
+                );
+                // Touching circles: no gap a player or the ball can slip through.
+                const count = Math.ceil(length / (rail.radius * 2)) + 1;
+                for (let i = 0; i < count; i++) {
+                    const z = rail.z - rail.halfLength + (length * i) / (count - 1);
+                    this._addColumnColliders(body, rail.x, z, rail.radius, rail.height);
+                }
+            }
+        }
+
+        const decks = layout.decks || [];
+        if (decks.length) {
+            const slabThickness = 0.35;
+            const deckMat = this.renderer.createToonMaterial(0x556677);
+            const legMat = this.renderer.createToonMaterial(0x445566);
+            const edgeMat = new THREE.MeshBasicMaterial({ color: 0x88aacc });
+            for (const deck of decks) {
+                const slab = this._placeMesh(
+                    new THREE.BoxGeometry(deck.halfWidth * 2, slabThickness, deck.halfDepth * 2), deckMat,
+                    deck.x, deck.y - slabThickness / 2, deck.z
+                );
+                slab.castShadow = true;
+                slab.receiveShadow = true;
+                this.platforms.push({ x: deck.x, z: deck.z, y: deck.y, halfWidth: deck.halfWidth, halfDepth: deck.halfDepth });
+                // Lit lip on the net-facing edge so the ledge reads from mid-court.
+                this._placeMesh(
+                    new THREE.BoxGeometry(deck.halfWidth * 2, 0.16, 0.3), edgeMat,
+                    deck.x, deck.y + 0.08, deck.z - Math.sign(deck.z) * deck.halfDepth
+                );
+                const legHeight = deck.y - slabThickness;
+                const legGeo = new THREE.CylinderGeometry(deck.legRadius * 0.8, deck.legRadius, legHeight, 8);
+                for (const lx of [-1, 1]) {
+                    for (const lz of [-1, 1]) {
+                        const x = deck.x + lx * (deck.halfWidth - 0.6);
+                        const z = deck.z + lz * (deck.halfDepth - 0.6);
+                        const leg = this._placeMesh(legGeo, legMat, x, legHeight / 2, z);
+                        this._addColumnColliders(leg, x, z, deck.legRadius, legHeight);
+                    }
+                }
+            }
+        }
+
+        for (const block of layout.blocks || []) this._buildLayoutBlock(block, toon, glow);
+    }
+
+    // Honest-top collider for waist-high cover: blocks the ball exactly up to
+    // the prop's visual top (see lowCoverCenterY) and still stops walkers.
+    _addLowCoverColliders(mesh, x, z, radius, height) {
+        if (height >= radius + LOW_COVER_BALL_RADIUS + PROP_COLLIDER_SLACK) {
+            this._addColumnColliders(mesh, x, z, radius, height);
+            return;
+        }
+        this.addCollidable(mesh, new THREE.Vector3(x, lowCoverCenterY(radius, height), z), radius);
+    }
+
+    _buildArtColumn(col, toon, glow) {
+        const { x, z, radius: r, height: h } = col;
+        let body;
+        if (col.style === 'stack') {
+            // Rooftop exhaust stack: steel flue with a dark rain cap.
+            body = this._placeMesh(new THREE.CylinderGeometry(r * 0.9, r, h, 14), toon(0x6b7280), x, h / 2, z);
+            this._placeMesh(new THREE.CylinderGeometry(r * 1.18, r * 1.18, 0.45, 14), toon(0x262a33), x, h + 0.1, z);
+        } else if (col.style === 'pylon') {
+            // Reactor pylon: hull column, glowing coil band, lit crown.
+            body = this._placeMesh(new THREE.CylinderGeometry(r * 0.78, r, h, 16), toon(0xd6dde8), x, h / 2, z);
+            const coil = this._placeMesh(new THREE.TorusGeometry(r * 0.84, 0.14, 6, 24), glow(0x6fe8ff), x, h * 0.62, z);
+            coil.rotation.x = Math.PI / 2;
+            const crown = this._placeMesh(new THREE.CircleGeometry(r * 0.72, 20), glow(0x9ff4ff), x, h + 0.02, z);
+            crown.rotation.x = -Math.PI / 2;
+        } else {
+            // Temple ruin: sandstone drum column; intact ones keep a capital,
+            // broken ones end in a jagged chunk at their collider top.
+            body = this._placeMesh(new THREE.CylinderGeometry(r * 0.88, r, h, 12), toon(0xc2ae84), x, h / 2, z);
+            if (col.style === 'ruin') {
+                this._placeMesh(new THREE.BoxGeometry(r * 2.5, 0.7, r * 2.5), toon(0xd8c69a), x, h + 0.35, z);
+            } else {
+                const chunk = this._placeMesh(new THREE.DodecahedronGeometry(r * 0.7, 0), toon(0xb09a70), x, h - r * 0.25, z);
+                chunk.rotation.z = 0.5;
+            }
+        }
+        body.castShadow = true;
+        body.receiveShadow = true;
+        if (col.lowCover) this._addLowCoverColliders(body, x, z, r, h);
+        else this._addColumnColliders(body, x, z, r, h);
+    }
+
+    // Box cover: AC units (rooftop), fallen drums (temple), energy barriers and
+    // cargo containers (station). Colliders: blockColliderCircles().
+    _buildLayoutBlock(block, toon, glow) {
+        const { x, z, halfWidth: hw, halfDepth: hd, height: h } = block;
+        const alongX = hw >= hd;
+        let body;
+        if (block.style === 'fallen') {
+            const radius = h / 2;
+            body = this._placeMesh(new THREE.CylinderGeometry(radius, radius * 1.04, (alongX ? hw : hd) * 2, 14), toon(0xbca57c), x, radius, z);
+            if (alongX) body.rotation.z = Math.PI / 2;
+            else body.rotation.x = Math.PI / 2;
+        } else if (block.style === 'barrier') {
+            body = this._placeMesh(new THREE.BoxGeometry(hw * 2, h * 0.55, hd * 2), toon(0x3a4150), x, h * 0.275, z);
+            this._placeMesh(new THREE.BoxGeometry(alongX ? hw * 2 : hd * 0.5, h * 0.45, alongX ? hd * 0.5 : hd * 2),
+                glow(0x6ff2ff, 0.55), x, h * 0.775, z);
+        } else if (block.style === 'cargo') {
+            body = this._placeMesh(new THREE.BoxGeometry(hw * 2, h, hd * 2), toon(0xd9772b), x, h / 2, z);
+            this._placeMesh(new THREE.BoxGeometry(hw * 2 + 0.12, 0.18, hd * 2 + 0.12), toon(0x3a3f48), x, h + 0.02, z);
+        } else {
+            // 'ac' — rooftop condenser: metal cabinet + dark fan grille on top.
+            body = this._placeMesh(new THREE.BoxGeometry(hw * 2, h, hd * 2), toon(0x9aa3ae), x, h / 2, z);
+            const fan = Math.min(hw, hd) * 0.68;
+            this._placeMesh(new THREE.CylinderGeometry(fan, fan, 0.14, 16), toon(0x2b3038), x, h + 0.07, z);
+        }
+        body.castShadow = true;
+        body.receiveShadow = true;
+        for (const circle of blockColliderCircles(block)) {
+            this._addLowCoverColliders(body, circle.x, circle.z, circle.radius, h);
         }
     }
 
@@ -2198,6 +2672,7 @@ export class Arena {
         const tex = new THREE.CanvasTexture(canvas);
         tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
         tex.repeat.set(8, 8);
+        tex.userData.arenaOwned = true;
         return tex;
     }
 
@@ -2607,7 +3082,7 @@ export class Arena {
             [-halfW + 2, -halfL + 2], [halfW - 2, -halfL + 2],
             [-halfW + 2, halfL - 2], [halfW - 2, halfL - 2]
         ];
-        if (['industrial', 'cyber', 'mecha', 'pillar'].includes(id)) {
+        if (['industrial', 'cyber', 'mecha', 'pillar', 'neon_rooftop', 'orbital_station'].includes(id)) {
             // Crates (boxes) for industrial/sci-fi maps
             const g = new THREE.BoxGeometry(1.6, 1.6, 1.6);
             const m = this.renderer.createToonMaterial(id === 'cyber' ? 0x445566 : 0x8a6a4a);
@@ -2646,7 +3121,7 @@ export class Arena {
                 flame.position.set(x, 2.4, z);
                 this.add(flame);
             });
-        } else if (['jungle', 'beach', 'beach_open'].includes(id)) {
+        } else if (['jungle', 'beach', 'beach_open', 'sunken_temple'].includes(id)) {
             // Plants: pot + foliage cone
             const potG = new THREE.CylinderGeometry(0.5, 0.4, 0.6, 8);
             const potM = this.renderer.createToonMaterial(id === 'jungle' ? 0x6a4a2a : 0xd8b888);
@@ -2754,7 +3229,11 @@ export class Arena {
                 horizonColor: { value: new THREE.Color(skyConfig.horizonColor ?? c.skyBottom) },
                 sunColor: { value: new THREE.Color(skyConfig.sunColor ?? 0xfff2c0) },
                 sunAmount: { value: skyConfig.sun ? 1 : 0 },
-                cloudAmount: { value: Math.min(1, Math.max(0, skyConfig.cloudAmount || 0)) }
+                cloudAmount: { value: Math.min(1, Math.max(0, skyConfig.cloudAmount || 0)) },
+                // Lighting presets move the disc to match the shadow-casting
+                // light; the fallback is the original fixed direction.
+                sunDir: { value: new THREE.Vector3(...(mapLightingPreset(this.mapId)?.sun || [-0.55, 0.38, -0.74])).normalize() },
+                starAmount: { value: Math.min(1, Math.max(0, skyConfig.stars || 0)) }
             },
             vertexShader: `
                 varying vec3 vWP;
@@ -2770,14 +3249,23 @@ export class Arena {
                 uniform vec3 sunColor;
                 uniform float sunAmount;
                 uniform float cloudAmount;
+                uniform vec3 sunDir;
+                uniform float starAmount;
                 varying vec3 vWP;
                 void main() {
                     vec3 n = normalize(vWP);
                     float h = clamp(n.y, 0.0, 1.0);
                     vec3 color = mix(bottomColor, horizonColor, smoothstep(0.0, 0.16, h));
                     color = mix(color, topColor, smoothstep(0.12, 0.82, h));
-                    vec3 sunDir = normalize(vec3(-0.55, 0.38, -0.74));
                     float sun = 1.0 - smoothstep(0.035, 0.075, distance(n, sunDir));
+                    if (starAmount > 0.0) {
+                        vec3 sp = n * 260.0;
+                        vec3 cell = floor(sp);
+                        float rnd = fract(sin(dot(cell, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+                        float star = step(0.9965, rnd) * (1.0 - smoothstep(0.08, 0.42, length(fract(sp) - 0.5)));
+                        color += vec3(0.85, 0.9, 1.0) * star * (0.45 + 0.55 * fract(rnd * 97.0))
+                            * smoothstep(0.02, 0.22, h) * starAmount;
+                    }
                     float bands = sin(n.x * 28.0 + n.z * 19.0) + sin(n.x * 51.0 - n.z * 33.0);
                     float clouds = smoothstep(0.65, 1.45, bands) * smoothstep(0.08, 0.24, h)
                         * (1.0 - smoothstep(0.48, 0.72, h)) * cloudAmount;
@@ -3707,6 +4195,8 @@ export class Arena {
 
     update(time, dt = 1 / 60) {
         dt = Math.min(Math.max(dt, 0), 0.05);
+        // Map-art layer: one scalar write animates every art material (GPU side).
+        if (this._artTime) this._artTime.value = time % 3600;
         if (this.spawnGlow) {
             this.spawnGlow.material.opacity = 0.25 + Math.sin(time * 3) * 0.15;
             this.spawnGlow.scale.setScalar(1 + Math.sin(time * 2) * 0.15);
@@ -3959,29 +4449,45 @@ export class Arena {
             leaf:   { color: 0x44aa44, count: 30, size: 0.08, opacity: 0.5, speed: 0.3 },
         };
         const cfg = configs[type] || configs.dust;
-        for (let i = 0; i < cfg.count; i++) {
-            const geo = new THREE.SphereGeometry(cfg.size, 4, 4);
-            const mat = new THREE.MeshBasicMaterial({ color: cfg.color, transparent: true, opacity: cfg.opacity });
-            const p = new THREE.Mesh(geo, mat);
-            p.position.set(
-                (Math.random() - 0.5) * 60,
-                Math.random() * 15 + 2,
-                (Math.random() - 0.5) * 40
-            );
-            p.userData = { speed: cfg.speed * (0.5 + Math.random()), phase: Math.random() * Math.PI * 2 };
-            this.add(p);
-            this._sceneParticles = this._sceneParticles || [];
-            this._sceneParticles.push(p);
+        // One Points draw call instead of `count` sphere meshes (was 30-80 draw
+        // calls per map). Same spawn volume, fall speed and sway as before.
+        const count = cfg.count;
+        const positions = new Float32Array(count * 3);
+        const speeds = new Float32Array(count);
+        const phases = new Float32Array(count);
+        for (let i = 0; i < count; i++) {
+            positions[i * 3] = (Math.random() - 0.5) * 60;
+            positions[i * 3 + 1] = Math.random() * 15 + 2;
+            positions[i * 3 + 2] = (Math.random() - 0.5) * 40;
+            speeds[i] = cfg.speed * (0.5 + Math.random());
+            phases[i] = Math.random() * Math.PI * 2;
         }
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        const sprite = ambientParticleSprite();
+        const mat = new THREE.PointsMaterial({
+            color: cfg.color, size: cfg.size * 2.4, sizeAttenuation: true,
+            transparent: true, opacity: cfg.opacity, depthWrite: false,
+            ...(sprite ? { map: sprite } : {})
+        });
+        const points = new THREE.Points(geo, mat);
+        points.frustumCulled = false;
+        this.add(points);
+        this._sceneParticles = { points, positions, speeds, phases, count };
     }
 
     updateAmbientParticles(dt) {
-        if (!this._sceneParticles) return;
-        this._sceneParticles.forEach(p => {
-            p.position.y -= p.userData.speed * dt;
-            p.position.x += Math.sin(performance.now() / 1000 + p.userData.phase) * dt * 0.5;
-            if (p.position.y < 0) p.position.y = 15 + Math.random() * 5;
-        });
+        const particles = this._sceneParticles;
+        if (!particles?.points) return;
+        const t = performance.now() / 1000;
+        const pos = particles.positions;
+        for (let i = 0; i < particles.count; i++) {
+            const k = i * 3;
+            pos[k + 1] -= particles.speeds[i] * dt;
+            pos[k] += Math.sin(t + particles.phases[i]) * dt * 0.5;
+            if (pos[k + 1] < 0) pos[k + 1] = 15 + Math.random() * 5;
+        }
+        particles.points.geometry.attributes.position.needsUpdate = true;
     }
 
     getSpawnPoint() { return this.spawnPoint.clone(); }
@@ -4010,12 +4516,22 @@ export class Arena {
                 if (child.geometry) child.geometry.dispose();
                 if (child.material) {
                     const mats = Array.isArray(child.material) ? child.material : [child.material];
-                    mats.forEach(m => m.dispose?.());
+                    mats.forEach(m => {
+                        // Per-map floor CanvasTextures are owned by this arena.
+                        if (m.map?.userData?.arenaOwned) m.map.dispose();
+                        m.dispose?.();
+                    });
                 }
+                // Frees the instanceMatrix/instanceColor GPU buffers.
+                if (child.isInstancedMesh) child.dispose();
             });
         });
         this.objects = [];
         this.collidables = [];
+        // Map-art layer: drop an in-flight load and free its CanvasTextures.
+        this._artToken = (this._artToken || 0) + 1;
+        for (const texture of this._artTextures || []) texture.dispose();
+        this._artTextures = [];
         this.spawnGlow = null;
         this.ocean = null;
         this.wave1 = null;
@@ -4078,6 +4594,55 @@ export class Arena {
             radius: profile.bloomRadius,
             threshold: profile.bloomThreshold
         });
+        this._applyLighting(mapId);
+    }
+
+    // MAP_LIGHTING preset -> the renderer's existing sun / hemisphere / ambient
+    // lights and linear fog range. Mutates in place (no new lights); the first
+    // call snapshots the renderer's original rig so preset-less maps restore it.
+    _applyLighting(mapId) {
+        const scene = this.scene;
+        if (!scene) return;
+        const sun = this.renderer?.sun;
+        const hemi = scene.children?.find(child => child.isHemisphereLight);
+        const ambient = scene.children?.find(child => child.isAmbientLight);
+        if (!this._lightDefaults) {
+            this._lightDefaults = {
+                sun: sun ? [sun.position.x, sun.position.y, sun.position.z] : null,
+                sunColor: sun?.color?.getHex?.(),
+                hemiSky: hemi?.color?.getHex?.(),
+                hemiGround: hemi?.groundColor?.getHex?.(),
+                hemiIntensity: hemi?.intensity,
+                ambient: ambient?.color?.getHex?.(),
+                ambientIntensity: ambient?.intensity,
+                fogNear: scene.fog?.near,
+                fogFar: scene.fog?.far
+            };
+        }
+        const base = this._lightDefaults;
+        const preset = mapLightingPreset(mapId);
+        if (sun) {
+            if (preset) sun.position.set(...preset.sun).normalize().multiplyScalar(45);
+            else if (base.sun) sun.position.set(...base.sun);
+            const color = preset?.sunColor ?? base.sunColor;
+            if (Number.isFinite(color)) sun.color.setHex(color);
+        }
+        if (hemi) {
+            const sky = preset?.hemiSky ?? base.hemiSky;
+            const ground = preset?.hemiGround ?? base.hemiGround;
+            if (Number.isFinite(sky)) hemi.color.setHex(sky);
+            if (Number.isFinite(ground)) hemi.groundColor.setHex(ground);
+            hemi.intensity = preset?.hemiIntensity ?? base.hemiIntensity ?? hemi.intensity;
+        }
+        if (ambient) {
+            const color = preset?.ambient ?? base.ambient;
+            if (Number.isFinite(color)) ambient.color.setHex(color);
+            ambient.intensity = preset?.ambientIntensity ?? base.ambientIntensity ?? ambient.intensity;
+        }
+        if (scene.fog && Number.isFinite(base.fogNear)) {
+            scene.fog.near = preset?.fogNear ?? base.fogNear;
+            scene.fog.far = preset?.fogFar ?? base.fogFar;
+        }
     }
 
     // Apply per-map CSS theme variables so HUD matches the active arena palette.
@@ -4304,21 +4869,8 @@ export class Arena {
                 this.add(dish);
             });
         }
-        if (c.isPillar) {
-            // 6 tall decorative columns
-            const mat = new THREE.MeshLambertMaterial({ color: 0x9a8a7a });
-            for (let i = 0; i < 6; i++) {
-                const h = 3 + Math.random() * 3;
-                const geo = new THREE.CylinderGeometry(0.25, 0.3, h, 8);
-                const m = new THREE.Mesh(geo, mat);
-                m.position.set(
-                    (Math.random() - 0.5) * this.courtWidth * 0.6,
-                    h / 2,
-                    (Math.random() - 0.5) * this.courtLength * 0.6
-                );
-                this.add(m);
-            }
-        }
+        // Pillar Hall: no decorative in-court columns — its real cover comes from
+        // the gameplay layout, and look-alike props without colliders misread.
         if (c.isMinecraft) {
             // 4 blocky torch structures
             const stoneMat = new THREE.MeshLambertMaterial({ color: 0x888888 });

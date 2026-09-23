@@ -16,8 +16,11 @@ const MAX_BACKING_PIXELS = 1280 * 900;
 export const SHOWCASE_ANIMATIONS = Object.freeze(['idle', 'run', 'celebrate']);
 const SHOWCASE_POSE_PARAMS = Object.freeze({ speed: 12 });
 
+// Poses the menu hero may use that are not offered as shop preview buttons.
+const SHOWCASE_EXTRA_ANIMATIONS = Object.freeze(['showoff']);
+
 export function normalizeShowcaseAnimation(id) {
-    return SHOWCASE_ANIMATIONS.includes(id) ? id : 'idle';
+    return SHOWCASE_ANIMATIONS.includes(id) || SHOWCASE_EXTRA_ANIMATIONS.includes(id) ? id : 'idle';
 }
 
 const CHARACTER_SHAPES = Object.freeze({
@@ -151,7 +154,9 @@ export function createShowcaseAvatar(options = {}) {
             if (root.userData.disposed) return;
             const time = Number.isFinite(seconds) ? seconds : 0;
             const mode = normalizeShowcaseAnimation(animationId);
-            const pose = reducedMotion ? restingPose
+            // Reduced motion freezes showoff at t=0 so the knife stays presented.
+            const pose = reducedMotion
+                ? (mode === 'showoff' ? poseFor('showoff', 0, SHOWCASE_POSE_PARAMS) : restingPose)
                 : poseFor(mode === 'celebrate' ? 'victory' : mode, time, SHOWCASE_POSE_PARAMS);
             rig.applyPose(pose);
             // Frozen at t=0 under reduced motion so socketed cosmetics cannot animate

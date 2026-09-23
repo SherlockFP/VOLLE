@@ -33,7 +33,7 @@ export const SOCIAL_HUB_MAPS = Object.freeze({
             Object.freeze({ id: 'pool', name: 'Pool Terrace', x: -43, z: -38 }),
             Object.freeze({ id: 'stage', name: 'Creator Stage', x: 23, z: -30 })
         ]),
-        credit: 'Original Warrball layout with Kenney Furniture Kit CC0 props'
+        credit: 'Original VOLLE layout with Kenney Furniture Kit CC0 props'
     })
 });
 
@@ -183,7 +183,7 @@ export function createSocialLobbyArena() {
     return {
         bounds: map.bounds,
         ceilingHeight: map.bounds.maxY,
-        config: { name: `Warrball Social Hub - ${map.name}`, zones: map.zones, lowGravity: false, slippery: false, gameplay: { sandTraction: 1 } },
+        config: { name: `VOLLE Social Hub - ${map.name}`, zones: map.zones, lowGravity: false, slippery: false, gameplay: { sandTraction: 1 } },
         collidables,
         getNearbyCollidables: position => grid.query(position),
         platforms,

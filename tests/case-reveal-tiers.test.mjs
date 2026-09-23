@@ -110,7 +110,9 @@ test('revealPresentationForRarity: ui.js actually calls the function (wiring ver
     const uiSource = readFileSync(uiPath, 'utf8');
     assert.match(uiSource, /revealPresentationForRarity/, 'ui.js must import revealPresentationForRarity');
     assert.match(uiSource, /revealPresentationForRarity\s*\(\s*result\.reward\.rarity/, 'ui.js must call the function with rarity');
-    assert.match(uiSource, /reducedMotion\s*:\s*this\._isReducedMotion\(\)/, 'ui.js must pass reduced-motion option');
+    // The in-game setting collapses the reel; an OS preference only removes flash/confetti/pulse.
+    assert.match(uiSource, /reducedMotion\s*:\s*this\._isCaseReelReduced\(\)/, 'ui.js must pass the in-game reduced-motion option');
+    assert.match(uiSource, /if \(!presentation\.reducedMotion && this\._isReducedMotion\(\)\) \{[\s\S]*?presentation\.flash = 0;[\s\S]*?presentation\.confetti = false;/, 'OS reduced motion must still drop flashes');
 });
 
 test('revealPresentationForRarity: exotic tier maps to long like legendary', () => {

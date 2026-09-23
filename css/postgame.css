@@ -1,0 +1,106 @@
+/* postgame.css — CS2-style end-of-match hooks: the MVP card (name + key stats +
+   a small 3D showcase of their equipped knife/gloves/ball) and the XP bar's
+   level-up flash. Owned by the post-game/game-over feature; js/mvp-select.js
+   and js/mvp-showcase.js supply the data and the renderer this styles.
+   Reduced motion: every animation here is guarded by both the OS media query
+   and the app's own body.reduced-motion / .reduce-motion toggle (js/ui.js
+   #_isReducedMotion), matching the existing pg-xp-bar-fill convention in
+   css/polish.css. */
+
+#post-game-screen .pg-mvp-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 4px 0 10px;
+    padding: 10px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 214, 135, 0.28);
+    border-radius: 12px;
+}
+
+#post-game-screen .pg-mvp-card[hidden] { display: none; }
+
+#post-game-screen .pg-mvp-stage {
+    flex: none;
+    width: 96px;
+    height: 96px;
+    border-radius: 10px;
+    overflow: hidden;
+    background: radial-gradient(circle at 50% 40%, rgba(255, 214, 135, 0.14), rgba(4, 8, 16, 0.5));
+}
+
+#post-game-screen .pg-mvp-stage canvas { display: block; width: 100%; height: 100%; }
+
+#post-game-screen .pg-mvp-info { min-width: 0; flex: 1; }
+
+#post-game-screen .pg-mvp-kicker {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    color: #ffd887;
+    font-size: .68rem;
+    font-weight: 900;
+    letter-spacing: .14em;
+}
+
+#post-game-screen .pg-mvp-kicker .ui-icon { width: 14px; height: 14px; }
+
+#post-game-screen .pg-mvp-name {
+    display: block;
+    margin: 2px 0 6px;
+    color: #fff;
+    font-size: 1.05rem;
+    font-weight: 800;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#post-game-screen .pg-mvp-stats {
+    display: flex;
+    gap: 14px;
+}
+
+#post-game-screen .pg-mvp-stats span {
+    display: flex;
+    flex-direction: column;
+}
+
+#post-game-screen .pg-mvp-stats b {
+    color: #fff;
+    font-size: .92rem;
+    line-height: 1.1;
+}
+
+#post-game-screen .pg-mvp-stats small {
+    color: var(--text-dim, #9fb2c4);
+    font-size: .64rem;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+
+/* Level-up flash: the fill sweeps to 100%, the wrap flashes, then js/ui.js
+   snaps the width to 0 and re-fills toward the new level's progress — one
+   continuous "rolled over" motion instead of a bar that jumps backwards. */
+#post-game-screen .pg-xp-bar-fill.pg-xp-levelup {
+    animation: pg-xp-flash 1.4s ease-out;
+}
+
+@keyframes pg-xp-flash {
+    0%, 100% { box-shadow: 0 0 20px rgba(255, 136, 0, 0.4); }
+    35% { box-shadow: 0 0 34px 6px rgba(255, 214, 90, 0.9); }
+}
+
+body.reduced-motion #post-game-screen .pg-xp-bar-fill,
+body.reduced-motion #post-game-screen .pg-bp-bar-fill,
+.reduce-motion #post-game-screen .pg-xp-bar-fill,
+.reduce-motion #post-game-screen .pg-bp-bar-fill {
+    transition: none;
+    animation: none;
+}
+
+@media (max-width: 480px) {
+    #post-game-screen .pg-mvp-card { padding: 8px; gap: 9px; }
+    #post-game-screen .pg-mvp-stage { width: 72px; height: 72px; }
+    #post-game-screen .pg-mvp-stats { gap: 10px; }
+}

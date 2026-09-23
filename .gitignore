@@ -16,3 +16,9 @@ data/product-analytics.json
 
 # Local rollback checkpoints; keep large working snapshots out of commits.
 checkpoints/
+
+# Production bundle (npm run build) — generated, not committed.
+dist/
+
+# Dependencies (esbuild dev tool)
+node_modules/
