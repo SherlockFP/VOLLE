@@ -42,6 +42,10 @@ const STAMINA_REGEN = 20;     // per second
 const STAMINA_EXHAUST_THRESHOLD = 15;
 const ATTACK_COOLDOWN = 0.6;  // spam protection — wider window for fast balls
 const SUCCESSFUL_DEFLECT_RECOVERY = 0.18;
+// The blade only deflects for this long; the rest of ATTACK_COOLDOWN is recovery.
+// When the live window equalled the cooldown, holding/spamming Mouse1 kept a
+// deflect hitbox up 100% of the time and returned the ball with no aim or timing.
+export const SWING_ACTIVE_WINDOW = 0.22;
 const BASE_HIT_DAMAGE = 25;
 export const GROUND_ACCEL = 14;
 export const AIR_ACCEL = 12;
@@ -437,6 +441,7 @@ export class Player {
         this._deflectHeld = false; // raw mouse-button state — Game._updateCharge gates on this
         this.catchRequested = false;
         this.attackCooldown = 0;
+        this.attackActive = 0;
         this.attackDuration = ATTACK_COOLDOWN;
         this.canAttack = true;
         this.knifeAnimation = createKnifeAnimationState('classic');
@@ -927,6 +932,7 @@ export class Player {
         if (this.stamina < STAMINA_EXHAUST_THRESHOLD) this.exhausted = true;
         this.attacking = true;
         this.attackCooldown = this.attackDuration;
+        this.attackActive = Math.min(SWING_ACTIVE_WINDOW, this.attackDuration);
         this.canAttack = false;
         this.knifeAttackType = action === 'stab' ? 'stab' : 'slash';
         if (this.knifeGroup?.userData.weaponType === 'knife') {
@@ -1043,6 +1049,13 @@ export class Player {
 
         // Attack cooldown
         this.rocketCooldown = Math.max(0, this.rocketCooldown - dt);
+        if (this.attackActive > 0) {
+            this.attackActive -= dt;
+            if (this.attackActive <= 0) {
+                this.attackActive = 0;
+                this.attacking = false; // hitbox closes; recovery continues below
+            }
+        }
         if (this.attackCooldown > 0) {
             this.attackCooldown -= dt;
             if (this.attackCooldown <= 0) {

@@ -64,10 +64,6 @@ import {
 import { shouldSpawnMatchTrophy, resolveTrophySpot, trophyTeardownPlan } from './arena-decor.js';
 
 const BASE_HIT_DAMAGE = 25;
-// Offline whiffs carry self-damage. Multiplayer misses stay feedback-only until
-// every swing has a host-validated intent; successful-contact packets alone cannot
-// authorize miss damage fairly for both the host and its guests.
-const MISSED_DEFLECT_DAMAGE = 12;
 // Kill-confirm "hot ball" window (docs/V3_UX_ROADMAP.md 3.2) — shooter's next
 // connecting hit gets a small damage bump for a few seconds after a kill.
 const KILL_CONFIRM_DURATION = 3.5;           // seconds
@@ -3079,29 +3075,6 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         this._localDeflectAttemptWindow = 0;
     }
 
-    _applyMissedDeflectPenalty() {
-        const player = this.player;
-        if (!player?.alive || this.state !== STATES.PLAYING || this.network?.connected) return false;
-        const damage = this._oneHitKill
-            ? Math.max(1, Number(player.maxHp) || Number(player.hp) || 1)
-            : MISSED_DEFLECT_DAMAGE;
-        const lethal = this._applyAuthoritativeHitDamage(player, damage);
-        player.drawHpBar?.();
-        if (!lethal) return false;
-        player.die?.();
-        player.alive = false;
-        this._predictedLocalDeath = false;
-        this.ball?.deactivate?.();
-        this.ui.flashHit?.();
-        this._killcamDeathPos = player.getPosition?.();
-        this._showKillcam?.('Missed deflect');
-        if (this._checkTeamElimination?.()) {
-            this.setState(STATES.ROUND_END);
-            this.roundRestartTimer = this.roundRestartDelay;
-        }
-        return true;
-    }
-
     // A swing is only eligible when this local player is the live assigned
     // target. Multiplayer stays presentation-only; the offline penalty uses the
     // same authoritative damage helper and Instagib invariant as a ball hit.
@@ -3124,7 +3097,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
 
         if (!this._localDeflectAttemptActive) {
             if (!liveTarget || !slashSwing) return;
-            const swingWindow = Number(player.attackCooldown) || Number(player.attackDuration) || 0.34;
+            const swingWindow = Number(player.attackActive) || Number(player.attackCooldown) || Number(player.attackDuration) || 0.34;
             this._localDeflectAttemptActive = true;
             this._localDeflectAttemptHit = false;
             this._localDeflectAttemptWindow = Math.max(0.01, swingWindow);
@@ -3170,14 +3143,12 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             : null;
         const isEarly = reliableEta !== null && reliableEta > this._localDeflectAttemptWindow;
         this._clearLocalDeflectAttempt();
-        // A readable early read is feedback, not a failed contact. Applying the
-        // one-shot penalty here made a safe pre-swing kill the defender before
-        // the ball was even in deflect range. Only a late/uncertain whiff costs
-        // health; one-shot remains lethal for that genuine miss.
-        if (!isEarly) this._applyMissedDeflectPenalty?.();
+        // A whiff is feedback only — it never costs health. Dying to your own
+        // mistimed swing ("Killed by missed deflect") felt unfair; only the ball
+        // itself can hit you.
         this.onReplayEvent?.({
             type: 'missDeflect',
-            data: { early: isEarly, lethal: this.player?.alive === false }
+            data: { early: isEarly, lethal: false }
         });
         this.ui.showMessage?.(
             isEarly ? 'EARLY — WAIT FOR THE BALL' : 'MISSED DEFLECT — TIME IT CLOSER',

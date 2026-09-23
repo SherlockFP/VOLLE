@@ -261,7 +261,7 @@ test('_lobbyApi returns a distinct error marker (not a bare {}) when the fetch r
     const result = await lobbyApi('/api/lobbies', { method: 'GET' });
     // result was built in the VM's own realm (its own Object.prototype), so compare via
     // JSON round-trip rather than deepEqual's cross-realm prototype identity check.
-    assert.deepEqual(JSON.parse(JSON.stringify(result)), { __lobbyApiError: true });
+    assert.deepEqual(JSON.parse(JSON.stringify(result)), { __lobbyApiError: true, status: 0 });
     assert.equal(warnings.length, 1, 'a failed lobby API call must be visible in the console');
 });
 
@@ -274,7 +274,8 @@ test('_lobbyApi treats a non-2xx HTTP response as a failure instead of returning
     };
     const lobbyApi = compileAppMethod('_lobbyApi', globals);
     const result = await lobbyApi('/api/lobbies', { method: 'GET' });
-    assert.deepEqual(JSON.parse(JSON.stringify(result)), { __lobbyApiError: true });
+    // The status survives so the host flow can tell an expired session (401) apart.
+    assert.deepEqual(JSON.parse(JSON.stringify(result)), { __lobbyApiError: true, status: 500 });
     assert.equal(warnings.length, 1);
 });
 

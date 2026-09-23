@@ -102,11 +102,17 @@ test('valid proof is posted once through the shared admission helper', async () 
     assert.deepEqual(JSON.parse(requests[0][1].body), { admissionToken: token });
 });
 
-test('host flow awaits initial registration and disconnects before success on failure', () => {
+test('host flow awaits initial registration and falls back to a local lobby on failure', () => {
     const source = extractAppMethod('_doHostGame');
     const registration = source.indexOf('const registered = await this._registerLobby(');
     const success = source.indexOf("t('toast.lobbyCreated'");
     assert.match(en.toast.lobbyCreated, /Lobby created! Code:/);
     assert.ok(registration >= 0 && registration < success);
-    assert.match(source.slice(registration, success), /if \(!registered\) \{\s*this\.network\.disconnect\(\);\s*throw new Error\('Lobby service registration failed/);
+    assert.match(source.slice(registration, success), /if \(!registered\) \{\s*this\._openLocalLobbyFallback\(this\._lastLobbyApiStatus === 401 \? 'toast\.lobbySessionExpired' : 'toast\.lobbyLocalFallback'\);\s*return true;/);
+    // Guests never open a P2P room the registry would reject.
+    assert.ok(source.indexOf("this._openLocalLobbyFallback('toast.lobbyLocalGuest')") < source.indexOf('this.network.hostGame('));
+    const fallback = extractAppMethod('_openLocalLobbyFallback');
+    assert.match(fallback, /this\.network\.disconnect\(\);/);
+    assert.match(fallback, /this\.ui\.setRoomCode\('LOCAL'\);/);
+    assert.doesNotMatch(source, /Lobby service registration failed/);
 });

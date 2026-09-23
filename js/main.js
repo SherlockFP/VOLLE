@@ -7467,12 +7467,14 @@ updateCarousel() {
     _lobbyApi(path, opts = {}) {
         const headers = { ...(opts.headers || {}) };
         if (account.getToken()) headers.Authorization = `Bearer ${account.getToken()}`;
+        let status = 0;
         return fetch(path, { ...opts, headers }).then(r => {
+            status = r.status;
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             return r.json();
         }).catch(err => {
             console.warn('[lobby] API request failed:', path, err?.message || err);
-            return { __lobbyApiError: true };
+            return { __lobbyApiError: true, status };
         });
     }
 
@@ -7498,6 +7500,7 @@ updateCarousel() {
                 maxPlayers: sportRoute.maxPlayers
             })
         });
+        this._lastLobbyApiStatus = result?.__lobbyApiError ? result.status : 200;
         if (result?.__lobbyApiError || !result?.admissionToken) return false;
         if (!this.network?.isHost || this.network.hostRoomCode !== code) return false;
         this.network.setLobbyAdmissionToken(result.admissionToken);
@@ -7752,6 +7755,12 @@ updateCarousel() {
             this.ui.showMessage?.(t('toast.volleyDev'), 2200);
             return false;
         }
+        // The lobby registry only accepts signed-in hosts. Guests get a playable
+        // local lobby right away instead of a P2P room that is doomed to fail.
+        if (!account.getToken()) {
+            this._openLocalLobbyFallback('toast.lobbyLocalGuest');
+            return true;
+        }
         try {
             clearInterval(this._lobbyKeepAlive); // önceki varsa durdur
             if (this._lobbyCode) await this._unregisterLobby(this._lobbyCode); // eski varsa sil
@@ -7844,8 +7853,8 @@ updateCarousel() {
                 this.game.mode?.name || 'Classic'
             );
             if (!registered) {
-                this.network.disconnect();
-                throw new Error('Lobby service registration failed. Please try again.');
+                this._openLocalLobbyFallback(this._lastLobbyApiStatus === 401 ? 'toast.lobbySessionExpired' : 'toast.lobbyLocalFallback');
+                return true;
             }
             this.ui.showMessage?.(t('toast.lobbyCreated', { code }), 3000);
             // Auto-re-register every 12s to keep lobby alive
@@ -7860,6 +7869,23 @@ updateCarousel() {
             alert('Failed to create lobby: ' + e.message);
             return false;
         }
+    }
+
+    // Hosting could not be registered online: drop any half-open P2P room and land
+    // in the same local bot lobby as "Solo vs Bots", with a toast saying why.
+    _openLocalLobbyFallback(reasonKey) {
+        clearInterval(this._lobbyKeepAlive);
+        this._lobbyKeepAlive = null;
+        this._lobbyCode = null;
+        if (this.network?.connected || this.network?.isHost) {
+            this._stopHostCheckpointLifecycle();
+            this._stopBgLoop();
+            this.network.disconnect();
+        }
+        this.game.startSolo();
+        this.ui.setRoomCode('LOCAL');
+        this.ui.showScreen('lobby');
+        this.ui.showMessage?.(t(reasonKey), 4200);
     }
 
     // Open/close the M team menu. Releases pointer lock while open so you can

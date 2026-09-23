@@ -51,3 +51,14 @@ test('lobby action buttons size to their labels and lobby chrome is localized', 
     assert.match(ui, /setText\(bc, 'lobby\.botCount', \{ n: botCount \}\)/);
     assert.match(ui, /setText\(card, 'lobby\.waitingSlot'\)/);
 });
+
+test('Mouse1 spam cannot keep a deflect hitbox up: live window is shorter than the recovery', async () => {
+    const player = await readFile(new URL('../js/player.js', import.meta.url), 'utf8');
+    const active = Number(player.match(/export const SWING_ACTIVE_WINDOW = ([\d.]+);/)?.[1]);
+    const cooldown = Number(player.match(/const ATTACK_COOLDOWN = ([\d.]+);/)?.[1]);
+    assert.ok(active > 0.15 && active <= 0.25, 'still a fair, readable timing window');
+    assert.ok(cooldown - active >= 0.3, 'spam leaves a real dead gap between swings');
+    assert.match(player, /this\.attackActive = Math\.min\(SWING_ACTIVE_WINDOW, this\.attackDuration\);/);
+    assert.match(player, /if \(this\.attackActive <= 0\) \{\s*this\.attackActive = 0;\s*this\.attacking = false;/);
+    assert.match(game, /const swingWindow = Number\(player\.attackActive\) \|\|/);
+});

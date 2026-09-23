@@ -155,7 +155,6 @@ function missFixture(network = null) {
             velocity: new Vector3(-20, 0, 0), deactivate() { this.active = false; } },
         ui: { showMessage: text => messages.push(text) }, audio: {},
         _applyAuthoritativeHitDamage: compileGameMethod('_applyAuthoritativeHitDamage'),
-        _applyMissedDeflectPenalty: compileGameMethod('_applyMissedDeflectPenalty', { STATES, MISSED_DEFLECT_DAMAGE: 12 }),
         _clearLocalDeflectAttempt: compileGameMethod('_clearLocalDeflectAttempt'),
         _updateLocalDeflectAttempt: compileGameMethod('_updateLocalDeflectAttempt', { STATES, Math }),
         _checkTeamElimination() { throw new Error('a nonlethal or network miss must not score a round'); }
@@ -178,22 +177,19 @@ test('both connected host and guest get missed-swing feedback without local dama
     }
 });
 
-test('offline miss damage uses one authoritative hit and respects the Instagib shield invariant', () => {
-    const normal = missFixture({ connected: false, isHost: false });
-    assert.equal(normal.game._applyMissedDeflectPenalty(), false);
-    assert.equal(normal.player.hp, 88);
-    assert.equal(normal.damageCalls(), 1);
-    const lethal = missFixture();
-    lethal.game._oneHitKill = true;
-    lethal.player.hp = lethal.player.maxHp = 1;
-    lethal.player.shield = 25;
-    lethal.game._checkTeamElimination = () => false;
-    assert.equal(lethal.game._applyMissedDeflectPenalty(), true);
-    assert.equal(lethal.player.hp, 0);
-    assert.equal(lethal.player.alive, false);
-    assert.equal(lethal.player.shield, 24, 'defenses are not erased to force a death');
-    assert.equal(lethal.game.ball.active, false);
-    assert.equal(lethal.damageCalls(), 1);
+test('an offline late whiff is feedback only — no self-damage, even in Instagib', () => {
+    for (const oneHitKill of [false, true]) {
+        const f = missFixture({ connected: false, isHost: false });
+        f.game._oneHitKill = oneHitKill;
+        f.game.ball.position.set(1, 0, 0); // in range: a genuine late miss, not an early read
+        f.game._updateLocalDeflectAttempt(1 / 60);
+        f.game._updateLocalDeflectAttempt(0.4);
+        assert.equal(f.player.hp, 100);
+        assert.equal(f.player.alive, true);
+        assert.equal(f.game.ball.active, true);
+        assert.equal(f.damageCalls(), 0);
+    }
+    assert.equal(typeof missFixture().game._applyMissedDeflectPenalty, 'undefined');
 });
 
 function positionFixture({ isHost = true, alive = true, hp = 40, queued = false } = {}) {

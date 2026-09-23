@@ -42,7 +42,7 @@ const {
 
 test('aimed proximity assistance stays speed-bounded and only rescues an approaching ball', () => {
     assert.equal(PLAYER_AIM_STEERING_FACTOR, 0.50);
-    assert.equal(PLAYER_AIM_PROXIMITY_FACTOR, 0.70);
+    assert.equal(PLAYER_AIM_PROXIMITY_FACTOR, 0.62);
     assert.equal(proximityAssistRange(0), 1.5);
     assert.equal(proximityAssistRange(2000), 2.5);
     assert.equal(shouldForceProximityHit({ distance: 0.6, speed: 100, approachDot: 0.1 }), false);

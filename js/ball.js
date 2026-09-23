@@ -9,7 +9,7 @@ export const BOUNCE_ROUTE_OWNERSHIP_WINDOW = 0.082;
 // Player reflections keep the authored heading briefly, then recover toward
 // the target strongly enough to finish instead of circling the defender.
 export const PLAYER_AIM_STEERING_FACTOR = 0.50;
-export const PLAYER_AIM_PROXIMITY_FACTOR = 0.70;
+export const PLAYER_AIM_PROXIMITY_FACTOR = 0.62;
 export const PROXIMITY_APPROACH_DOT = 0.18;
 const STEERING_TICK = 1 / 66;
 const WIDE_SHOT_ANGLE = 15 * Math.PI / 180;
@@ -546,10 +546,10 @@ export function chargeProfile(heldSeconds) {
 }
 
 export const SPIN_STRAFE_THRESHOLD = 0.6;
-export const SPIN_STRAFE_GAIN = 0.42;
+export const SPIN_STRAFE_GAIN = 0.55;
 export const SPIN_MAX = 3;
-export const SPIN_MAGNUS_COEFF = 0.34;
-export const SPIN_DECAY_PER_SECOND = 1.1;
+export const SPIN_MAGNUS_COEFF = 0.40;
+export const SPIN_DECAY_PER_SECOND = 0.95;
 export const SPIN_EPSILON = 0.001;
 export const DEFLECT_SPIN_SCALE = Object.freeze({ normal: 0.45, great: 0.75, perfect: 1 });
 
@@ -1067,7 +1067,7 @@ export class Ball {
                     } else if (dist < 3) {
                         desired = targetDir.clone().lerp(velDir, 0.18).normalize();
                     } else {
-                        const momentum = this.aimed ? 0.64 : 0.40;
+                        const momentum = this.aimed ? 0.72 : 0.46;
                         const aimW = Math.min(dist / 10, 1) * momentum;
                         const deflPull = Math.max(0.10, 1 - this.deflections * 0.065);
                         desired = targetDir.clone().lerp(velDir, aimW * deflPull).normalize();
