@@ -49,6 +49,20 @@ const DIFFICULTY_SETTINGS = {
     hard:   { deflectChance: 0.92, reactionTime: 0.18, windUp: 0.08, mishitRate: 0.02, moveSpeed: 7.5, skillChance: 0.45 }
 };
 
+// G4 uncapped rallies — a probability curve instead of a timing wall. At the
+// deflect decision (Bot.observeDefenseIntent), with r = ball speed / base:
+//   p = deflectChance · decay^max(0, r − r0)
+// and when the ball was assigned closer than reaction + wind-up allows
+// (T = (distance − attackRange) / speed < reaction + wind-up), both are
+// squeezed proportionally to fit T − 0.02 s, never below `floor` s in total;
+// below the floor the bot cannot deflect.
+export const RALLY_CRACK_SETTINGS = Object.freeze({
+    easy:   Object.freeze({ r0: 2, decay: 0.75, floor: 0.20 }),
+    medium: Object.freeze({ r0: 4, decay: 0.85, floor: 0.12 }),
+    hard:   Object.freeze({ r0: 6, decay: 0.90, floor: 0.08 })
+});
+export const DEFENSE_SQUEEZE_MARGIN_SECONDS = 0.02;
+
 // Round personalities: rolled once per round (Bot.rollTendency), held for the whole
 // round, and only ever bias EXISTING decision parameters — no new capabilities, no
 // hidden-state reads, same competitive gates as any other bot.
@@ -141,6 +155,11 @@ export class Bot {
         this.mishitRate = s.mishitRate;
         this.moveSpeed = s.moveSpeed;
         this.skillChance = s.skillChance;
+        const crack = RALLY_CRACK_SETTINGS[difficulty] || RALLY_CRACK_SETTINGS.medium;
+        this.deflectDecayStart = crack.r0;
+        this.deflectDecay = crack.decay;
+        this.defenseTimeFloor = crack.floor;
+        this.defenseSqueezeMargin = DEFENSE_SQUEEZE_MARGIN_SECONDS;
 
         // Round tendency (rollTendency, called by game.startRound each round) biases
         // reactionTime/windUpTime plus the movement/shot-selection multipliers below.
@@ -168,6 +187,8 @@ export class Bot {
         this._defenseStrafe = 0;
         this._defenseDistance = Infinity;
         this._defenseBracePlayed = false;
+        this._defenseTimeScale = 1;
+        this._defenseSeenOutside = false;
         // Persistent scratch vectors keep bot movement allocation-free per frame.
         this._toBall = new THREE.Vector3();
         this._ballDir = new THREE.Vector3();
@@ -1139,6 +1160,8 @@ export class Bot {
         this._defenseStrafe = 0;
         this._defenseDistance = Infinity;
         this._defenseBracePlayed = false;
+        this._defenseTimeScale = 1;
+        this._defenseSeenOutside = false;
     }
 
     // Called before update() so movement can react to a stable defense decision
@@ -1164,12 +1187,35 @@ export class Bot {
                 return this._defenseIntent;
             }
             this._resetDefenseIntent();
+            // G4: this approach crossed into the alert range normally, so
+            // reaction + wind-up fit and the decision keeps the full timers.
+            this._defenseSeenOutside = true;
             return 'none';
         }
         this._defenseDistance = dist;
         if (!this._deflectDecided) {
             this._deflectDecided = true;
-            const rolledWillDeflect = rng() < this.deflectChance;
+            // G4 uncapped rally curve (RALLY_CRACK_SETTINGS): the chance decays
+            // past r0; a ball assigned already inside the alert range squeezes
+            // reaction + wind-up to the time left, or cannot be deflected when
+            // that is under the floor. At or below r0, and on a normal alert
+            // crossing, both are exactly the pre-G4 values.
+            let chance = this.deflectChance;
+            let reachable = true;
+            const ratio = ball.baseSpeed > 0 ? ball.currentSpeed / ball.baseSpeed : 0;
+            if (Number.isFinite(this.deflectDecay) && ratio > this.deflectDecayStart) {
+                chance *= Math.pow(this.deflectDecay, ratio - this.deflectDecayStart);
+            }
+            if (!this._defenseSeenOutside && this.defenseTimeFloor > 0 && ball.currentSpeed > 0) {
+                const need = this.reactionTime + this.windUpTime;
+                const available = (dist - ball.attackRange) / ball.currentSpeed;
+                if (available < need) {
+                    const fit = available - this.defenseSqueezeMargin;
+                    reachable = fit >= this.defenseTimeFloor;
+                    this._defenseTimeScale = (reachable ? fit : this.defenseTimeFloor) / need;
+                }
+            }
+            const rolledWillDeflect = rng() < chance && reachable;
             const guard = this._firstSoloDeflectGuard;
             if (guard?.forceNextOpportunity) {
                 this._willDeflect = true;
@@ -1227,19 +1273,24 @@ export class Bot {
         // deflect at all. Scales with the ball's actual current speed so slow
         // and fast throws both leave a fair window.
         // ponytail: alert range ~ ballSpeed * (reactionTime + windUpTime) + attackRange
+        // G4: a squeezed decision (observeDefenseIntent) runs both timers at
+        // _defenseTimeScale; 1 (the default) leaves them exactly as tuned.
+        const timeScale = this._defenseTimeScale > 0 ? this._defenseTimeScale : 1;
+        const reactionTime = this.reactionTime * timeScale;
+        const windUpTime = this.windUpTime * timeScale;
         const reactionBefore = this.reactionTimer;
         this.reactionTimer += dt;
-        if (this.reactionTimer < this.reactionTime) return Infinity;
-        let readyAt = Math.max(0, this.reactionTime - reactionBefore);
+        if (this.reactionTimer < reactionTime) return Infinity;
+        let readyAt = Math.max(0, reactionTime - reactionBefore);
 
         // Wind-up telegraphing: bot shows intent before committing to deflect
         // Start wind-up if not already committed
         if (!this.windUpCommitted) {
             const windUpBefore = this.windUpTimer;
             this.windUpTimer += dt;
-            if (this.windUpTimer < this.windUpTime) return Infinity;  // still winding up
+            if (this.windUpTimer < windUpTime) return Infinity;  // still winding up
             this.windUpCommitted = true;  // committed - now check for mishit
-            readyAt = Math.max(readyAt, this.windUpTime - windUpBefore);
+            readyAt = Math.max(readyAt, windUpTime - windUpBefore);
         }
         this.deflectReadyAt = Math.min(readyAt, dt);
         return this.deflectReadyAt;

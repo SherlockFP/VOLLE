@@ -46,7 +46,43 @@ export function getBallHeat(ballSpeed, baseSpeed = BALL_BASE_SPEED) {
     };
 }
 
-export function getBallThreat(isTarget, ballSpeed, distance, direction = 'front', perfectWindow = false) {
+// G4 ETA readout: whole milliseconds under one second ("140 MS"), else seconds
+// with one decimal ("1.2S"), rounded to the shown unit first (999.6 ms → 1.0S).
+// Capped at 99.9S. '' when there is no finite ETA.
+export const THREAT_ETA_MAX_TENTHS = 999;
+export function threatEtaKey(seconds) {
+    if (!Number.isFinite(seconds)) return -1;
+    const ms = Math.round((seconds > 0 ? seconds : 0) * 1000);
+    if (ms < 1000) return ms;
+    const tenths = Math.round(ms / 100);
+    return 1000 + (tenths > THREAT_ETA_MAX_TENTHS ? THREAT_ETA_MAX_TENTHS : tenths);
+}
+export function formatThreatEta(seconds) {
+    const key = threatEtaKey(seconds);
+    if (key < 0) return '';
+    if (key < 1000) return `${key} MS`;
+    const tenths = key - 1000;
+    return `${Math.floor(tenths / 10)}.${tenths % 10}S`;
+}
+// Closing ring around the reticle (index.html #threat-eta-ring): radius at the
+// assignment, shrinking to the reticle's own radius at predicted contact; gold
+// inside the PERFECT lead window.
+export const THREAT_RING_MAX_RADIUS = 64;
+export const THREAT_RING_GOLD_MS = 60;
+export function threatRingRadius(contactMs, startMs, reticleRadius) {
+    const inner = Number.isFinite(reticleRadius) && reticleRadius > 0 ? reticleRadius : 18;
+    const fraction = Number.isFinite(contactMs) && Number.isFinite(startMs) && startMs > 0
+        ? Math.max(0, Math.min(1, contactMs / startMs))
+        : 1;
+    return inner + (THREAT_RING_MAX_RADIUS - inner) * fraction;
+}
+const THREAT_DIRECTIONS = ['front', 'left', 'right', 'rear'];
+const THREAT_DIRECTION_LABELS = ['FRONT', 'LEFT', 'RIGHT', 'BEHIND'];
+// OVERDRIVE banner lifetime and the ratio that switches it (and the chip) to MAX.
+export const OVERDRIVE_BANNER_MS = 1200;
+export const OVERDRIVE_UI_MAX_RATIO = 8;
+
+export function getBallThreat(isTarget, ballSpeed, distance, direction = 'front', perfectWindow = false, contactEta = null) {
     if (!isTarget) return {
         active: false,
         level: 'track',
@@ -67,14 +103,17 @@ export function getBallThreat(isTarget, ballSpeed, distance, direction = 'front'
         ? direction
         : 'front';
     const directionLabel = safeDirection === 'rear' ? 'BEHIND' : safeDirection.toUpperCase();
+    // G4: the label reads the predicted G1 contact when the game supplies it;
+    // the level keeps the centre-distance ETA.
+    const labelEta = Number.isFinite(contactEta) ? contactEta : eta;
     return {
         active: true,
         level,
         eta,
         direction: safeDirection,
         perfectWindow: perfectWindow === true,
-        label: Number.isFinite(eta)
-            ? `INCOMING ${eta.toFixed(1)}S · ${directionLabel}`
+        label: Number.isFinite(labelEta)
+            ? `INCOMING ${formatThreatEta(labelEta)} · ${directionLabel}`
             : `INCOMING · ${directionLabel}`
     };
 }
@@ -517,11 +556,15 @@ export class UI {
         direction = 'front',
         behind = false,
         offscreen = false,
-        perfectWindow = false
+        perfectWindow = false,
+        contactEta = null
     ) {
         const el = document.getElementById('incoming-indicator');
         if (!el) return;
-        const threat = getBallThreat(isTarget, ballSpeed, distance, direction, perfectWindow);
+        const threat = getBallThreat(isTarget, ballSpeed, distance, direction, perfectWindow, contactEta);
+        // G4: setThreatEta refreshes this label every frame with the same text.
+        this._threatLabelDirection = threat.active ? THREAT_DIRECTIONS.indexOf(threat.direction) : -1;
+        this._threatLabelKey = threat.active ? threatEtaKey(Number.isFinite(contactEta) ? contactEta : threat.eta) : -2;
         const previousLevel = el.dataset.threat;
         const previousDirection = el.dataset.direction;
         el.classList.toggle('active', threat.active);
@@ -547,6 +590,128 @@ export class UI {
             const ariaDirection = threat.direction === 'rear' ? 'behind' : threat.direction;
             el.setAttribute('aria-label', `Incoming ball from ${ariaDirection}`);
         }
+    }
+
+    // G4: every rendered frame while the local player is targeted
+    // (Game.updatePlayerThreat): ETA label from the predicted G1 contact and the
+    // closing reticle ring. Strings are built once per distinct value and
+    // cached; the DOM is written only when a shown value changes.
+    setThreatEta(contactMs, startMs) {
+        if (typeof document === 'undefined') return;
+        const ring = this._threatRing ??= document.getElementById('threat-eta-ring');
+        const circle = this._threatRingCircle ??= ring?.querySelector?.('circle') || null;
+        if (startMs !== this._threatRingStartMs) {
+            // New assignment: the ring closes onto the reticle's current radius.
+            this._threatRingStartMs = startMs;
+            this._threatReticleRadius = this._readReticleRadius();
+        }
+        if (ring && circle) {
+            const radius = threatRingRadius(contactMs, startMs, this._threatReticleRadius);
+            const key = Math.round(radius * 2);
+            if (key !== this._threatRingKey) {
+                this._threatRingKey = key;
+                const cache = this._threatRingRadii ??= [];
+                circle.setAttribute('r', cache[key] ??= String(key / 2));
+            }
+            const gold = contactMs <= THREAT_RING_GOLD_MS;
+            if (gold !== this._threatRingGold) {
+                this._threatRingGold = gold;
+                ring.classList.toggle('gold', gold);
+            }
+            if (!this._threatRingVisible) {
+                this._threatRingVisible = true;
+                ring.classList.remove('hidden');
+            }
+        }
+        const direction = this._threatLabelDirection;
+        if (!(direction >= 0)) return; // indicator not shown yet (first 20 Hz sample)
+        const etaKey = threatEtaKey(contactMs / 1000);
+        if (etaKey < 0 || etaKey === this._threatLabelKey) return;
+        this._threatLabelKey = etaKey;
+        const labels = this._threatEtaLabels ??= [];
+        const index = direction * 2000 + etaKey;
+        const label = labels[index] ??= `INCOMING ${formatThreatEta(contactMs / 1000)} · ${THREAT_DIRECTION_LABELS[direction]}`;
+        const el = this._threatIndicator ??= document.getElementById('incoming-indicator');
+        if (el) el.dataset.label = label;
+    }
+
+    clearThreatEta() {
+        const ring = this._threatRing || (typeof document !== 'undefined' ? document.getElementById('threat-eta-ring') : null);
+        ring?.classList.add('hidden');
+        ring?.classList.remove('gold');
+        this._threatRingVisible = false;
+        this._threatRingGold = false;
+        this._threatRingKey = -1;
+        this._threatRingStartMs = undefined;
+    }
+
+    // Reticle radius (arm length + gap, crosshair.js CSS variables on .crosshair).
+    _readReticleRadius() {
+        const style = document.querySelector?.('#hud .crosshair')?.style;
+        const size = parseFloat(style?.getPropertyValue?.('--crosshair-size'));
+        const gap = parseFloat(style?.getPropertyValue?.('--crosshair-gap'));
+        const radius = (Number.isFinite(size) ? size : 12) + (Number.isFinite(gap) ? gap : 6);
+        return Math.max(6, Math.min(THREAT_RING_MAX_RADIUS - 8, radius));
+    }
+
+    // G4 OVERDRIVE: 1.2 s banner in the top-centre lane (once per rally —
+    // Game._updateOverdrivePresentation decides), then the chip.
+    showOverdriveBanner(max = false) {
+        if (typeof document === 'undefined') return;
+        const el = document.getElementById('overdrive-banner');
+        if (!el) return;
+        setText(el, max ? 'hud.overdriveMax' : 'hud.overdrive');
+        el.dataset.max = String(max === true);
+        el.classList.remove('hidden', 'show');
+        void el.offsetWidth; // restart the entry animation
+        el.classList.add('show');
+        this._overdriveBannerShowing = true;
+        this._syncOverdriveChip();
+        clearTimeout(this._overdriveBannerTimer);
+        this._overdriveBannerTimer = setTimeout(() => this._hideOverdriveBanner(), OVERDRIVE_BANNER_MS);
+    }
+
+    _hideOverdriveBanner() {
+        clearTimeout(this._overdriveBannerTimer);
+        this._overdriveBannerTimer = null;
+        this._overdriveBannerShowing = false;
+        const el = typeof document !== 'undefined' ? document.getElementById('overdrive-banner') : null;
+        el?.classList.add('hidden');
+        el?.classList.remove('show');
+        this._syncOverdriveChip();
+    }
+
+    // Persistent "OVERDRIVE ×N.N" chip; ratio <= 0 removes chip and banner
+    // (rally end / round change). Text is rebuilt only when N.N changes.
+    setOverdrive(ratio) {
+        const tenths = ratio > 0 ? Math.round(ratio * 10) : 0;
+        if (!tenths && this._overdriveBannerShowing) this._hideOverdriveBanner();
+        const max = tenths > 0 && ratio >= OVERDRIVE_UI_MAX_RATIO;
+        const key = tenths * 2 + (max ? 1 : 0);
+        if (key === this._overdriveChipKey) return;
+        this._overdriveChipKey = key;
+        this._overdriveChipTenths = tenths;
+        const chip = typeof document !== 'undefined' ? document.getElementById('overdrive-chip') : null;
+        if (chip && tenths) {
+            setText(chip, 'hud.overdriveChip', { x: `${Math.floor(tenths / 10)}.${tenths % 10}` });
+            chip.dataset.max = String(max);
+        }
+        this._syncOverdriveChip();
+    }
+
+    _syncOverdriveChip() {
+        const visible = this._overdriveChipTenths > 0 && !this._overdriveBannerShowing;
+        // body.overdrive-on retires the match-start controls hint, whose
+        // (usually faded) box shares the banner/chip slot under the score.
+        const on = visible || this._overdriveBannerShowing === true;
+        if (on !== this._overdriveOn && typeof document !== 'undefined') {
+            this._overdriveOn = on;
+            document.body?.classList.toggle('overdrive-on', on);
+        }
+        if (visible === this._overdriveChipVisible) return;
+        this._overdriveChipVisible = visible;
+        const chip = typeof document !== 'undefined' ? document.getElementById('overdrive-chip') : null;
+        chip?.classList.toggle('hidden', !visible);
     }
 
     updateHotPotato(state) {

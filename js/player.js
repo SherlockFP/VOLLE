@@ -46,6 +46,26 @@ const SUCCESSFUL_DEFLECT_RECOVERY = 0.18;
 // When the live window equalled the cooldown, holding/spamming Mouse1 kept a
 // deflect hitbox up 100% of the time and returned the ball with no aim or timing.
 export const SWING_ACTIVE_WINDOW = 0.22;
+// G4 uncapped rallies: r = ball.currentSpeed / ball.baseSpeed at the click.
+// Up to SWING_RAMP_START_RATIO nothing changes (0.22 s live, the rest of the
+// 0.6 s cooldown as whiff recovery). Above it the live window widens and a
+// whiff recovers faster, so an early click is no longer a guaranteed hit.
+export const SWING_RAMP_START_RATIO = 3;
+export const EARLY_WHIFF_REARM_COOLDOWN = 0.05;
+// w(r) = 0.22 + 0.01·clamp(r − 3, 0, 6) s: 0.22 up to 3×, 0.25 at 6×, 0.28 from 9×.
+export function swingLiveWindowFor(ratio) {
+    const over = ratio - SWING_RAMP_START_RATIO;
+    if (!(over > 0)) return SWING_ACTIVE_WINDOW;
+    return SWING_ACTIVE_WINDOW + 0.01 * (over > 6 ? 6 : over);
+}
+// rec(r) = clamp(0.38 − 0.035·(r − 3), 0.26, 0.38) s once a live window
+// closes with no contact (0.38 = the old 0.6 − 0.22 remainder).
+export function whiffRecoveryFor(ratio) {
+    const over = ratio - SWING_RAMP_START_RATIO;
+    if (!(over > 0)) return 0.38;
+    const recovery = 0.38 - 0.035 * over;
+    return recovery < 0.26 ? 0.26 : recovery;
+}
 const BASE_HIT_DAMAGE = 25;
 export const GROUND_ACCEL = 14;
 export const AIR_ACCEL = 12;
@@ -480,6 +500,13 @@ export class Player {
         // after attackActive runs out (see getSwingLiveInterval).
         this._swingLiveWindow = 0;
         this.swingTail = false;
+        // G4: ball speed ratio sampled at the click, and whether the open
+        // swing can still end as a whiff (cleared by onSuccessfulDeflect).
+        this._swingSpeedRatio = 0;
+        this._swingWhiffPending = false;
+        // Whiffs in a row since the last deflect / hit taken / revive: only the
+        // first one can be re-armed (a stream of whiffs is spam, not a read).
+        this._whiffStreak = 0;
         this.attackDuration = ATTACK_COOLDOWN;
         this.canAttack = true;
         this.knifeAnimation = createKnifeAnimationState('classic');
@@ -976,6 +1003,7 @@ export class Player {
         this._swingAgePending = true;
         this._swingLiveWindow = this.attackActive;
         this.swingTail = false;
+        this._openSwingForSpeed(this._ballSpeedRatio());
         this.canAttack = false;
         this.knifeAttackType = action === 'stab' ? 'stab' : 'slash';
         if (this.knifeGroup?.userData.weaponType === 'knife') {
@@ -1092,40 +1120,7 @@ export class Player {
 
         // Attack cooldown
         this.rocketCooldown = Math.max(0, this.rocketCooldown - dt);
-        if (this.attackActive > 0) {
-            // swingAge runs on the clock of the ball state the deflect check
-            // reads: this update precedes that frame's ball step, so the frame
-            // that opens the swing reads 0 and each later frame adds the same
-            // dt that attackActive consumes (Game._localDeflectLeadMs).
-            // swingClickDt is the dt of the frame the click landed in; the lead
-            // subtracts half of it (the click's mean offset into that frame).
-            if (this._swingAgePending) {
-                this._swingAgePending = false;
-                this.swingClickDt = dt;
-            } else this.swingAge += dt;
-            this.attackActive -= dt;
-            // G2: the live interval is anchored on the half-frame click
-            // estimate, so an unconsumed swing stays live up to half a frame
-            // past the frame its active time runs out in (swingTail). A
-            // consumed or cancelled swing (attacking already false) has no tail.
-            this.swingTail = this.attacking && this.attackActive <= 0;
-            if (this.attackActive <= 0) {
-                this.attackActive = 0;
-                this.attacking = false; // hitbox closes; recovery continues below
-            }
-        } else if (this.swingTail) {
-            this.swingAge += dt;
-            if ((this.swingClickDt > 0 ? this.swingClickDt / 2 : 0) - this.swingAge + this._swingLiveWindow < 0) {
-                this.swingTail = false;
-            }
-        }
-        if (this.attackCooldown > 0) {
-            this.attackCooldown -= dt;
-            if (this.attackCooldown <= 0) {
-                this.attacking = false;
-                this.canAttack = true;
-            }
-        }
+        this._stepAttackTimers(dt);
 
         // Movement (chill yavaşlatması uygulanır)
         const prevPos = this.position.clone();
@@ -1524,6 +1519,8 @@ export class Player {
     // Deflect sonrası: consecutiveMisses sıfırla, lifesteal rune uygula.
     onSuccessfulDeflect() {
         this.consecutiveMisses = 0;
+        this._swingWhiffPending = false;
+        this._whiffStreak = 0;
         this.attackCooldown = Math.min(this.attackCooldown, this._rapidDeflect ? 0.08 : SUCCESSFUL_DEFLECT_RECOVERY);
         if (this.runeBonuses?.lifesteal) {
             this.hp = Math.min(this.maxHp, this.hp + this.runeBonuses.lifesteal);
@@ -1533,6 +1530,7 @@ export class Player {
     // Top kaçırdı (tutamadı) → miss sayacı artar, ekstra hasar riski.
     onMissDeflect() {
         this.consecutiveMisses++;
+        this._whiffStreak = 0; // G4: a hit taken closes that exchange
     }
 
     // Top başkasına çarptığında bu deflector'a hasarAttribution yapılır.
@@ -1561,6 +1559,7 @@ export class Player {
         this.deflectFatigue = 0;
         this._lastDeflectAttemptAt = -Infinity;
         this.consecutiveMisses = 0;
+        this._whiffStreak = 0;
         this._burnTimer = 0;
         this._chillTimer = 0;
         this.restoreHandVisibility();
@@ -1570,6 +1569,90 @@ export class Player {
     // position is eye height (feet + this.height); hit capsule anchors at the feet.
     getFeetY() { return this.position.y - this.height; }
     isAttacking() { return this.attacking; }
+
+    // Swing live window + G2 tail, G4 whiff recovery, then the attack cooldown.
+    // Called once per Player.update after the rocket cooldown.
+    _stepAttackTimers(dt) {
+        if (this.attackActive > 0) {
+            // swingAge runs on the clock of the ball state the deflect check
+            // reads: this update precedes that frame's ball step, so the frame
+            // that opens the swing reads 0 and each later frame adds the same
+            // dt that attackActive consumes (Game._localDeflectLeadMs).
+            // swingClickDt is the dt of the frame the click landed in; the lead
+            // subtracts half of it (the click's mean offset into that frame).
+            if (this._swingAgePending) {
+                this._swingAgePending = false;
+                this.swingClickDt = dt;
+            } else this.swingAge += dt;
+            this.attackActive -= dt;
+            // G2: the live interval is anchored on the half-frame click
+            // estimate, so an unconsumed swing stays live up to half a frame
+            // past the frame its active time runs out in (swingTail). A
+            // consumed or cancelled swing (attacking already false) has no tail.
+            this.swingTail = this.attacking && this.attackActive <= 0;
+            if (this.attackActive <= 0) {
+                this.attackActive = 0;
+                this.attacking = false; // hitbox closes; recovery continues below
+            }
+        } else if (this.swingTail) {
+            this.swingAge += dt;
+            if ((this.swingClickDt > 0 ? this.swingClickDt / 2 : 0) - this.swingAge + this._swingLiveWindow < 0) {
+                this.swingTail = false;
+            }
+        }
+        // G4: the live interval (tail included) has closed and nothing
+        // connected — a whiff. Consumed swings cleared the flag already.
+        if (this._swingWhiffPending && !this.attacking && !this.swingTail) {
+            this._swingWhiffPending = false;
+            this._recoverFromWhiff();
+        }
+        if (this.attackCooldown > 0) {
+            this.attackCooldown -= dt;
+            if (this.attackCooldown <= 0) {
+                this.attacking = false;
+                this.canAttack = true;
+            }
+        }
+    }
+
+    // G4: ball speed ratio r for the swing being opened (0 without a live
+    // ball, e.g. celebration rockets after the round's ball is gone).
+    _ballSpeedRatio() {
+        const ball = this.game?.ball;
+        if (!ball?.active) return 0;
+        const base = ball.baseSpeed;
+        const ratio = base > 0 ? ball.currentSpeed / base : 0;
+        return Number.isFinite(ratio) ? ratio : 0;
+    }
+
+    // G4: samples r at the click. Above 3× the live window widens to w(r);
+    // at or below 3× attackActive keeps the SWING_ACTIVE_WINDOW set above.
+    _openSwingForSpeed(ratio) {
+        this._swingSpeedRatio = ratio;
+        this._swingWhiffPending = true;
+        if (!(ratio > SWING_RAMP_START_RATIO)) return;
+        this.attackActive = Math.min(swingLiveWindowFor(ratio), this.attackDuration);
+        this._swingLiveWindow = this.attackActive;
+    }
+
+    // G4 whiff recovery (r > 3 only; at or below 3× the 0.6 s cooldown simply
+    // runs out as before): rec(r) from the moment the window closed, capped
+    // by what is left of the click's 0.6 s cooldown so a whiff never locks
+    // out longer than it did before G4 (just above 3× the old remainder is
+    // the shorter one). Early-whiff re-arm: for the first whiff in a row only,
+    // once per incoming-ball assignment, when this player is the target and
+    // the predicted contact falls inside rec(r) (Game.shouldRearmAfterWhiff),
+    // the next swing may open after EARLY_WHIFF_REARM_COOLDOWN instead.
+    _recoverFromWhiff() {
+        this._whiffStreak++;
+        const ratio = this._swingSpeedRatio;
+        if (!(ratio > SWING_RAMP_START_RATIO)) return;
+        const recovery = whiffRecoveryFor(ratio);
+        this.attackCooldown = Math.min(this.attackCooldown, recovery);
+        if (this._whiffStreak === 1 && this.game?.shouldRearmAfterWhiff?.(this, recovery) === true) {
+            this.attackCooldown = Math.min(this.attackCooldown, EARLY_WHIFF_REARM_COOLDOWN);
+        }
+    }
 
     // G2: live interval of the current swing on this frame's ball clock (0 =
     // the ball state the frame starts from, dt = the state it ends on), with

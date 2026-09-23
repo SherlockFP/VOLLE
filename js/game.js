@@ -131,6 +131,10 @@ const POWERUP_RESPAWN = 45;
 const POWERUP_RESPAWN_VARIANCE = 15;
 const POWERUP_LIFETIME = 30;
 const PLAYER_THREAT_SAMPLE_INTERVAL = 0.05;
+// G4 OVERDRIVE telegraph: MAX style from 8× base speed; a live ball back under
+// 2× (a fresh spawn) is a new rally even if it never went inactive.
+const OVERDRIVE_MAX_RATIO = 8;
+const OVERDRIVE_RALLY_RESET_RATIO = 2;
 const OPENING_WARMUP_VISIBLE_MS = 1500;
 const OPENING_LOCAL_MIN_ETA_SECONDS = 1;
 
@@ -2328,6 +2332,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         this._updateKillConfirm(dt);
         if (this.state === STATES.PLAYING || this.state === STATES.CELEBRATION) this._updateRockets(dt);
 
+        this._updateOverdrivePresentation();
         if (this.state === STATES.PLAYING && !this._guidedDrillResultOpen) {
             if (this.guidedDrill.active) this._updateGuidedDrill(dt);
             const hiddenDrill = this.guidedDrill.active
@@ -2516,6 +2521,10 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
 
     _clearPlayerThreat(resetAudio = false) {
         this._playerThreatSampleTimer = 0;
+        if (this._threatEtaActive) {
+            this._threatEtaActive = false;
+            this.ui?.clearThreatEta?.();
+        }
         if (!this._playerThreatActive) {
             if (resetAudio) this.audio?.resetThreatAudio?.();
             return;
@@ -2529,6 +2538,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
     updatePlayerThreat(dt) {
         const isWarmup = this.state === STATES.COUNTDOWN && this.ball?._warmup;
         const ball = this.ball;
+        const assignment = this._trackThreatAssignment();
         const active = (this.state === STATES.PLAYING || isWarmup)
             && !!ball?.active
             && this.player?.alive !== false
@@ -2537,6 +2547,16 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             this._clearPlayerThreat();
             return;
         }
+
+        // G4: the ETA readout and closing ring follow the predicted G1 contact
+        // every frame; the 20 Hz sample below keeps level, arrow and audio.
+        const contactMs = this._localContactMs();
+        if (this._threatEtaAssignment !== assignment) {
+            this._threatEtaAssignment = assignment;
+            this._threatEtaStartMs = contactMs;
+        }
+        this._threatEtaActive = true;
+        this.ui?.setThreatEta?.(contactMs, this._threatEtaStartMs);
 
         this._playerThreatSampleTimer = Math.min(
             PLAYER_THREAT_SAMPLE_INTERVAL,
@@ -2580,7 +2600,8 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             this._playerThreatDirection.direction,
             this._playerThreatDirection.behind,
             this._playerThreatDirection.offscreen,
-            ball.perfectWindow > 0 && ball._perfectWindowTarget === this.player
+            ball.perfectWindow > 0 && ball._perfectWindowTarget === this.player,
+            contactMs / 1000
         );
         this.audio?.updateThreatAudio?.({ active: true, speed, distance });
     }
@@ -3760,6 +3781,86 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         out.start = -Infinity;
         out.end = Infinity;
         return true;
+    }
+
+    // G4: counts target assignments of the live ball by observing
+    // ball.targetPlayer (ball.js untouched); idempotent within a frame.
+    _trackThreatAssignment() {
+        const ball = this.ball;
+        const target = ball?.active ? ball.targetPlayer || null : null;
+        if (target !== this._threatAssignmentTarget) {
+            this._threatAssignmentTarget = target;
+            this._threatAssignmentId = (this._threatAssignmentId || 0) + 1;
+        }
+        return this._threatAssignmentId || 0;
+    }
+
+    // G4: straight-line ms until the ball touches the local G1 body capsule
+    // (same capsule as the hit test and _localDeflectLeadMs). Allocation-free.
+    _localContactMs() {
+        const player = this.player;
+        const ball = this.ball;
+        if (!player?.position || !ball?.position) return Infinity;
+        const hitBonus = ball.effectiveHitRange ? ball.effectiveHitRange - ball.hitRange : 0;
+        const sizeScale = player._sizeScale || 1;
+        return predictContactMs(
+            ball.position,
+            ball.currentSpeed,
+            player.position.x,
+            player.position.z,
+            targetFeetY(player),
+            1.7 * sizeScale,
+            (0.4 + hitBonus) * sizeScale,
+            ball.radius
+        );
+    }
+
+    // G4 early-whiff re-arm (Player._recoverFromWhiff): true at most once per
+    // target assignment, only while the local player is the live ball's target
+    // and the predicted contact lands inside the whiff recovery.
+    shouldRearmAfterWhiff(player, recoverySeconds) {
+        const ball = this.ball;
+        if (player !== this.player || player?.alive === false || !ball?.active) return false;
+        if (this.state !== STATES.PLAYING && !(this.state === STATES.COUNTDOWN && ball._warmup)) return false;
+        const assignment = this._trackThreatAssignment();
+        if (ball.targetPlayer !== player || this._rearmAssignmentId === assignment) return false;
+        if (!(this._localContactMs() <= recoverySeconds * 1000)) return false;
+        this._rearmAssignmentId = assignment;
+        return true;
+    }
+
+    // G4 OVERDRIVE telegraph: the first time ball.isOverdrive turns on in a
+    // rally (ball life) → 1.2 s banner + 'overdrive-enter' cue, then a small
+    // chip with the live ratio (MAX style from 8×) while it stays on. Cleared
+    // when the rally ends (ball inactive / respawned under 2×) or the round
+    // leaves PLAYING. Presentation only.
+    _updateOverdrivePresentation() {
+        const ball = this.ball;
+        const live = this.state === STATES.PLAYING && !!ball?.active;
+        const base = ball?.baseSpeed > 0 ? ball.baseSpeed : 17;
+        const ratio = live ? ball.currentSpeed / base : 0;
+        if (!live || !(ratio >= OVERDRIVE_RALLY_RESET_RATIO)) {
+            if (this._overdriveAnnounced || this._overdriveChipOn) {
+                this._overdriveAnnounced = false;
+                this._overdriveChipOn = false;
+                this.ui?.setOverdrive?.(0);
+            }
+            return;
+        }
+        if (ball.isOverdrive !== true) {
+            if (this._overdriveChipOn) {
+                this._overdriveChipOn = false;
+                this.ui?.setOverdrive?.(0);
+            }
+            return;
+        }
+        if (!this._overdriveAnnounced) {
+            this._overdriveAnnounced = true;
+            this.ui?.showOverdriveBanner?.(ratio >= OVERDRIVE_MAX_RATIO);
+            this.audio?.playCue?.('overdrive-enter');
+        }
+        this._overdriveChipOn = true;
+        this.ui?.setOverdrive?.(ratio);
     }
 
     // Body capsule spans [feetY, feetY + playerHeight] (see combat.js#capsuleContact);

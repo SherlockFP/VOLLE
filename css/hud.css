@@ -295,3 +295,120 @@ body.reduced-motion #hud .hud-team-score.score-pop::after { animation: none; }
 #team-overlay #btn-team-popup-auto { color: #eaffff; border-color: rgba(110, 240, 220, .55); background: rgba(110, 240, 220, .12); }
 #team-overlay #btn-team-popup-confirm:not([disabled]) { color: #06151b; background: linear-gradient(135deg, #6ef0dc, #5ad3ff); border-color: transparent; }
 #team-overlay #btn-team-popup-confirm[disabled] { color: rgba(234, 255, 255, .65); }
+
+/* ===== G4 rally telegraph (presentation only) ===== */
+/* Closing ring (ui.setThreatEta): r shrinks from 64 px at the assignment to the
+   reticle radius at predicted contact; gold inside the 60 ms PERFECT lead. */
+#threat-eta-ring {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    width: 160px;
+    height: 160px;
+    margin: -80px 0 0 -80px;
+    overflow: visible;
+    pointer-events: none;
+    z-index: 998;
+}
+#threat-eta-ring circle {
+    fill: none;
+    stroke: rgba(255, 181, 58, .82);
+    stroke-width: 2;
+}
+#threat-eta-ring.gold circle {
+    stroke: #ffd647;
+    stroke-width: 3;
+    filter: drop-shadow(0 0 4px rgba(255, 214, 71, .85));
+}
+
+/* OVERDRIVE banner (1.2 s, once per rally) then chip, sharing one top-centre
+   slot: below the score header, heat pip and the front threat arrow, above
+   the countdown lane (top 128 px). One line, pointer-transparent. */
+#overdrive-banner,
+#overdrive-chip {
+    position: fixed;
+    left: 50%;
+    z-index: 60;
+    transform: translateX(-50%);
+    pointer-events: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 900;
+    text-align: center;
+}
+#overdrive-banner {
+    top: max(98px, calc(env(safe-area-inset-top) + 98px));
+    padding: 3px 14px;
+    color: #06151b;
+    border-radius: 4px;
+    background: linear-gradient(90deg, #bfe9ff, #ffffff 50%, #bfe9ff);
+    box-shadow: 0 0 18px rgba(191, 233, 255, .65);
+    font-size: 20px;
+    line-height: 22px;
+    letter-spacing: 3px;
+}
+#overdrive-banner.show { animation: overdrive-banner-in 1.2s ease-out both; }
+#overdrive-banner[data-max="true"] {
+    color: #fff4dc;
+    background: linear-gradient(90deg, #ff4d35, #ff9a3c 50%, #ff4d35);
+    box-shadow: 0 0 22px rgba(255, 77, 53, .75);
+}
+#overdrive-chip {
+    top: max(100px, calc(env(safe-area-inset-top) + 100px));
+    padding: 2px 10px;
+    color: #bfe9ff;
+    border: 1px solid rgba(191, 233, 255, .55);
+    border-radius: 999px;
+    background: rgba(5, 13, 28, .66);
+    font-size: 12px;
+    line-height: 16px;
+    letter-spacing: 1.5px;
+    animation: overdrive-chip-pulse 1.1s ease-in-out infinite alternate;
+}
+#overdrive-chip[data-max="true"] {
+    color: #fff4dc;
+    border-color: rgba(255, 77, 53, .8);
+    background: rgba(60, 10, 8, .72);
+}
+/* The controls hint (top 84 px, faded after ~6 s) shares this slot. */
+body.overdrive-on #controls-hint { display: none; }
+@keyframes overdrive-banner-in {
+    0% { opacity: 0; transform: translateX(-50%) scale(1.08); }
+    15% { opacity: 1; transform: translateX(-50%) scale(1); }
+    80% { opacity: 1; }
+    100% { opacity: 0; }
+}
+@keyframes overdrive-chip-pulse {
+    from { opacity: .72; }
+    to { opacity: 1; }
+}
+@keyframes overdrive-banner-fade {
+    0% { opacity: 0; }
+    15%, 80% { opacity: 1; }
+    100% { opacity: 0; }
+}
+@media (max-width: 700px) {
+    /* Phones: the right lane under the score holds the incoming label
+       (right 8 px, 140 px wide, y 84-138), so the slot starts at the left
+       edge and stops 8 px short of that label. */
+    #overdrive-banner,
+    #overdrive-chip {
+        left: 8px;
+        transform: none;
+        max-width: calc(100vw - 172px);
+        box-sizing: border-box;
+    }
+    #overdrive-banner { padding: 3px 8px; font-size: 14px; line-height: 18px; letter-spacing: 1px; }
+    #overdrive-banner.show { animation-name: overdrive-banner-fade; }
+    #overdrive-chip { padding: 1px 8px; font-size: 11px; letter-spacing: .5px; }
+}
+/* Reduced Motion: text only, no pulse / entry animation. */
+@media (prefers-reduced-motion: reduce) {
+    #overdrive-banner.show, #overdrive-chip { animation: none; }
+}
+body.reduced-motion #overdrive-banner.show,
+body.reduced-motion #overdrive-chip,
+html.reduce-motion #overdrive-banner.show,
+html.reduce-motion #overdrive-chip { animation: none; }
