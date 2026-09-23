@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { TrailRibbon } from './TrailRibbon.js';
 
-// Hit-stop: kısa süre dünya donar, impact'i vurgular.
+// Hit-stop: impact FX kısa süre donar (freeze-frame); simülasyon/top akmaya devam eder.
 // Screen shake: kamera sallanır.
 // Slow-mo: timeScale düşer, dramatik anlar.
 // Combo: üst üste deflect'ler çarpan artırır, UI'da gösterilir.
@@ -64,7 +64,11 @@ export class Juice {
         this.reducedMotion = false;
     }
 
-    // Hit-stop: dünya N ms donar. Critical hit'lerde 80ms, normal 40ms.
+    // Hit-stop: the impact FX (particles, flash, shake) hold for N ms — a
+    // presentation freeze-frame. The simulation (ball, bots, players) is NOT
+    // frozen: a world freeze stalled the rally ball mid-flight on every
+    // PERFECT/hit/kill while the local camera kept moving, and on a P2P host
+    // it stalled the authoritative ball for every client.
     hitStop(ms = 40) {
         this.hitStopTimer = ms / 1000;
         this.hitStopDuration = ms / 1000;
@@ -261,16 +265,15 @@ export class Juice {
     }
 
     // Ana update — her frame çağrılır. dt: gerçek delta time.
-    // Returns: effectiveDt (slow-mo + hit-stop uygulanmış delta).
+    // Returns: effectiveDt (slow-mo applied). Hit-stop never returns 0 — it
+    // only holds the juice presentation (see hitStop).
     update(dt) {
         // Dash ribbon fade
         this.dashRibbon?.update(dt);
 
-        // Hit-stop: süre dolana kadar time'ı dondur
-        if (this.hitStopTimer > 0) {
-            this.hitStopTimer -= dt;
-            return 0; // dünya donar
-        }
+        // Hit-stop: impact FX freeze-frame while the timer runs.
+        const holding = this.hitStopTimer > 0;
+        if (holding) this.hitStopTimer = Math.max(0, this.hitStopTimer - dt);
 
         // Slow-mo: timeScale'i hedefe yumuşakça götür
         if (this.slowMoTimer > 0) {
@@ -290,7 +293,7 @@ export class Juice {
                 (Math.random() - 0.5) * this.shakeAmt
             );
             if (this.camera) this.camera.position.add(this.shakeOffset);
-            this.shakeAmt *= Math.exp(-this.shakeDecay * dt);
+            if (!holding) this.shakeAmt *= Math.exp(-this.shakeDecay * dt);
         } else if (this.shakeOffset.lengthSq() > 0 && this.camera) {
             // ponytail: shake bitince offset'i geri çıkar (kaymasın)
             this.camera.position.sub(this.shakeOffset);
@@ -304,10 +307,10 @@ export class Juice {
         }
 
         // Flash decay
-        if (this.flashAmt > 0) this.flashAmt = Math.max(0, this.flashAmt - dt * 3);
+        if (this.flashAmt > 0 && !holding) this.flashAmt = Math.max(0, this.flashAmt - dt * 3);
 
         // Particles
-        this.updateParticles(effectiveDt);
+        this.updateParticles(holding ? 0 : effectiveDt);
 
         return effectiveDt;
     }

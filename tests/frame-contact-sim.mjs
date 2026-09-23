@@ -114,6 +114,7 @@ export const resolveFrameContacts = compileGameMethod('_resolveFrameContacts', {
     proximityAssistRange,
     Math
 });
+export const followThroughDeflect = compileGameMethod('_followThroughDeflect');
 const frameFraction = compileGameMethod('_frameFraction');
 const localSwingInterval = compileGameMethod('_localSwingInterval');
 const capsuleHitTest = compileGameMethod('capsuleHitTest', { capsuleContact });
@@ -266,6 +267,7 @@ export function createContactGame({ player, bots = [], ball, throwerTeam = 'red'
         _localDeflectLeadMs: localDeflectLeadMs,
         _isDeflectFacingBall: isDeflectFacingBall,
         _resolveFrameContacts: resolveFrameContacts,
+        _followThroughDeflect: followThroughDeflect,
         handlePlayerDeflection() {
             if (!this._isDeflectFacingBall(player.aim, player.position, this.ball.position)) {
                 events.push({ kind: 'facing-reject' });

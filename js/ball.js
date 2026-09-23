@@ -1754,6 +1754,37 @@ export class Ball {
         this.mesh.position.lerpVectors(this._prevPosition, this.position, clamp(alpha, 0, 1));
     }
 
+    // G2 follow-through (Game._resolveFrameContacts): this frame was stepped to
+    // its end before the deflect put the ball back on its contact point, and the
+    // mesh + trail were already drawn there. Drop the trail drawn past the
+    // contact (along the frame's old heading from → end), then fly the rest of
+    // the frame on the new velocity: the rendered path runs A → contact → onward
+    // with no snap back and no lost travel. Returns update()'s bounce flag.
+    continueFromContact(restSeconds, from = null, end = null) {
+        const contact = this.position;
+        if (from && end && this._trailHasLastPosition) {
+            const dx = end.x - from.x, dy = end.y - from.y, dz = end.z - from.z;
+            const past = p => (p.x - contact.x) * dx + (p.y - contact.y) * dy + (p.z - contact.z) * dz > 1e-9;
+            while (this.trail.length > 0 && past(this.trail[this.trail.length - 1].mesh.position)) {
+                this._trailPool.release(this.trail.pop().mesh);
+            }
+            // Close the streak exactly at the contact corner (same spacing rule
+            // as _emitTrail) and continue it from there.
+            const previous = this._trailLastPosition;
+            const samples = past(previous) ? 1 : clamp(Math.ceil(previous.distanceTo(contact)
+                / clamp(0.25 - this.currentSpeed * 0.0012, 0.1, 0.25)), 1, 5);
+            for (let i = 1; i <= samples; i++) {
+                this.addTrailDot(this._trailSamplePosition.lerpVectors(previous, contact, i / samples));
+            }
+            previous.copy(contact);
+        }
+        if (!(restSeconds > 0) || !this.active) {
+            this.mesh.position.copy(contact);
+            return false;
+        }
+        return !!this.update(restSeconds);
+    }
+
     getRallyMultiplier() {
         const deflections = Number.isFinite(this.deflections) ? Math.max(0, this.deflections) : 0;
         const step = Number.isFinite(this.rallySpeedStep) ? Math.max(0, this.rallySpeedStep) : 0;
