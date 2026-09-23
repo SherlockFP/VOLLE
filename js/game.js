@@ -913,21 +913,30 @@ addBot(team, { name: preferredName = null } = {}) {
             }
 
             if (sb.life <= 0) {
-                this.arena.remove(sb.mesh);
-                sb.mesh.geometry.dispose();
-                sb.mesh.material.dispose();
+                // Splice first: a failing removal must never leave an expired
+                // split ball behind to throw again on every later frame.
                 this._splitBalls.splice(i, 1);
+                this._disposeSplitBall(sb);
             }
         }
     }
 
     clearSplitBalls() {
-        this._splitBalls.forEach(sb => {
-            this.arena.remove(sb.mesh);
-            sb.mesh.geometry.dispose();
-            sb.mesh.material.dispose();
-        });
+        const balls = this._splitBalls;
         this._splitBalls = [];
+        balls.forEach(sb => this._disposeSplitBall(sb));
+    }
+
+    _disposeSplitBall(sb) {
+        const mesh = sb?.mesh;
+        if (!mesh) return;
+        try {
+            if (typeof this.arena?.remove === 'function') this.arena.remove(mesh);
+            else mesh.parent?.remove(mesh);
+        } finally {
+            mesh.geometry?.dispose?.();
+            mesh.material?.dispose?.();
+        }
     }
 
     updateLobbyUI() {
