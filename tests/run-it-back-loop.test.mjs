@@ -79,6 +79,7 @@ function buildLoopGame({ connected = false, isHost = false } = {}) {
         juice,
         _timeScale: 1,
         _updateKnockouts() {}, // G6 knockout presentation (cosmetic, raw dt)
+        _updateCelebrationBots() {}, // G9 celebration bot wander/fall (no timers)
         _roundEndElapsed: 0,
         _celebrationElapsed: 0,
         _postGameOpenedEarly: false,
