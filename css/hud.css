@@ -297,29 +297,7 @@ body.reduced-motion #hud .hud-team-score.score-pop::after { animation: none; }
 #team-overlay #btn-team-popup-confirm[disabled] { color: rgba(234, 255, 255, .65); }
 
 /* ===== G4 rally telegraph (presentation only) ===== */
-/* Closing ring (ui.setThreatEta): r shrinks from 64 px at the assignment to the
-   reticle radius at predicted contact; gold inside the 60 ms PERFECT lead. */
-#threat-eta-ring {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    width: 160px;
-    height: 160px;
-    margin: -80px 0 0 -80px;
-    overflow: visible;
-    pointer-events: none;
-    z-index: 998;
-}
-#threat-eta-ring circle {
-    fill: none;
-    stroke: rgba(255, 181, 58, .82);
-    stroke-width: 2;
-}
-#threat-eta-ring.gold circle {
-    stroke: #ffd647;
-    stroke-width: 3;
-    filter: drop-shadow(0 0 4px rgba(255, 214, 71, .85));
-}
+/* (The closing reticle ring was removed; nothing is drawn around the crosshair.) */
 
 /* OVERDRIVE banner (1.2 s, once per rally) then chip, sharing one top-centre
    slot: below the score header, heat pip and the front threat arrow, above

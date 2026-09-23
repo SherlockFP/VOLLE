@@ -80,18 +80,9 @@ export function formatThreatEta(seconds) {
     const tenths = key - 1000;
     return `${Math.floor(tenths / 10)}.${tenths % 10}S`;
 }
-// Closing ring around the reticle (index.html #threat-eta-ring): radius at the
-// assignment, shrinking to the reticle's own radius at predicted contact; gold
-// inside the PERFECT lead window.
-export const THREAT_RING_MAX_RADIUS = 64;
-export const THREAT_RING_GOLD_MS = 60;
-export function threatRingRadius(contactMs, startMs, reticleRadius) {
-    const inner = Number.isFinite(reticleRadius) && reticleRadius > 0 ? reticleRadius : 18;
-    const fraction = Number.isFinite(contactMs) && Number.isFinite(startMs) && startMs > 0
-        ? Math.max(0, Math.min(1, contactMs / startMs))
-        : 1;
-    return inner + (THREAT_RING_MAX_RADIUS - inner) * fraction;
-}
+// The G4 closing ring around the reticle was removed at the owner's request
+// (it cluttered the crosshair); the ETA label, edge glow, arrow and threat
+// audio remain the incoming-ball cues.
 const THREAT_DIRECTIONS = ['front', 'left', 'right', 'rear'];
 const THREAT_DIRECTION_LABELS = ['FRONT', 'LEFT', 'RIGHT', 'BEHIND'];
 // OVERDRIVE banner lifetime. The ratio that switches it (and the chip) to MAX
@@ -610,36 +601,11 @@ export class UI {
     }
 
     // G4: every rendered frame while the local player is targeted
-    // (Game.updatePlayerThreat): ETA label from the predicted G1 contact and the
-    // closing reticle ring. Strings are built once per distinct value and
-    // cached; the DOM is written only when a shown value changes.
-    setThreatEta(contactMs, startMs) {
+    // (Game.updatePlayerThreat): ETA label from the predicted G1 contact.
+    // Strings are built once per distinct value and cached; the DOM is written
+    // only when the shown value changes. (No reticle ring any more.)
+    setThreatEta(contactMs) {
         if (typeof document === 'undefined') return;
-        const ring = this._threatRing ??= document.getElementById('threat-eta-ring');
-        const circle = this._threatRingCircle ??= ring?.querySelector?.('circle') || null;
-        if (startMs !== this._threatRingStartMs) {
-            // New assignment: the ring closes onto the reticle's current radius.
-            this._threatRingStartMs = startMs;
-            this._threatReticleRadius = this._readReticleRadius();
-        }
-        if (ring && circle) {
-            const radius = threatRingRadius(contactMs, startMs, this._threatReticleRadius);
-            const key = Math.round(radius * 2);
-            if (key !== this._threatRingKey) {
-                this._threatRingKey = key;
-                const cache = this._threatRingRadii ??= [];
-                circle.setAttribute('r', cache[key] ??= String(key / 2));
-            }
-            const gold = contactMs <= THREAT_RING_GOLD_MS;
-            if (gold !== this._threatRingGold) {
-                this._threatRingGold = gold;
-                ring.classList.toggle('gold', gold);
-            }
-            if (!this._threatRingVisible) {
-                this._threatRingVisible = true;
-                ring.classList.remove('hidden');
-            }
-        }
         const direction = this._threatLabelDirection;
         if (!(direction >= 0)) return; // indicator not shown yet (first 20 Hz sample)
         const etaKey = threatEtaKey(contactMs / 1000);
@@ -650,25 +616,6 @@ export class UI {
         const label = labels[index] ??= `INCOMING ${formatThreatEta(contactMs / 1000)} · ${THREAT_DIRECTION_LABELS[direction]}`;
         const el = this._threatIndicator ??= document.getElementById('incoming-indicator');
         if (el) el.dataset.label = label;
-    }
-
-    clearThreatEta() {
-        const ring = this._threatRing || (typeof document !== 'undefined' ? document.getElementById('threat-eta-ring') : null);
-        ring?.classList.add('hidden');
-        ring?.classList.remove('gold');
-        this._threatRingVisible = false;
-        this._threatRingGold = false;
-        this._threatRingKey = -1;
-        this._threatRingStartMs = undefined;
-    }
-
-    // Reticle radius (arm length + gap, crosshair.js CSS variables on .crosshair).
-    _readReticleRadius() {
-        const style = document.querySelector?.('#hud .crosshair')?.style;
-        const size = parseFloat(style?.getPropertyValue?.('--crosshair-size'));
-        const gap = parseFloat(style?.getPropertyValue?.('--crosshair-gap'));
-        const radius = (Number.isFinite(size) ? size : 12) + (Number.isFinite(gap) ? gap : 6);
-        return Math.max(6, Math.min(THREAT_RING_MAX_RADIUS - 8, radius));
     }
 
     // G4 OVERDRIVE: 1.2 s banner in the top-centre lane (once per rally —
