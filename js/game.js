@@ -41,6 +41,7 @@ import { normalizeWearableLoadout } from './cosmetic-catalog.js';
 import { applyEntityCosmetics, spawnFinisherCosmetic, spawnImpactCosmetic, updateEntityCosmetics } from './cosmetic-models.js';
 import { createCharacterRig } from './character-rig.js';
 import { createCharacterAnimator } from './character-anim.js';
+import { neutralPose, writeDeadPose } from './character-pose.js';
 import {
     activateQueuedEntity,
     isLiveJoinState,
@@ -75,6 +76,17 @@ export function rollMapProps(random = Math.random) {
 // connecting hit gets a small damage bump for a few seconds after a kill.
 const KILL_CONFIRM_DURATION = 3.5;           // seconds
 const KILL_CONFIRM_DAMAGE_MULTIPLIER = 1.15; // +15% damage, single-shot
+// G6 knockout/flinch presentation (seconds / world units). Cosmetic only.
+export const KNOCKOUT_SLIDE_DISTANCE = 1.2;
+export const KNOCKOUT_SLIDE_SECONDS = 0.35;
+export const KNOCKOUT_SHRINK_START = 0.55;
+export const KNOCKOUT_HIDE_AT = 0.9;
+export const KNOCKOUT_END_SCALE = 0.05;
+export const FLINCH_PUSH_DISTANCE = 0.25;
+export const FLINCH_SECONDS = 0.2;
+const HIT_PRESENTATION_KEYS_MAX = 64;
+const HIT_PRESENTATION_WINDOW_MS = 1000;
+const KILL_FLASH_MS = 160;
 // A deflect is a face-the-threat skill check, not a 360-degree proximity hit.
 // 0.15 keeps close side catches available (about 81°) while rejecting anything
 // that has already crossed the player's shoulder line.
@@ -311,6 +323,17 @@ export class Game {
         // Death particles
         this.deathParticles = [];
         this._killPresentationKeys = new Set();
+        // G6: one presentation per hit (client prediction vs host confirmation) and
+        // the bodies currently sliding/shrinking/flinching (_updateKnockouts).
+        this._hitPresentationKeys = new Map();
+        this._bodyFxList = [];
+        this._bodyFxMapId = null;
+        this._hitDirX = 0;
+        this._hitDirZ = 0;
+        this._hitDirVictim = null;
+        this._fxDirX = 0;
+        this._fxDirZ = 0;
+        this._killFlashTimer = null;
         this._killConfirmationTimer = null;
         this._killConfirmationUntil = 0;
         this._deferredMatchMessageTimer = null;
@@ -525,6 +548,8 @@ export class Game {
         if (typeof document !== 'undefined') document.body?.classList.toggle('countdown-ui', s === STATES.COUNTDOWN);
         if (s !== STATES.PLAYING && s !== STATES.COUNTDOWN) this._clearPlayerThreat(true);
         if (s !== STATES.PLAYING) this._clearLocalDeflectAttempt();
+        // G6: the celebration (and leaving the match) starts from clean bodies.
+        if (s === STATES.CELEBRATION || s === STATES.MENU || s === STATES.LOBBY) this._resetKnockouts?.();
         if (s === STATES.ROUND_END && prev !== STATES.ROUND_END) {
             this.onRoundEnd?.();
             // Valorant-style round-end flourish keyed off the winning side's ball skin.
@@ -1302,6 +1327,7 @@ startGame(skipPreGame = false, matchId = null) {
         this._clearRockets();
         this._hideKillcam();
         this._killPresentationKeys.clear();
+        this._hitPresentationKeys?.clear();
         if (this._killConfirmationTimer) clearTimeout(this._killConfirmationTimer);
         if (this._deferredMatchMessageTimer) clearTimeout(this._deferredMatchMessageTimer);
         this._killConfirmationTimer = null;
@@ -1372,6 +1398,8 @@ startGame(skipPreGame = false, matchId = null) {
                 p.group.visible = true;
             }
         });
+        // A knockout still sliding from the last round must not leak into this one.
+        this._resetKnockouts?.();
 
         // First target
         const targets = this.guidedDrill.active ? [] : this.getAllTargets();
@@ -1900,6 +1928,10 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             _animFalling: false,
             _animFacts: { speed: 0, grounded: true, verticalSpeed: 0, alive: true, aim: 0, strafe: 0 },
             _defenseIntent: 'none', _defenseStrafe: 0, _botSyncAttacking: false, _botSyncTelegraphed: false,
+            // G6 knockout/flinch presentation scalars (Game._updateKnockouts).
+            _koActive: false, _koTime: 0, _koDirX: 0, _koDirZ: 0, _koBaseX: 0, _koBaseZ: 0,
+            _koOffsetX: 0, _koOffsetZ: 0, _koScale0: 1, _koProxy: true, _koPose: null,
+            _flinchTime: -1, _flinchDirX: 0, _flinchDirZ: 0, _bodyFxListed: false,
             getPosition() { return this.position.clone(); },
             // Synced y is the sender's Player.position.y (eye = feet + 1.7, see
             // main.js sendPosition); host bot dummies (isBotEntity) carry feet y.
@@ -2319,6 +2351,9 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         // below: an elimination triggers hit-stop at the same instant the finisher spawns,
         // so gating it on effectiveDt would freeze the very effect the kill just started.
         window.shaderFinishers?.update?.(dt);
+        // Knockout slide/shrink + flinch push on RAW dt for the same reason: the kill's
+        // own hit-stop must not freeze the body it is presenting (G6).
+        this._updateKnockouts(dt);
         // Juice: hit-stop/slow-mo/screen shake uygula, effective dt döndür
         const effectiveDt = this.juice.update(dt);
         if (effectiveDt === 0 && this.state !== STATES.CELEBRATION) return; // hit-stop: dünya donar (ama celebration'da değil)
@@ -3881,6 +3916,13 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             name
         );
         const shot = this.ball.lastShot;
+        // G6: knockout/flinch direction = the ball's travel at contact. Latched once per
+        // victim so the 80 ms lethal grace (ball may home back) cannot flip it.
+        if (!(this._pendingLethalHit && this._pendingLethalVictim === hitTarget)) {
+            this._hitDirX = this.ball.velocity?.x || 0;
+            this._hitDirZ = this.ball.velocity?.z || 0;
+            this._hitDirVictim = hitTarget;
+        }
 
         // ponytail: host-side lethal hits get a grace window before applying — late
         // client attacks (remoteAttack) cancel the hit. Base 80ms, scaled up by the
@@ -3989,10 +4031,234 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         this.juice.flash(0.55);
         this.spawnDeathExplosion(hitPos, victimTeam, false);
         this.audio.playSfx('tf2_explosion', 0.5);
-        window.addKillFeed?.(attackerName, victimName, '⚔');
         this.audio.playExplosion();
         this._onCrowdBigPlay?.();
         return true;
+    }
+
+    // --- G6: KNOCKOUT THAT LANDS ---------------------------------------------
+    // Everything below is presentation. alive/score/round transition are decided by
+    // the callers at t=0 exactly as before; a dead body is already out of every hit
+    // and targeting pass (alive === false), it is only kept on screen ~0.9 s.
+
+    /**
+     * One presentation per hit. A client predicts a hit (_doApplyHit) and then hears
+     * the host confirm it (applyPlayerHit): the first caller presents, the second only
+     * applies state. A lethal confirmation after a nonlethal prediction still presents
+     * (the kill must land). Keys expire after 1 s — a later hit on the same victim in
+     * the same rally (ball respawn takes 3 s) presents normally.
+     */
+    _claimHitPresentation(victimId, rallyCount = 0, lethal = false) {
+        const keys = this._hitPresentationKeys;
+        const key = `${victimId || 'Unknown'}\u0000${rallyCount || 0}`;
+        const now = performance.now();
+        const prior = keys.get(key);
+        if (prior && now - prior.at < HIT_PRESENTATION_WINDOW_MS && (prior.lethal || !lethal)) return false;
+        keys.delete(key);
+        while (keys.size >= HIT_PRESENTATION_KEYS_MAX) keys.delete(keys.keys().next().value);
+        keys.set(key, { at: now, lethal: lethal === true });
+        return true;
+    }
+
+    // Body-push direction: the ball's travel latched at contact when this machine saw
+    // the contact itself (handleHit), else the ball velocity — client-smoothed on
+    // guests (invokeBallSmoothing). Scalars only.
+    _resolveBodyFxDir(target) {
+        if (this._hitDirVictim === target && (this._hitDirX || this._hitDirZ)) {
+            this._fxDirX = this._hitDirX;
+            this._fxDirZ = this._hitDirZ;
+            return;
+        }
+        this._fxDirX = this.ball?.velocity?.x || 0;
+        this._fxDirZ = this.ball?.velocity?.z || 0;
+    }
+
+    _listBodyFx(entity) {
+        if (entity._bodyFxListed) return;
+        if (this._bodyFxList.length === 0) this._bodyFxMapId = this.arena?.mapId ?? null;
+        entity._bodyFxListed = true;
+        this._bodyFxList.push(entity);
+    }
+
+    /** Lethal bots and remote proxies only — never the local player. Cosmetic. */
+    presentKnockout(victim, dirX = 0, dirZ = 0) {
+        if (!victim || victim === this.player || !victim.group?.position || !victim.group.scale) return false;
+        const group = victim.group;
+        const length = Math.hypot(dirX || 0, dirZ || 0);
+        this._clearFlinch(victim);
+        victim._koActive = true;
+        victim._koTime = 0;
+        victim._koDirX = length > 1e-6 ? dirX / length : 0;
+        victim._koDirZ = length > 1e-6 ? dirZ / length : 0;
+        victim._koBaseX = group.position.x;
+        victim._koBaseZ = group.position.z;
+        victim._koOffsetX = 0;
+        victim._koOffsetZ = 0;
+        victim._koScale0 = group.scale.x > 0 ? group.scale.x : 1;
+        // Host bots stop updating once dead, so their pose is written here; remote
+        // proxies keep their own animator stepping (alive=false → 'dead').
+        victim._koProxy = !this.bots.includes(victim);
+        if (!victim._koProxy && !victim._koPose) victim._koPose = neutralPose();
+        group.visible = true;
+        victim.setTargetOutline?.(false); // a corpse is nobody's target
+        victim.animator?.play?.('dead');
+        this._listBodyFx(victim);
+        return true;
+    }
+
+    _presentFlinch(victim, dirX = 0, dirZ = 0) {
+        if (!victim || victim === this.player || victim._koActive || !victim.rig?.root) return false;
+        const length = Math.hypot(dirX || 0, dirZ || 0);
+        if (!(length > 1e-6)) return false;
+        victim._flinchDirX = dirX / length;
+        victim._flinchDirZ = dirZ / length;
+        victim._flinchTime = 0;
+        this._listBodyFx(victim);
+        return true;
+    }
+
+    _clearFlinch(entity) {
+        entity._flinchTime = -1;
+        const root = entity.rig?.root;
+        if (root?.position) {
+            root.position.x = 0;
+            root.position.z = 0;
+        }
+    }
+
+    _endKnockout(entity, hide) {
+        const group = entity.group;
+        entity._koActive = false;
+        entity._koTime = 0;
+        entity._koOffsetX = 0;
+        entity._koOffsetZ = 0;
+        if (!group) return;
+        if (entity._koProxy) {
+            if (entity.position) {
+                group.position.x = entity.position.x;
+                group.position.z = entity.position.z;
+            }
+        } else if (entity.alive === false) {
+            group.position.x = entity._koBaseX;
+            group.position.z = entity._koBaseZ;
+        }
+        // A bot that already respawned owns its grow-in scale; every other body is 1.
+        if (entity.alive === false || !(entity.spawnAnim < 1)) group.scale.setScalar(1);
+        group.visible = hide ? false : entity.alive !== false && !entity.queuedForNextRound;
+    }
+
+    _stepKnockout(entity, dt) {
+        const group = entity.group;
+        if (!group) return false;
+        // Revived/respawned by any path (round start, respawn, host revive).
+        if (entity.alive !== false) {
+            this._endKnockout(entity, false);
+            return false;
+        }
+        const time = entity._koTime + dt;
+        entity._koTime = time;
+        if (time >= KNOCKOUT_HIDE_AT) {
+            this._endKnockout(entity, true);
+            return false;
+        }
+        const slideT = time >= KNOCKOUT_SLIDE_SECONDS ? 1 : time / KNOCKOUT_SLIDE_SECONDS;
+        const rest = 1 - slideT;
+        const slide = (1 - rest * rest * rest) * KNOCKOUT_SLIDE_DISTANCE;
+        entity._koOffsetX = entity._koDirX * slide;
+        entity._koOffsetZ = entity._koDirZ * slide;
+        if (entity._koProxy) {
+            group.position.x = entity.position.x + entity._koOffsetX;
+            group.position.z = entity.position.z + entity._koOffsetZ;
+        } else {
+            group.position.x = entity._koBaseX + entity._koOffsetX;
+            group.position.z = entity._koBaseZ + entity._koOffsetZ;
+        }
+        let scale = entity._koScale0;
+        if (time > KNOCKOUT_SHRINK_START) {
+            const shrink = (time - KNOCKOUT_SHRINK_START) / (KNOCKOUT_HIDE_AT - KNOCKOUT_SHRINK_START);
+            scale += (KNOCKOUT_END_SCALE - scale) * shrink * shrink;
+        }
+        group.scale.setScalar(scale);
+        group.visible = true;
+        if (!entity._koProxy && entity._koPose) entity.rig?.applyPose?.(writeDeadPose(entity._koPose, time / 0.6));
+        return true;
+    }
+
+    _stepFlinch(entity, dt) {
+        const root = entity.rig?.root;
+        const time = entity._flinchTime + dt;
+        if (!root?.position || time >= FLINCH_SECONDS || entity.alive === false) {
+            this._clearFlinch(entity);
+            return false;
+        }
+        entity._flinchTime = time;
+        const fade = 1 - time / FLINCH_SECONDS;
+        const push = FLINCH_PUSH_DISTANCE * fade * fade;
+        const worldX = entity._flinchDirX * push;
+        const worldZ = entity._flinchDirZ * push;
+        // rig.root is a child of the yawed group: rotate the world push into it.
+        const yaw = entity.group?.rotation?.y || 0;
+        const cos = Math.cos(yaw);
+        const sin = Math.sin(yaw);
+        root.position.x = worldX * cos - worldZ * sin;
+        root.position.z = worldX * sin + worldZ * cos;
+        return true;
+    }
+
+    /** Ticks knockouts and flinches on raw dt. Allocation-free. */
+    _updateKnockouts(dt) {
+        const list = this._bodyFxList;
+        if (!list || list.length === 0) return;
+        if (this._bodyFxMapId !== (this.arena?.mapId ?? null)) {
+            this._resetKnockouts();
+            return;
+        }
+        const step = dt > 0 ? (dt < 0.25 ? dt : 0.25) : 0;
+        for (let index = list.length - 1; index >= 0; index--) {
+            const entity = list[index];
+            const keep = entity._koActive
+                ? this._stepKnockout(entity, step)
+                : entity._flinchTime >= 0 && this._stepFlinch(entity, step);
+            if (keep) continue;
+            entity._bodyFxListed = false;
+            list[index] = list[list.length - 1];
+            list.pop();
+        }
+    }
+
+    /** Round start, celebration, arena rebuild: every body back to normal now. */
+    _resetKnockouts() {
+        const list = this._bodyFxList;
+        if (!list) return;
+        for (let index = 0; index < list.length; index++) {
+            const entity = list[index];
+            if (entity._koActive) this._endKnockout(entity, false);
+            this._clearFlinch(entity);
+            entity._bodyFxListed = false;
+        }
+        list.length = 0;
+    }
+
+    _pushKillFeedRow(attacker, attackerTeam, victim, victimTeam, dmg, tag, perfect, headshot) {
+        this.killFeed.unshift({
+            attacker, victim, attackerTeam, victimTeam, dmg, tag,
+            perfect: perfect === true, headshot: headshot === true,
+            time: performance.now()
+        });
+        if (this.killFeed.length > 5) this.killFeed.pop();
+        this.ui.renderKillFeed?.(this.killFeed);
+    }
+
+    _flashKill() {
+        if (typeof document === 'undefined' || !document.body) return;
+        document.body.classList.remove('hit-flash');
+        void document.body.offsetWidth; // restart the overlay animation on a double kill
+        document.body.classList.add('hit-flash');
+        if (this._killFlashTimer) clearTimeout(this._killFlashTimer);
+        this._killFlashTimer = setTimeout(() => {
+            this._killFlashTimer = null;
+            document.body.classList.remove('hit-flash');
+        }, KILL_FLASH_MS);
     }
 
     _showMatchMessage(text, duration = 1500) {
@@ -4133,11 +4399,15 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         }
 
         const hitPos = hitTarget.getPosition();
+        // G6: a client predicts this hit, then applyPlayerHit hears the host confirm
+        // it. Whichever arrives first presents; the other only applies state. The
+        // host has a single caller per hit and always presents.
+        const presentHit = !isClient || this._claimHitPresentation(name, this.rallyCount, isLethal);
         const impactId = attacker === this.player
             ? window.__store?.get?.('equippedWearables')?.impact
             : attacker?.wearableLoadout?.impact;
-        spawnImpactCosmetic(this.renderer.scene, impactId, hitPos);
-        if (isLethal) {
+        if (presentHit) spawnImpactCosmetic(this.renderer.scene, impactId, hitPos);
+        if (isLethal && presentHit) {
             // Finishers were sold ("A fireworks-grade blast ends the round") but nothing
             // ever called spawnFinisherCosmetic. Same equipped-wearable lookup as the
             // impact burst above; the spawn no-ops on a missing or wrong-typed id.
@@ -4155,18 +4425,25 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
 
         // EFFECTS — play on BOTH host and client for immediate feedback
         // Floating damage number
-        const scrPos = hitPos.clone().project(this.player.camera);
-        const sx = (scrPos.x * 0.5 + 0.5) * window.innerWidth;
-        const sy = (-scrPos.y * 0.5 + 0.5) * window.innerHeight;
         const isPerfectHit = this.ball.lastPerfectBy === attacker;
-        this.ui.spawnDamageNumber(sx, sy, dmg, isLethal, hitZone.label, isPerfectHit);
-
-        // Hit marker — show when the local player lands a hit
-        if (attacker === this.player) {
-            this.ui.showHitMarker(hitZone.zone === 'head');
+        if (presentHit) {
+            const scrPos = hitPos.clone().project(this.player.camera);
+            const sx = (scrPos.x * 0.5 + 0.5) * window.innerWidth;
+            const sy = (-scrPos.y * 0.5 + 0.5) * window.innerHeight;
+            this.ui.spawnDamageNumber(sx, sy, dmg, isLethal, hitZone.label, isPerfectHit);
         }
 
-        if (hitTarget === this.player) {
+        // Hit marker — show when the local player lands a hit
+        if (presentHit && attacker === this.player) {
+            this.ui.showHitMarker(isLethal && hitTarget !== this.player ? 'kill' : hitZone.zone === 'head' ? 'head' : 'hit');
+        }
+
+        // Nonlethal: the victim's body takes the ball (flinch pose comes from takeDamage).
+        if (presentHit && !isLethal && hitTarget !== this.player) {
+            this._presentFlinch(hitTarget, this._hitDirX, this._hitDirZ);
+        }
+
+        if (presentHit && hitTarget === this.player) {
             // Directional damage indicator — calculate angle from attacker to player
             if (attacker) {
                 const attackerPos = attacker.getPosition();
@@ -4190,20 +4467,19 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             }
         }
 
-        // Kill feed
+        // Kill feed — eliminations only (G6); ordinary hits already have the number.
         const missTag = hitTarget.consecutiveMisses >= 3 ? ' 💢CRITICAL' : hitTarget.consecutiveMisses >= 1 ? ` (x${hitTarget.consecutiveMisses+1} miss)` : '';
         const perfectTag = this.ball.lastPerfectBy === attacker ? ' ✨PERFECT' : '';
-        const presentedLethal = isLethal
+        const presentedLethal = isLethal && presentHit
             ? this._presentLethalImpact(hitPos, hitTarget.team, scorerName, name, this.rallyCount)
             : false;
-        if (!isLethal || presentedLethal) {
-            this.killFeed.unshift({ attacker: scorerName, victim: name, dmg, time: performance.now(), tag: missTag + perfectTag });
-            if (this.killFeed.length > 5) this.killFeed.pop();
-            this.ui.renderKillFeed?.(this.killFeed);
+        if (presentedLethal) {
+            this._pushKillFeedRow(scorerName, attacker?.team, name, hitTarget.team, dmg,
+                missTag + perfectTag, isPerfectHit, hitZone.zone === 'head');
         }
 
         // Ordinary impact feedback stays distinct from the shared lethal layer.
-        if (!isLethal) {
+        if (presentHit && !isLethal) {
             this.juice.hitBurst(hitPos);
             this.juice.shockwave(hitPos, 0xff8844);
             this.juice.hitStop(35);
@@ -4211,21 +4487,18 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         }
 
         // The local victim's damage grunt is shared by normal and lethal hits.
-        if (hitTarget === this.player) this.audio.playSfx('tf2_scout_scream', 0.45);
+        if (presentHit && hitTarget === this.player) this.audio.playSfx('tf2_scout_scream', 0.45);
 
         if (isLethal && presentedLethal && hitTarget === this.player) {
             this.audio.playSfx('tf2_you_are_dead', 0.5);
         }
-        this.audio.playHit(hitPos);
+        if (presentHit) this.audio.playHit(hitPos);
 
-        // Hit-flash animation on screen
-        if (isLethal && presentedLethal && typeof document !== 'undefined') {
-            document.body.classList.add('hit-flash');
-            setTimeout(() => document.body.classList.remove('hit-flash'), 20);
-        }
+        // Kill flash on screen
+        if (isLethal && presentedLethal) this._flashKill();
 
         // Client-side non-lethal hit message
-        if (isClient && !isLethal) {
+        if (presentHit && isClient && !isLethal) {
             this.ui.showMessage(`💥 ${name} -${dmg} HP${missTag}${perfectTag}`, 1500);
         }
 
@@ -4264,7 +4537,11 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                     if (aliveTargets.length > 0) this._spectateTarget = aliveTargets[0];
                 } else {
                     hitTarget.alive = false;
-                    if (hitTarget.group) hitTarget.group.visible = false;
+                    // G6: the body stays readable for ~0.9 s (dead pose, slide along the
+                    // ball, shrink). alive=false above already removes it from hits.
+                    if (hitTarget.group && !this.presentKnockout(hitTarget, this._hitDirX, this._hitDirZ)) {
+                        hitTarget.group.visible = false;
+                    }
                 }
                 this.ball.deactivate();
                 const comboNames = ['', 'FIRST BLOOD', 'DOUBLE KILL', 'TRIPLE KILL', 'QUADRA KILL', 'PENTA KILL', 'ACE'];
@@ -5480,7 +5757,8 @@ spawnPowerUp() {
             if (typeof data.alive === 'boolean') p.alive = data.alive;
             p.hp = data.hp ?? p.hp;
         }
-        p.group.visible = p.alive;
+        // A knocked-out body stays up until _updateKnockouts hides it (G6).
+        p.group.visible = p.alive || p._koActive === true;
         if (data.charId && data.charId !== p.charId) {
             p.charId = data.charId;
             p.rig?.setCharacter(data.charId);
@@ -5556,7 +5834,9 @@ spawnPowerUp() {
                 jitterSum += interp.jitter;
                 if (interp.mode === 'extrap' || interp.mode === 'hold') extrapolating++;
             }
-            p.group.position.set(p.position.x, p.position.y + yOff, p.position.z);
+            // _koOffset* is the knockout slide (G6), 0 otherwise; the host renders
+            // this in RAF between its 60 Hz game.update ticks, so it is applied here too.
+            p.group.position.set(p.position.x + (p._koOffsetX || 0), p.position.y + yOff, p.position.z + (p._koOffsetZ || 0));
             this._stepRemoteAnimator(p, dt);
 
             // Target outline pulse
@@ -6069,8 +6349,12 @@ spawnPowerUp() {
             this.ui.showCombo?.(0);
         }
 
-        // Client: play effects for every playerHit (host already played them)
-        if (isClient && data.hitX !== undefined) {
+        const wasAlive = target.alive !== false;
+        // Client: play effects for a host-confirmed playerHit (host already played
+        // them) unless this client's own prediction already presented the same hit.
+        const presentHit = isClient && data.hitX !== undefined
+            && this._claimHitPresentation(data.victimName, data.rallyCount || 0, isLethal);
+        if (presentHit) {
             const hitPos = new THREE.Vector3(data.hitX, data.hitY, data.hitZ);
 
             // Damage number (project to local player's screen)
@@ -6081,7 +6365,14 @@ spawnPowerUp() {
 
             // Hit marker — show when the local player lands a hit
             if (data.attackerName === this.playerName) {
-                this.ui.showHitMarker(data.hitZoneId === 'head');
+                this.ui.showHitMarker(isLethal && target !== this.player ? 'kill' : data.hitZoneId === 'head' ? 'head' : 'hit');
+            }
+
+            // Remote victims flinch here: the proxy's takeDamage never ran for this hit.
+            if (!isLethal && target !== this.player) {
+                target.animator?.play?.('hit');
+                this._resolveBodyFxDir(target);
+                this._presentFlinch(target, this._fxDirX, this._fxDirZ);
             }
 
             const presentedLethal = isLethal
@@ -6101,12 +6392,14 @@ spawnPowerUp() {
             }
             this.audio.playHit(hitPos);
 
-            // Kill feed
-            const tag = (data.missTag || '') + (data.perfectTag || '');
-            if (!isLethal || presentedLethal) {
-                this.killFeed.unshift({ attacker: data.attackerName, victim: data.victimName, dmg: data.dmg || 0, time: performance.now(), tag });
-                if (this.killFeed.length > 5) this.killFeed.pop();
-                this.ui.renderKillFeed?.(this.killFeed);
+            // Kill feed — eliminations only, names in team colour.
+            if (presentedLethal) {
+                const attackerTeam = data.attackerName === this.playerName
+                    ? this.player.team
+                    : this.getAllTargets?.().find(entity => entity?.name === data.attackerName)?.team;
+                this._pushKillFeedRow(data.attackerName, attackerTeam, data.victimName, data.victimTeam || target.team,
+                    data.dmg || 0, (data.missTag || '') + (data.perfectTag || ''), !!data.perfectTag, data.hitZoneId === 'head');
+                this._flashKill();
             }
 
             // Local player hit effects
@@ -6170,7 +6463,14 @@ spawnPowerUp() {
                     this._showKillcam(data.attackerName || 'Unknown');
                 } // else already dead from prediction — no-op
             } else if (target.group) {
-                target.group.visible = false;
+                // G6: knockout from the host's confirmation along the client's smoothed
+                // ball velocity. A duplicate packet for an already-dead body stays hidden.
+                let presented = target._koActive === true;
+                if (!presented && (wasAlive || presentHit)) {
+                    this._resolveBodyFxDir(target);
+                    presented = this.presentKnockout(target, this._fxDirX, this._fxDirZ);
+                }
+                if (!presented) target.group.visible = false;
             }
         }
     }
@@ -7051,7 +7351,7 @@ spawnPowerUp() {
                 0, 0, 0, Number.isFinite(bd.ry) ? bd.ry : 0, false, arrival);
             p.team = bd.team || p.team;
             p.alive = bd.alive !== false;
-            p.group.visible = p.alive;
+            p.group.visible = p.alive || p._koActive === true;
             p.hp = bd.hp ?? p.hp;
             const previousIntent = p._defenseIntent;
             p._defenseIntent = typeof bd.intent === 'string' ? bd.intent : 'none';

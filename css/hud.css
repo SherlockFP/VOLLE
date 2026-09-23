@@ -412,3 +412,94 @@ body.reduced-motion #overdrive-banner.show,
 body.reduced-motion #overdrive-chip,
 html.reduce-motion #overdrive-banner.show,
 html.reduce-motion #overdrive-chip { animation: none; }
+
+/* ===== G6: knockout that lands ===== */
+/* Hit marker kinds (ui.showHitMarker): hit = white, head = gold, kill = red X at
+   1.4x the hit size held for 350 ms on the local player's elimination. */
+#hit-marker.hit { color: #fff; font-size: 1.5em; }
+#hit-marker.head { color: #ffdd00; font-size: 2em; }
+#hit-marker.kill {
+    color: #ff2d44;
+    font-size: 2.1em;
+    text-shadow: 0 0 12px rgba(255, 30, 60, .9), 0 0 2px #000;
+}
+#hit-marker.kill.show { animation: hitMarkerKill 350ms ease-out; }
+@keyframes hitMarkerKill {
+    0% { opacity: 1; transform: translate(-50%, -50%) scale(1.6); }
+    22% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    70% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    100% { opacity: 0; transform: translate(-50%, -50%) scale(1); }
+}
+@keyframes hitMarkerKillFade {
+    0%, 70% { opacity: 1; }
+    100% { opacity: 0; }
+}
+
+/* Kill feed: eliminations only, names in team colour, PERFECT / HEADSHOT tags. */
+#kill-feed .kill-entry .team-red { color: #ff5a6e; }
+#kill-feed .kill-entry .team-blue { color: #5aa8ff; }
+#kill-feed .kill-entry.perfect { border-left-color: #b28cff; }
+#kill-feed .kill-tag {
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: .72em;
+    font-weight: 800;
+    letter-spacing: .06em;
+    line-height: 1.4;
+}
+#kill-feed .kill-tag--head { color: #1d1600; background: #ffdd00; }
+#kill-feed .kill-tag--perfect { color: #fff; background: linear-gradient(90deg, #7b5cff, #27a7ff); }
+/* Phones: rows stay inside the viewport (and clear of the touch buttons); long
+   names truncate instead of pushing the row off the left edge. */
+@media (max-width: 700px) {
+    #kill-feed { right: 8px; max-width: calc(100vw - 16px); align-items: flex-end; }
+    body.touch-controls-on #kill-feed { max-width: calc(100vw - 136px); }
+    #kill-feed .kill-entry {
+        box-sizing: border-box;
+        max-width: 100%;
+        gap: 5px;
+        padding: 4px 8px;
+        font-size: 11px;
+    }
+    #kill-feed .kill-entry .killer,
+    #kill-feed .kill-entry .victim {
+        min-width: 0;
+        max-width: 26vw;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    #kill-feed .kill-tag { padding: 1px 3px; font-size: 9px; letter-spacing: .02em; }
+}
+
+/* Kill flash: the canvas is opaque, so the flash is an overlay above it (a body
+   background animation never reached the screen). 160 ms, set by Game._flashKill. */
+body.hit-flash::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 185;
+    pointer-events: none;
+    background: radial-gradient(ellipse at center,
+        rgba(255, 255, 255, .30) 0%, rgba(255, 240, 225, .18) 55%, rgba(255, 70, 60, .34) 100%);
+    animation: killFlash 160ms ease-out forwards;
+}
+@keyframes killFlash {
+    0% { opacity: 1; transform: scale(1.04); }
+    100% { opacity: 0; transform: scale(1); }
+}
+@keyframes killFlashFade {
+    0% { opacity: .55; }
+    100% { opacity: 0; }
+}
+/* Reduced Motion: opacity only — no scale punch on the flash or the kill marker.
+   The global reduced-motion rules (style.css) cut every animation to 0.01ms, which
+   would erase both; an opacity fade is not motion, so these keep their duration. */
+@media (prefers-reduced-motion: reduce) {
+    body.hit-flash::after { animation: killFlashFade 160ms linear forwards !important; }
+    #hit-marker.kill.show { animation: hitMarkerKillFade 350ms linear !important; }
+}
+body.reduced-motion.hit-flash::after,
+html.reduce-motion body.hit-flash::after { animation: killFlashFade 160ms linear forwards !important; }
+body.reduced-motion #hit-marker.kill.show,
+html.reduce-motion #hit-marker.kill.show { animation: hitMarkerKillFade 350ms linear !important; }

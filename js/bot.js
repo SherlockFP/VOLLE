@@ -207,6 +207,23 @@ export class Bot {
         this.score = 0;
         this.deflectionCount = 0;
         this.spawnAnim = 0; // 0..1 grow-in on respawn
+        // Knockout/flinch presentation (G6) — scalar state driven by Game._updateKnockouts.
+        // Cosmetic only: alive/scoring never read these.
+        this._koActive = false;
+        this._koTime = 0;
+        this._koDirX = 0;
+        this._koDirZ = 0;
+        this._koBaseX = 0;
+        this._koBaseZ = 0;
+        this._koOffsetX = 0;
+        this._koOffsetZ = 0;
+        this._koScale0 = 1;
+        this._koProxy = false;
+        this._koPose = null;
+        this._flinchTime = -1;
+        this._flinchDirX = 0;
+        this._flinchDirZ = 0;
+        this._bodyFxListed = false;
 
         // Health & combat — karakter yüklenir
         this.maxHp = 100;
