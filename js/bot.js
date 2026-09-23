@@ -573,13 +573,16 @@ export class Bot {
             || z < this._walkMinZ || z > this._walkMaxZ) return false;
         const radius = this.radius || 0.5;
         for (const prop of this.arena.collidables || []) {
-            if (prop.broken) continue;
+            if (prop.broken || prop.ballOnly) continue;
             if (Number.isFinite(prop.minX)) {
                 if (this.position.y + 1.9 <= prop.minY || this.position.y >= prop.maxY) continue;
                 if (x > prop.minX - radius && x < prop.maxX + radius
                     && z > prop.minZ - radius && z < prop.maxZ + radius) return false;
             } else if (prop.pos && Number.isFinite(prop.radius) && prop.radius > 0) {
-                if (Math.abs(this.position.y + 1.7 - prop.pos.y) >= prop.radius + radius + 2) continue;
+                // Solid columns carry exact extents; legacy ones a centre band.
+                if (Number.isFinite(prop.top)
+                    ? this.position.y + 1.9 <= prop.bottom || this.position.y >= prop.top
+                    : Math.abs(this.position.y + 1.7 - prop.pos.y) >= prop.radius + radius + 2) continue;
                 const dx = x - prop.pos.x;
                 const dz = z - prop.pos.z;
                 if (dx * dx + dz * dz < (radius + prop.radius) ** 2 - 1e-10) return false;
@@ -638,7 +641,7 @@ export class Bot {
         const bounds = this.arena.bounds;
         for (let pass = 0; pass < 3; pass++) {
             for (const prop of this.arena.collidables) {
-                if (prop.broken) continue;
+                if (prop.broken || prop.ballOnly) continue;
                 if (Number.isFinite(prop.minX)) {
                     if (position.y + 1.9 <= prop.minY || position.y >= prop.maxY) continue;
                     const left = position.x - (prop.minX - radius);
@@ -659,7 +662,9 @@ export class Bot {
                     else if (depth === backExit) position.z -= back + 1e-6;
                     else position.z += front + 1e-6;
                 } else if (prop.pos && Number.isFinite(prop.radius) && prop.radius > 0) {
-                    if (Math.abs(position.y + 1.7 - prop.pos.y) >= prop.radius + radius + 2) continue;
+                    if (Number.isFinite(prop.top)
+                        ? position.y + 1.9 <= prop.bottom || position.y >= prop.top
+                        : Math.abs(position.y + 1.7 - prop.pos.y) >= prop.radius + radius + 2) continue;
                     const dx = position.x - prop.pos.x;
                     const dz = position.z - prop.pos.z;
                     const distance = Math.hypot(dx, dz);

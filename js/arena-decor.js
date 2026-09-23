@@ -85,8 +85,27 @@ export function computeDecorPlacements(mapDef, arenaSize) {
             { x: -(halfW + 3), y: 0, z: halfL + 3, rotationY: Math.PI * 0.75 },
             { x: halfW + 3, y: 0, z: halfL + 3, rotationY: -Math.PI * 0.75 }
         ],
-        gym: [{ x: -halfW * 0.85, y: 0, z: halfL * 0.7, rotationY: Math.PI / 4 }]
+        // Just outside the west sideline: gym clutter has no collider, so it
+        // must never stand inside the play space.
+        gym: [{ x: -(halfW + 3), y: 0, z: halfL * 0.7, rotationY: Math.PI / 4 }]
     };
+}
+
+// Decor models have no colliders, so none may intrude into the court. Given a
+// placed model's world footprint, returns the smallest outward {x, z} shift
+// that clears the court rectangle by `margin` (zero when already clear).
+export function courtClearanceShift(footprint, halfW, halfL, margin = 0.5) {
+    const { minX, maxX, minZ, maxZ } = footprint;
+    const limitX = halfW + margin;
+    const limitZ = halfL + margin;
+    if (maxX <= -limitX || minX >= limitX || maxZ <= -limitZ || minZ >= limitZ) return { x: 0, z: 0 };
+    const cx = (minX + maxX) / 2;
+    const cz = (minZ + maxZ) / 2;
+    const options = [
+        { x: cx >= 0 ? limitX - minX : -limitX - maxX, z: 0 },
+        { x: 0, z: cz >= 0 ? limitZ - minZ : -limitZ - maxZ }
+    ];
+    return Math.abs(options[0].x) <= Math.abs(options[1].z) ? options[0] : options[1];
 }
 
 // ---------------------------------------------------------------------------
@@ -150,6 +169,16 @@ export async function loadArenaDecor(scene, mapDef, arenaSize) {
             holder.position.set(spot.x, spot.y, spot.z);
             holder.rotation.y = spot.rotationY || 0;
             holder.add(model);
+            // Ground-level decor is pushed clear of the court (it never collides).
+            if (spot.y < 1) {
+                holder.updateMatrixWorld(true);
+                const box = new THREE.Box3().setFromObject(holder);
+                const halfW = (arenaSize?.courtWidth ?? mapDef?.courtWidth ?? 80) / 2;
+                const halfL = (arenaSize?.courtLength ?? mapDef?.courtLength ?? 80) / 2;
+                const shift = courtClearanceShift({ minX: box.min.x, maxX: box.max.x, minZ: box.min.z, maxZ: box.max.z }, halfW, halfL);
+                holder.position.x += shift.x;
+                holder.position.z += shift.z;
+            }
             group.add(holder);
         });
     });

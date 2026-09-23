@@ -373,16 +373,46 @@ export function solidPropSpansBody(feetY, headY, collider) {
     return feetY < collider.top - PROP_STEP_TOLERANCE && headY > collider.bottom;
 }
 
+// Head vs the underside of a raised solid (collider.bottom > 0). When the head
+// (eye + 0.2) was at or below the underside last frame and has risen into it
+// while the body overlaps the footprint, clamp the eye so the head rests on
+// the underside and return true (the caller zeroes upward speed). Mutates
+// `position.y` only. Walking into the side of a slab is left to the planar
+// resolvers.
+export function resolveHeadBump(position, previous, radius, height, collider) {
+    const bottom = collider.bottom;
+    if (!(bottom > 0) || !Number.isFinite(collider.top)) return false;
+    const head = position.y + 0.2;
+    const previousHead = previous.y + 0.2;
+    if (previousHead > bottom + 1e-6 || head <= bottom) return false;
+    // Feet already above the top: the body is over the prop, not under it.
+    if (position.y - height >= collider.top) return false;
+    const inside = Number.isFinite(collider.minX)
+        ? position.x > collider.minX - radius && position.x < collider.maxX + radius
+            && position.z > collider.minZ - radius && position.z < collider.maxZ + radius
+        : Math.hypot(position.x - collider.pos.x, position.z - collider.pos.z) < collider.radius + radius;
+    if (!inside) return false;
+    position.y = bottom - 0.2 - 1e-4;
+    return true;
+}
+
 // Landing footprint of a one-way platform. Decks (mecha, social hub) need the
 // whole body over the slab; solid prop tops only need the body centre over
 // the box / circle, so landing on a crate edge works and stepping past the
 // edge drops the player (the side collider then pushes them clear).
+// Solid tops also hold a body whose centre is just past the edge (up to
+// SOLID_EDGE_SUPPORT of its radius): a player hopping straight up against a
+// crate / parkour step from a standstill clears the top by a few tenths of a
+// metre and would otherwise slide back down its face.
+export const SOLID_EDGE_SUPPORT = 0.75;
+
 export function platformSupports(entry, x, z, radius) {
     const dx = x - entry.x;
     const dz = z - entry.z;
     if (entry.solid) {
-        if (Number.isFinite(entry.radius)) return dx * dx + dz * dz <= entry.radius * entry.radius;
-        return Math.abs(dx) <= entry.halfWidth && Math.abs(dz) <= entry.halfDepth;
+        const lip = (Number.isFinite(radius) ? radius : 0) * SOLID_EDGE_SUPPORT;
+        if (Number.isFinite(entry.radius)) return Math.hypot(dx, dz) <= entry.radius + lip;
+        return Math.abs(dx) <= entry.halfWidth + lip && Math.abs(dz) <= entry.halfDepth + lip;
     }
     return Math.abs(dx) <= entry.halfWidth - radius && Math.abs(dz) <= entry.halfDepth - radius;
 }
@@ -1323,6 +1353,14 @@ export class Player {
             const collidables = this.arena.getNearbyCollidables?.(this.position)
                 || this.arena.collidables;
             for (const c of collidables) {
+                // Ball-only slabs under one-way decks (players jump through them).
+                if (c.ballOnly) continue;
+                // Raised solids (slabs, canopies, arches): a player rising into
+                // the underside stops there instead of being shoved sideways.
+                if (c.bottom > 0 && resolveHeadBump(this.position, prevPos, this.radius, this.height, c)) {
+                    if (this.verticalVel > 0) this.verticalVel = 0;
+                    continue;
+                }
                 if (Number.isFinite(c.minX)) {
                     const result = resolvePlanarBoxCollision(
                         this.position,

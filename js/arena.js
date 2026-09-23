@@ -819,12 +819,134 @@ export function lowCoverCenterY(radius, height) {
 export const SOLID_TOP_STANDABLE_MAX = 4.5;
 
 // Pure: the solid box collider for a layout block (shared by builder + tests).
+// `bottom` (default 0) lifts the box off the floor: floating slabs, canopies,
+// arch segments. ball.js bounces off every face; player.js bumps its head on a
+// raised underside (resolveHeadBump) instead of being shoved sideways.
 export function blockCollider(block) {
     const { x, z, halfWidth: hw, halfDepth: hd, height: h } = block;
+    const bottom = Number.isFinite(block.bottom) ? block.bottom : 0;
     return {
-        minX: x - hw, maxX: x + hw, minY: 0, maxY: h, minZ: z - hd, maxZ: z + hd,
-        bottom: 0, top: h
+        minX: x - hw, maxX: x + hw, minY: bottom, maxY: h, minZ: z - hd, maxZ: z + hd,
+        bottom, top: h
     };
+}
+
+// Deterministic per-map RNG (mulberry32 over an FNV-1a hash of the map id).
+// Every prop that registers a collider must be placed with it — never with the
+// unseeded global RNG — so all clients in a lobby build identical collision.
+export function mapRandom(seedText) {
+    let state = 2166136261;
+    const text = String(seedText);
+    for (let i = 0; i < text.length; i++) {
+        state ^= text.charCodeAt(i);
+        state = Math.imul(state, 16777619);
+    }
+    return () => {
+        state = (state + 0x6D2B79F5) | 0;
+        let t = Math.imul(state ^ (state >>> 15), 1 | state);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
+// Point on the ray from the court centre at `angle` that sits `margin` metres
+// outside the court rectangle — background scenery placed on a "ring" around
+// the court must never land inside the (rectangular) play space.
+export function outsideCourtPoint(courtWidth, courtLength, angle, margin = 0) {
+    const c = Math.cos(angle);
+    const s = Math.sin(angle);
+    const edge = Math.min(
+        Math.abs(c) > 1e-9 ? (courtWidth / 2) / Math.abs(c) : Infinity,
+        Math.abs(s) > 1e-9 ? (courtLength / 2) / Math.abs(s) : Infinity
+    );
+    return { x: c * (edge + margin), z: s * (edge + margin) };
+}
+
+// --- Parkour ------------------------------------------------------------------
+// Every dodgeball map gets climbable height: in each quadrant a three-piece
+// chain (step -> ledge -> perch) rises away from the centre lane toward the
+// side wall, so a player can meet the ball from above. The chain is mirrored
+// on both axes (identical for both teams and both wings), every piece stays
+// on its own half (never bridging the centre line), and each rise is one
+// comfortable single jump (jump apex = jumpForce^2 / (2 * gravity) = 1.6 m).
+// Pieces are solid boxes (blockCollider): the ball bounces off every face and
+// players stand on every top. Visuals: js/arena.js buildParkour (instanced).
+export const PARKOUR_STEP_RISE = 1.2;
+export const PARKOUR_CENTER_GAP = 3;     // min distance from the midline (z = 0)
+export const PARKOUR_LANE_HALF_WIDTH = 6; // centre lane kept free (|x| < 6)
+const PARKOUR_CHAIN = Object.freeze([
+    Object.freeze({ kind: 'step', dx: 0, halfWidth: 1.2, halfDepth: 1.2, height: PARKOUR_STEP_RISE }),
+    Object.freeze({ kind: 'ledge', dx: 2.4, halfWidth: 1.2, halfDepth: 1.5, height: PARKOUR_STEP_RISE * 2 }),
+    Object.freeze({ kind: 'perch', dx: 5, halfWidth: 1.4, halfDepth: 1.8, height: PARKOUR_STEP_RISE * 3 })
+]);
+
+// style: 'wood' | 'stone' | 'container' | 'pad' | 'ice' | 'block'. `glow`
+// renders the cap unlit (sci-fi / lava rims). `anchor` overrides the default
+// quadrant anchor { x, z } (the step's centre) where a map's own props or
+// hazards sit on the default spot; `flip` runs the chain toward the centre.
+export const PARKOUR_THEMES = Object.freeze({
+    beach: { style: 'wood', body: 0xb98652, cap: 0xf0d7a0 },
+    beach_open: { style: 'wood', body: 0xc28e5c, cap: 0xf4c56f, anchor: { x: 11, z: 9 } },
+    industrial: { style: 'container', body: 0x5c6b7a, cap: 0xf2b134 },
+    space: { style: 'pad', body: 0x3b4556, cap: 0x66aaff, glow: true, anchor: { x: 21, z: 21 } },
+    neon: { style: 'pad', body: 0x2a1f3d, cap: 0xff3d81, glow: true, anchor: { x: 19, z: 20 } },
+    circuit_dome: { style: 'pad', body: 0x0e2a3f, cap: 0xb7ff43, glow: true },
+    dojo: { style: 'wood', body: 0x7a4a24, cap: 0xd9b77a },
+    colosseum: { style: 'stone', body: 0xd8c7a0, cap: 0xf0e0c0 },
+    volcano: { style: 'stone', body: 0x3a2a26, cap: 0xff6a1a, glow: true, anchor: { x: 20, z: 7 } },
+    ice: { style: 'ice', body: 0x9fd4f0, cap: 0xe8f7ff },
+    cloud: { style: 'pad', body: 0xe8f0ff, cap: 0xffe38a, glow: true },
+    jungle: { style: 'wood', body: 0x5a4026, cap: 0x5fae4a },
+    cyber: { style: 'pad', body: 0x14202e, cap: 0x22ddff, glow: true, anchor: { x: 17, z: 19 } },
+    canyon: { style: 'stone', body: 0xa8703f, cap: 0xd0a070 },
+    pillar: { style: 'stone', body: 0x9a8a7a, cap: 0xbaa88a },
+    lava: { style: 'stone', body: 0x4a3a36, cap: 0xff8833, glow: true },
+    crystal: { style: 'pad', body: 0x3a3f66, cap: 0x88ccff, glow: true, anchor: { x: 19, z: 20 } },
+    mecha: { style: 'container', body: 0x556677, cap: 0x88aacc, anchor: { x: 28, z: 24 } },
+    atlantis: { style: 'stone', body: 0x2f7f86, cap: 0x6ee0dc },
+    minecraft: { style: 'block', body: 0x8a6a3a, cap: 0x7cb342 },
+    esport_arena: { style: 'pad', body: 0x1d2230, cap: 0x4fc3ff, glow: true },
+    dropworks: { style: 'container', body: 0x4f5961, cap: 0xffb347 },
+    grand_stadium: { style: 'stone', body: 0xe6e9ee, cap: 0x2e7d32 },
+    mega_pinball: { style: 'pad', body: 0x1a2a44, cap: 0x70ddff, glow: true },
+    temple_sym: { style: 'stone', body: 0xbaa88a, cap: 0xd4c4a0, anchor: { x: 16.5, z: 6 } },
+    aquarium: { style: 'stone', body: 0x2f7f86, cap: 0x8cffc1 },
+    museum: { style: 'stone', body: 0xf0e6d2, cap: 0xd9cbb0 },
+    casino: { style: 'pad', body: 0x3a1a52, cap: 0xffd36a, glow: true },
+    subway: { style: 'container', body: 0x39474f, cap: 0xffb347 },
+    neon_rooftop: { style: 'container', body: 0x2a2438, cap: 0xff4fa3, glow: true },
+    sunken_temple: { style: 'stone', body: 0x8f8a6a, cap: 0x5f8f4a },
+    orbital_station: { style: 'pad', body: 0x4a5a80, cap: 0x9fd4ff, glow: true },
+    sunbaked_bazaar: { style: 'wood', body: 0xb07a45, cap: 0xe0873a },
+    harbor_nightworks: { style: 'container', body: 0x2c5d7a, cap: 0xff9a2e },
+    alpine_research: { style: 'container', body: 0x6c7a88, cap: 0xe8f4ff },
+    jade_garden: { style: 'wood', body: 0x7a3a2a, cap: 0x3fa88a, anchor: { x: 18, z: 26 } }
+});
+
+function playerSpawnDepth(config) {
+    const configured = Number(config?.gameplay?.playerSpawnZ);
+    return Number.isFinite(configured)
+        ? Math.min(Math.abs(configured), config.courtLength / 2 - 3)
+        : config.courtLength / 3;
+}
+
+// Pure + RNG-free: every client builds the same parkour. Returns null for maps
+// without a theme (practice studio, custom maps).
+export function getParkourLayout(mapId, config = MAPS[mapId]) {
+    const theme = Object.hasOwn(PARKOUR_THEMES, mapId) ? PARKOUR_THEMES[mapId] : null;
+    if (!theme || !config) return null;
+    const halfW = config.courtWidth / 2;
+    const spawnZ = playerSpawnDepth(config);
+    const ax = theme.anchor?.x ?? Math.min(Math.max(halfW * 0.45, 9), 34);
+    const az = theme.anchor?.z ?? Math.min(Math.max(spawnZ * 0.5, 6), spawnZ - 7, 32);
+    const dir = theme.flip ? -1 : 1;
+    const pieces = [];
+    for (const link of PARKOUR_CHAIN) {
+        pieces.push(...mirrorXZ(ax + dir * link.dx, az, {
+            kind: link.kind, halfWidth: link.halfWidth, halfDepth: link.halfDepth, height: link.height
+        }));
+    }
+    return Object.freeze({ theme, pieces: Object.freeze(pieces) });
 }
 
 export function getGameplayLayout(mapId, config = MAPS[mapId]) {
@@ -1042,9 +1164,17 @@ export class Arena {
         return obj;
     }
 
-    // Register a prop as collidable for the ball. pos = position, radius = collision sphere radius
+    // Legacy primitive: a {pos, radius} cylinder that only blocks within
+    // radius + PROP_COLLIDER_SLACK of pos.y (see ball.js / player.js). Map
+    // props must NOT call this directly — tall props leak the ball above that
+    // band. Use _addSolidBox / _addSolidColumn (exact extents, standable tops).
     addCollidable(mesh, pos, radius) {
         this.collidables.push({ mesh, pos: pos.clone(), radius });
+    }
+
+    // Seeded random for prop placement (Math.random fallback for bare hosts).
+    _random() {
+        return this._rand ? this._rand() : Math.random();
     }
 
     _buildHazardZones() {
@@ -1081,9 +1211,14 @@ export class Arena {
 
     build() {
         this.platforms = [];
+        // Seeded per map: every collider-bearing prop is placed identically on
+        // every client (see mapRandom).
+        this._rand = mapRandom(this.mapId);
         this._buildHazardZones();
         if (this.config.isMinecraft) {
             this.buildMinecraft();
+            this.buildParkour();
+            this._registerDeckBallColliders();
             this.buildNet();
             this.buildSkybox();
             this.buildPortals();
@@ -1138,6 +1273,7 @@ export class Arena {
         if (this.config.isPinball) this.buildPinballComplex();
         if (this.config.isCosmeticStudio) this.buildCosmeticStudio();
         this.buildGameplayLayout();
+        this.buildParkour();
         if (!this.config.isCosmeticStudio) this.buildSpectatorStands();
         this.buildHazardVisuals();
         // Generic open-world env for open-sided maps without specific theming
@@ -1150,6 +1286,7 @@ export class Arena {
         this.buildPortals();
         if (this.goalRushEnabled) this.buildGoalZones();
         this._buildDecorations();
+        this._registerDeckBallColliders();
         // Weather — init after scene is built if config has non-clear weather
         if (this.config.weather && this.config.weather !== 'clear' && this.config.weather !== 'indoor') {
             this.weather = new WeatherSystem(this.scene, this.bounds);
@@ -1329,26 +1466,36 @@ export class Arena {
         for (const prop of this.config.customProps || []) {
             const size = prop.size;
             let geometry;
-            let radius;
+            let halfHeight;
             if (prop.type === 'sphere') {
                 geometry = new THREE.SphereGeometry(size.radius, 16, 12);
-                radius = size.radius;
+                halfHeight = size.radius;
             } else if (prop.type === 'cylinder') {
                 geometry = new THREE.CylinderGeometry(size.radius, size.radius, size.height, 16);
-                radius = Math.max(size.radius, size.height / 2);
+                halfHeight = size.height / 2;
             } else if (prop.type === 'cone') {
                 geometry = new THREE.ConeGeometry(size.radius, size.height, 16);
-                radius = Math.max(size.radius, size.height / 2);
+                halfHeight = size.height / 2;
             } else {
                 geometry = new THREE.BoxGeometry(size.width, size.height, size.depth);
-                radius = Math.hypot(size.width, size.height, size.depth) / 2;
+                halfHeight = size.height / 2;
             }
             const mesh = new THREE.Mesh(geometry, this.renderer.createToonMaterial(colorNumber(prop.color)));
-            mesh.position.set(prop.position.x, prop.position.y, prop.position.z);
+            const { x, y, z } = prop.position;
+            mesh.position.set(x, y, z);
             mesh.castShadow = true;
             mesh.receiveShadow = true;
             this.add(mesh);
-            this.addCollidable(mesh, mesh.position, radius);
+            // Exact extents: editor props block the ball over their whole mesh
+            // and their tops are standable when reachable.
+            const bottom = Math.max(0, y - halfHeight);
+            const top = y + halfHeight;
+            if (top <= 0) continue;
+            if (prop.type === 'box' || !(size.radius > 0)) {
+                this._addSolidBox(mesh, x, z, size.width / 2, size.depth / 2, top, true, bottom);
+            } else {
+                this._addSolidColumn(mesh, x, z, size.radius, top, prop.type === 'cylinder', bottom);
+            }
         }
     }
     buildHazardVisuals() {
@@ -1414,7 +1561,7 @@ export class Arena {
             const ring = new THREE.Mesh(ringGeo, ringMat);
             ring.position.set(px, py, pz);
             ring.rotation.x = Math.PI / 2; // flat ring
-            this.add(ring);
+            this.add(this._passThrough(ring)); // portals are pass-through by design
 
             // Inner glow — bright cylinder core
             const coreGeo = new THREE.CylinderGeometry(1.2, 1.2, 3, 16);
@@ -1433,7 +1580,7 @@ export class Arena {
             });
             const light = new THREE.Mesh(lightGeo, lightMat);
             light.position.set(px, py, pz);
-            this.add(light);
+            this.add(this._passThrough(light));
 
             // Portal particle sparkles — small points around the ring
             const particleCount = 16;
@@ -1586,7 +1733,7 @@ export class Arena {
                 c.position.set(s * halfW, 5, z);
                 c.castShadow = true;
                 this.add(c);
-                this.addCollidable(c, new THREE.Vector3(s * halfW, 5, z), 0.9);
+                this._addSolidColumn(c, s * halfW, z, 0.9, 10, false);
             });
         }
     }
@@ -1607,7 +1754,7 @@ export class Arena {
                 Math.random() * 2,
                 (Math.random() - 0.5) * this.courtLength
             );
-            this.add(p);
+            this.add(this._passThrough(p));
         }
         // Volkanik kaya köşelerde
         const rockGeo = new THREE.DodecahedronGeometry(2, 0);
@@ -1619,6 +1766,7 @@ export class Arena {
             r.position.set(x, 1.5, z);
             r.scale.setScalar(s);
             this.add(r);
+            this._addSolidColumn(r, x, z, 1.7 * s, 1.5 + 1.8 * s, false);
         });
         // Exterior lava glow — particles outside court edges
         for (let i = 0; i < 20; i++) {
@@ -1629,13 +1777,8 @@ export class Arena {
                 transparent: true, opacity: 0.5 + Math.random() * 0.3
             });
             const p = new THREE.Mesh(geo, mat);
-            const angle = Math.random() * Math.PI * 2;
-            const dist = Math.max(halfW, halfL) + 4 + Math.random() * 20;
-            p.position.set(
-                Math.cos(angle) * dist,
-                1 + Math.random() * 8,
-                Math.sin(angle) * dist
-            );
+            const out = outsideCourtPoint(this.courtWidth, this.courtLength, Math.random() * Math.PI * 2, 4 + Math.random() * 20);
+            p.position.set(out.x, 1 + Math.random() * 8, out.z);
             this.add(p);
         }
         // Lava fountain columns outside court
@@ -1648,12 +1791,8 @@ export class Arena {
                 lavaMat
             );
             const angle = (i / 6) * Math.PI * 2 + Math.random() * 0.3;
-            const dist = Math.max(halfW, halfL) + 6 + Math.random() * 12;
-            col.position.set(
-                Math.cos(angle) * dist,
-                (6 + Math.random() * 10) / 2,
-                Math.sin(angle) * dist
-            );
+            const out = outsideCourtPoint(this.courtWidth, this.courtLength, angle, 6 + Math.random() * 12);
+            col.position.set(out.x, (6 + Math.random() * 10) / 2, out.z);
             this.add(col);
         }
     }
@@ -1688,7 +1827,7 @@ export class Arena {
                 0.2,
                 (Math.random() - 0.5) * this.courtLength
             );
-            this.add(p);
+            this.add(this._passThrough(p));
         }
         // Exterior ice crystal formations (pointed, transparent blue)
         const crystalMat = new THREE.MeshBasicMaterial({
@@ -1703,13 +1842,8 @@ export class Arena {
             const geo = new THREE.ConeGeometry(rad, h, 5 + Math.floor(Math.random() * 3));
             const mat = i % 2 === 0 ? crystalMat : crystalMatBright;
             const crystal = new THREE.Mesh(geo, mat);
-            const angle = Math.random() * Math.PI * 2;
-            const dist = Math.max(halfW, halfL) + 4 + Math.random() * 18;
-            crystal.position.set(
-                Math.cos(angle) * dist,
-                h / 2,
-                Math.sin(angle) * dist
-            );
+            const out = outsideCourtPoint(this.courtWidth, this.courtLength, Math.random() * Math.PI * 2, 4 + rad + Math.random() * 18);
+            crystal.position.set(out.x, h / 2, out.z);
             // Slight lean
             crystal.rotation.z = (Math.random() - 0.5) * 0.15;
             crystal.rotation.x = (Math.random() - 0.5) * 0.15;
@@ -1725,14 +1859,13 @@ export class Arena {
         const leafMat = this.renderer.createToonMaterial(0x3a8a3a);
         for (let i = 0; i < 8; i++) {
             const angle = (i / 8) * Math.PI * 2;
-            const r = Math.max(this.courtWidth, this.courtLength) / 2 + 4;
-            const x = Math.cos(angle) * r;
-            const z = Math.sin(angle) * r;
+            // Outside the rectangular court on every side (a circle cut its corners).
+            const { x, z } = outsideCourtPoint(this.courtWidth, this.courtLength, angle, 4);
             const trunk = new THREE.Mesh(trunkGeo, trunkMat);
             trunk.position.set(x, 6, z);
             trunk.castShadow = true;
             this.add(trunk);
-            this.addCollidable(trunk, new THREE.Vector3(x, 6, z), 0.7);
+            this._addSolidColumn(trunk, x, z, 0.7, 12, false);
             const leaves = new THREE.Mesh(leafGeo, leafMat);
             leaves.position.set(x, 12, z);
             this.add(leaves);
@@ -1777,7 +1910,7 @@ export class Arena {
                 (Math.random() - 0.5) * (this.courtLength + 10)
             );
             c.scale.y = 0.35 + Math.random() * 0.25;  // flatten for cloud top look
-            this.add(c);
+            this.add(this._passThrough(c)); // the cloud "floor": soft, walked through
         }
 
         // 2. Subtle white/blue glow underneath the floor
@@ -1945,13 +2078,9 @@ export class Arena {
                 color: 0x887766, transparent: true, opacity: 0.7
             });
             const ast = new THREE.Mesh(geo, mat);
-            const angle = Math.random() * Math.PI * 2;
-            const dist = 38 + Math.random() * 28;
-            ast.position.set(
-                Math.cos(angle) * dist,
-                (Math.random() - 0.5) * 45,
-                Math.sin(angle) * dist
-            );
+            // Drifting background rocks stay outside the play space.
+            const out = outsideCourtPoint(this.courtWidth, this.courtLength, Math.random() * Math.PI * 2, 6 + s + Math.random() * 20);
+            ast.position.set(out.x, (Math.random() - 0.5) * 45, out.z);
             ast.rotation.set(Math.random() * 6, Math.random() * 6, Math.random() * 6);
             this.add(ast);
         }
@@ -2017,7 +2146,7 @@ export class Arena {
             const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 4, 6), poleMat);
             pole.position.set(x, 2, z);
             this.add(pole);
-            this.addCollidable(pole, new THREE.Vector3(x, 2, z), 0.15);
+            this._addSolidColumn(pole, x, z, 0.15, 4, false);
             const ball = new THREE.Mesh(new THREE.SphereGeometry(0.15, 6, 6), poleMat);
             ball.position.set(x, 4, z);
             this.add(ball);
@@ -2066,8 +2195,8 @@ export class Arena {
 
         for (let i = 0; i < 6; i++) {
             const a = (i/6)*Math.PI*2 + 0.3;
-            const r = halfW + 5 + Math.random()*8;
-            this.buildPalmTree(Math.cos(a)*r, Math.sin(a)*r);
+            const out = outsideCourtPoint(this.courtWidth, this.courtLength, a, 5 + this._random() * 8);
+            this.buildPalmTree(out.x, out.z);
         }
         const umbrellaColors = [0xff5555, 0xffcc33, 0x33bbff, 0xff77bb];
         [[-halfW-6,-halfL-4],[halfW+6,-halfL-4],[-halfW-6,halfL+4],[halfW+6,halfL+4]].forEach(([x,z],i) => {
@@ -2091,6 +2220,8 @@ export class Arena {
             const seat = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.3, 1.8), chairMat);
             seat.position.set(x, 3.3, 2.2);
             this.add(seat);
+            // Umpire chair: solid, but not a perch (it stands on one half only).
+            this._addSolidBox(stand, x, 2.2, 1.1, 0.9, 3.45, false);
         });
     }
 
@@ -2380,33 +2511,36 @@ export class Arena {
         const darkRock = this.renderer.createToonMaterial(0x8a6030);
         const halfW = this.courtWidth / 2;
         const halfL = this.courtLength / 2;
-        // Giant rock formations on sides
-        for (let i = 0; i < 6; i++) {
-            const h = 10 + Math.random() * 14;
-            const rad = 3 + Math.random() * 4;
-            const geo = new THREE.CylinderGeometry(rad, 5 + Math.random() * 5, h, 7);
-            const mat = i % 2 === 0 ? rockMat : darkRock;
-            const rock = new THREE.Mesh(geo, mat);
-            const rx = (Math.random() > 0.5 ? -1 : 1) * (halfW - 2 - Math.random() * 8);
-            const rz = (Math.random() - 0.5) * (halfL - 4);
-            rock.position.set(rx, h / 2, rz);
-            rock.castShadow = true;
-            this.add(rock);
-            this.addCollidable(rock, new THREE.Vector3(rx, h / 2, rz), rad);
+        // Giant rock formations on sides: seeded, and each one mirrored through
+        // the centre (x, z) -> (-x, -z) so both teams face the same walls.
+        for (let i = 0; i < 3; i++) {
+            const h = 10 + this._random() * 14;
+            const rad = 3 + this._random() * 4;
+            const base = 5 + this._random() * 5;
+            const geo = new THREE.CylinderGeometry(rad, base, h, 7);
+            const side = this._random() > 0.5 ? -1 : 1;
+            const rx = side * (halfW - 2 - this._random() * 8);
+            const rz = (this._random() - 0.5) * (halfL - 4);
+            for (const flip of [1, -1]) {
+                const rock = new THREE.Mesh(geo, flip > 0 ? rockMat : darkRock);
+                rock.position.set(rx * flip, h / 2, rz * flip);
+                rock.castShadow = true;
+                this.add(rock);
+                this._addSolidColumn(rock, rx * flip, rz * flip, (rad + base) / 2, h, false);
+            }
         }
-        // Cacti
+        // Cacti along both end lines, grounded and solid.
         const cactusMat = this.renderer.createToonMaterial(0x3a8a3a);
-        for (let i = 0; i < 8; i++) {
-            const c = new THREE.Mesh(
-                new THREE.CylinderGeometry(0.2, 0.3, 2 + Math.random() * 3, 6),
-                cactusMat
-            );
-            c.position.set(
-                (Math.random() - 0.5) * this.courtWidth * 0.8,
-                1 + Math.random() * 1.5,
-                (Math.random() > 0.5 ? -1 : 1) * (halfL - 2)
-            );
-            this.add(c);
+        for (let i = 0; i < 4; i++) {
+            const h = 2 + this._random() * 3;
+            const geo = new THREE.CylinderGeometry(0.2, 0.3, h, 6);
+            const x = (this._random() - 0.5) * this.courtWidth * 0.8;
+            for (const flip of [1, -1]) {
+                const c = new THREE.Mesh(geo, cactusMat);
+                c.position.set(x * flip, h / 2, flip * (halfL - 2));
+                this.add(c);
+                this._addSolidColumn(c, x * flip, flip * (halfL - 2), 0.3, h, false);
+            }
         }
     }
 
@@ -2445,11 +2579,118 @@ export class Arena {
 
     // Axis-aligned solid box standing on the floor (layout blocks, crates).
     // `pos`/`radius` stay for rocket splash checks in game.js.
-    _addSolidBox(mesh, x, z, halfWidth, halfDepth, height, standable = true) {
-        const box = blockCollider({ x, z, halfWidth, halfDepth, height });
-        this.collidables.push({ mesh, pos: new THREE.Vector3(x, height / 2, z), radius: Math.min(halfWidth, halfDepth), ...box });
-        if (standable && height <= SOLID_TOP_STANDABLE_MAX) {
+    // `bottom` > 0 makes a floating box (slab, canopy, arch segment).
+    // `standable` true = standable when reachable (top <= SOLID_TOP_STANDABLE_MAX);
+    // 'always' = standable at any height (parkour tops reached from lower pieces).
+    _addSolidBox(mesh, x, z, halfWidth, halfDepth, height, standable = true, bottom = 0) {
+        const box = blockCollider({ x, z, halfWidth, halfDepth, height, bottom });
+        this.collidables.push({ mesh, pos: new THREE.Vector3(x, (bottom + height) / 2, z), radius: Math.min(halfWidth, halfDepth), ...box });
+        if (standable === 'always' || (standable && height <= SOLID_TOP_STANDABLE_MAX)) {
             this.platforms.push({ x, z, y: height, halfWidth, halfDepth, solid: true });
+        }
+    }
+
+    // The one registration path for round solid props: a capped cylinder that
+    // ball.js sweeps exactly (sides + top, never tunnels), player.js stops
+    // below its top (and lands on it when standable), and bot.js walks around.
+    // pos.y sits at body height so legacy {pos, radius} readers (rocket splash)
+    // still see the prop where players meet it.
+    _addSolidColumn(mesh, x, z, radius, top, standable = true, bottom = 0) {
+        const y = Math.min(Math.max(1.7, bottom), top);
+        this.collidables.push({ mesh, pos: new THREE.Vector3(x, y, z), radius, bottom, top });
+        if (standable && top <= SOLID_TOP_STANDABLE_MAX) {
+            this.platforms.push({ x, z, y: top, radius, halfWidth: radius, halfDepth: radius, solid: true });
+        }
+    }
+
+    // Decorative geometry that is soft (foliage, clouds, water, holograms,
+    // animated wildlife) or flush with the boundary: explicitly pass-through.
+    // tests/arena-solid-props.test.mjs fails on any other opaque in-court mesh
+    // without a collider.
+    _passThrough(object) {
+        object.userData.passThrough = true;
+        return object;
+    }
+
+    // One-way decks (mecha gantries, subway mezzanines, dropworks ledges) keep
+    // their player contract (jump up through, land on top) but are real
+    // surfaces for the ball: each gets a thin ball-only slab collider.
+    _registerDeckBallColliders() {
+        for (const deck of this.platforms) {
+            if (deck.solid || !(deck.halfWidth > 0) || !(deck.halfDepth > 0)) continue;
+            const thickness = Number.isFinite(deck.thickness) ? deck.thickness : 0.35;
+            const box = blockCollider({
+                x: deck.x, z: deck.z, halfWidth: deck.halfWidth, halfDepth: deck.halfDepth,
+                height: deck.y, bottom: Math.max(0, deck.y - thickness)
+            });
+            this.collidables.push({
+                mesh: null, pos: new THREE.Vector3(deck.x, deck.y, deck.z),
+                radius: Math.min(deck.halfWidth, deck.halfDepth), ballOnly: true, ...box
+            });
+        }
+    }
+
+    // Themed, instanced parkour (see getParkourLayout): body, cap and a
+    // team-tinted lip on the net-facing edge = 3 draw calls (+1 for posts).
+    buildParkour() {
+        const layout = getParkourLayout(this.mapId, this.config);
+        if (!layout) return;
+        const { theme, pieces } = layout;
+        const count = pieces.length;
+        const unit = new THREE.BoxGeometry(1, 1, 1);
+        // Built-in materials (the toon ShaderMaterial has no instancing chunk).
+        const texture = theme.style === 'wood' ? this._layoutCanvasTexture('plank')
+            : theme.style === 'container' ? this._layoutCanvasTexture('rib')
+                : theme.style === 'stone' ? this._layoutCanvasTexture('panel') : null;
+        const bodyMat = new THREE.MeshLambertMaterial({ color: theme.body, map: texture });
+        const capMat = theme.glow
+            ? new THREE.MeshBasicMaterial({ color: theme.cap })
+            : new THREE.MeshLambertMaterial({ color: theme.cap });
+        const lipMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const withPosts = theme.style === 'wood' || theme.style === 'container';
+        const body = new THREE.InstancedMesh(unit, bodyMat, count);
+        const cap = new THREE.InstancedMesh(unit, capMat, count);
+        const lip = new THREE.InstancedMesh(unit, lipMat, count);
+        const posts = withPosts
+            ? new THREE.InstancedMesh(unit, new THREE.MeshLambertMaterial({ color: theme.cap }), count * 4)
+            : null;
+        const dummy = new THREE.Object3D();
+        const red = new THREE.Color(this.config.floorRed ?? 0xff5555);
+        const blue = new THREE.Color(this.config.floorBlue ?? 0x5588ff);
+        const capT = theme.style === 'block' ? 0.45 : 0.22;
+        const place = (mesh, index, x, y, z, sx, sy, sz) => {
+            dummy.position.set(x, y, z);
+            dummy.rotation.set(0, 0, 0);
+            dummy.scale.set(sx, sy, sz);
+            dummy.updateMatrix();
+            mesh.setMatrixAt(index, dummy.matrix);
+        };
+        pieces.forEach((piece, i) => {
+            const { x, z, halfWidth: hw, halfDepth: hd, height: h } = piece;
+            place(body, i, x, (h - capT) / 2, z, hw * 2, h - capT, hd * 2);
+            place(cap, i, x, h - capT / 2, z, hw * 2 + 0.04, capT, hd * 2 + 0.04);
+            // Net-facing lip, inset so it stays inside the collider footprint.
+            const toward = -Math.sign(z);
+            place(lip, i, x, h - capT - 0.09, z + toward * (hd - 0.05), hw * 2 - 0.1, 0.14, 0.1);
+            lip.setColorAt(i, z < 0 ? red : blue);
+            if (posts) {
+                let k = i * 4;
+                for (const px of [-1, 1]) {
+                    for (const pz of [-1, 1]) {
+                        place(posts, k++, x + px * (hw - 0.16), (h - capT) / 2, z + pz * (hd - 0.16), 0.3, h - capT, 0.3);
+                    }
+                }
+            }
+            this._addSolidBox(body, x, z, hw, hd, h, 'always');
+        });
+        for (const mesh of [body, cap, lip, posts]) {
+            if (!mesh) continue;
+            mesh.instanceMatrix.needsUpdate = true;
+            if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+            mesh.castShadow = mesh !== lip;
+            mesh.receiveShadow = true;
+            mesh.userData.parkour = true;
+            this.add(mesh);
         }
     }
 
@@ -2615,7 +2856,9 @@ export class Arena {
             if (col.style === 'ruin') {
                 this._placeMesh(new THREE.BoxGeometry(r * 2.5, 0.7, r * 2.5), toon(0xd8c69a), x, h + 0.35, z);
             } else {
-                const chunk = this._placeMesh(new THREE.DodecahedronGeometry(r * 0.7, 0), toon(0xb09a70), x, h - r * 0.25, z);
+                // Sunk so its jagged crown ends at the collider top (no part
+                // of the column rises above what the ball collides with).
+                const chunk = this._placeMesh(new THREE.DodecahedronGeometry(r * 0.7, 0), toon(0xb09a70), x, h - r * 0.7, z);
                 chunk.rotation.z = 0.5;
             }
         }
@@ -2970,7 +3213,7 @@ export class Arena {
             col.position.set(x, h / 2, z);
             col.castShadow = true;
             this.add(col);
-            this.addCollidable(col, new THREE.Vector3(x, 0, z), 0.9);
+            this._addSolidColumn(col, x, z, 0.9, h + 0.5, false);
             const cap = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 0.7, 0.5, 10), capMat);
             cap.position.set(x, h + 0.25, z);
             this.add(cap);
@@ -3013,9 +3256,11 @@ export class Arena {
                 new THREE.BoxGeometry(2, 0.3, this.courtLength * 0.6),
                 bridgeMat
             );
-            bridge.position.set(s * 12, 1.5, 0);
+            // Raised so players walk underneath (head 1.9 m) and double-jump
+            // onto it; the whole span is a floating slab the ball bounces off.
+            bridge.position.set(s * 12, 2.15, 0);
             this.add(bridge);
-            this.addCollidable(bridge, new THREE.Vector3(s * 12, 1.5, 0), 1.5);
+            this._addSolidBox(bridge, s * 12, 0, 1, this.courtLength * 0.3, 2.3, true, 2);
         }
     }
 
@@ -3023,30 +3268,44 @@ export class Arena {
         // Glowing crystal formations
         const colors = [0x88ccff, 0xcc88ff, 0x88ffcc, 0xffcc88];
         const glowColors = [0x4488ff, 0x8844ff, 0x44ff88, 0xff8844];
-        for (let i = 0; i < 20; i++) {
-            const h = 1.5 + Math.random() * 4;
-            const ci = i % 4;
-            const rad = 0.3 + Math.random() * 0.4;
-            const crystal = new THREE.Mesh(
-                new THREE.ConeGeometry(rad, h, 5 + Math.floor(Math.random() * 3)),
-                this.renderer.createToonMaterial(colors[ci])
-            );
-            const cx = (Math.random() - 0.5) * (this.courtWidth - 10);
-            const cz = (Math.random() - 0.5) * (this.courtLength - 10);
-            crystal.position.set(cx, h / 2, cz);
-            this.add(crystal);
-            this.addCollidable(crystal, new THREE.Vector3(cx, h / 2, cz), rad);
-            // Glow
-            const glow = new THREE.Mesh(
-                new THREE.SphereGeometry(0.5 + Math.random() * 0.3, 6, 6),
-                new THREE.MeshBasicMaterial({
-                    color: glowColors[ci], transparent: true, opacity: 0.25
-                })
-            );
-            glow.position.copy(crystal.position);
-            glow.position.y -= 0.3;
-            this.add(glow);
+        // Seeded and mirrored through the centre so both halves get the same
+        // formations; spawn rows and the centre lane stay clear.
+        const spawnZ = playerSpawnDepth(this.config);
+        const parkour = getParkourLayout(this.mapId, this.config)?.pieces || [];
+        const spots = [];
+        for (let tries = 0; spots.length < 10 && tries < 200; tries++) {
+            const cx = (this._random() - 0.5) * (this.courtWidth - 10);
+            const cz = (this._random() - 0.5) * (this.courtLength - 10);
+            if (Math.abs(cx) < 8 || Math.abs(cz) < 4) continue;
+            if (Math.abs(Math.abs(cz) - spawnZ) < 5 && Math.abs(cx) < 28) continue;
+            if (parkour.some(p => Math.abs(Math.abs(cx) - Math.abs(p.x)) < p.halfWidth + 3
+                && Math.abs(Math.abs(cz) - Math.abs(p.z)) < p.halfDepth + 3)) continue;
+            spots.push([cx, cz]);
         }
+        spots.forEach(([cx, cz], i) => {
+            const h = 1.5 + this._random() * 4;
+            const rad = 0.3 + this._random() * 0.4;
+            const geo = new THREE.ConeGeometry(rad, h, 5 + Math.floor(this._random() * 3));
+            for (const flip of [1, -1]) {
+                const ci = (i * 2 + (flip > 0 ? 0 : 1)) % 4;
+                const x = cx * flip;
+                const z = cz * flip;
+                const crystal = new THREE.Mesh(geo, this.renderer.createToonMaterial(colors[ci]));
+                crystal.position.set(x, h / 2, z);
+                this.add(crystal);
+                this._addSolidColumn(crystal, x, z, rad, h, false);
+                // Glow
+                const glow = new THREE.Mesh(
+                    new THREE.SphereGeometry(0.5 + this._random() * 0.3, 6, 6),
+                    new THREE.MeshBasicMaterial({
+                        color: glowColors[ci], transparent: true, opacity: 0.25
+                    })
+                );
+                glow.position.copy(crystal.position);
+                glow.position.y -= 0.3;
+                this.add(glow);
+            }
+        });
     }
 
     buildMechaProps() {
@@ -3064,14 +3323,15 @@ export class Arena {
                 );
                 leg.position.set(sx * (halfW - 10), 4, sz * (halfL - 10));
                 this.add(leg);
-                this.addCollidable(leg, new THREE.Vector3(sx * (halfW - 10), 4, sz * (halfL - 10)), 2.0);
-                // Mecha foot
+                this._addSolidBox(leg, sx * (halfW - 10), sz * (halfL - 10), 1, 1, 8);
+                // Mecha foot: a standable step at the statue's base
                 const foot = new THREE.Mesh(
                     new THREE.BoxGeometry(3, 1.5, 4),
                     accentMat
                 );
                 foot.position.set(sx * (halfW - 10), 0.75, sz * (halfL - 10));
                 this.add(foot);
+                this._addSolidBox(foot, sx * (halfW - 10), sz * (halfL - 10), 1.5, 2, 1.5);
             });
         });
         // Conveyor belts
@@ -3490,7 +3750,7 @@ export class Arena {
         trunk.position.set(x, 4, z);
         trunk.rotation.z = (Math.random() - 0.5) * 0.15;
         this.add(trunk);
-        this.addCollidable(trunk, new THREE.Vector3(x, 4, z), 0.5);
+        this._addSolidColumn(trunk, x, z, 0.45, 8, false);
 
         // Leaves
         for (let i = 0; i < 5; i++) {
@@ -3841,7 +4101,7 @@ export class Arena {
             const col = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.4, 9, 10), colMat);
             col.position.set(x, 4.5, z);
             this.add(col);
-            this.addCollidable(col, col.position, 1.4);
+            this._addSolidColumn(col, x, z, 1.4, 9.55, false);
 
             const cap = new THREE.Mesh(new THREE.BoxGeometry(4, 0.7, 4), colMat);
             cap.position.set(x, 9.2, z);
@@ -3864,7 +4124,7 @@ export class Arena {
                 stem.rotation.z = (Math.random() - 0.5) * 0.6;
                 group.add(stem);
             }
-            this.add(group);
+            this.add(this._passThrough(group)); // soft coral fans along the edge
         }
 
         const kelpMat = new THREE.MeshBasicMaterial({ color: 0x2bd68f, transparent: true, opacity: 0.75, side: THREE.DoubleSide });
@@ -3882,7 +4142,7 @@ export class Arena {
                 kelp.add(blade);
             }
             kelp.userData.phase = Math.random() * Math.PI * 2;
-            this.add(kelp);
+            this.add(this._passThrough(kelp));
             this._atlantisKelp.push(kelp);
         }
 
@@ -3895,7 +4155,7 @@ export class Arena {
             tail.rotation.z = Math.PI / 2;
             tail.position.x = -0.8;
             fish.add(body, tail);
-            fish.userData = { phase: Math.random() * Math.PI * 2, radius: 28 + Math.random() * 18, speed: 0.18 + Math.random() * 0.12, y: 5 + Math.random() * 10, tail };
+            fish.userData = { phase: Math.random() * Math.PI * 2, radius: 28 + Math.random() * 18, speed: 0.18 + Math.random() * 0.12, y: 5 + Math.random() * 10, tail, passThrough: true };
             this.add(fish);
             this._atlantisFish.push(fish);
         }
@@ -3934,7 +4194,10 @@ export class Arena {
         return mesh;
     }
 
+    // Animated props move, so they never carry a static collider: they are
+    // pass-through by contract (wildlife, spinning relics/wheels/signs).
     _animateProp(object, kind, params) {
+        object.userData.passThrough = true;
         this._mapAnimators ||= [];
         this._mapAnimators.push({ object, kind, ...params });
     }
@@ -4135,7 +4398,7 @@ export class Arena {
             const rock = this._placeMesh(reefRockGeo, reefRockMat, x, 1.5, z);
             rock.rotation.set(0.3, i * 1.1, 0.2);
             rock.castShadow = true;
-            this.addCollidable(rock, new THREE.Vector3(x, 0, z), 2.9);
+            this._addSolidColumn(rock, x, z, 2.6, 4.3, false);
             for (let j = 0; j < 5; j++) {
                 const ca = (j / 5) * Math.PI * 2 + i;
                 const coral = this._placeMesh(
@@ -4152,7 +4415,8 @@ export class Arena {
         const plaqueGeo = new THREE.BoxGeometry(3.4, 1.6, 0.2);
         for (const side of [-1, 1]) {
             for (const z of [-46, -16, 16, 46]) {
-                this._placeMesh(plaqueGeo, plaqueMat, side * (halfW - 1.5), 2.4, z, side * -Math.PI / 2);
+                // Flush with the boundary: out of reach, never walked through.
+                this._placeMesh(plaqueGeo, plaqueMat, side * (halfW + 0.1), 2.4, z, side * -Math.PI / 2);
             }
         }
     }
@@ -4201,9 +4465,11 @@ export class Arena {
                 const z = -56 + i * 16;
                 const shaft = this._placeMesh(shaftGeo, marble, x, 11.7, z);
                 shaft.castShadow = true;
-                this._placeMesh(baseGeo, stone, x, 0.6, z);
+                const base = this._placeMesh(baseGeo, stone, x, 0.6, z);
                 this._placeMesh(capGeo, stone, x, 22.9, z);
-                this.addCollidable(shaft, new THREE.Vector3(x, 0, z), 1.9);
+                // Plinth + full-height shaft (ball blocked up to the capital).
+                this._addSolidBox(base, x, z, 2.1, 2.1, 1.2, false);
+                this._addSolidColumn(shaft, x, z, 1.7, 23.6, false);
             }
             this._placeMesh(architraveGeo, stone, x, 24.8, 0);
         }
@@ -4247,7 +4513,8 @@ export class Arena {
         const headGeo = new THREE.SphereGeometry(0.62, 10, 8);
         const armGeo = new THREE.BoxGeometry(0.42, 2.4, 0.42);
         for (const [x, z] of [[-44, -40], [44, -40], [-44, 0], [44, 0], [-44, 40], [44, 40]]) {
-            this._placeMesh(plinthGeo, stone, x, 1.5, z);
+            const plinth = this._placeMesh(plinthGeo, stone, x, 1.5, z);
+            this._addSolidBox(plinth, x, z, 1.7, 1.7, 3, false);
             const body = this._placeMesh(bodyGeo, marble, x, 4.7, z);
             body.castShadow = true;
             this._placeMesh(headGeo, marble, x, 6.8, z);
@@ -4255,7 +4522,8 @@ export class Arena {
                 const arm = this._placeMesh(armGeo, marble, x + side * 1.1, 4.9, z);
                 arm.rotation.z = side * 0.35;
             }
-            this.addCollidable(body, new THREE.Vector3(x, 0, z), 2);
+            // Statue (arms included) above its plinth.
+            this._addSolidColumn(body, x, z, 1.5, 7.45, false, 3);
         }
 
         // --- lit display cases: mid-court cover with a slowly spinning relic ---
@@ -4271,7 +4539,9 @@ export class Arena {
             this._placeMesh(caseGeo, caseGlass, x, 4.1, z);
             const relic = this._placeMesh(relicGeo, gold, x, 4.1, z);
             this._animateProp(relic, 'spin', { speed: 0.7, phase: x * 0.1 + z * 0.05 });
-            this.addCollidable(casePlinth, new THREE.Vector3(x, 0, z), 2.6);
+            // Plinth + the glass case above it (solid: the ball bounces off it).
+            this._addSolidBox(casePlinth, x, z, 2.5, 2.5, 1.6, false);
+            this._addSolidBox(casePlinth, x, z, 2.2, 2.2, 6.6, false, 1.6);
         }
 
         // --- mirrored dinosaur halls at both ends ---
@@ -4293,14 +4563,20 @@ export class Arena {
     // One mounted skeleton exhibit: the spine runs along X so it reads broadside
     // from the court. `dir` mirrors the pose for the opposite end of the hall.
     _buildMuseumSkeleton(z, dir, bone, stone, gold) {
-        this._placeMesh(new THREE.BoxGeometry(34, 1.2, 12), stone, 0, 0.6, z);
+        // Exhibit dais: a standable low stage.
+        const dais = this._placeMesh(new THREE.BoxGeometry(34, 1.2, 12), stone, 0, 0.6, z);
+        this._addSolidBox(dais, 0, z, 17, 6, 1.2);
+        // Velvet-rope barrier: grounded posts (solid) and ropes at waist
+        // height between them (a thin line the ball and players cross).
         const ropePostGeo = new THREE.CylinderGeometry(0.16, 0.2, 1.3, 6);
         const ropeGeo = new THREE.CylinderGeometry(0.07, 0.07, 8, 5);
         for (const px of [-16, -8, 0, 8, 16]) {
-            this._placeMesh(ropePostGeo, gold, px, 1.85, z - dir * 7.5);
+            const post = this._placeMesh(ropePostGeo, gold, px, 0.65, z - dir * 7.5);
+            this._addSolidColumn(post, px, z - dir * 7.5, 0.2, 1.3, false);
             if (px < 16) {
-                const rope = this._placeMesh(ropeGeo, gold, px + 4, 2.2, z - dir * 7.5);
+                const rope = this._placeMesh(ropeGeo, gold, px + 4, 1.05, z - dir * 7.5);
                 rope.rotation.z = Math.PI / 2;
+                this._passThrough(rope);
             }
         }
 
@@ -4340,8 +4616,9 @@ export class Arena {
             for (const legZ of [-3.2, 3.2]) {
                 const leg = this._placeMesh(legGeo, bone, legX * dir, 5.9, z + legZ);
                 leg.rotation.z = legX > 0 ? 0.1 : -0.1;
-                this._placeMesh(footGeo, bone, legX * dir, 1.5, z + legZ);
-                this.addCollidable(leg, new THREE.Vector3(legX * dir, 0, z + legZ), 1.4);
+                const foot = this._placeMesh(footGeo, bone, legX * dir, 1.5, z + legZ);
+                this._addSolidBox(foot, legX * dir, z + legZ, 1.1, 1.5, 1.8, false);
+                this._addSolidColumn(leg, legX * dir, z + legZ, 0.9, 10.4, false);
             }
         }
     }
@@ -4380,10 +4657,22 @@ export class Arena {
         const marqueeFaceGeo = new THREE.PlaneGeometry(20, 2.8);
         for (const side of [-1, 1]) {
             const z = side * (halfL - 6);
-            this._placeMesh(arcGeo, goldMat, 0, 0, z);
+            const arch = this._placeMesh(arcGeo, goldMat, 0, 0, z);
             for (let i = 0; i <= 14; i++) {
                 const a = (i / 14) * Math.PI;
                 this._placeMesh(bulbGeo, i % 2 ? pinkMat : goldMat, Math.cos(a) * 30, Math.sin(a) * 30, z);
+            }
+            // The arch tube (radius 1.2) is solid: chord-by-chord boxes grown
+            // by the tube radius, grounded at both feet.
+            const segments = 24;
+            for (let i = 0; i < segments; i++) {
+                const a0 = (i / segments) * Math.PI;
+                const a1 = ((i + 1) / segments) * Math.PI;
+                const x0 = Math.cos(a0) * 30, y0 = Math.sin(a0) * 30;
+                const x1 = Math.cos(a1) * 30, y1 = Math.sin(a1) * 30;
+                const bottom = Math.max(0, Math.min(y0, y1) - 1.2);
+                this._addSolidBox(arch, (x0 + x1) / 2, z, Math.abs(x1 - x0) / 2 + 1.2, 1.2,
+                    Math.max(y0, y1) + 1.2, false, bottom < 0.5 ? 0 : bottom);
             }
             this._placeMesh(marqueeGeo, cabinet, 0, 24, z);
             this._placeMesh(marqueeFaceGeo, side < 0 ? pinkMat : cyanMat, 0, 24, z - side * 0.4, side > 0 ? Math.PI : 0);
@@ -4401,7 +4690,7 @@ export class Arena {
                 cab.castShadow = true;
                 this._placeMesh(screenGeo, i % 2 ? pinkMat : cyanMat, x - side * 1.15, 2.4, z, side * -Math.PI / 2);
                 this._placeMesh(topperGeo, goldMat, x, 3.9, z);
-                this.addCollidable(cab, new THREE.Vector3(x, 0, z), 1.8);
+                this._addSolidBox(cab, x, z, 1.5, 1.1, 4.25);
             }
         }
 
@@ -4422,7 +4711,9 @@ export class Arena {
                 wheel.add(spoke);
             }
             this._animateProp(wheel, 'spin', { speed: 0.9, phase: x * 0.05 });
-            this.addCollidable(table, new THREE.Vector3(x, 0, 0), 4.4);
+            // Table (standable felt ring) + the wheel hub on top of it.
+            this._addSolidColumn(table, x, 0, 4.4, 1.6);
+            this._addSolidColumn(table, x, 0, 2.4, 2.15, true, 1.6);
         }
 
         // --- card tables + chip stacks: mid-court cover, mirrored ---
@@ -4433,7 +4724,7 @@ export class Arena {
         for (const [x, z] of [[-34, -30], [34, -30], [-34, 30], [34, 30]]) {
             const table = this._placeMesh(cardTableGeo, felt, x, 0.7, z);
             this._placeMesh(cardRimGeo, goldMat, x, 1.4, z).rotation.x = Math.PI / 2;
-            this.addCollidable(table, new THREE.Vector3(x, 0, z), 3.6);
+            this._addSolidColumn(table, x, z, 3.5, 1.6);
         }
         for (const [x, z] of [[-14, -22], [14, -22], [-14, 22], [14, 22]]) {
             let base = null;
@@ -4441,7 +4732,7 @@ export class Arena {
                 const chip = this._placeMesh(chipGeo, chipMats[i], x, 0.3 + i * 0.6, z);
                 base ||= chip;
             }
-            this.addCollidable(base, new THREE.Vector3(x, 0, z), 1.7);
+            this._addSolidColumn(base, x, z, 1.5, 1.75);
         }
 
         // --- giant dice in the outfield corners ---
@@ -4452,7 +4743,7 @@ export class Arena {
             for (const [px, pz] of [[-1, -1], [1, -1], [0, 0], [-1, 1], [1, 1]]) {
                 this._placeMesh(pipGeo, cabinet, x + px * 1.05, 3.65, z + pz * 1.05);
             }
-            this.addCollidable(die, new THREE.Vector3(x, 0, z), 2.4);
+            this._addSolidColumn(die, x, z, 2.2, 3.6);
         }
 
         // --- ceiling: neon strip grid, spinning sign rings, crystal chandeliers ---
@@ -4589,31 +4880,43 @@ export class Arena {
                 const z = -54 + i * 18;
                 const pillar = this._placeMesh(pillarGeo, steel, x, this.ceilingHeight / 2, z);
                 pillar.castShadow = true;
-                this._placeMesh(claddingGeo, tile, x, 3.25, z);
+                const cladding = this._placeMesh(claddingGeo, tile, x, 3.25, z);
                 this._placeMesh(bandGeo, amber, x, 6.7, z);
-                this.addCollidable(pillar, new THREE.Vector3(x, 0, z), 1.5);
+                // Tiled cladding + the steel column up to the ceiling.
+                this._addSolidBox(cladding, x, z, 1.375, 1.375, 6.95, false);
+                this._addSolidBox(pillar, x, z, 0.9, 0.9, this.ceilingHeight, false, 6.95);
             }
         }
 
         // --- mezzanine slabs (standable) + stairs up ---
         const slabGeo = new THREE.BoxGeometry(17, 0.7, 13);
         const slabLegGeo = new THREE.BoxGeometry(1, 3.2, 1);
-        const stepGeo = new THREE.BoxGeometry(6, 0.55, 2.4);
         const railingGeo = new THREE.BoxGeometry(17, 0.25, 0.25);
+        // Solid stair blocks, each rise one easy hop (0.7 m), climbing toward
+        // the slab's net-facing edge; the top step is flush with the slab (3.55 m).
+        const stepTops = [0.75, 1.45, 2.15, 2.85, 3.55];
+        const stepGeos = stepTops.map(top => new THREE.BoxGeometry(6, top, 2.4));
         for (const sx of [-1, 1]) {
             for (const sz of [-1, 1]) {
                 const x = sx * (halfW - 14);
                 const z = sz * 38;
                 const slab = this._placeMesh(slabGeo, concrete, x, 3.2, z);
                 slab.receiveShadow = true;
-                this.platforms.push({ x, z, y: 3.55, halfWidth: 8.5, halfDepth: 6.5 });
+                // One-way deck for players; _registerDeckBallColliders adds the ball slab.
+                this.platforms.push({ x, z, y: 3.55, halfWidth: 8.5, halfDepth: 6.5, thickness: 0.7 });
                 for (const lx of [-7, 7]) {
-                    for (const lz of [-5, 5]) this._placeMesh(slabLegGeo, steel, x + lx, 1.6, z + lz);
+                    for (const lz of [-5, 5]) {
+                        const leg = this._placeMesh(slabLegGeo, steel, x + lx, 1.6, z + lz);
+                        this._addSolidBox(leg, x + lx, z + lz, 0.5, 0.5, 2.85, false);
+                    }
                 }
                 this._placeMesh(railingGeo, amber, x, 4.6, z + sz * 6.4);
-                for (let s = 0; s < 5; s++) {
-                    this._placeMesh(stepGeo, concrete, x - sx * 9.5, 0.6 + s * 0.62, z - sz * (5 + s * 2.4));
-                }
+                stepTops.forEach((top, s) => {
+                    const stepX = x - sx * 5.5;
+                    const stepZ = z - sz * (6.5 + 1.2 + (stepTops.length - 1 - s) * 2.4);
+                    const step = this._placeMesh(stepGeos[s], concrete, stepX, top / 2, stepZ);
+                    this._addSolidBox(step, stepX, stepZ, 3, 1.2, top);
+                });
             }
         }
 
@@ -4634,7 +4937,7 @@ export class Arena {
         }
 
         // --- benches, bins, vending machines, turnstiles ---
-        const benchSeatGeo = new THREE.BoxGeometry(5.5, 0.35, 1.6);
+        const benchSeatGeo = new THREE.BoxGeometry(1.6, 0.35, 5.5);
         const benchLegGeo = new THREE.BoxGeometry(0.4, 0.9, 1.4);
         const binGeo = new THREE.CylinderGeometry(0.7, 0.6, 1.5, 10);
         const machineGeo = new THREE.BoxGeometry(2.6, 4, 1.4);
@@ -4644,16 +4947,20 @@ export class Arena {
         for (const sx of [-1, 1]) {
             for (const z of [-14, 14]) {
                 const x = sx * (halfW - 6);
-                this._placeMesh(benchSeatGeo, steel, x, 1.1, z);
+                const bench = this._placeMesh(benchSeatGeo, steel, x, 1.1, z);
                 for (const lz of [-2.2, 2.2]) this._placeMesh(benchLegGeo, dark, x, 0.45, z + lz);
-                this._placeMesh(binGeo, dark, x, 0.75, z + 4.5);
+                this._addSolidBox(bench, x, z, 0.8, 2.75, 1.275);
+                // Bins sit on the back side of each bench (mirror-symmetric).
+                const binZ = z + Math.sign(z) * 4.5;
+                const bin = this._placeMesh(binGeo, dark, x, 0.75, binZ);
+                this._addSolidColumn(bin, x, binZ, 0.7, 1.5);
             }
             for (const sz of [-1, 1]) {
                 const x = sx * 46;
                 const z = sz * (halfL - 8);
                 const machine = this._placeMesh(machineGeo, dark, x, 2, z);
                 this._placeMesh(machineFaceGeo, warmGlass, x, 2.2, z - sz * 0.75);
-                this.addCollidable(machine, new THREE.Vector3(x, 0, z), 1.6);
+                this._addSolidBox(machine, x, z, 1.3, 0.8, 4);
             }
         }
         for (const sz of [-1, 1]) {
@@ -4661,7 +4968,7 @@ export class Arena {
                 const z = sz * (halfL - 3);
                 const turnstile = this._placeMesh(turnstileGeo, steel, x, 0.6, z);
                 this._placeMesh(turnstileArmGeo, amber, x + 0.9, 1, z);
-                this.addCollidable(turnstile, new THREE.Vector3(x, 0, z), 1.1);
+                this._addSolidBox(turnstile, x, z, 0.7, 1.3, 1.2);
             }
         }
     }
@@ -4878,32 +5185,46 @@ export class Arena {
             { x: -halfW + 4, z: 0 },
             { x: halfW - 4, z: 0 },
         ];
+        // Trunks stand on the grass (block centres at 1, 3, 5); the canopy is a
+        // solid floating box the ball bounces off. Seeded, so every client
+        // grows the same leaves.
+        const half = S * 0.475;
         trees.forEach(t => {
-            for (let y = 2; y <= 6; y += S) block(t.x, y, t.z, woodMat, S);      // trunk
+            let trunk = null;
+            for (let y = 1; y <= 5; y += S) trunk = block(t.x, y, t.z, woodMat, S);      // trunk
+            this._addSolidBox(trunk, t.x, t.z, half, half, 5 + half, false);
+            let crown = null;
             for (let dx = -S; dx <= S; dx += S) {
                 for (let dz = -S; dz <= S; dz += S) {
-                    block(t.x + dx, 6, t.z + dz, leafMat, S);
-                    if (Math.random() < 0.7) block(t.x + dx, 8, t.z + dz, leafMat, S);
+                    crown = block(t.x + dx, 7, t.z + dz, leafMat, S);
+                    if (this._random() < 0.7) block(t.x + dx, 9, t.z + dz, leafMat, S);
                 }
             }
-            block(t.x, 10, t.z, leafMat, S);
+            block(t.x, 11, t.z, leafMat, S);
+            this._addSolidBox(crown, t.x, t.z, S + half, S + half, 11 + half, false, 7 - half);
         });
 
-        // Small house
-        const hx = halfW - 8, hz = halfL - 8;
+        // Small houses: one per half, mirrored through the centre so neither
+        // team owns the only cover. Solid block from the grass to the roof.
         const wall = (x, y, z) => block(x, y, z, plankMat, S);
-        // Floor
-        for (let x = hx; x < hx + S * 3; x += S) for (let z = hz; z < hz + S * 2; z += S) block(x, S, z, woodMat, S);
-        // Walls
-        for (let x = hx; x < hx + S * 3; x += S) { wall(x, S * 2, hz); wall(x, S * 2, hz + S * 2); }
-        for (let z = hz; z < hz + S * 2; z += S) { wall(hx, S * 2, z); wall(hx + S * 3, S * 2, z); }
-        // Roof
-        for (let x = hx - S/2; x < hx + S * 3.5; x += S) {
-            for (let z = hz - S/2; z < hz + S * 2.5; z += S) {
-                const slab = new THREE.Mesh(new THREE.BoxGeometry(S * 0.9, 0.4, S * 0.9), stoneMat);
-                slab.position.set(x + S/2, S * 4, z + S/2);
-                this.add(slab);
+        for (const flip of [1, -1]) {
+            const hx = flip > 0 ? halfW - 16 : -(halfW - 16) - S * 3; // clear of the corner tree
+            const hz = flip > 0 ? halfL - 8 : -(halfL - 8) - S * 2;
+            // Floor
+            for (let x = hx; x < hx + S * 3; x += S) for (let z = hz; z < hz + S * 2; z += S) block(x, S / 2, z, woodMat, S);
+            // Walls
+            for (let x = hx; x <= hx + S * 3; x += S) { wall(x, S * 1.5, hz); wall(x, S * 1.5, hz + S * 2); }
+            for (let z = hz; z < hz + S * 2; z += S) { wall(hx, S * 1.5, z); wall(hx + S * 3, S * 1.5, z); }
+            // Roof
+            let roof = null;
+            for (let x = hx - S/2; x < hx + S * 3.5; x += S) {
+                for (let z = hz - S/2; z < hz + S * 2.5; z += S) {
+                    roof = new THREE.Mesh(new THREE.BoxGeometry(S * 0.9, 0.4, S * 0.9), stoneMat);
+                    roof.position.set(x + S/2, S * 2 + 0.2, z + S/2);
+                    this.add(roof);
+                }
             }
+            this._addSolidBox(roof, hx + S * 1.5, hz + S, S * 1.5 + half + 0.05, S + half + 0.05, S * 2 + 0.4);
         }
 
         // Pond
@@ -5203,6 +5524,7 @@ varying float vNearFade;`)
                 const m = new THREE.Mesh(geo, mat);
                 m.position.set(x, 2, z);
                 this.add(m);
+                this._addSolidColumn(m, x, z, 0.3, 4, false);
             });
         }
         if (c.isVolcano) {
@@ -5221,17 +5543,19 @@ varying float vNearFade;`)
             // 8 ice crystal spikes near walls
             const mat = new THREE.MeshLambertMaterial({ color: 0xaaddff });
             for (let i = 0; i < 8; i++) {
-                const h = 1 + Math.random() * 2;
-                const geo = new THREE.ConeGeometry(0.2 + Math.random() * 0.15, h, 5);
+                const h = 1 + this._random() * 2;
+                const r = 0.2 + this._random() * 0.15;
+                const geo = new THREE.ConeGeometry(r, h, 5);
                 const m = new THREE.Mesh(geo, mat);
                 const edge = i % 4;
                 let x, z;
-                if (edge === 0) { x = -halfW + 1; z = (Math.random() - 0.5) * halfL * 2; }
-                else if (edge === 1) { x = halfW - 1; z = (Math.random() - 0.5) * halfL * 2; }
-                else if (edge === 2) { z = -halfL + 1; x = (Math.random() - 0.5) * halfW * 2; }
-                else { z = halfL - 1; x = (Math.random() - 0.5) * halfW * 2; }
+                if (edge === 0) { x = -halfW + 1; z = (this._random() - 0.5) * halfL * 2; }
+                else if (edge === 1) { x = halfW - 1; z = (this._random() - 0.5) * halfL * 2; }
+                else if (edge === 2) { z = -halfL + 1; x = (this._random() - 0.5) * halfW * 2; }
+                else { z = halfL - 1; x = (this._random() - 0.5) * halfW * 2; }
                 m.position.set(x, h / 2, z);
                 this.add(m);
+                this._addSolidColumn(m, x, z, r, h, false);
             }
         }
         if (c.isJungle) {
@@ -5243,34 +5567,39 @@ varying float vNearFade;`)
                 const geo = new THREE.SphereGeometry(r, 7, 7);
                 const m = new THREE.Mesh(geo, mat);
                 m.position.set((Math.random() - 0.5) * this.courtWidth * 0.6, r * 0.5, (Math.random() - 0.5) * this.courtLength * 0.6);
-                this.add(m);
+                this.add(this._passThrough(m)); // soft foliage
             }
         }
         if (c.isColosseum) {
             // 4 arch-shaped torus segments at cardinal directions
             const mat = new THREE.MeshLambertMaterial({ color: 0xc9a878 });
             const geo = new THREE.TorusGeometry(1.8, 0.25, 8, 16, Math.PI);
+            // Thin floating ornaments: pass-through by contract.
             [-halfW, halfW].forEach(x => {
                 const m = new THREE.Mesh(geo, mat);
                 m.position.set(x, 3, 0);
                 m.rotation.y = Math.PI / 2;
-                this.add(m);
+                this.add(this._passThrough(m));
             });
             [-halfL, halfL].forEach(z => {
                 const m = new THREE.Mesh(geo, mat);
                 m.position.set(0, 3, z);
-                this.add(m);
+                this.add(this._passThrough(m));
             });
         }
         if (c.isCrystal) {
             // 10 crystal shards pointing up
             const mat = new THREE.MeshLambertMaterial({ color: 0x88ccff });
             for (let i = 0; i < 10; i++) {
-                const h = 0.8 + Math.random() * 2.5;
-                const geo = new THREE.ConeGeometry(0.1 + Math.random() * 0.25, h, 4);
+                const h = 0.8 + this._random() * 2.5;
+                const r = 0.1 + this._random() * 0.25;
+                const geo = new THREE.ConeGeometry(r, h, 4);
                 const m = new THREE.Mesh(geo, mat);
-                m.position.set((Math.random() - 0.5) * this.courtWidth * 0.6, h / 2, (Math.random() - 0.5) * this.courtLength * 0.6);
+                const x = (this._random() - 0.5) * this.courtWidth * 0.6;
+                const z = (this._random() - 0.5) * this.courtLength * 0.6;
+                m.position.set(x, h / 2, z);
                 this.add(m);
+                this._addSolidColumn(m, x, z, r, h, false);
             }
         }
         if (c.isCyber) {
@@ -5304,7 +5633,7 @@ varying float vNearFade;`)
                     0.3 + Math.random() * 0.5,
                     (Math.random() - 0.5) * this.courtLength * 0.6
                 );
-                this.add(cluster);
+                this.add(this._passThrough(cluster)); // cloud puffs
             }
         }
         if (c.isNeon) {
@@ -5348,20 +5677,23 @@ varying float vNearFade;`)
                 const m = new THREE.Mesh(geo, mat);
                 m.position.set(x, 2.5, z);
                 this.add(m);
+                this._addSolidBox(m, x, z, 0.6, 0.6, 5, false);
             });
         }
         if (c.isMecha) {
-            // 6 machinery cube details on walls
+            // 6 machinery cube details on the boundary walls (flush, out of reach)
             const mat = new THREE.MeshLambertMaterial({ color: 0x778899 });
             const geo = new THREE.BoxGeometry(0.6, 0.6, 0.6);
+            const wallW = this.courtWidth / 2 + 0.3;
+            const wallL = this.courtLength / 2 + 0.3;
             for (let i = 0; i < 6; i++) {
                 const m = new THREE.Mesh(geo, mat);
                 const edge = i % 4;
                 let x, z;
-                if (edge === 0) { x = -halfW; z = (Math.random() - 0.5) * halfL * 2; }
-                else if (edge === 1) { x = halfW; z = (Math.random() - 0.5) * halfL * 2; }
-                else if (edge === 2) { z = -halfL; x = (Math.random() - 0.5) * halfW * 2; }
-                else { z = halfL; x = (Math.random() - 0.5) * halfW * 2; }
+                if (edge === 0) { x = -wallW; z = (Math.random() - 0.5) * halfL * 2; }
+                else if (edge === 1) { x = wallW; z = (Math.random() - 0.5) * halfL * 2; }
+                else if (edge === 2) { z = -wallL; x = (Math.random() - 0.5) * halfW * 2; }
+                else { z = wallL; x = (Math.random() - 0.5) * halfW * 2; }
                 m.position.set(x, 2 + Math.random() * 4, z);
                 this.add(m);
             }
@@ -5395,6 +5727,7 @@ varying float vNearFade;`)
                 dish.position.set(x, 2.2, z);
                 dish.rotation.x = Math.PI;
                 this.add(dish);
+                this._addSolidColumn(dish, x, z, 0.8, 2.45, false);
             });
         }
         // Pillar Hall: no decorative in-court columns — its real cover comes from

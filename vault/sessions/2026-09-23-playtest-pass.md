@@ -22,3 +22,10 @@ Commit `b847617` (main). Önceki: [[2026-09-23-aaa-overhaul-pass2]].
 - Esport Arena skorbord arkası siyah (küçük), `.ow-splash` dışındaki menü üst üste binmeleri gerçek ekranda tekrar bakılmalı.
 - Açılış topu sistem mesajı (`CLAIMED THE OPENING BALL`) ağ üzerinden gittiği için çevrilmedi.
 - Stripe env değişkenleri kullanıcıda (`docs/PAYMENTS.md`).
+
+## Devam — oynanış düzeltmeleri + haritalar
+- Iskalama artık hasar vermiyor ("Killed by missed deflect" kalktı). Mouse1 spam: kılıç 0.22 sn aktif, 0.6 sn bekleme (spam kapsama ~%100 → ~%28).
+- Lobi kur: misafir/süresi dolmuş oturum → botlu yerel lobi + açıklama (sunucu kayıt için hesap istiyor).
+- Top: nişanlı atış son metrelerde daha az yapışıyor, strafe curve güçlü; hız sınırı yok (6x kalktı), isabet sweep 32 örnek.
+- Haritalar: tüm katı prop'lar tek collider yolundan (`_addSolidBox`/`_addSolidColumn`), oyuncu+top ikisi de çarpıyor; rastgele yerleşim seed'li. 36 haritaya simetrik parkur (1.2/2.4/3.6 m, orta çizgiyi geçmiyor). Testler: `arena-solid-props`, `map-parkour`. 2291/2291.
+- Açık: collider broadphase yok (subway 104 kutu); beach_open voleybolda da parkur alıyor.

@@ -12,6 +12,7 @@ export function createFakeCanvas() {
         createPattern: () => inert,
         measureText: text => ({ width: String(text).length * 10 }),
         getImageData: (x, y, w, h) => ({ data: new Uint8ClampedArray(Math.max(1, w * h * 4)), width: w, height: h }),
+        createImageData: (w, h) => ({ data: new Uint8ClampedArray(Math.max(1, w * h * 4)), width: w, height: h }),
         putImageData() {}
     };
     const ctx = new Proxy(target, {

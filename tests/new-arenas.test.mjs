@@ -207,6 +207,9 @@ function runBuilder(id) {
         platforms: [],
         add: Arena.prototype.add,
         addCollidable: Arena.prototype.addCollidable,
+        _addSolidBox: Arena.prototype._addSolidBox,
+        _addSolidColumn: Arena.prototype._addSolidColumn,
+        _passThrough: Arena.prototype._passThrough,
         _placeMesh: Arena.prototype._placeMesh,
         _animateProp: Arena.prototype._animateProp,
         _buildMuseumSkeleton: Arena.prototype._buildMuseumSkeleton,
@@ -245,14 +248,42 @@ test('cover geometry is mirror-balanced across both axes on every new arena', ()
 
 test('subway mezzanines register standable platforms, mirrored', () => {
     const arena = runBuilder('subway');
-    assert.equal(arena.platforms.length, 4);
+    // One-way mezzanine decks; solid prop tops (stairs, benches, bins) are
+    // flagged `solid` and pinned below.
+    const decks = arena.platforms.filter(p => !p.solid);
+    assert.equal(decks.length, 4);
     const key = (x, z) => `${x.toFixed(3)}|${z.toFixed(3)}`;
-    const spots = new Set(arena.platforms.map(p => key(p.x, p.z)));
-    for (const platform of arena.platforms) {
+    const spots = new Set(decks.map(p => key(p.x, p.z)));
+    for (const platform of decks) {
         assert.ok(platform.y > 1 && platform.y < MAPS.subway.ceilingHeight, 'platform height is reachable');
         assert.ok(platform.halfWidth > 0 && platform.halfDepth > 0);
         assert.ok(spots.has(key(-platform.x, platform.z)), 'platform X mirror');
         assert.ok(spots.has(key(platform.x, -platform.z)), 'platform Z mirror');
+    }
+});
+
+test('subway stairs climb to each mezzanine one hop at a time', () => {
+    const arena = runBuilder('subway');
+    const decks = arena.platforms.filter(p => !p.solid);
+    const jumpApex = 8 ** 2 / (2 * 20);
+    for (const deck of decks) {
+        const steps = arena.platforms
+            .filter(p => p.solid && p.halfWidth === 3 && p.halfDepth === 1.2
+                && Math.abs(p.x - deck.x) <= deck.halfWidth && Math.sign(p.z) === Math.sign(deck.z))
+            .sort((a, b) => a.y - b.y);
+        assert.equal(steps.length, 5, 'five solid stair blocks per mezzanine');
+        let floor = 0;
+        for (const step of steps) {
+            assert.ok(step.y - floor <= jumpApex - 0.5, `rise ${(step.y - floor).toFixed(2)} is one easy hop`);
+            floor = step.y;
+        }
+        const top = steps.at(-1);
+        assert.equal(top.y, deck.y, 'the top step is flush with the deck');
+        assert.ok(Math.abs(Math.abs(top.z) + top.halfDepth - (Math.abs(deck.z) - deck.halfDepth)) < 1e-9,
+            'the top step meets the deck edge');
+        for (let i = 1; i < steps.length; i++) {
+            assert.ok(Math.abs(Math.abs(steps[i].z) - Math.abs(steps[i - 1].z) - 2.4) < 1e-9, 'steps touch, rising toward the deck');
+        }
     }
 });
 
