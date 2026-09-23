@@ -288,7 +288,9 @@ test('Settings > Game exposes the language picker and main.js wires it to setLan
     assert.match(game, /<option value="tr" lang="tr">Türkçe<\/option>/);
     const main = await read('js/main.js');
     assert.match(main, /languageSelect\.addEventListener\('change', event => setLanguage\(event\.target\.value\)\)/);
-    assert.match(main, /onLanguageChange\(\(\) => this\._onLanguageChanged\(\)\)/);
+    // The auth-card EN/TR switch also listens, so the callback does two things now.
+    assert.match(main, /onLanguageChange\(\(\) => \{ syncAuthLang\(\); this\._onLanguageChanged\(\); \}\)/);
+    assert.match(html, /class="auth-lang-switch"[\s\S]*?data-lang="en"[\s\S]*?data-lang="tr"/);
     assert.match(main, /initI18n\(\);\s*new App\(\);/);
 });
 

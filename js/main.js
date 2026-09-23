@@ -94,7 +94,18 @@ import { applyI18n, getLanguage, initI18n, localizedName, onLanguageChange, setL
 
 const SOCIAL_DISCOVERY_KEY = 'warrball.social.discovery.v1';
 const PARTY_FOLLOW_SCREENS = new Set(['mainMenu', 'multiplayerMenu', 'joinMenu']);
-const PARTY_INVITE_BLOCKED_STATES = new Set([STATES.PLAYING, STATES.COUNTDOWN, STATES.ROUND_END, STATES.CELEBRATION]);
+// [screen id, back button id] pairs that Escape closes from the main menu flow.
+const ESC_BACK_BUTTONS = Object.freeze([
+    ['multiplayer-menu', 'btn-sport-back'], ['multiplayer-menu', 'btn-mp-back'], ['join-menu', 'btn-join-back'], ['character-screen', 'btn-char-back'],
+    ['shop-screen', 'btn-shop-back'], ['battlepass-screen', 'btn-bp-back'], ['avatar-screen', 'btn-avatar-back'],
+    ['map-editor-screen', 'btn-map-editor-back'], ['achievements-screen', 'btn-achievements-back'],
+    ['daily-screen', 'btn-daily-back'], ['ranked-screen', 'btn-ranked-back'],
+    ['social-center-screen', 'btn-social-center-back'], ['screen-profile', 'btn-profile-back'],
+    ['leaderboard-screen', 'btn-leaderboard-back'], ['replays-screen', 'btn-replays-back'],
+    ['social-screen', 'social-back'], ['patchnotes-screen', 'btn-patchnotes-back'],
+    ['practice-menu-screen', 'btn-practice-back'], ['tournament-screen', 'btn-tournament-back']
+]);
+const PARTY_INVITE_BLOCKED_STATES =new Set([STATES.PLAYING, STATES.COUNTDOWN, STATES.ROUND_END, STATES.CELEBRATION]);
 
 // Locale keys (js/locales/*.js spectator.*Caps).
 const SPECTATOR_MODE_LABELS = Object.freeze({
@@ -666,6 +677,16 @@ class App {
                     // If settings was opened from pause menu, return to pause
                     const pauseEl = document.getElementById('pause-menu');
                     if (pauseEl && !pauseEl.classList.contains('hidden')) return;
+                }
+                // Menu sub-screens: Esc = their Back button (lobby excluded — leaving is destructive).
+                if (this.game.state === STATES.MENU && !isEditableTarget(e.target)) {
+                    const back = [...document.querySelectorAll(ESC_BACK_BUTTONS.map(([screen, button]) => `#${screen}:not(.hidden) #${button}`).join(','))]
+                        .find(button => button.offsetParent !== null && !button.disabled);
+                    if (back) {
+                        e.preventDefault();
+                        back.click();
+                        return;
+                    }
                 }
                 const pauseEl = document.getElementById('pause-menu');
                 if (pauseEl && !pauseEl.classList.contains('hidden')) {
@@ -2815,7 +2836,7 @@ class App {
             const ready = !button?.classList.contains('is-ready');
             button?.classList.toggle('is-ready', ready);
             button?.setAttribute('aria-pressed', String(ready));
-            if (button) button.textContent = t(ready ? 'lobby.readyOn' : 'lobby.ready');
+            setText(button, ready ? 'lobby.readyOn' : 'lobby.ready');
             this.party = setPartyReady(this.party, this.game.playerName, ready);
             this._saveSocialProfile();
             if (this.network?.connected) this.network.broadcast({ type: 'partyReady', name: this.game.playerName, ready });
@@ -3041,7 +3062,20 @@ bind('carousel-next', () => {
             languageSelect.value = getLanguage();
             languageSelect.addEventListener('change', event => setLanguage(event.target.value));
         }
-        onLanguageChange(() => this._onLanguageChanged());
+        // First screen language switch (auth card): a player whose browser is English
+        // should not have to find Settings to get Turkish, and vice versa.
+        const syncAuthLang = () => document.querySelectorAll('.auth-lang-switch [data-lang]').forEach(button => {
+            button.setAttribute('aria-pressed', String(button.dataset.lang === getLanguage()));
+        });
+        document.querySelectorAll('.auth-lang-switch [data-lang]').forEach(button => {
+            button.addEventListener('click', () => {
+                setLanguage(button.dataset.lang);
+                if (languageSelect) languageSelect.value = getLanguage();
+                syncAuthLang();
+            }, { signal: this._mainAbort.signal });
+        });
+        syncAuthLang();
+        onLanguageChange(() => { syncAuthLang(); this._onLanguageChanged(); });
         // initI18n() ran before App existed, so paint the JS-owned HUD labels once now.
         this.ui.onLanguageChanged?.(this.store);
         const uiPreferences = loadUiPreferences(this.store);

@@ -1,6 +1,7 @@
 // game.js — Full game: chat, team switch, death fx, minimap, aim deflection,
 // damage ramp, skill system, map ban, damage meter, portal handling.
 import * as THREE from 'three';
+import { t } from './i18n.js';
 import { Ball, chargeProfile, CHARGE_OVERCHARGE_SECONDS, ballHeatLevel, BALL_HEAT_TIERS, proximityAssistRange } from './ball.js';
 import { Bot } from './bot.js';
 import { Scoreboard } from './scoreboard.js';
@@ -1418,7 +1419,7 @@ selectMap(mapId) {
         this.arena.rebuild(mapId);
         this.player.respawn();
         this.bots.forEach(b => b.respawn());
-        this.ui.showMessage(`Arena: ${this.arena.config.name}`, 1400);
+        this.ui.showMessage(t('match.arena', { name: this.arena.config.name }), 1400);
         if (this.network?.isHost) {
         this.network.broadcast({ type: 'mapChange', mapId });
     }
@@ -1449,7 +1450,7 @@ selectMode(modeId) {
     applyMode(this, modeId);
     this.applyMatchModifier();
     if (this._rallyDuel) this.selectMap(normalizeRallyDuelMap(this.arena.mapId));
-        this.ui.showMessage?.(`Mode: ${this.mode.name}`, 1400);
+        this.ui.showMessage?.(t('match.mode', { name: this.mode.name }), 1400);
         if (this.network?.isHost) {
         this.network.broadcast({ type: 'modeChange', modeId: this.mode.id });
     }
@@ -1586,7 +1587,7 @@ getSelectableMaps() {
         if (!isEmoteId(emoteId)) return false;
         const now = performance.now();
         if (now - (this._lastLocalEmoteAt ?? -Infinity) < LOCAL_EMOTE_COOLDOWN_MS) {
-            this.ui?.showMessage?.('Emote cooling down…', 700);
+            this.ui?.showMessage?.(t('match.emoteCooldown'), 700);
             return false;
         }
         this._lastLocalEmoteAt = now;
@@ -1639,7 +1640,7 @@ getSelectableMaps() {
         if (now - this._lastBigPlayAt < 3500 && now - this._crowdHypeAt > 6000) {
             this._crowdHypeAt = now;
             this.spectatorCrowd.cheer();
-            this.ui?.showMessage?.('THE CROWD GOES WILD!', 1400);
+            this.ui?.showMessage?.(t('match.crowdWild'), 1400);
         }
         return true;
     }
@@ -2080,7 +2081,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             player._hazardDamageTimer = 0.5;
             const lethal = player.takeDamage(hazard.damage);
             player.drawHpBar?.();
-            if (player === this.player) this.ui.showMessage?.('🔥 LAVA! Move!', 500);
+            if (player === this.player) this.ui.showMessage?.(t('match.lava'), 500);
             if (lethal) {
                 player.die?.();
                 player.alive = false;
@@ -2112,9 +2113,9 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             const winner = winnerName ? 'ffa' : 'draw';
             if (winnerName) {
                 this.scoreboard.recordPoint(winnerName, 1);
-                this.announce(`${winnerName} WINS THE ROUND!`, 'tf2_domination', 0.5, 2000);
+                this.announce(t('match.playerWinsRound', { name: winnerName }), 'tf2_domination', 0.5, 2000);
             } else {
-                this.ui.showMessage?.('DOUBLE KO - DRAW!', 2000);
+                this.ui.showMessage?.(t('match.drawDoubleKo'), 2000);
             }
             if (this.network?.isHost) {
                 this.network.broadcastRoundEnd({
@@ -2132,14 +2133,14 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         let winner = null;
         if (redAlive.length === 0 && blueAlive.length > 0) {
             this.scoreboard.recordRoundWin('blue');
-            this.announce('🔵 BLUE TEAM WINS THE ROUND!', 'tf2_domination', 0.5, 2000);
+            this.announce(t('match.blueWinsRound'), 'tf2_domination', 0.5, 2000);
             winner = 'blue';
         } else if (blueAlive.length === 0 && redAlive.length > 0) {
             this.scoreboard.recordRoundWin('red');
-            this.announce('🔴 RED TEAM WINS THE ROUND!', 'tf2_domination', 0.5, 2000);
+            this.announce(t('match.redWinsRound'), 'tf2_domination', 0.5, 2000);
             winner = 'red';
         } else if (redAlive.length === 0 && blueAlive.length === 0) {
-            this.ui.showMessage?.('⚔️ DOUBLE KO — DRAW!', 2000);
+            this.ui.showMessage?.(t('match.drawDoubleKo'), 2000);
             winner = 'draw';
         } else return false;
         // P2P: round bitti → client'a bildir ve sonraki round süresini paylaş.
@@ -2432,7 +2433,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                     }) && this._overtimeExtends < 8) {
                         this._overtimeExtends++;
                         this.scoreboard.maxRounds++;
-                        this.announce('OVERTIME - next round breaks the tie!', null, 0, 3000);
+                        this.announce(t('match.overtimeNext'), null, 0, 3000);
                         this.startRound();
                     } else {
                         this.endGame();
@@ -2580,7 +2581,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             if (this.scoreboard.redScore === this.scoreboard.blueScore && !this._overtime) {
                 this._overtime = true;
                 this._overtimeTimer = 0;
-                this.announce('⚡ OVERTIME!', null, 0, 2000);
+                this.announce(t('match.overtime'), null, 0, 2000);
                 this.ui.showStreak?.('OVERTIME!', 'ace');
             } else if (!this._overtime) {
                 this.endGame();
@@ -2597,7 +2598,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             }
             if (this._overtimeTimer >= 30 && !this._suddenDeathAnnounced) {
                 this._suddenDeathAnnounced = true;
-                this.announce('SUDDEN DEATH!', null, 0, 2000);
+                this.announce(t('match.suddenDeath'), null, 0, 2000);
             }
         }
 
@@ -2752,7 +2753,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             // A-D-A-D trigger: orbit the ball around you
             if (this.ball.state !== 'orbiting') {
                 this.ball.startOrbit(this.player);
-                this.ui.showMessage?.('🌀 Spin Dodge!', 1000);
+                this.ui.showMessage?.(t('match.spinDodge'), 1000);
             }
         }
 
@@ -2902,7 +2903,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 if (!this._nearMissCooldown || performance.now() - this._nearMissCooldown > 500) {
                     this._nearMissCooldown = performance.now();
                     this.juice.shake(0.06);
-                    this.ui.showMessage?.('⚡ NEAR MISS!', 400);
+                    this.ui.showMessage?.(t('match.nearMiss'), 400);
                 }
             }
         }
@@ -3216,7 +3217,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 this._firstSoloAimFeedbackPending = false;
                 this.player.attacking = false;
                 this._clearLocalDeflectAttempt();
-                this.ui.showMessage?.('BALL BEHIND — TURN TO FACE IT', 900);
+                this.ui.showMessage?.(t('match.ballBehind'), 900);
                 this.audio.playCue?.('deflect-reject');
             }
             return;
@@ -3512,7 +3513,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         this.audio.playWhoosh(this.ball.getSpeed(), pos);
 
         const spd = Math.round((this.ball.getSpeed() / this.ball.baseSpeed) * 100);
-        this.ui.showMessage(`🏐 Rally ${this.rallyCount} — ${spd}%`, 800);
+        this.ui.showMessage(t('match.rally', { count: this.rallyCount, speed: spd }), 800);
     }
 
     activateUltimate(ult) {
@@ -4043,7 +4044,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         if (this.state !== STATES.PLAYING) return;
         if (this._respawnTimer) { clearTimeout(this._respawnTimer); this._respawnTimer = null; }
         const countdown = (n) => {
-            this.ui.showMessage(`🏐 Ball returns in ${n}...`, 1000);
+            this.ui.showMessage(t('match.ballReturns', { n }), 1000);
             this._respawnTimer = setTimeout(() => {
                 this._respawnTimer = null;
                 if (this.state !== STATES.PLAYING) return;
@@ -4684,7 +4685,7 @@ spawnPowerUp() {
             wh.classList.add('hidden');
             wh.style.display = 'none';
         }
-        if (this._won) this.ui.showMessage?.('WINNER LOADOUT: ROCKET', 4000);
+        if (this._won) this.ui.showMessage?.(t('match.winnerRocket'), 4000);
 
         // P2P: celebration state'ini client'lara yayınla
         if (this.network?.isHost) {
@@ -4885,7 +4886,8 @@ spawnPowerUp() {
                 this.arena.rebuild(picked);
                 this.player.respawn();
                 this.bots.forEach(b => b.respawn());
-                this.ui.showMessage(`🗺️ Next map: ${Arena.MAPS[picked]?.name || picked}`, 2000);
+                this.ui.showMessage(t('match.nextMap', { name: Arena.MAPS[picked]?.name || picked }), 2000);
+                this.onMapChange?.(picked);
             }
         }
     }
@@ -4934,7 +4936,8 @@ spawnPowerUp() {
             this.arena.rebuild(winner);
             this.player.respawn();
             this.bots.forEach(b => b.respawn());
-            this.ui.showMessage(`🗺️ Next map: ${Arena.MAPS[winner]?.name || winner}`, 2000);
+            this.ui.showMessage(t('match.nextMap', { name: Arena.MAPS[winner]?.name || winner }), 2000);
+            this.onMapChange?.(winner);
         }
         // Re-enable play again button if it was disabled
         const playBtn = document.getElementById('pg-play-again');
@@ -4974,7 +4977,8 @@ spawnPowerUp() {
             this.arena.rebuild(winningMap);
             this.player.respawn();
             this.bots.forEach(b => b.respawn());
-            this.ui.showMessage(`🗺️ Next map: ${Arena.MAPS[winningMap]?.name || winningMap}`, 2000);
+            this.ui.showMessage(t('match.nextMap', { name: Arena.MAPS[winningMap]?.name || winningMap }), 2000);
+            this.onMapChange?.(winningMap);
         }
         this.network.broadcast({ type: 'mapVoteResult', winner: winningMap });
         // Re-enable play again
@@ -6643,10 +6647,10 @@ spawnPowerUp() {
         this.roundRestartTimer = this.roundRestartDelay;
         this.clearSplitBalls();
         this.chaosManager?.clear();
-        if (data?.winner === 'red') this._showMatchMessage('🔴 RED TEAM WINS THE ROUND!', 2000);
-        else if (data?.winner === 'blue') this._showMatchMessage('🔵 BLUE TEAM WINS THE ROUND!', 2000);
+        if (data?.winner === 'red') this._showMatchMessage(t('match.redWinsRound'), 2000);
+        else if (data?.winner === 'blue') this._showMatchMessage(t('match.blueWinsRound'), 2000);
         else if (data?.winner === 'ffa' && data.winnerName) this._showMatchMessage(`${data.winnerName} WINS THE ROUND!`, 2000);
-        else if (data?.winner === 'draw') this._showMatchMessage('⚔️ DOUBLE KO — DRAW!', 2000);
+        else if (data?.winner === 'draw') this._showMatchMessage(t('match.drawDoubleKo'), 2000);
     }
     startRoundFromNetwork(data = {}) {
         if (this.network?.isHost) return;

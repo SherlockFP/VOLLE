@@ -1740,7 +1740,7 @@ export class UI {
             if (isPlaceholder) {
                 const card = document.createElement('div');
                 card.className = 'cs-player-card empty';
-                card.textContent = '⏳ Waiting…';
+                setText(card, 'lobby.waitingSlot');
                 container.appendChild(card);
                 return;
             }
@@ -1778,7 +1778,7 @@ export class UI {
         // Update bot count
         const botCount = players.filter(p => p.isBot).length;
         const bc = document.getElementById('cs-bot-count');
-        if (bc) bc.textContent = `Bots: ${botCount}`;
+        if (bc) setText(bc, 'lobby.botCount', { n: botCount });
     }
 
     setRoomCode(code) {
@@ -1786,7 +1786,7 @@ export class UI {
         if (el) el.textContent = code;
         const status = document.getElementById('lobby-network-status');
         if (status) {
-            status.textContent = !code || code === 'LOCAL' ? 'LOCAL · VS BOTS' : 'P2P ROOM';
+            setText(status, !code || code === 'LOCAL' ? 'lobby.localVsBots' : 'lobby.p2pRoom');
             status.className = '';
         }
     }

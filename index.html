@@ -12,8 +12,8 @@
     <link rel="stylesheet" href="css/style.css?v=1.74">
     <link rel="stylesheet" href="css/ui-tokens.css?v=1">
     <link rel="stylesheet" href="css/ui-shell.css?v=2">
-    <link rel="stylesheet" href="css/polish.css?v=1">
-    <link rel="stylesheet" href="css/auth.css?v=4">
+    <link rel="stylesheet" href="css/polish.css?v=2">
+    <link rel="stylesheet" href="css/auth.css?v=5">
     <link rel="stylesheet" href="css/season-polish.css?v=1">
     <link rel="stylesheet" href="css/court-skills.css?v=1">
     <link rel="stylesheet" href="css/cosmetic-icons.css?v=1">
@@ -22,7 +22,7 @@
     <link rel="stylesheet" href="css/shop-studio.css?v=2">
     <link rel="stylesheet" href="css/settings-workbench.css?v=4">
     <link rel="stylesheet" href="css/menu-depth.css?v=2">
-    <link rel="stylesheet" href="css/hud.css?v=3">
+    <link rel="stylesheet" href="css/hud.css?v=4">
     <link rel="stylesheet" href="css/spectator.css?v=1">
     <link rel="stylesheet" href="css/postgame.css?v=1">
     <link rel="stylesheet" href="css/touch.css?v=1">
@@ -155,7 +155,7 @@
     <!-- Auth Modal: Register/Login -->
     <div id="auth-modal" class="command-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title" aria-describedby="auth-status">
         <div class="command-card auth-card">
-            <header><span class="shell-kicker" data-i18n="auth.kicker">VOLLE ACCOUNT</span><h2 id="auth-modal-title" data-i18n="auth.title">Enter the arena</h2><p id="auth-status" class="auth-status" role="status" data-i18n="auth.checking">Checking your saved session…</p></header>
+            <header><div class="auth-lang-switch" role="group" aria-label="Language"><button type="button" data-lang="en">EN</button><button type="button" data-lang="tr">TR</button></div><span class="shell-kicker" data-i18n="auth.kicker">VOLLE ACCOUNT</span><h2 id="auth-modal-title" data-i18n="auth.title">Enter the arena</h2><p id="auth-status" class="auth-status" role="status" data-i18n="auth.checking">Checking your saved session…</p></header>
             <button id="auth-guest" class="btn btn-primary auth-guest-cta" type="button" data-i18n="auth.playNow">Play Now <small data-i18n="auth.noAccountNeeded">No account needed</small></button>
             <p class="auth-divider"><span data-i18n="auth.divider">or sign in to save rewards, open cases &amp; play Ranked</span></p>
             <div class="auth-tabs" role="tablist" aria-label="Account access" data-i18n-attr="aria-label:auth.accessLabel">
@@ -634,7 +634,7 @@
                 <div class="cs-team-players" id="cs-team-red"></div>
                 <div class="cs-team-actions">
                     <button id="btn-team-red" class="cs-btn-team red" data-i18n="lobby.joinRed">Join Red</button>
-                    <button id="btn-add-bot-red" class="cs-btn-bot">+ Bot</button>
+                    <button id="btn-add-bot-red" class="cs-btn-bot" data-i18n="lobby.addBot">+ Bot</button>
                 </div>
             </div>
 
@@ -720,7 +720,7 @@
                 <div class="cs-team-players" id="cs-team-blue"></div>
                 <div class="cs-team-actions">
                     <button id="btn-team-blue" class="cs-btn-team blue" data-i18n="lobby.joinBlue">Join Blue</button>
-                    <button id="btn-add-bot-blue" class="cs-btn-bot">+ Bot</button>
+                    <button id="btn-add-bot-blue" class="cs-btn-bot" data-i18n="lobby.addBot">+ Bot</button>
                 </div>
             </div>
         </div>
@@ -730,11 +730,11 @@
             <div class="cs-bottom-left">
                 <button id="btn-remove-bot" class="cs-btn-action" title="Remove Bot" data-i18n-attr="title:lobby.removeBot">- BOT</button>
                 <button id="btn-random-map" class="cs-btn-action" title="Random Map" data-i18n-attr="title:lobby.randomMapTitle"><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg></button>
-                <button id="btn-lobby-lock" class="cs-btn-action" title="Set lobby password (host)">LOCK</button>
+                <button id="btn-lobby-lock" class="cs-btn-action" title="Set lobby password (host)" data-i18n="lobby.lock" data-i18n-attr="title:lobby.lockTitle">LOCK</button>
             </div>
-            <button id="btn-start-game" class="cs-btn-start"><svg class="ui-icon" aria-hidden="true"><use href="#i-play"></use></svg>START GAME</button>
+            <button id="btn-start-game" class="cs-btn-start"><svg class="ui-icon" aria-hidden="true"><use href="#i-play"></use></svg><span data-i18n="lobby.startGame">START GAME</span></button>
             <div class="cs-bottom-right">
-                <button id="btn-party-ready" class="cs-btn-ready" type="button" aria-pressed="false">READY</button>
+                <button id="btn-party-ready" class="cs-btn-ready" type="button" aria-pressed="false" data-i18n="lobby.ready">READY</button>
                 <span class="cs-bot-count" id="cs-bot-count">Bots: 4</span>
             </div>
         </div>

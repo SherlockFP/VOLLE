@@ -115,7 +115,7 @@ test('collapsed desktop social rail keeps its reopen control inside the visible 
 });
 
 test('compact desktop keeps a labeled social command handle instead of an anonymous edge chevron', () => {
-    assert.match(css, /@media \(min-width: 761px\) and \(max-width: 1339px\)[\s\S]*?\.friends-sidebar\.collapsed \{ transform: translateX\(calc\(100% - 184px\)\); \}/);
+    assert.match(css, /@media \(min-width: 761px\) and \(max-width: 1339px\)[\s\S]*?\.friends-sidebar\.collapsed \{ transform: translateX\(calc\(100% - 184px\)\); bottom: auto; height: 48px; \}/);
     assert.match(css, /\.friends-sidebar\.collapsed \.fbar-title-icon \{ display: none; \}/);
     assert.match(css, /\.friends-sidebar\.collapsed \.fbar-title \{ display: grid; flex: 0 0 auto; \}/);
     assert.match(css, /\.friends-sidebar\.collapsed \.friends-sidebar-header \{ min-width: 184px; padding: 8px 10px; gap: 7px; justify-content: flex-start; \}/);

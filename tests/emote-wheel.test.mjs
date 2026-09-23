@@ -222,7 +222,7 @@ test('who can hold the wheel: live players, the social hub, spectators all match
 
 test('local emotes are rate limited, confirmed on the HUD and sent to everyone', () => {
     let now = 1000;
-    const globals = { performance: { now: () => now }, isEmoteId, getEmote: id => EMOTES.find(e => e.id === id), LOCAL_EMOTE_COOLDOWN_MS: 1200 };
+    const globals = { performance: { now: () => now }, t: key => key, isEmoteId, getEmote: id => EMOTES.find(e => e.id === id), LOCAL_EMOTE_COOLDOWN_MS: 1200 };
     const claim = compileGameMethod('_claimLocalEmote', globals);
     const sendPacket = compileGameMethod('_sendEmotePacket', globals);
     const sendPlayer = compileGameMethod('sendPlayerEmote', globals);

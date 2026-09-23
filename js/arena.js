@@ -549,7 +549,7 @@ export const MAPS = {
             mechanics: ['container-cover', 'barrier-hops', 'open-center-lane', 'symmetric-spawns'],
             fallDeathY: -12, playerSpawnZ: 44, symmetric: true
         },
-        sky: { horizonColor: 0x4a3526, sun: true, sunColor: 0xaebbd6, cloudAmount: 0.65 }
+        sky: { horizonColor: 0x4a3526, sun: true, sunColor: 0xaebbd6, cloudAmount: 0.4 }
     },
     alpine_research: {
         name: '🏔️ Alpine Research Base',
@@ -3773,7 +3773,11 @@ export class Arena {
                     float bands = sin(n.x * 28.0 + n.z * 19.0) + sin(n.x * 51.0 - n.z * 33.0);
                     float clouds = smoothstep(0.65, 1.45, bands) * smoothstep(0.08, 0.24, h)
                         * (1.0 - smoothstep(0.48, 0.72, h)) * cloudAmount;
-                    color = mix(color, vec3(1.0), clouds * 0.24);
+                    // Clouds catch the sky's own light: near-white by day, a dim horizon-tinted
+                    // haze at night (pure white read as giant glowing blobs on dark maps).
+                    float skyLum = dot(horizonColor, vec3(0.2126, 0.7152, 0.0722));
+                    vec3 cloudTint = mix(horizonColor * 1.8 + 0.035, vec3(1.0), smoothstep(0.05, 0.32, skyLum));
+                    color = mix(color, cloudTint, clouds * 0.24);
                     color += sunColor * sun * sunAmount * 0.7;
                     gl_FragColor = vec4(color, 1.0);
                 }
@@ -4977,6 +4981,23 @@ export class Arena {
             transparent: true, opacity: cfg.opacity, depthWrite: false,
             ...(sprite ? { map: sprite } : {})
         });
+        // Distance-attenuated sprites balloon when one drifts past the lens (a 0.1 m
+        // raindrop 30 cm away covers ~100 px). Fade them out inside ~2.5 m of the
+        // camera and cap their on-screen size so weather never smears the view.
+        mat.onBeforeCompile = shader => {
+            shader.vertexShader = shader.vertexShader
+                .replace('#include <common>', `#include <common>
+varying float vNearFade;`)
+                .replace('#include <project_vertex>', `#include <project_vertex>
+vNearFade = smoothstep(0.8, 2.6, -mvPosition.z);`)
+                .replace(/(gl_PointSize \*= \( scale \/ - mvPosition\.z \);)/, `$1
+gl_PointSize = min(gl_PointSize, 28.0);`);
+            shader.fragmentShader = shader.fragmentShader
+                .replace('#include <common>', `#include <common>
+varying float vNearFade;`)
+                .replace('#include <premultiplied_alpha_fragment>', `gl_FragColor.a *= vNearFade;
+#include <premultiplied_alpha_fragment>`);
+        };
         const points = new THREE.Points(geo, mat);
         points.frustumCulled = false;
         this.add(points);

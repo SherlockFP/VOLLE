@@ -45,7 +45,7 @@ test('endgame winners use rockets only', async () => {
 
     assert.ok(!source.includes('createKnucklesModel'));
     assert.ok(!source.includes("['fists', 'rocket']"));
-    assert.match(source, /WINNER LOADOUT: ROCKET/);
+    assert.match(source, /t\('match\.winnerRocket'\)/);
     assert.match(source, /const weapons = \[\['rocket', '2', 'ROCKET'\]\];/);
     assert.match(source, /launcher\.scale\.setScalar\(0\.74\)/);
 });

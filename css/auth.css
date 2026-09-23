@@ -161,3 +161,10 @@ body.is-guest .fbar-guest-cta {
 }
 body.is-guest .fbar-guest-cta strong { font-size: .86rem; }
 body.is-guest .fbar-guest-cta span { color: var(--ui-text-muted, #9edce4); }
+
+/* EN / TR switch on the first screen. */
+.auth-card header { position: relative; }
+.auth-lang-switch { position: absolute; top: 0; right: 0; display: inline-flex; border: 1px solid rgba(110, 240, 220, .25); border-radius: 999px; overflow: hidden; }
+.auth-lang-switch button { min-width: 36px; padding: 4px 8px; border: 0; background: transparent; color: var(--ui-text-muted, #9edce4); font-size: .7rem; font-weight: 800; letter-spacing: .08em; cursor: pointer; }
+.auth-lang-switch button[aria-pressed="true"] { background: rgba(110, 240, 220, .2); color: #eaffff; }
+.auth-lang-switch button:focus-visible { outline: 2px solid var(--ui-focus, #6ef0dc); outline-offset: -2px; }
