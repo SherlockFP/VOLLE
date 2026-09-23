@@ -2322,7 +2322,9 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         // Juice: hit-stop/slow-mo/screen shake uygula, effective dt döndür
         const effectiveDt = this.juice.update(dt);
         if (effectiveDt === 0 && this.state !== STATES.CELEBRATION) return; // hit-stop: dünya donar (ama celebration'da değil)
-        dt = effectiveDt || dt;
+        // Slow-mo is local presentation in a connected match: on a P2P host it
+        // would slow the authoritative ball for every peer.
+        if (!this.network?.connected) dt = effectiveDt || dt;
 
         // Time scale (console: sv_timescale)
         if (this._timeScale && this._timeScale !== 1) dt *= this._timeScale;
@@ -2838,7 +2840,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 this.ball.state = 'homing';
                 this.ball._homingAge = 0;
             }
-            if (bounced && !this.juice._hitStopActive) this.audio.playBounce?.(this.ball.position);
+            if (bounced) this.audio.playBounce?.(this.ball.position);
             if (this.ball.active) {
                 this._analyticsSampleTimer = (this._analyticsSampleTimer || 0) - dt;
                 if (this._analyticsSampleTimer <= 0) {
@@ -3600,8 +3602,9 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
     // ball path A = _prevPosition → B = position (event time = frame start +
     // s·dt), so the result no longer depends on where frame edges fall.
     // Earliest event wins, ties → deflect (local player before bots). A deflect
-    // puts the ball back on its contact point before the existing handler runs;
-    // the rest of that frame's travel is dropped (≤ one frame). Deflects are
+    // puts the ball back on its contact point before the existing handler runs,
+    // then _followThroughDeflect flies the rest of the frame on the new
+    // velocity (no lost travel, no rendered snap back). Deflects are
     // resolved here on the host/solo only (`authoritative`). Body hits keep the
     // G1 decision (end point + swept samples) and take only their in-frame time
     // from the analytic capsule entry. _forceHit applies only when nothing else
@@ -3725,7 +3728,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             const deflected = this.handlePlayerDeflection();
             this._deflectContactOffset = 0;
             if (!this.player.attacking) this.player.endSwingTail?.();
-            if (deflected !== false) return 'deflect';
+            if (deflected !== false) return this._followThroughDeflect(deflectFrom, end, playerS, frameDt);
             // Facing gate refused the contact: the frame-end state stands.
             ball.position.copy(end);
         }
@@ -3733,7 +3736,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             ball.position.lerpVectors(deflectFrom, end, botS);
             deflectBot.commitDeflect();
             this.handleBotDeflection(deflectBot);
-            return 'deflect';
+            return this._followThroughDeflect(deflectFrom, end, botS, frameDt);
         }
         if (hitTarget) {
             this.handleHit(hitTarget);
@@ -3763,6 +3766,22 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             }
         }
         return null;
+    }
+
+    // G2 follow-through after an accepted deflect at fraction s of this frame's
+    // path from → end: Ball.continueFromContact trims what was drawn past the
+    // contact and flies the remaining (1 − s)·dt on the new velocity, so the
+    // rendered ball never snaps back from the frame end to the contact point,
+    // freezes past it during a hit-stop, or loses up to a frame of travel per
+    // deflect. That remainder is body-tested like any frame (deflects stay one
+    // per frame). Returns 'deflect', or 'hit' when the remainder hits a body.
+    _followThroughDeflect(from, end, s, frameDt) {
+        const ball = this.ball;
+        if (typeof ball.continueFromContact !== 'function') return 'deflect';
+        const rest = s < 1 ? (1 - s) * frameDt : 0;
+        const bounced = ball.continueFromContact(rest, from, end);
+        if (!(rest > 0) || !ball.active) return 'deflect';
+        return this._resolveFrameContacts(rest, false, bounced) === 'hit' ? 'hit' : 'deflect';
     }
 
     // Seconds after the frame start → fraction of a frame of length dt.
