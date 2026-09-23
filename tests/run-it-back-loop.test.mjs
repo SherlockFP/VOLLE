@@ -60,13 +60,13 @@ function buildLoopGame({ connected = false, isHost = false } = {}) {
     const game = {};
     for (const name of methods) game[name] = compileMethod('js/game.js', name, globals);
 
-    // The final kill's juice: 150 ms hit-stop, then slow-mo at 0.25 for 0.8 s,
-    // easing back — the stretch that made the old hand-off 12.7 s.
+    // The final kill's juice: slow-mo at 0.25 for ~0.95 s, easing back — the
+    // stretch that made the old hand-off 12.7 s. Hit-stop is FX-only since the
+    // ball-feel fix (js/juice.js never returns 0), so it is not modelled here.
     let juiceT = 0;
     const juice = {
         update(dt) {
             juiceT += dt;
-            if (juiceT <= 0.15) return 0;
             if (juiceT <= 0.95) return dt * 0.25;
             return dt * Math.min(1, 0.25 + (juiceT - 0.95) * 1.5);
         }
@@ -187,16 +187,12 @@ test('solo skip at 1.0 s into the lap opens the report within 2.6 s of the final
     assert.ok(loop.shown[0].at <= 2.6, `skip hand-off ${loop.shown[0].at.toFixed(3)} s must be <= 2.6 s`);
 });
 
-// Independent model of the host clock BEFORE G8: ROUND_END burns effective dt
-// (hit-stop frames return early) for the 4 s restart delay, then an 8 s lap.
+// Independent model of the host clock BEFORE G8: a 4 s ROUND_END restart
+// delay, then an 8 s lap. Since the ball-feel fix (merge f563de7) hit-stop and
+// slow-mo are presentation-only in connected matches, so the host sim — and
+// this clock — run on raw dt.
 function expectedHostTimeline() {
-    let juiceT = 0;
-    const effective = dt => {
-        juiceT += dt;
-        if (juiceT <= 0.15) return 0;
-        if (juiceT <= 0.95) return dt * 0.25;
-        return dt * Math.min(1, 0.25 + (juiceT - 0.95) * 1.5);
-    };
+    const effective = dt => dt;
     let now = 0;
     let restart = 4;
     let endGameAt = null;
