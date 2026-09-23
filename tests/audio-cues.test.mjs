@@ -159,7 +159,8 @@ test('cue table exists and contains all expected cue names', () => {
         'beep', 'go', 'speed-warning', 'score', 'chat',
         'hit-tf2', 'crit-tf2', 'frying-pan',
         'match-win', 'match-loss', 'match-end',
-        'respawn', 'equip-change', 'settings-apply', 'kill-confirm', 'deflect-reject'
+        'respawn', 'equip-change', 'settings-apply', 'kill-confirm', 'deflect-reject',
+        'overdrive-enter'
     ];
     
     assert.equal(Object.keys(Audio.CUES).length, expectedCues.length, `cue table must have exactly ${expectedCues.length} cues`);
@@ -179,6 +180,31 @@ test('deflect reject cue is retrigger guarded and muted-safe', () => {
     assert.equal(audio.playCue('deflect-reject'), false, 'rapid duplicate is blocked');
     audio.soundVolume = 0;
     assert.equal(audio.playCue('deflect-reject'), false, 'muted audio never invokes the cue');
+});
+
+test('G4 overdrive-enter cue: synthesized, retrigger >= 1200 ms, muted-safe', () => {
+    assert.deepEqual(Audio.CUES['overdrive-enter'], { fn: 'playOverdriveEnter', retriggerMs: 1200 });
+    const source = Audio.prototype.playOverdriveEnter.toString();
+    assert.doesNotMatch(source, /_playKenneyClip|playSfx|\.ogg|\.mp3|\.wav|new Audio/, 'no downloaded asset');
+    const { audio, ctx } = createAudioHarness();
+    audio.soundVolume = 0.5;
+    const realNow = performance.now;
+    let now = 10_000;
+    performance.now = () => now;
+    try {
+        const before = ctx._oscillators.length;
+        assert.equal(audio.playCue('overdrive-enter'), true);
+        assert.ok(ctx._oscillators.length - before >= 2, 'plays synthesized oscillators');
+        now += 1199;
+        assert.equal(audio.playCue('overdrive-enter'), false, 'blocked inside 1200 ms');
+        now += 1;
+        assert.equal(audio.playCue('overdrive-enter'), true, 'allowed again at 1200 ms');
+        audio.soundVolume = 0;
+        now += 5000;
+        assert.equal(audio.playCue('overdrive-enter'), false, 'muted audio never invokes the cue');
+    } finally {
+        performance.now = realNow;
+    }
 });
 
 test('playCue returns boolean result consistently', () => {

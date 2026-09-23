@@ -12,10 +12,11 @@ export const DEFLECT_TIMING_WINDOWS = Object.freeze({
 
 // Host-side bounds for the client's `sa` (swing age, integer ms) attack hint.
 // Anything outside 0..acceptMaxMs is ignored (tier falls back to normal);
-// accepted values are clamped to clampMaxMs (just above the 220 ms swing).
+// accepted values are clamped to clampMaxMs (above the longest live swing:
+// 220 ms, widening to 280 ms from 9× ball speed — player.js swingLiveWindowFor).
 export const REMOTE_SWING_AGE_LIMITS = Object.freeze({
     acceptMaxMs: 400,
-    clampMaxMs: 240
+    clampMaxMs: 300
 });
 
 export const DEFLECT_CHAIN_RULES = Object.freeze({

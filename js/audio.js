@@ -206,6 +206,8 @@ export class Audio {
         'settings-apply': { fn: 'playSettingsApply' },
         'kill-confirm': { fn: 'playKillConfirm', retriggerMs: 400 },
         'deflect-reject': { fn: 'playDeflectReject', retriggerMs: 250 },
+        // G4: rally ball crossed into OVERDRIVE (Game._updateOverdrivePresentation).
+        'overdrive-enter': { fn: 'playOverdriveEnter', retriggerMs: 1200 },
     };
 
     _cueCooldowns = {};
@@ -797,6 +799,27 @@ export class Audio {
     playSpeedWarning(speed) {
         if (!this.ctx) return;
         this._osc('sine', 300 + speed * 5, 0.06, 0.06);
+    }
+
+    // OVERDRIVE entry — synthesized (no asset): a short rising saw sweep under
+    // a bright two-note stab, ~0.3 s, distinct from the speed tick and threat cues.
+    playOverdriveEnter() {
+        if (!this.ctx || !this.masterGain) return;
+        const t = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(220, t);
+        osc.frequency.exponentialRampToValueAtTime(880, t + 0.22);
+        gain.gain.setValueAtTime(0.0001, t);
+        gain.gain.exponentialRampToValueAtTime(0.09, t + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
+        osc.connect(gain);
+        gain.connect(this.masterGain);
+        osc.start(t);
+        osc.stop(t + 0.3);
+        this._osc('square', 1175, 0.12, 0.05);
+        this._osc('square', 1568, 0.16, 0.04);
     }
 
     // Victory jingle

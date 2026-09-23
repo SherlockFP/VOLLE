@@ -89,7 +89,9 @@ test('guard is explicitly scoped to the first offline opposing bot without autom
     ]);
 
     assert.match(bot, /armFirstSoloDeflectGuard\(\) \{\s*this\._firstSoloDeflectGuard = \{ forceNextOpportunity: false \};/);
-    assert.match(bot, /const rolledWillDeflect = rng\(\) < this\.deflectChance;/);
+    // G4: the roll is deflectChance with the uncapped-rally decay applied
+    // (identical to deflectChance at or below r0; see rally-reaction-wall).
+    assert.match(bot, /let chance = this\.deflectChance;[\s\S]*?const rolledWillDeflect = rng\(\) < chance && reachable;/);
     assert.match(bot, /if \(guard\?\.forceNextOpportunity\) \{\s*this\._willDeflect = true;/);
     assert.match(bot, /Math\.random\(\) < this\.mishitRate/, 'guard must not bypass mishit variance');
     assert.match(game, /armFirstSoloBotDeflectGuard\(\) \{\s*this\._firstSoloBotDeflectGuardArmed = true;\s*this\._firstSoloAimFeedbackArmed = true;/);

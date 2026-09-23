@@ -502,12 +502,13 @@ function hostContactMs(position, speed) {
     return predictContactMs(position, speed, 0, 0, 0, 1.7, 0.4 + Math.min(speed * 0.003, 2.0), BALL_RADIUS);
 }
 
-test('sanitizeRemoteSwingAgeMs: finite integer 0..400, clamped to 240', () => {
-    assert.deepEqual({ ...REMOTE_SWING_AGE_LIMITS }, { acceptMaxMs: 400, clampMaxMs: 240 });
+test('sanitizeRemoteSwingAgeMs: finite integer 0..400, clamped to 300 (G4: longest live swing 280 ms)', () => {
+    assert.deepEqual({ ...REMOTE_SWING_AGE_LIMITS }, { acceptMaxMs: 400, clampMaxMs: 300 });
     assert.equal(sanitizeRemoteSwingAgeMs(0), 0);
     assert.equal(sanitizeRemoteSwingAgeMs(240), 240);
-    assert.equal(sanitizeRemoteSwingAgeMs(241), 240);
-    assert.equal(sanitizeRemoteSwingAgeMs(400), 240);
+    assert.equal(sanitizeRemoteSwingAgeMs(300), 300);
+    assert.equal(sanitizeRemoteSwingAgeMs(301), 300);
+    assert.equal(sanitizeRemoteSwingAgeMs(400), 300);
     for (const value of [401, -1, 12.5, NaN, Infinity, -Infinity, '30', null, undefined, {}, [30], true]) {
         assert.equal(sanitizeRemoteSwingAgeMs(value), null, String(value));
     }
@@ -530,7 +531,7 @@ test('host grades remote deflects from its own contact + the bounded sa hint', (
     assert.equal(fixture.ball.lastPerfectBy, null, 'a non-perfect deflect clears the ✨PERFECT tag');
 
     const clamped = fixture.attack({ sa: 400 });
-    assert.ok(Math.abs(clamped.leadMs - (240 + contact)) < 1e-9);
+    assert.ok(Math.abs(clamped.leadMs - (300 + contact)) < 1e-9);
     assert.equal(clamped.tier, 'normal');
 });
 
