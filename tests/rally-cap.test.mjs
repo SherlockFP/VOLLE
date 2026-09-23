@@ -60,12 +60,21 @@ test('_clampSpeed is a no-op below the cap', () => {
     assert.equal(ball.isOverdrive, false);
 });
 
-test('a raw/uncapped ball (maxSpeed = Infinity) behaves exactly as before: never overdrive, no ceiling', () => {
+test('an uncapped ball (maxSpeed = Infinity) has no ceiling; overdrive is the top heat tier (5x base)', () => {
     const ball = makeBall({ maxSpeed: Infinity, currentSpeed: 500 });
     ball.velocity = makeVelocity(1, 0, 0).multiplyScalar(500);
     ball._clampSpeed();
     assert.equal(ball.currentSpeed, 500, 'default Ball stays uncapped-safe');
-    assert.equal(ball.isOverdrive, false, 'Infinity maxSpeed can never be "reached"');
+    assert.equal(ball.isOverdrive, true, '500 is far past 5x base');
+    ball.currentSpeed = 17 * 5 - 0.01;
+    assert.equal(ball.isOverdrive, false);
+    ball.currentSpeed = 17 * 5;
+    assert.equal(ball.isOverdrive, true);
+});
+
+test('game modes apply no rally speed ceiling', async () => {
+    const modes = await readFile(new URL('../js/gamemodes.js', import.meta.url), 'utf8');
+    assert.match(modes, /game\.ball\.maxRallyMultiplier = Infinity;\s*game\.ball\.maxSpeed = Infinity;/);
 });
 
 test('isOverdrive is false while non-finite or below cap, true only once pinned at the cap', () => {

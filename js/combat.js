@@ -41,7 +41,9 @@ export function resolveKillerName(attacker, localPlayer, localName, lastShotBy, 
 // exceed `totalRadius` (ball + target capsule) times a safety factor. Distance-
 // driven (not speed-only) so a large dt (frame drop) gets the same protection
 // as a fast ball — the old speed*0.015 heuristic ignored dt entirely.
-export function sweptHitStepCount(distance, totalRadius, maxSteps = 6) {
+// 32 samples keep the gap under the capsule up to ~1900 u/s at 60 Hz — the
+// rally speed is uncapped, so the old cap of 6 could let a late ball skip a body.
+export function sweptHitStepCount(distance, totalRadius, maxSteps = 32) {
     if (!(distance > 0) || !(totalRadius > 0)) return 0;
     const gapTarget = totalRadius * 1.5;
     const steps = Math.ceil(distance / gapTarget) - 1;

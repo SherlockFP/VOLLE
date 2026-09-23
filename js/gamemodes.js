@@ -104,9 +104,11 @@ export function applyMode(game, modeId) {
     // Reset stats to defaults to avoid compounding speed/HP bugs
     game.ball.baseSpeed = 17;
     game.ball.rallySpeedStep = 0.30;
-    game.ball.maxRallyMultiplier = 6.0;
-    const cosmeticSpeedBonus = competitive ? 1 : (game.ball.skinConfig?.speedBonus || 1);
-    game.ball.maxSpeed = game.ball.baseSpeed * game.ball.maxRallyMultiplier * cosmeticSpeedBonus;
+    // No speed ceiling: every deflect keeps adding +30% until someone cracks
+    // (the old 6x / "600%" cap made long rallies plateau). Hits and deflects
+    // are swept along the ball's travelled segment, so speed cannot tunnel.
+    game.ball.maxRallyMultiplier = Infinity;
+    game.ball.maxSpeed = Infinity;
 
     game.player.gravity = -20;
     game.player.jumpForce = 8;

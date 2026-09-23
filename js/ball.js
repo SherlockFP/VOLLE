@@ -1713,7 +1713,10 @@ export class Ball {
     // ceiling. Infinity maxSpeed (no mode applied) can never be reached, so a
     // raw Ball is always false here — matches its uncapped-safe default.
     get isOverdrive() {
-        return Number.isFinite(this.maxSpeed) && this.currentSpeed >= this.maxSpeed;
+        if (Number.isFinite(this.maxSpeed)) return this.currentSpeed >= this.maxSpeed;
+        // Uncapped rally: overdrive is the top heat tier (5x base and beyond).
+        const base = Number.isFinite(this.baseSpeed) && this.baseSpeed > 0 ? this.baseSpeed : BALL_BASE_SPEED;
+        return this.currentSpeed >= base * BALL_HEAT_TIERS[BALL_HEAT_TIERS.length - 1].minRatio;
     }
 
     _updateHeatVisual() {
