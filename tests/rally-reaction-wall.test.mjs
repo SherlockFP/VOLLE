@@ -28,6 +28,7 @@ import { SimPlayer, Vector3, createBall, extractMethod, mulberry32, straightPath
 import { compileGameMethod, extractGameMethod } from './game-source.mjs';
 import { REMOTE_SWING_AGE_LIMITS, DEFLECT_TIMING_WINDOWS, predictContactMs } from '../js/perfect-deflect.js';
 import { targetFeetY } from '../js/combat.js';
+import { OVERDRIVE_MAX_RATIO } from '../js/combat-fx.js';
 
 const {
     SWING_ACTIVE_WINDOW,
@@ -619,7 +620,6 @@ const THREAT_RING_MAX_RADIUS = uiConst('THREAT_RING_MAX_RADIUS');
 const THREAT_RING_GOLD_MS = uiConst('THREAT_RING_GOLD_MS');
 const THREAT_ETA_MAX_TENTHS = uiConst('THREAT_ETA_MAX_TENTHS');
 const OVERDRIVE_BANNER_MS = uiConst('OVERDRIVE_BANNER_MS');
-const OVERDRIVE_UI_MAX_RATIO = uiConst('OVERDRIVE_UI_MAX_RATIO');
 const threatEtaKey = uiFunction('threatEtaKey', { THREAT_ETA_MAX_TENTHS });
 const formatThreatEta = uiFunction('formatThreatEta', { threatEtaKey });
 const threatRingRadius = uiFunction('threatRingRadius', { THREAT_RING_MAX_RADIUS });
@@ -735,7 +735,7 @@ function uiHarness() {
         THREAT_DIRECTION_LABELS: ['FRONT', 'LEFT', 'RIGHT', 'BEHIND'],
         THREAT_DIRECTIONS: ['front', 'left', 'right', 'rear'],
         OVERDRIVE_BANNER_MS,
-        OVERDRIVE_UI_MAX_RATIO,
+        OVERDRIVE_MAX_RATIO,
         threatRingRadius,
         threatEtaKey,
         formatThreatEta,
@@ -844,7 +844,7 @@ function overdriveHarness() {
         },
         audio: { playCue: name => log.push(['cue', name]) }
     };
-    const update = compileGameMethod('_updateOverdrivePresentation', { STATES, OVERDRIVE_MAX_RATIO: 8, OVERDRIVE_RALLY_RESET_RATIO: 2 });
+    const update = compileGameMethod('_updateOverdrivePresentation', { STATES, OVERDRIVE_MAX_RATIO, OVERDRIVE_RALLY_RESET_RATIO: 2 });
     return { game, ball, log, step: () => update.call(game) };
 }
 

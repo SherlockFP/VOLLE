@@ -186,9 +186,12 @@ SimPlayer.prototype.getSwingLiveInterval = playerMethods.getSwingLiveInterval;
 SimPlayer.prototype.endSwingTail = playerMethods.endSwingTail;
 
 const isIncomingDefenseThreat = runInNewContext(`(${extractMethod(botSource, 'isIncomingDefenseThreat', { exportedFunction: true })})`, { Number });
+// G9: advanceDeflectReady also reads PK_ARC/BOT_MOUNT_ARC_SECONDS (mid-mount-hop
+// deflect gate); these sim bots never set _pkMode, so PK_ARC only needs to exist,
+// not match anything real.
 const botMethods = compileMethods(botSource,
     ['_resetDefenseIntent', 'observeDefenseIntent', 'tryDeflect', 'advanceDeflectReady', 'commitDeflect'],
-    { isIncomingDefenseThreat, DEFENSE_DODGE_LATCH_SECONDS: 0.25, Math, Infinity });
+    { isIncomingDefenseThreat, DEFENSE_DODGE_LATCH_SECONDS: 0.25, Math, Infinity, PK_ARC: 1, BOT_MOUNT_ARC_SECONDS: 0.3 });
 
 export function createBot({ difficulty = 'hard', x = 0, z = 0, feetY = 0, team = 'blue', committed = false } = {}) {
     const tuning = BOT_DIFFICULTY[difficulty];

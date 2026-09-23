@@ -63,3 +63,10 @@ export function comboPitchRate(tier) {
     const t = Math.max(0, Math.min(3, Number(tier) || 0));
     return 1 + t * 0.06;
 }
+
+// G4 OVERDRIVE telegraph: MAX style from 8x base speed. The single definition —
+// js/game.js (_updateOverdrivePresentation) and js/ui.js (setOverdrive) both
+// import this instead of keeping their own copy (OVERDRIVE_MAX_RATIO /
+// OVERDRIVE_UI_MAX_RATIO used to drift independently even though they gate the
+// exact same visual threshold).
+export const OVERDRIVE_MAX_RATIO = 8;
