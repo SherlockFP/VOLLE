@@ -318,7 +318,7 @@ class Vector3 {
 }
 
 function dedupeHarness() {
-    const counts = { damage: 0, markers: [], playHit: 0, hitBurst: 0, killBurst: 0, knockouts: 0, flinch: 0 };
+    const counts = { damage: 0, markers: [], playHit: 0, impact: 0, hitBurst: 0, killBurst: 0, knockouts: 0, flinch: 0 };
     const globals = {
         ...CONSTANTS, neutralPose, writeDeadPose,
         THREE: { Vector3 },
@@ -363,7 +363,7 @@ function dedupeHarness() {
             showHitMarker: kind => counts.markers.push(kind),
             renderKillFeed() {}, showMessage() {}, showCombo() {}, flashHit() {}, showDamageDirection() {}
         },
-        audio: { playHit: () => counts.playHit++, playSfx() {}, playExplosion() {}, playCue() {} },
+        audio: { playHit: () => counts.playHit++, playKillImpact: () => counts.impact++, playSfx() {}, playExplosion() {}, playCue() {} },
         matchAnalytics: { recordHit() {}, recordKO() {} },
         scoreboard: { recordHit() {}, recordPoint() {} },
         arena: { mapId: 'court' },
@@ -423,7 +423,9 @@ test('client lethal hit: one number, one kill marker, one burst, one feed row, o
     game.applyPlayerHit(hostPacket(victim, { dmg: 25, lethal: true }));
     assert.equal(counts.damage, 1);
     assert.deepEqual(counts.markers, ['kill']);
-    assert.equal(counts.playHit, 1);
+    // G7: a lethal hit's sound is the single kill impact, not the hit bonk too.
+    assert.equal(counts.playHit, 0);
+    assert.equal(counts.impact, 1);
     assert.equal(counts.killBurst, 1);
     assert.equal(counts.knockouts, 1);
     assert.equal(victim.alive, false, 'host authority applied by the second caller');

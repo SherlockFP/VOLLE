@@ -363,6 +363,20 @@ test('initSettingsExtras: nudging the existing sound-volume slider re-applies ma
     assert.equal(calls.sound.at(-1), computeEffectiveVolume(80, 50, false));
 });
 
+test('initSettingsExtras: an audio bus with setMix gets sound, master and mute as separate channels (G7)', () => {
+    const store = createFakeStore({ masterVolume: 60, muted: false, soundVolume: 70 });
+    const mixes = [];
+    const sound = [];
+    const audio = { setMix: mix => mixes.push(mix), setSoundVolume: v => sound.push(v) };
+    const root = buildFakeRoot();
+    initSettingsExtras({ store, audio, root });
+    assert.deepEqual(mixes.at(-1), { sound: 0.7, master: 0.6, muted: false });
+
+    root.elements['#setting-mute'].dispatch('change', { checked: true });
+    assert.deepEqual(mixes.at(-1), { sound: 0.7, master: 0.6, muted: true });
+    assert.deepEqual(sound, [], 'setMix replaces the pre-multiplied setSoundVolume call');
+});
+
 test('initSettingsExtras: invert-Y checkbox persists and calls player.setInvertY', () => {
     const store = createFakeStore();
     const calls = [];
