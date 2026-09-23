@@ -609,20 +609,17 @@ test('bot G4 code stays inside the decision/readiness path (G5 movement untouche
 });
 
 // ---------------------------------------------------------------------------
-// (b7) ETA readout + closing ring
+// (b7) ETA readout (the closing reticle ring was removed)
 // ---------------------------------------------------------------------------
 
 function uiFunction(name, globals = {}) {
     return runInNewContext(`(${extractMethod(uiSource, name, { exportedFunction: true })})`, { Math, Number, ...globals });
 }
 const uiConst = name => Number(new RegExp(`export const ${name} = ([\\d.]+);`).exec(uiSource)[1]);
-const THREAT_RING_MAX_RADIUS = uiConst('THREAT_RING_MAX_RADIUS');
-const THREAT_RING_GOLD_MS = uiConst('THREAT_RING_GOLD_MS');
 const THREAT_ETA_MAX_TENTHS = uiConst('THREAT_ETA_MAX_TENTHS');
 const OVERDRIVE_BANNER_MS = uiConst('OVERDRIVE_BANNER_MS');
 const threatEtaKey = uiFunction('threatEtaKey', { THREAT_ETA_MAX_TENTHS });
 const formatThreatEta = uiFunction('formatThreatEta', { threatEtaKey });
-const threatRingRadius = uiFunction('threatRingRadius', { THREAT_RING_MAX_RADIUS });
 const getBallHeat = uiFunction('getBallHeat', { BALL_BASE_SPEED: 17 });
 const getBallThreat = uiFunction('getBallThreat', { getBallHeat, formatThreatEta });
 
@@ -648,18 +645,15 @@ test('ETA label: whole ms below 1 s ("140 MS"), one-decimal seconds from 1 s, ro
     assert.equal(getBallThreat(true, 17, 20, 'front', false, 0.1).level, 'alert');
 });
 
-test('closing ring: 64 px at the assignment, reticle radius at contact, gold inside the 60 ms PERFECT lead', () => {
-    assert.equal(THREAT_RING_MAX_RADIUS, 64);
-    assert.equal(THREAT_RING_GOLD_MS, DEFLECT_TIMING_WINDOWS.perfect);
-    assert.equal(threatRingRadius(300, 300, 18), 64);
-    assert.equal(threatRingRadius(0, 300, 18), 18);
-    assert.equal(threatRingRadius(150, 300, 18), 41);
-    assert.equal(threatRingRadius(600, 300, 18), 64, 'clamped');
-    assert.equal(threatRingRadius(Infinity, 300, 18), 64);
-    assert.equal(threatRingRadius(10, 300, NaN), 18 + 46 * (10 / 300));
+test('no closing ring around the reticle: markup, CSS, UI helpers and game wiring are gone', () => {
+    assert.doesNotMatch(html, /threat-eta-ring/);
+    assert.doesNotMatch(hudCss, /threat-eta-ring/);
+    assert.doesNotMatch(uiSource, /threat-eta-ring|threatRingRadius|THREAT_RING_|_threatRing|_readReticleRadius|clearThreatEta/);
+    assert.doesNotMatch(gameSource, /clearThreatEta|_threatEtaStartMs|_threatEtaAssignment/);
+    assert.match(extractGameMethod('updatePlayerThreat'), /this\.ui\?\.setThreatEta\?\.\(contactMs\);/);
 });
 
-test('ring reaches the reticle within one frame of the simulated G1 contact (5×/10×, 60/144 Hz)', () => {
+test('ETA label reaches 0 MS within one frame of the simulated G1 contact (5×/10×, 60/144 Hz)', () => {
     for (const hz of [60, 144]) {
         const dt = 1 / hz;
         for (const ratio of [5, 10]) {
@@ -670,16 +664,13 @@ test('ring reaches the reticle within one frame of the simulated G1 contact (5×
                 const player = createSwingPlayer();
                 const ball = createBall({ position: path.at(0), speed, target: player });
                 const game = { player, ball };
-                let start = null;
-                let ringFrame = null;
-                for (let j = 1; j < 1000 && ringFrame === null; j++) {
+                let zeroFrame = null;
+                for (let j = 1; j < 1000 && zeroFrame === null; j++) {
                     path.at(j * dt, ball.position);
-                    const contactMs = localContactMs.call(game);
-                    start ??= contactMs;
-                    if (threatRingRadius(contactMs, start, 18) === 18) ringFrame = j;
+                    if (localContactMs.call(game) <= 0) zeroFrame = j;
                 }
                 const contactFrame = Math.ceil(contactTime / dt - 1e-9);
-                assert.ok(Math.abs(ringFrame - contactFrame) <= 1, `${hz} Hz ${ratio}× phase ${phase}: ring ${ringFrame} contact ${contactFrame}`);
+                assert.ok(Math.abs(zeroFrame - contactFrame) <= 1, `${hz} Hz ${ratio}× phase ${phase}: 0 MS at ${zeroFrame} contact ${contactFrame}`);
             }
         }
     }
@@ -711,17 +702,13 @@ function fakeElement(id) {
 
 function uiHarness() {
     const elements = {};
-    for (const id of ['threat-eta-ring', 'incoming-indicator', 'overdrive-banner', 'overdrive-chip', 'crosshair', 'body']) elements[id] = fakeElement(id);
-    elements.circle = fakeElement('circle');
-    elements['threat-eta-ring'].child = elements.circle;
-    elements['threat-eta-ring'].classList.add('hidden');
+    for (const id of ['incoming-indicator', 'overdrive-banner', 'overdrive-chip', 'body']) elements[id] = fakeElement(id);
     elements['overdrive-chip'].classList.add('hidden');
     elements['overdrive-banner'].classList.add('hidden');
     const timers = [];
     const document = {
         body: elements.body,
-        getElementById: id => elements[id] || null,
-        querySelector: selector => (selector === '#hud .crosshair' ? elements.crosshair : null)
+        getElementById: id => elements[id] || null
     };
     const texts = [];
     const globals = {
@@ -730,58 +717,46 @@ function uiHarness() {
         Number,
         String,
         parseFloat,
-        THREAT_RING_GOLD_MS,
-        THREAT_RING_MAX_RADIUS,
         THREAT_DIRECTION_LABELS: ['FRONT', 'LEFT', 'RIGHT', 'BEHIND'],
         THREAT_DIRECTIONS: ['front', 'left', 'right', 'rear'],
         OVERDRIVE_BANNER_MS,
         OVERDRIVE_MAX_RATIO,
-        threatRingRadius,
         threatEtaKey,
         formatThreatEta,
         setText(el, key, params) { el.textContent = params ? `${key}:${params.x}` : key; texts.push([el.id, key, params?.x]); },
         setTimeout(fn, ms) { timers.push({ fn, ms }); return timers.length; },
         clearTimeout() {}
     };
-    const names = ['setThreatEta', 'clearThreatEta', '_readReticleRadius', 'showOverdriveBanner', '_hideOverdriveBanner', 'setOverdrive', '_syncOverdriveChip'];
+    const names = ['setThreatEta', 'showOverdriveBanner', '_hideOverdriveBanner', 'setOverdrive', '_syncOverdriveChip'];
     const methods = runInNewContext(`({ ${names.map(name => extractMethod(uiSource, name)).join(',\n')} })`, globals);
     const ui = Object.create(methods);
     return { ui, elements, timers, texts };
 }
 
-test('UI setThreatEta: label + ring follow each frame, DOM written only on change, strings cached (no steady-state allocation)', () => {
+test('UI setThreatEta: label follows each frame, DOM written only on change, strings cached (no steady-state allocation)', () => {
     const { ui, elements } = uiHarness();
-    const ring = elements['threat-eta-ring'];
-    const circle = elements.circle;
     const indicator = elements['incoming-indicator'];
     // Before the first 20 Hz sample the indicator label is left alone.
-    ui.setThreatEta(300, 300);
-    assert.equal(ring.classList.contains('hidden'), false);
-    assert.equal(circle.attrs.r, '64');
+    ui.setThreatEta(300);
     assert.equal(indicator.dataset.label, undefined);
     ui._threatLabelDirection = 0;
     ui._threatLabelKey = -2;
-    ui.setThreatEta(140.2, 300);
+    ui.setThreatEta(140.2);
     assert.equal(indicator.dataset.label, 'INCOMING 140 MS · FRONT');
     const firstLabel = indicator.dataset.label;
-    const writes = circle.writes + ring.writes;
-    ui.setThreatEta(140.3, 300); // same ms, same half-pixel radius
-    assert.equal(circle.writes + ring.writes, writes, 'no DOM write when nothing shown changes');
-    ui.setThreatEta(59.4, 300);
-    assert.equal(ring.classList.contains('gold'), true);
+    ui.setThreatEta(140.3); // same ms: no rewrite
+    assert.ok(Object.is(indicator.dataset.label, firstLabel));
+    ui.setThreatEta(59.4);
     assert.equal(indicator.dataset.label, 'INCOMING 59 MS · FRONT');
-    ui.setThreatEta(140.2, 300);
-    assert.equal(ring.classList.contains('gold'), false);
+    ui.setThreatEta(140.2);
     assert.ok(Object.is(indicator.dataset.label, firstLabel), 'cached label string reused');
-    ui.setThreatEta(1234, 2000);
+    ui.setThreatEta(1234);
     assert.equal(indicator.dataset.label, 'INCOMING 1.2S · FRONT');
-    ui.setThreatEta(0, 2000);
-    assert.equal(circle.attrs.r, '18', 'reticle radius (12 px arm + 6 px gap) at contact');
-    ui.clearThreatEta();
-    assert.equal(ring.classList.contains('hidden'), true);
-    assert.equal(ring.classList.contains('gold'), false);
+    ui.setThreatEta(0);
+    assert.equal(indicator.dataset.label, 'INCOMING 0 MS · FRONT');
     const body = extractMethod(uiSource, 'setThreatEta');
-    assert.doesNotMatch(body.replace(/\?\?= `[^`]*`/, '').replace(/\?\?= \[\]/g, '').replace(/\?\?= String\([^)]*\)/, ''), /`|new |\{\s*\w+:|\.toFixed\(/);
+    assert.doesNotMatch(body, /ring|circle|gold/i, 'label only, nothing drawn around the reticle');
+    assert.doesNotMatch(body.replace(/\?\?= `[^`]*`/, '').replace(/\?\?= \[\]/g, ''), /`|new |\{\s*\w+:|\.toFixed\(/);
 });
 
 test('Game.updatePlayerThreat refreshes the ETA every frame while the 20 Hz sample (label level, arrow, audio) stays rate-limited', () => {
@@ -805,7 +780,7 @@ test('Game.updatePlayerThreat refreshes the ETA every frame while the 20 Hz samp
         _localContactMs: localContactMs,
         _clearPlayerThreat() {},
         ui: {
-            setThreatEta: (ms, start) => calls.eta.push([ms, start]),
+            setThreatEta: (...args) => calls.eta.push(args),
             setPlayerTarget: () => { calls.target++; }
         },
         audio: { updateThreatAudio: () => { calls.audio++; } }
@@ -818,8 +793,7 @@ test('Game.updatePlayerThreat refreshes the ETA every frame while the 20 Hz samp
     assert.equal(calls.eta.length, 144, 'every frame');
     assert.ok(calls.target <= 21 && calls.target >= 17, `≤ 20 Hz samples: ${calls.target}`);
     assert.equal(calls.audio, calls.target, 'threat audio keeps its 20 Hz rate limit');
-    const start = calls.eta[0][1];
-    assert.ok(calls.eta.every(([, s]) => s === start), 'ETA at assignment is fixed for the assignment');
+    assert.ok(calls.eta.every(args => args.length === 1), 'only the contact ETA is passed (no ring start value)');
     assert.ok(calls.eta[143][0] < calls.eta[0][0]);
     const body = extractGameMethod('updatePlayerThreat');
     assert.doesNotMatch(body, /new THREE\.|\.clone\(|\{\s*side:/);
@@ -933,8 +907,8 @@ test('overdrive-enter cue is registered with a ≥ 1200 ms retrigger guard and s
     assert.match(gameSource, /this\.audio\?\.playCue\?\.\('overdrive-enter'\);/);
 });
 
-test('HUD markup, locales (EN/TR parity), reduced motion and lane geometry for banner/chip/ring', () => {
-    assert.match(html, /<svg id="threat-eta-ring" class="hidden" aria-hidden="true"[^>]*><circle cx="0" cy="0" r="64"><\/circle><\/svg>/);
+test('HUD markup, locales (EN/TR parity), reduced motion and lane geometry for banner/chip (no reticle ring)', () => {
+    assert.doesNotMatch(html, /threat-eta-ring/, 'no reticle ring markup');
     assert.match(html, /<div id="overdrive-banner" class="hidden" role="status" aria-live="polite"/);
     assert.match(html, /<div id="overdrive-chip" class="hidden" aria-hidden="true"><\/div>/);
     for (const key of ['overdrive', 'overdriveMax', 'overdriveChip']) {
@@ -965,6 +939,6 @@ test('HUD markup, locales (EN/TR parity), reduced motion and lane geometry for b
     assert.match(hudCss, /@media \(max-width: 700px\) \{[\s\S]*?left: 8px;\s+transform: none;\s+max-width: calc\(100vw - 172px\);/);
     const labelLeftFromRight = 8 + 118 + 2 * 10 + 2;
     assert.ok(8 + (375 - 172) <= 375 - labelLeftFromRight - 8);
-    // The ring is centred on the reticle, pointer-transparent.
-    assert.match(hudCss, /#threat-eta-ring \{\s+position: fixed;\s+top: 50%;\s+left: 50%;[\s\S]*?pointer-events: none;/);
+    // No reticle ring styles remain.
+    assert.doesNotMatch(hudCss, /#threat-eta-ring/);
 });

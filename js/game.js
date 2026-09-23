@@ -2588,10 +2588,6 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
 
     _clearPlayerThreat(resetAudio = false) {
         this._playerThreatSampleTimer = 0;
-        if (this._threatEtaActive) {
-            this._threatEtaActive = false;
-            this.ui?.clearThreatEta?.();
-        }
         if (!this._playerThreatActive) {
             if (resetAudio) this.audio?.resetThreatAudio?.();
             return;
@@ -2605,7 +2601,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
     updatePlayerThreat(dt) {
         const isWarmup = this.state === STATES.COUNTDOWN && this.ball?._warmup;
         const ball = this.ball;
-        const assignment = this._trackThreatAssignment();
+        this._trackThreatAssignment();
         const active = (this.state === STATES.PLAYING || isWarmup)
             && !!ball?.active
             && this.player?.alive !== false
@@ -2615,15 +2611,11 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             return;
         }
 
-        // G4: the ETA readout and closing ring follow the predicted G1 contact
-        // every frame; the 20 Hz sample below keeps level, arrow and audio.
+        // G4: the ETA readout follows the predicted G1 contact every frame; the
+        // 20 Hz sample below keeps level, arrow and audio. (The closing reticle
+        // ring was removed.)
         const contactMs = this._localContactMs();
-        if (this._threatEtaAssignment !== assignment) {
-            this._threatEtaAssignment = assignment;
-            this._threatEtaStartMs = contactMs;
-        }
-        this._threatEtaActive = true;
-        this.ui?.setThreatEta?.(contactMs, this._threatEtaStartMs);
+        this.ui?.setThreatEta?.(contactMs);
 
         this._playerThreatSampleTimer = Math.min(
             PLAYER_THREAT_SAMPLE_INTERVAL,
