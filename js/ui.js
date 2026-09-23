@@ -16,7 +16,7 @@ import { accountRankLabel, accountRankShort, levelProgress, prestigeTitle } from
 import { Store } from './store.js';
 import { matchesShopFilter, matchesShopQuery, compareShopItems, deriveShopCardState, SHOP_COLLECTIONS, shopCollectionForItem } from './shop-clarity.js';
 import { characterPortraitPath, shopNameFitTier, knifeTeamRestriction, isKnifeEquippedAny } from './shop-ux2.js';
-import { classifyDamageTier, nextPoolCursor, damageJitterFor, comboTier } from './combat-fx.js';
+import { classifyDamageTier, nextPoolCursor, damageJitterFor, comboTier, OVERDRIVE_MAX_RATIO } from './combat-fx.js';
 import { rewardRowState, tierCardState, SHOP_XP_BOOST } from './battlepass.js';
 import { buildRewardSummary, rewardStepDelays } from './match-analytics.js';
 import { Daily } from './daily.js';
@@ -78,9 +78,10 @@ export function threatRingRadius(contactMs, startMs, reticleRadius) {
 }
 const THREAT_DIRECTIONS = ['front', 'left', 'right', 'rear'];
 const THREAT_DIRECTION_LABELS = ['FRONT', 'LEFT', 'RIGHT', 'BEHIND'];
-// OVERDRIVE banner lifetime and the ratio that switches it (and the chip) to MAX.
+// OVERDRIVE banner lifetime. The ratio that switches it (and the chip) to MAX
+// is OVERDRIVE_MAX_RATIO, imported from combat-fx.js (the one definition
+// shared with game.js's own OVERDRIVE presentation).
 export const OVERDRIVE_BANNER_MS = 1200;
-export const OVERDRIVE_UI_MAX_RATIO = 8;
 
 export function getBallThreat(isTarget, ballSpeed, distance, direction = 'front', perfectWindow = false, contactEta = null) {
     if (!isTarget) return {
@@ -686,7 +687,7 @@ export class UI {
     setOverdrive(ratio) {
         const tenths = ratio > 0 ? Math.round(ratio * 10) : 0;
         if (!tenths && this._overdriveBannerShowing) this._hideOverdriveBanner();
-        const max = tenths > 0 && ratio >= OVERDRIVE_UI_MAX_RATIO;
+        const max = tenths > 0 && ratio >= OVERDRIVE_MAX_RATIO;
         const key = tenths * 2 + (max ? 1 : 0);
         if (key === this._overdriveChipKey) return;
         this._overdriveChipKey = key;

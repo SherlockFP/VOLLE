@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { t } from './i18n.js';
 import { Ball, chargeProfile, CHARGE_OVERCHARGE_SECONDS, ballHeatLevel, BALL_HEAT_TIERS, proximityAssistRange } from './ball.js';
-import { Bot } from './bot.js';
+import { Bot, BOT_FALL_GRAVITY } from './bot.js';
 import { Scoreboard } from './scoreboard.js';
 import { calcDamage, missRampDamage } from './characters.js';
 import { Arena, isFallDeathPosition } from './arena.js';
@@ -19,7 +19,7 @@ import { AffixManager } from './affixes.js';
 import { SKILLS, useSkill, tickSkillCooldowns, ULTIMATES, perfectDeflectCooldownCut } from './skills.js';
 import { isNewerSequence } from './network.js';
 import { resolveKillerName, sweptHitStepCount, scaleDedupWindowMs, scaleLethalGraceMs, decayKillConfirmEntries, capsuleContact, targetFeetY, segmentSphereEntry, segmentCapsuleEntry, deflectContactS } from './combat.js';
-import { comboTier, comboPitchRate } from './combat-fx.js';
+import { comboTier, comboPitchRate, OVERDRIVE_MAX_RATIO } from './combat-fx.js';
 import './hit-feedback.js';
 import { goalScoringTeam, checkGoalEntry } from './goal-mode.js';
 import {
@@ -131,9 +131,9 @@ const POWERUP_RESPAWN = 45;
 const POWERUP_RESPAWN_VARIANCE = 15;
 const POWERUP_LIFETIME = 30;
 const PLAYER_THREAT_SAMPLE_INTERVAL = 0.05;
-// G4 OVERDRIVE telegraph: MAX style from 8× base speed; a live ball back under
-// 2× (a fresh spawn) is a new rally even if it never went inactive.
-const OVERDRIVE_MAX_RATIO = 8;
+// G4 OVERDRIVE telegraph: a live ball back under 2× (a fresh spawn) is a new
+// rally even if it never went inactive. OVERDRIVE_MAX_RATIO (MAX style from 8×
+// base speed) lives in combat-fx.js — the one definition shared with ui.js.
 const OVERDRIVE_RALLY_RESET_RATIO = 2;
 const OPENING_WARMUP_VISIBLE_MS = 1500;
 const OPENING_LOCAL_MIN_ETA_SECONDS = 1;
@@ -1003,10 +1003,11 @@ startGame(skipPreGame = false, matchId = null) {
         this._killStreakTimers.clear();
         this._overtimeExtends = 0;
         this._spectateTarget = null;
-        if (this.arena.config?.lowGravity && this.mode?.id === 'classic') {
-            this.player.gravity = -7;
-            this.player.jumpForce = 12;
-        }
+        // G9: lowGravity maps get their scale from player.js's own
+        // resolveGravityScale (× LOW_GRAVITY_FACTOR) applied to the default
+        // gravity/jumpForce. This override used to stack a second reduction on
+        // top of that (gravity -7, jumpForce 12 -> apex ~18.7 m, clipped by the
+        // ceiling); removed so the map's low gravity is only ever applied once.
         this._hideKillcam();
         this.ui.hideAll();
         this.ui.showHUD();
@@ -2379,43 +2380,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 return;
             }
             // Bots participate during celebration — everyone moves freely
-            this.bots.forEach(bot => {
-                if (!bot.alive) return;
-                // Periodic random wander target so bots visibly move
-                if (!bot._celebTarget || bot.position.distanceTo(bot._celebTarget) < 2) {
-                    const b = this.arena.bounds;
-                    bot._celebTarget = new THREE.Vector3(
-                        b.minX + 2 + Math.random() * (b.maxX - b.minX - 4),
-                        0,
-                        b.minZ + 2 + Math.random() * (b.maxZ - b.minZ - 4)
-                    );
-                }
-                const dir = new THREE.Vector3().subVectors(bot._celebTarget, bot.position).normalize();
-                bot.position.add(dir.multiplyScalar(bot.moveSpeed * 0.6 * dt));
-                bot.position.y = 0;
-                // Turn to face movement direction
-                if (dir.lengthSq() > 0.01) {
-                    bot.group.rotation.y = Math.atan2(dir.x, dir.z);
-                }
-                bot.group.position.copy(bot.position);
-                // Attack cooldown
-                if (bot.attackTimer > 0) {
-                    bot.attackTimer -= dt;
-                    if (bot.attackTimer <= 0) bot.attacking = false;
-                }
-                // Winners damage nearby enemies
-                if (bot.team === this._winningTeam) {
-                    const targets = this.bots.filter(b => b.alive && b.team !== bot.team);
-                    for (const t of targets) {
-                        if (bot.position.distanceTo(t.getPosition()) < 2.5) {
-                            t.takeDamage?.(6);
-                            t.alive = false;
-                            t.group.visible = false;
-                            this.spawnDeathExplosion(t.getPosition(), t.team);
-                        }
-                    }
-                }
-            });
+            this._updateCelebrationBots(dt);
 
             const isClient = this.network?.connected && !this.network?.isHost;
             if (!isClient && this._celebrationTimer <= 0) this._onCelebrationEnd();
@@ -7344,6 +7309,93 @@ applyPowerUpState(data) {
         const eased = 1 - (1 - t) * (1 - t) * (1 - t); // ease-out cubic
         clone.position.y = this._trophyBaseY - 0.6 * (1 - eased);
         clone.rotation.y += dt * 0.5;
+    }
+
+    // G9: everyone wanders freely once grounded, but a bot caught elevated
+    // (mid mount hop / standing on a piece / already walking off) rides the
+    // real parkour dismount walk (js/bot.js _beginDismount/_applyScriptedWalk)
+    // and falls under gravity BOT_FALL_GRAVITY instead of snapping straight to
+    // y = 0 — this used to force `bot.position.y = 0` every frame regardless
+    // of parkour state, teleporting a bot on a ledge to the floor the instant
+    // celebration started. _pkMode: 0 none, 1 mid-hop arc, 2 on a piece, 3
+    // walking off (see js/bot.js PK_*).
+    _updateCelebrationBots(dt) {
+        this.bots.forEach(bot => {
+            if (!bot.alive) return;
+            const previousX = bot.position.x;
+            const previousZ = bot.position.z;
+            const pkMode = bot._pkMode || 0;
+            if (pkMode !== 0) {
+                if (pkMode === 1) {
+                    bot._stepMountArc(dt); // let the scripted hop land it on the piece
+                } else {
+                    // Lateral: the real walk-off target/motion (cosmetic — a
+                    // believable "hops down" cue), started once and then
+                    // walked to completion.
+                    if (pkMode === 2) bot._beginDismount();
+                    bot._applyScriptedWalk(dt, bot.moveSpeed, previousX, previousZ);
+                    // Vertical: one unbroken fall under gravity BOT_FALL_GRAVITY
+                    // straight to the floor, the instant the reason for being up
+                    // is gone. Live play instead lands on whatever lower piece is
+                    // directly underneath and resets fall speed there
+                    // (_resolveBotHeight/_parkourSupportAt), which is correct for
+                    // gameplay but can't clear a 2-piece stack (a ledge sits
+                    // right over its step) inside this method's 0.6 s / sub-frame
+                    // drop budget — an 8 s cosmetic celebration doesn't need that
+                    // per-platform fidelity, just to be off the piece and moving.
+                    if (bot.position.y > 0) {
+                        bot._fallVy = (bot._fallVy || 0) + BOT_FALL_GRAVITY * dt;
+                        bot.position.y = Math.max(0, bot.position.y + bot._fallVy * dt);
+                    }
+                    if (bot.position.y <= 0) {
+                        bot.position.y = 0;
+                        bot._fallVy = 0;
+                        bot._pkMode = 0;
+                        bot._pkPiece = null;
+                    }
+                }
+                bot.group.position.copy(bot.position);
+                if (bot.attackTimer > 0) {
+                    bot.attackTimer -= dt;
+                    if (bot.attackTimer <= 0) bot.attacking = false;
+                }
+                return; // rejoins the ground wander below once _pkMode is back to 0
+            }
+            // Periodic random wander target so bots visibly move
+            if (!bot._celebTarget || bot.position.distanceTo(bot._celebTarget) < 2) {
+                const b = this.arena.bounds;
+                bot._celebTarget = new THREE.Vector3(
+                    b.minX + 2 + Math.random() * (b.maxX - b.minX - 4),
+                    0,
+                    b.minZ + 2 + Math.random() * (b.maxZ - b.minZ - 4)
+                );
+            }
+            const dir = new THREE.Vector3().subVectors(bot._celebTarget, bot.position).normalize();
+            bot.position.add(dir.multiplyScalar(bot.moveSpeed * 0.6 * dt));
+            bot.position.y = 0;
+            // Turn to face movement direction
+            if (dir.lengthSq() > 0.01) {
+                bot.group.rotation.y = Math.atan2(dir.x, dir.z);
+            }
+            bot.group.position.copy(bot.position);
+            // Attack cooldown
+            if (bot.attackTimer > 0) {
+                bot.attackTimer -= dt;
+                if (bot.attackTimer <= 0) bot.attacking = false;
+            }
+            // Winners damage nearby enemies
+            if (bot.team === this._winningTeam) {
+                const targets = this.bots.filter(b => b.alive && b.team !== bot.team);
+                for (const t of targets) {
+                    if (bot.position.distanceTo(t.getPosition()) < 2.5) {
+                        t.takeDamage?.(6);
+                        t.alive = false;
+                        t.group.visible = false;
+                        this.spawnDeathExplosion(t.getPosition(), t.team);
+                    }
+                }
+            }
+        });
     }
 
     _teardownCelebrationTrophy() {

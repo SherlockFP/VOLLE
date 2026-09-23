@@ -3373,6 +3373,12 @@ body.photo-mode #hud,body.photo-mode #scoreboard-overlay,body.photo-mode .networ
     z-index: 1;
     top: 82px;
     left: 50%;
+    /* The global `* { box-sizing: border-box }` reset (css/style.css) collapses
+       this border-triangle hack to 0x0 -- border-box has no content box left
+       to size once width/height are 0, so the borders never render. Opt this
+       element back into content-box sizing so the borders draw at their full
+       9/9/17 px and the triangle keeps its real hit/visual size. */
+    box-sizing: content-box;
     width: 0;
     height: 0;
     border-top: 9px solid transparent;

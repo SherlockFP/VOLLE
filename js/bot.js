@@ -612,7 +612,7 @@ export class Bot {
             this._moveAroundProps(previousX, previousZ);
             // Feet height = what the bot stands on (floor, or a parkour top).
             this._resolveBotHeight(dt);
-            this._updateParkour(dt);
+            this._updateParkour(dt, ball);
             this._updateUnstick(dt, wanted, moveSpeed);
         }
         this.group.position.copy(this.position);
@@ -963,9 +963,27 @@ export class Bot {
         position.z += dz / distance * step;
     }
 
-    _tryMountParkour() {
+    _tryMountParkour(ball) {
         const platforms = this.arena.platforms;
         if (!platforms?.length || this._defenseIntent !== 'none') return false;
+        // G9: a hop hands the body to a BOT_MOUNT_ARC_SECONDS scripted arc that
+        // cannot deflect until it lands (advanceDeflectReady) -- never start one
+        // while the ball is actually closing in on this bot (same threat test
+        // observeDefenseIntent uses) with less than the hop plus reaction time
+        // left before contact. Only guards the narrow gap before the ball
+        // enters alert range and _defenseIntent takes over (already 'none'
+        // here); a targeted ball that isn't closing, or isn't close yet, is
+        // never blocked.
+        if (ball?.active && ball.targetPlayer === this && ball.currentSpeed > 0) {
+            const dx = ball.position.x - this.position.x;
+            const dy = ball.position.y - (this.position.y + 1.2);
+            const dz = ball.position.z - this.position.z;
+            const dist = Math.hypot(dx, dy, dz);
+            if (isIncomingDefenseThreat(ball, dx, dy, dz, dist)) {
+                const eta = (dist - ball.attackRange) / ball.currentSpeed;
+                if (eta < BOT_MOUNT_ARC_SECONDS + this.reactionTime) return false;
+            }
+        }
         const position = this.position;
         const radius = this.radius || 0.5;
         for (let i = 0; i < platforms.length; i++) {
@@ -1027,17 +1045,18 @@ export class Bot {
     }
 
     // Stay up while the reason holds; walk off once it has been false for
-    // BOT_DISMOUNT_DELAY. From the floor or a lower piece, try to mount.
-    _updateParkour(dt) {
+    // BOT_DISMOUNT_DELAY. From the floor or a lower piece, try to mount. `ball`
+    // is threaded through to _tryMountParkour for its targeted-contact gate.
+    _updateParkour(dt, ball) {
         if (!this.alive) return;
         const mode = this._pkMode || PK_NONE;
         if (mode === PK_ON) {
             if (this._parkourReason(this._pkPiece)) this._pkFalseFor = 0;
             else this._pkFalseFor += dt;
-            if (this._defenseIntent === 'none' && this._tryMountParkour()) return;
+            if (this._defenseIntent === 'none' && this._tryMountParkour(ball)) return;
             if (this._pkFalseFor >= BOT_DISMOUNT_DELAY && this._defenseIntent === 'none') this._beginDismount();
         } else if (mode === PK_NONE) {
-            this._tryMountParkour();
+            this._tryMountParkour(ball);
         }
     }
 
@@ -1292,6 +1311,12 @@ export class Bot {
             this.windUpCommitted = true;  // committed - now check for mishit
             readyAt = Math.max(readyAt, windUpTime - windUpBefore);
         }
+        // G9: mid a scripted mount hop the arc owns the body until it lands —
+        // never ready to deflect before then, however far reaction/wind-up
+        // have already progressed (deflectReadyAt stays Infinity, which is
+        // "at least" any remaining arc time, including the last sub-frame
+        // sliver before _stepMountArc flips _pkMode off PK_ARC).
+        if (this._pkMode === PK_ARC) return Infinity;
         this.deflectReadyAt = Math.min(readyAt, dt);
         return this.deflectReadyAt;
     }
