@@ -2,6 +2,10 @@
 
 > Güncel çalışma: [[sessions/2026-09-23-aaa-overhaul-pass1]] — plan `docs/AAA_ROADMAP.md`. Önceki: [[sessions/2026-09-20-owner-gameplay-pass]].
 
+## En yeni — Playtest geçişi ([[sessions/2026-09-23-playtest-pass]])
+- Harbor gece gökyüzü beyaz lekeleri (bulut shader'ı), menü social rail çakışması, lobi buton yerleşimi, maç sonu görseli, Esc ile geri, maç sonu harita değişiminde lobi senkronu, lobi EN/TR.
+- Doğrulama **2273/2273 test**, build OK, commit `b847617` main'e gönderildi.
+
 ## En yeni — AAA geçişi 2–3 ([[sessions/2026-09-23-aaa-overhaul-pass2]])
 - Ayrı viewmodel katmanı (FOV 60, stüdyo yansımaları), yeni eldivenli el, anahtar kareli CS2 tarzı animasyonlar (inspect varyantları, R twirl), 5 yeni bıçak modeli, sentez bıçak sesleri.
 - 24 eldiven, Glovebox + Blade Vault kasaları, S/A/B/C tier + Tier List, gerçek 3D ürün görselleri ve 3D kasa açılışı, MVP ekranı.
