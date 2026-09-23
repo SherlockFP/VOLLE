@@ -162,6 +162,27 @@ body.social-hub-active #menu-particles {
     100% { opacity: 0; pointer-events: none; }
 }
 #match-intro.hidden { display: none; }
+/* Countdown cover chip (ui.showCoverChip): below the countdown digits — clear
+   even of their 1.5x countPulse box (top 128 px + 6em) — and of the intro pill
+   above them; pointer-transparent, one line. */
+#match-cover-chip {
+    position: fixed; top: max(292px, calc(env(safe-area-inset-top) + 292px)); left: 50%; z-index: 180;
+    transform: translateX(-50%);
+    pointer-events: none;
+    max-width: calc(100vw - 32px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    padding: 4px 12px;
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    border-radius: 999px;
+    background: rgba(5, 13, 28, 0.55);
+    color: #ffffff;
+    font-size: .72em; font-weight: 800; letter-spacing: 1.4px;
+    animation: coverChipIn .32s ease-out both;
+}
+@keyframes coverChipIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+#match-cover-chip[data-cover="on"] { color: #ffe08a; border-color: rgba(255, 211, 107, 0.5); }
 .mi-content { display: flex; align-items: center; justify-content: center; min-height: 16px; text-align: center; }
 .mi-vs { display: none; }
 .mi-team {
@@ -3127,6 +3148,20 @@ body.reduced-motion #combo-edge-glow { display: none; }
     gap: 10px;
 }
 
+/* Lobby note: in-court cover is rolled per match (main.js _showLobbyCoverNote). */
+.carousel-cover-note {
+    display: block;
+    margin-top: 4px;
+    color: rgba(255,255,255,0.78);
+    font-size: 0.62em;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .carousel-weather {
     font-size: 1.2em;
     filter: drop-shadow(0 1px 4px rgba(0,0,0,0.5));
@@ -5968,6 +6003,14 @@ select:focus-visible,
 .scoreboard-table th,
 .scoreboard-table td {
     border-color: rgba(27, 104, 151, 0.12);
+}
+
+.scoreboard-cover {
+    margin: 10px 0 0;
+    color: var(--shell-muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-align: center;
 }
 
 .scoreboard-hint {

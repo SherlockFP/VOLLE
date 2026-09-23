@@ -2778,11 +2778,15 @@ export class Arena {
     // `bottom` > 0 makes a floating box (slab, canopy, arch segment).
     // `standable` true = standable when reachable (top <= SOLID_TOP_STANDABLE_MAX);
     // 'always' = standable at any height (parkour tops reached from lower pieces).
-    _addSolidBox(mesh, x, z, halfWidth, halfDepth, height, standable = true, bottom = 0) {
+    // `parkour` ('step' | 'ledge' | 'perch') tags a parkour top's platform record
+    // so bots know which pieces they may climb (js/bot.js _tryMountParkour).
+    _addSolidBox(mesh, x, z, halfWidth, halfDepth, height, standable = true, bottom = 0, parkour = null) {
         const box = blockCollider({ x, z, halfWidth, halfDepth, height, bottom });
         this.collidables.push({ mesh, pos: new THREE.Vector3(x, (bottom + height) / 2, z), radius: Math.min(halfWidth, halfDepth), ...box });
         if (standable === 'always' || (standable && height <= SOLID_TOP_STANDABLE_MAX)) {
-            this.platforms.push({ x, z, y: height, halfWidth, halfDepth, solid: true });
+            const platform = { x, z, y: height, halfWidth, halfDepth, solid: true };
+            if (parkour) platform.parkour = parkour;
+            this.platforms.push(platform);
         }
     }
 
@@ -2877,7 +2881,7 @@ export class Arena {
                     }
                 }
             }
-            this._addSolidBox(body, x, z, hw, hd, h, 'always');
+            this._addSolidBox(body, x, z, hw, hd, h, 'always', 0, piece.kind);
         });
         for (const mesh of [body, cap, lip, posts]) {
             if (!mesh) continue;

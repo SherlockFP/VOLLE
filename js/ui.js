@@ -29,6 +29,8 @@ import { localizedName, setText, t } from './i18n.js';
 import { awaitGemCredit, buildGemShop, gemShopView, readPurchaseReturn, rememberGemsBeforeCheckout, stripPurchaseParams, takeGemsBeforeCheckout } from './gem-shop.js';
 
 const BALL_BASE_SPEED = 17;
+// Countdown "COVER ON / OPEN COURT" chip lifetime (>= 2.5 s readable).
+export const COVER_CHIP_VISIBLE_MS = 3000;
 
 export function getBallHeat(ballSpeed, baseSpeed = BALL_BASE_SPEED) {
     const speed = Number.isFinite(ballSpeed) ? Math.max(0, ballSpeed) : 0;
@@ -410,10 +412,32 @@ export class UI {
         }
     }
 
-    updateScoreboard(stats, ffa = false) {
+    updateScoreboard(stats, ffa = false, { cover } = {}) {
         this.updateScoreboardTable('scoreboard-body', stats, ffa);
         const heading = document.querySelector('#scoreboard-overlay th:nth-child(2)');
         if (heading) heading.textContent = ffa ? t('mp.mode') : t('common.team');
+        this._updateScoreboardCover(cover);
+    }
+
+    // One-line cover state under the Tab table (repeats the countdown chip,
+    // so a late joiner who never saw the countdown can still read it).
+    _updateScoreboardCover(cover) {
+        const shell = document.querySelector('#scoreboard-overlay .scoreboard-shell');
+        if (!shell) return;
+        let line = document.getElementById('scoreboard-cover');
+        if (typeof cover !== 'boolean') {
+            line?.classList.add('hidden');
+            return;
+        }
+        if (!line) {
+            line = document.createElement('p');
+            line.id = 'scoreboard-cover';
+            line.className = 'scoreboard-cover';
+            shell.insertBefore(line, shell.querySelector('.scoreboard-hint'));
+        }
+        setText(line, cover ? 'match.coverStateOn' : 'match.coverStateOff');
+        if (line.dataset) line.dataset.cover = cover ? 'on' : 'off';
+        line.classList.remove('hidden');
     }
 
     updateScoreboardTable(tbodyId, stats, ffa = false) {
@@ -739,7 +763,10 @@ export class UI {
         setTimeout(() => el.classList.add('hidden'), 2500);
     }
 
-    showMatchIntro(mapName, modeName) {
+    // `cover` (boolean): this match's rolled in-court props — host/solo pass
+    // arena.propsEnabled, clients the value adopted from the snapshot's `props`.
+    showMatchIntro(mapName, modeName, { cover } = {}) {
+        this.showCoverChip(cover);
         const el = document.getElementById('match-intro');
         if (!el) return;
         const mapEl = document.getElementById('mi-map-name');
@@ -753,6 +780,25 @@ export class UI {
         el.style.animation = 'none';
         void el.offsetHeight;
         el.style.animation = '';
+    }
+    // "COVER ON" / "OPEN COURT" chip for the countdown. Its own element and
+    // timer: the intro pill hides after 1.5 s, the chip stays COVER_CHIP_VISIBLE_MS.
+    showCoverChip(cover) {
+        if (typeof cover !== 'boolean' || typeof document === 'undefined') return;
+        let chip = document.getElementById('match-cover-chip');
+        if (!chip && document.body && typeof document.createElement === 'function') {
+            chip = document.createElement('div');
+            chip.id = 'match-cover-chip';
+            chip.setAttribute?.('role', 'status');
+            chip.setAttribute?.('aria-live', 'polite');
+            document.body.appendChild(chip);
+        }
+        if (!chip) return;
+        setText(chip, cover ? 'match.coverOn' : 'match.coverOff');
+        if (chip.dataset) chip.dataset.cover = cover ? 'on' : 'off';
+        chip.classList.remove('hidden');
+        clearTimeout(this._coverChipTimer);
+        this._coverChipTimer = setTimeout(() => chip.classList.add('hidden'), COVER_CHIP_VISIBLE_MS);
     }
     scheduleMatchIntroHide(durationMs) {
         clearTimeout(this._matchIntroHideTimer);
