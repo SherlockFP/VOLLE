@@ -29,8 +29,8 @@ test('local and P2P source paths gate death FX but retain normal hit feedback', 
     const local = game.slice(localStart, clientStart);
     const client = game.slice(clientStart, clientEnd);
 
-    assert.match(local, /const presentedLethal = isLethal\s*\? this\._presentLethalImpact\(hitPos, hitTarget\.team, scorerName, name, this\.rallyCount\)/);
-    assert.match(local, /if \(!isLethal\) \{\s*this\.juice\.hitBurst\(hitPos\);\s*this\.juice\.shockwave\(hitPos, 0xff8844\);\s*this\.juice\.hitStop\(35\);\s*this\.juice\.flash\(0\.22\);/);
+    assert.match(local, /const presentedLethal = isLethal && presentHit\s*\? this\._presentLethalImpact\(hitPos, hitTarget\.team, scorerName, name, this\.rallyCount\)/);
+    assert.match(local, /if \(presentHit && !isLethal\) \{\s*this\.juice\.hitBurst\(hitPos\);\s*this\.juice\.shockwave\(hitPos, 0xff8844\);\s*this\.juice\.hitStop\(35\);\s*this\.juice\.flash\(0\.22\);/);
     assert.equal((local.match(/tf2_scout_scream/g) || []).length, 1, 'local victim grunt must play once per hit');
 
     assert.match(client, /const presentedLethal = isLethal\s*\? this\._presentLethalImpact\(/);
@@ -42,5 +42,7 @@ test('local and P2P source paths gate death FX but retain normal hit feedback', 
     const presenterEnd = game.indexOf('    _showMatchMessage(', presenterStart);
     const presenter = game.slice(presenterStart, presenterEnd);
     assert.match(presenter, /this\.juice\.killBurst\(hitPos\);[\s\S]*?this\.juice\.hitStop\(150\);[\s\S]*?this\.juice\.flash\(0\.55\);/);
-    assert.match(presenter, /this\.audio\.playSfx\('tf2_explosion', 0\.5\);[\s\S]*?window\.addKillFeed\?\.\([\s\S]*?this\.audio\.playExplosion\(\);/);
+    assert.match(presenter, /this\.audio\.playSfx\('tf2_explosion', 0\.5\);[\s\S]*?this\.audio\.playExplosion\(\);/);
+    // G6: the dead window.addKillFeed call is gone; the feed is Game._pushKillFeedRow.
+    assert.doesNotMatch(game, /window\.addKillFeed/);
 });

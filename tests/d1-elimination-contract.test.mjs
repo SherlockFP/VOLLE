@@ -106,13 +106,18 @@ test('exact P2P applyPlayerHit harness never routes an authoritative lethal pack
     const applyPlayerHit = compileGameMethod('applyPlayerHit');
     const target = { name: 'Victim', hp: 100, alive: true, group: { visible: true } };
     let revives = 0;
+    let knockouts = 0;
     const game = {
         remotePlayers: new Map([['victim-id', target]]),
         bots: [],
         player: { name: 'Local' },
         playerName: 'Local',
         network: { connected: true, isHost: false },
-        _reconcileHostRevive() { revives++; }
+        _reconcileHostRevive() { revives++; },
+        _claimHitPresentation: () => true,
+        _resolveBodyFxDir() { this._fxDirX = 1; this._fxDirZ = 0; },
+        // G6: the confirmed death is presented as a knockout, not a same-tick vanish.
+        presentKnockout(victim) { knockouts++; victim._koActive = true; return true; }
     };
 
     applyPlayerHit.call(game, {
@@ -125,7 +130,8 @@ test('exact P2P applyPlayerHit harness never routes an authoritative lethal pack
     assert.equal(revives, 0);
     assert.equal(target.hp, 0);
     assert.equal(target.alive, false);
-    assert.equal(target.group.visible, false);
+    assert.equal(knockouts, 1, 'the body is kept on screen by one knockout presentation');
+    assert.equal(target.group.visible, true, '_updateKnockouts hides it at 0.9 s, not the packet');
 
     // Contradictory legacy/malformed packets also cannot revive when lethal is true.
     applyPlayerHit.call(game, {
@@ -137,6 +143,7 @@ test('exact P2P applyPlayerHit harness never routes an authoritative lethal pack
     });
     assert.equal(revives, 0);
     assert.equal(target.alive, false);
+    assert.equal(knockouts, 1, 'a duplicate lethal packet never restarts the knockout');
 });
 
 function fakeTimers() {
@@ -195,6 +202,7 @@ test('local and P2P lethal routes share one exactly-once readable KO presenter',
     assert.equal(present.call(game, hit, 'blue', 'Attacker', 'Victim', 7), false);
     assert.equal(calls.filter(call => call === 'kill-burst').length, 1);
     assert.equal(calls.filter(call => call === 'explosion').length, 1);
+    assert.equal(calls.includes('external-feed'), false, 'G6: no dead window.addKillFeed call');
     assert.equal(timers.pending.length, 1);
     timers.runAll();
     assert.deepEqual(messages, [{ text: 'KO CONFIRMED - Victim', duration: 900 }]);
@@ -210,8 +218,8 @@ test('local and P2P lethal routes share one exactly-once readable KO presenter',
 
 test('nonlethal route has zero elimination presentation calls', () => {
     const source = extractGameMethod('_doApplyHit');
-    assert.match(source, /const presentedLethal = isLethal\s*\? this\._presentLethalImpact\(/);
-    assert.match(source, /if \(!isLethal\) \{\s*this\.juice\.hitBurst/);
+    assert.match(source, /const presentedLethal = isLethal && presentHit\s*\? this\._presentLethalImpact\(/);
+    assert.match(source, /if \(presentHit && !isLethal\) \{\s*this\.juice\.hitBurst/);
 });
 
 test('death explosion delegates to the bounded Juice pool with no per-kill geometry allocation', () => {

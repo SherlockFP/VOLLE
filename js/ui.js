@@ -2239,14 +2239,18 @@ export class UI {
         el.classList.add('flash');
     }
 
-    showHitMarker(headshot = false) {
+    // kind: 'hit' | 'head' | 'kill' (a legacy boolean still means headshot).
+    // Colour/size/duration live in CSS (#hit-marker.hit/.head/.kill, hud.css).
+    showHitMarker(kind = 'hit') {
         const el = document.getElementById('hit-marker');
         if (!el) return;
-        el.style.color = headshot ? '#ffdd00' : 'white';
-        el.style.fontSize = headshot ? '2em' : '1.5em';
-        el.classList.remove('show');
+        const markerKind = kind === true ? 'head' : kind === 'head' || kind === 'kill' ? kind : 'hit';
+        el.style.color = '';
+        el.style.fontSize = '';
+        el.classList.remove('show', 'hit', 'head', 'kill');
         void el.offsetWidth;
-        el.classList.add('show');
+        el.classList.add('show', markerKind);
+        el.dataset.kind = markerKind;
     }
 
     showDamageDirection(angle) {
@@ -2297,34 +2301,54 @@ export class UI {
         fill.classList.toggle('ready', remaining <= 0);
     }
 
-    // Kill feed — animated entries, max 5, slide in, fade out after 5s.
-    renderKillFeed(killFeed) {
+    // Kill feed — eliminations only (game.js pushes lethal rows), newest first, max 5,
+    // fade after 4 s, gone at 5 s. Rows are keyed by entry so the per-frame call only
+    // toggles the fade class; a row is built once, when its kill lands (slide-in).
+    renderKillFeed(killFeed = []) {
         const el = document.getElementById('kill-feed');
         if (!el) return;
         const now = performance.now();
-        // Trim expired entries
-        const visible = killFeed.filter(e => now - e.time < 5000);
-        // Max 5 entries
-        const entries = visible.slice(-5);
-        // Remove excess DOM children
-        while (el.children.length > entries.length) el.removeChild(el.firstChild);
-        entries.forEach((e, i) => {
-            let row = el.children[i];
-            if (!row) {
-                row = document.createElement('div');
-                el.appendChild(row);
+        let shown = 0;
+        for (let index = 0; index < killFeed.length && shown < 5; index++) {
+            const entry = killFeed[index];
+            const age = now - entry?.time;
+            if (!(age < 5000)) continue;
+            let row = el.children[shown];
+            if (!row || row._killEntry !== entry) {
+                row = this._buildKillFeedRow(entry);
+                el.insertBefore(row, el.children[shown] || null);
             }
-            const isHeadshot = e.headshot;
-            const age = now - e.time;
-            // Apply fade-out class for entries older than 4s
-            if (age > 4000 && !row.classList.contains('fade-out')) {
-                row.classList.add('fade-out');
-            }
-            row.className = 'kill-entry' + (isHeadshot ? ' headshot' : '') + (age > 4000 ? ' fade-out' : '');
-            row.innerHTML = `<span class="killer">${this.escapeHTML(e.killer || e.attacker || 'Bot')}</span>` +
-                `<span class="weapon-icon">${isHeadshot ? '💀' : '🏐'}</span>` +
-                `<span class="victim">${this.escapeHTML(e.victim || 'Bot')}</span>`;
-        });
+            row.classList.toggle('fade-out', age > 4000);
+            shown++;
+        }
+        while (el.children.length > shown) el.removeChild(el.lastChild);
+    }
+
+    _buildKillFeedRow(entry) {
+        const teamClass = team => team === 'red' || team === 'blue' ? ` team-${team}` : '';
+        const row = document.createElement('div');
+        row._killEntry = entry;
+        row.className = 'kill-entry' + (entry.headshot ? ' headshot' : '') + (entry.perfect ? ' perfect' : '');
+        const killer = document.createElement('span');
+        killer.className = 'killer' + teamClass(entry.attackerTeam);
+        killer.textContent = entry.killer || entry.attacker || 'Bot';
+        const icon = document.createElement('span');
+        icon.className = 'weapon-icon';
+        icon.textContent = entry.headshot ? '💀' : '🏐';
+        const victim = document.createElement('span');
+        victim.className = 'victim' + teamClass(entry.victimTeam);
+        victim.textContent = entry.victim || 'Bot';
+        row.append(killer, icon, victim);
+        if (entry.headshot) row.append(this._killFeedTag('head', 'HEADSHOT'));
+        if (entry.perfect) row.append(this._killFeedTag('perfect', 'PERFECT'));
+        return row;
+    }
+
+    _killFeedTag(kind, text) {
+        const tag = document.createElement('span');
+        tag.className = `kill-tag kill-tag--${kind}`;
+        tag.textContent = text;
+        return tag;
     }
 
     // Kill feed — legacy.

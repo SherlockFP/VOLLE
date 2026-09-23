@@ -21,6 +21,9 @@ const num = (value, fallback = 0) => (Number.isFinite(value) ? value : fallback)
 export const MAX_LIVE_LEAN = .06;
 export const MAX_LIVE_TORSO_ROLL = .08;
 export const MAX_LIVE_HEAD_ROLL = .12;
+// Nonlethal flinch amplitude (G6). Pitch only — the roll budgets above still hold.
+export const HIT_TORSO_TIP = -.36;
+export const HIT_SHOULDER_FLARE = .40;
 
 /** Zero euler set for every joint. Callers mutate the returned object. */
 export function neutralPose() {
@@ -135,12 +138,13 @@ export function poseFor(state, time = 0, params = {}) {
             break;
         }
         case 'hit': {
+            // G6: doubled flinch — the old .18 rad tip read as idle sway at range.
             const shock = (1 - progress) * Math.sin(progress * 22 + seed);
-            pose.torso.x = -.18 * (1 - progress);
+            pose.torso.x = HIT_TORSO_TIP * (1 - progress);
             pose.torso.z = .07 * shock;
             pose.head.z = -.11 * shock;
-            pose.shoulderL.z = -.24 * (1 - progress);
-            pose.shoulderR.z = .24 * (1 - progress);
+            pose.shoulderL.z = -HIT_SHOULDER_FLARE * (1 - progress);
+            pose.shoulderR.z = HIT_SHOULDER_FLARE * (1 - progress);
             break;
         }
         case 'dead': {
@@ -211,6 +215,28 @@ export function poseFor(state, time = 0, params = {}) {
         pose.head.z = clamp(pose.head.z, -MAX_LIVE_HEAD_ROLL, MAX_LIVE_HEAD_ROLL);
     }
     return pose;
+}
+
+/**
+ * Allocation-free 'dead' pose: writes poseFor('dead', _, { progress }) into an
+ * existing pose object (from neutralPose()). Used every frame of a knockout, where
+ * the dead entity's own animator no longer runs.
+ */
+export function writeDeadPose(out, progress = 0) {
+    out.offsetY = 0;
+    out.lean = 0;
+    for (let index = 0; index < JOINTS.length; index++) {
+        const joint = out[JOINTS[index]];
+        joint.x = 0; joint.y = 0; joint.z = 0;
+    }
+    const fall = clamp(num(progress) * 1.4, 0, 1);
+    out.hips.x = -1.52 * fall;
+    out.offsetY = -.72 * fall;
+    out.torso.x = .3 * fall;
+    out.head.x = .45 * fall;
+    out.shoulderL.z = -1.1 * fall; out.shoulderR.z = 1.1 * fall;
+    out.hipL.x = .35 * fall; out.hipR.x = .2 * fall;
+    return out;
 }
 
 /** Linear blend of two poses; amount 0 → from, 1 → to. */
@@ -284,6 +310,22 @@ export function stepAnimator(controller, dt, facts = {}) {
 
 /** Begin a one-shot action (throw/deflect/hit/land). Returns new controller state. */
 export function triggerAction(controller, action) {
+    if (action === 'dead') {
+        // Knockout (G6): drop any in-flight one-shot (the lethal hit just queued a
+        // 'hit') so the fall starts now instead of after the flinch finishes.
+        const previous = controller && typeof controller === 'object' ? controller : {};
+        return {
+            ...previous,
+            state: 'dead',
+            oneShot: null,
+            elapsed: 0,
+            progress: 0,
+            blend: 0,
+            previousState: previous.state || 'idle',
+            seed: num(previous.seed),
+            time: num(previous.time)
+        };
+    }
     if (!ONE_SHOT_STATES.includes(action)) return controller;
     const previous = controller && typeof controller === 'object' ? controller : {};
     return {

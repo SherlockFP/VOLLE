@@ -78,6 +78,7 @@ function buildLoopGame({ connected = false, isHost = false } = {}) {
         network: { connected, isHost, broadcast: packet => broadcasts.push({ at: clock.now, packet }) },
         juice,
         _timeScale: 1,
+        _updateKnockouts() {}, // G6 knockout presentation (cosmetic, raw dt)
         _roundEndElapsed: 0,
         _celebrationElapsed: 0,
         _postGameOpenedEarly: false,

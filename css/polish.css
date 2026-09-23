@@ -941,7 +941,7 @@ body {
 }
 
 body.hit-flash { 
-    animation: hit-flash 20ms ease-out; 
+    animation: hit-flash 160ms ease-out;
 }
 
 /* Combo counter pulse */
@@ -5314,13 +5314,13 @@ body.volleyball-practice-active :is(
 
 /* ===== COMBAT FEEDBACK ANIMATIONS ===== */
 
-/* Hit-flash: 20ms white overlay on lethal kill */
+/* Hit-flash: 160ms on lethal kill (the visible overlay is body.hit-flash::after, hud.css) */
 @keyframes hit-flash {
   0% { background: rgba(255, 255, 255, 0.4); }
   100% { background: transparent; }
 }
 body.hit-flash {
-  animation: hit-flash 20ms ease-out;
+  animation: hit-flash 160ms ease-out;
 }
 
 /* Combo streak counter: "Nx KILL STREAK" */

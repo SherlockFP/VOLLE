@@ -18,6 +18,18 @@ function timers() {
     };
 }
 
+// G6 hit-presentation helpers compiled from the shipped source.
+function hitPresentationMethods(globals) {
+    const scoped = { ...globals, HIT_PRESENTATION_WINDOW_MS: 1000, HIT_PRESENTATION_KEYS_MAX: 64 };
+    return {
+        _hitPresentationKeys: new Map(),
+        _claimHitPresentation: compileGameMethod('_claimHitPresentation', scoped),
+        _resolveBodyFxDir: compileGameMethod('_resolveBodyFxDir', scoped),
+        _pushKillFeedRow: compileGameMethod('_pushKillFeedRow', scoped),
+        _flashKill() {}
+    };
+}
+
 function claimFixture(playerName) {
     const clock = timers();
     const messages = [];
@@ -94,7 +106,10 @@ test('a duplicate P2P lethal packet gives the local killer one confirmation and 
     const present = compileGameMethod('_presentLethalImpact', globals);
     const applyPlayerHit = compileGameMethod('applyPlayerHit', globals);
     const victim = { name: 'Opponent', hp: 100, alive: true, group: { visible: true } };
+    let knockouts = 0;
     const game = {
+        ...hitPresentationMethods(globals),
+        presentKnockout(target) { knockouts++; target._koActive = true; return true; },
         playerName: 'Local',
         player: { name: 'Local', camera: {} },
         remotePlayers: new Map([['opponent', victim]]),
@@ -128,7 +143,8 @@ test('a duplicate P2P lethal packet gives the local killer one confirmation and 
     clock.runAll();
 
     assert.equal(victim.alive, false);
-    assert.equal(victim.group.visible, false);
+    assert.equal(knockouts, 1, 'G6: one knockout, the duplicate packet only re-applies state');
+    assert.equal(game.killFeed.length, 1, 'G6: one elimination row for the duplicated packet');
     assert.deepEqual(messages, [{ text: 'KO CONFIRMED - Opponent', duration: 900 }]);
     assert.deepEqual(cues, ['kill-confirm']);
     assert.deepEqual(scoreCalls, []);
@@ -161,6 +177,7 @@ test('an authoritative P2P death clears stale local combo feedback', () => {
     };
     const opponent = { name: 'Opponent', getPosition: () => ({ x: 1, y: 0, z: 0 }) };
     const game = {
+        ...hitPresentationMethods(globals),
         playerName: 'Local', player, remotePlayers: new Map(), bots: [],
         network: { connected: true, isHost: false }, killStreak: 4,
         _killPresentationKeys: new Set(), _killConfirmationTimer: null, _killConfirmationUntil: 0,

@@ -140,7 +140,10 @@ test('lethal remote players hide their character model before spectators cycle',
     const game = await readFile(new URL('../js/game.js', import.meta.url), 'utf8');
     const main = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
 
-    assert.match(game, /hitTarget\.alive = false;\s*if \(hitTarget\.group\) hitTarget\.group\.visible = false;/);
+    // G6: alive=false still lands first (spectators cycle on alive), then the body is
+    // presented as a ~0.9 s knockout and hidden by _updateKnockouts; without a group
+    // or knockout it is hidden the same tick as before.
+    assert.match(game, /hitTarget\.alive = false;[\s\S]{0,200}?if \(hitTarget\.group && !this\.presentKnockout\(hitTarget, this\._hitDirX, this\._hitDirZ\)\) \{\s*hitTarget\.group\.visible = false;/);
     assert.match(main, /Spectator\.handlePointerButton\(e\)/);
     assert.match(main, /mode: view\.distance <= 1 \? CAMERA_MODES\.FIRST_PERSON : CAMERA_MODES\.CHASE/);
     assert.match(main, /renderSpectatorHUD\(t\.name/);

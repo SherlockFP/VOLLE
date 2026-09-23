@@ -9,7 +9,10 @@ import {
     MAX_LIVE_LEAN,
     MAX_LIVE_TORSO_ROLL,
     MAX_LIVE_HEAD_ROLL,
+    HIT_TORSO_TIP,
+    HIT_SHOULDER_FLARE,
     neutralPose,
+    writeDeadPose,
     isPoseState,
     poseFor,
     blendPose,
@@ -389,4 +392,30 @@ test('resolvePose skips cross-fade when previousState equals state or is absent'
 
     const noController = resolvePose(undefined, {});
     assert.deepEqual(noController, poseFor('idle', 0, { progress: 0, seed: 0 }));
+});
+
+test('G6 nonlethal flinch reads at range: torso -0.36, shoulders +/-0.40 at impact, decaying to 0', () => {
+    assert.equal(HIT_TORSO_TIP, -.36);
+    assert.equal(HIT_SHOULDER_FLARE, .40);
+    const impact = poseFor('hit', 0, { progress: 0, aim: 0, strafe: 0, seed: 0 });
+    assert.ok(Math.abs(impact.torso.x - (-.36)) < 1e-9);
+    assert.ok(Math.abs(impact.shoulderL.z - (-.40)) < 1e-9);
+    assert.ok(Math.abs(impact.shoulderR.z - .40) < 1e-9);
+    const settled = poseFor('hit', 0, { progress: 1, aim: 0, strafe: 0, seed: 0 });
+    assert.ok(Math.abs(settled.torso.x) < 1e-9 && Math.abs(settled.shoulderR.z) < 1e-9);
+});
+
+test("G6 triggerAction('dead') starts the fall now and writeDeadPose is its allocation-free twin", () => {
+    const hit = triggerAction(createAnimatorState(), 'hit');
+    const dead = triggerAction(hit, 'dead');
+    assert.equal(dead.state, 'dead');
+    assert.equal(dead.oneShot, null, 'the lethal hit flinch no longer delays the fall');
+    const stepped = stepAnimator(dead, .15, { alive: false });
+    assert.equal(stepped.state, 'dead');
+    assert.ok(Math.abs(stepped.progress - .25) < 1e-9);
+    const out = neutralPose();
+    for (const progress of [0, .25, .5, 1]) {
+        assert.equal(writeDeadPose(out, progress), out, 'writes into the caller object');
+        assert.deepEqual(out, poseFor('dead', 7, { progress }));
+    }
 });
