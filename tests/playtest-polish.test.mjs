@@ -74,8 +74,10 @@ test('in-court props are rolled per match (mostly off) and follow the host on cl
     }
     assert.match(arenaSrc, /if \(this\.propsEnabled\) \{\s*this\.buildGameplayLayout\(\);\s*this\.buildParkour\(\);\s*\}/);
     assert.match(arenaSrc, /if \(this\.propsEnabled\) this\.buildParkour\(\);/);
-    assert.match(game, /if \(!this\.network\?\.connected \|\| this\.network\.isHost\) this\.arena\.setPropsEnabled\?\.\(rollMapProps\(\)\);/);
-    assert.match(game, /props: this\.arena\?\.propsEnabled !== false,/);
+    assert.match(game, /if \(!this\.network\?\.connected \|\| this\.network\.isHost\) \{\s*const weatherSeed = Math\.floor\(Math\.random\(\) \* 1e9\);\s*this\.arena\.weatherSeed = weatherSeed;\s*if \(this\.arena\.setPropsEnabled\?\.\(rollMapProps\(\)\) !== true\) this\.arena\.setWeatherSeed\?\.\(weatherSeed\);/);
+    assert.match(game, /props: this\.arena\?\.propsEnabled !== false,\s*weatherSeed: Number\.isFinite\(this\.arena\?\.weatherSeed\) \? this\.arena\.weatherSeed : 0,/);
+    // Clients adopt the host's weather seed (re-roll in place unless the arena was rebuilt).
+    assert.equal((game.match(/if \(hostWeatherSeed !== null && !arenaRebuilt\) this\.arena\.setWeatherSeed\?\.\(hostWeatherSeed\);/g) || []).length, 2);
     assert.equal((game.match(/this\.arena\.rebuild\(data\.map, typeof data\.props === 'boolean' \? \{ props: data\.props \} : \{\}\)/g) || []).length, 2);
 });
 

@@ -958,7 +958,12 @@ startGame(skipPreGame = false, matchId = null) {
     this.applyMatchModifier();
     if (this.competitiveRules) applyCompetitiveRules(this, this.competitiveRules);
     // Every match rolls its in-court props (host/solo); the snapshot carries it.
-    if (!this.network?.connected || this.network.isHost) this.arena.setPropsEnabled?.(rollMapProps());
+    // Weather is rolled too: a fresh seed per match (mostly clear, per-map pool).
+    if (!this.network?.connected || this.network.isHost) {
+        const weatherSeed = Math.floor(Math.random() * 1e9);
+        this.arena.weatherSeed = weatherSeed;
+        if (this.arena.setPropsEnabled?.(rollMapProps()) !== true) this.arena.setWeatherSeed?.(weatherSeed);
+    }
         this.setState(STATES.COUNTDOWN);
         // Lobby'de gösterilen bot dummy'leri oyun başlamadan temizle
         for (const [peerId, p] of this.remotePlayers) {
@@ -5669,11 +5674,16 @@ spawnPowerUp() {
         if (typeof data.state === 'string' && data.state !== STATES.MENU && data.state !== STATES.LOBBY) {
             // Mode ve map'i senkronize et
             if (data.mode) this.selectMode(data.mode);
+            const hostWeatherSeed = Number.isFinite(data.weatherSeed) ? data.weatherSeed : null;
+            if (hostWeatherSeed !== null) this.arena.weatherSeed = hostWeatherSeed;
+            let arenaRebuilt = false;
             if (data.map && this.arena.mapId !== data.map) {
                 this.arena.rebuild(data.map, typeof data.props === 'boolean' ? { props: data.props } : {});
+                arenaRebuilt = true;
             } else if (typeof data.props === 'boolean') {
-                this.arena.setPropsEnabled?.(data.props);
+                arenaRebuilt = this.arena.setPropsEnabled?.(data.props) === true;
             }
+            if (hostWeatherSeed !== null && !arenaRebuilt) this.arena.setWeatherSeed?.(hostWeatherSeed);
             // Skoru koru — startGame reset'lemesin diye önce sakla
             const savedScore = {
                 red: typeof data.red === 'number' ? data.red : this.scoreboard.redScore,
@@ -5783,12 +5793,17 @@ spawnPowerUp() {
         if (this.network?.isHost) return;
         this.onMatchLoading?.(data);
         if (data.mode) this.selectMode(data.mode);
-        // Follow the host's map and its rolled in-court props.
+        // Follow the host's map, its rolled in-court props and its weather seed.
+        const hostWeatherSeed = Number.isFinite(data.weatherSeed) ? data.weatherSeed : null;
+        if (hostWeatherSeed !== null) this.arena.weatherSeed = hostWeatherSeed;
+        let arenaRebuilt = false;
         if (data.map && this.arena.mapId !== data.map) {
             this.arena.rebuild(data.map, typeof data.props === 'boolean' ? { props: data.props } : {});
+            arenaRebuilt = true;
         } else if (typeof data.props === 'boolean') {
-            this.arena.setPropsEnabled?.(data.props);
+            arenaRebuilt = this.arena.setPropsEnabled?.(data.props) === true;
         }
+        if (hostWeatherSeed !== null && !arenaRebuilt) this.arena.setWeatherSeed?.(hostWeatherSeed);
         // ponytail: client skips warmup/countdown — host already playing
         // gameStart is sent while the host is counting down. The client prepares
         // its countdown UI, then waits for the authoritative roundStart packet.
@@ -6093,6 +6108,7 @@ spawnPowerUp() {
             mode: this.mode?.id,
             map: this.arena?.mapId,
             props: this.arena?.propsEnabled !== false,
+            weatherSeed: Number.isFinite(this.arena?.weatherSeed) ? this.arena.weatherSeed : 0,
             maxRounds: this.scoreboard.maxRounds,
             timeLimit: this.scoreboard.timeLimit,
             round: this.scoreboard.roundNum,

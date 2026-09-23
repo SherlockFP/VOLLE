@@ -260,7 +260,9 @@ class App {
         const container = document.getElementById('game-container');
         this.renderer = new Renderer(container);
         this.arena = new Arena(this.renderer, 'beach_open', {
-            portalsEnabled: this.store.get('portalsEnabled') !== false
+            portalsEnabled: this.store.get('portalsEnabled') !== false,
+            // Lobby preview weather varies per session; matches re-roll and sync it.
+            weatherSeed: Math.floor(Math.random() * 1e9)
         });
         this.player = new Player(this.renderer, this.camera, this.arena);
         // Touch hook 1/4: mobile joystick/look/buttons overlay (js/touch-controls.js) feeding player input state.
