@@ -51,7 +51,7 @@ import { shouldEndOvertime, shouldStartOvertime } from './competitive-service.js
 import { normalizeNetcode, rewindSnapshot } from './experimental-netcode.js';
 import { RemoteInterp, ballPredictAt, ballErrorDecay, BALL_SMOOTHING } from './net-interp.js';
 import { RuntimeLog } from './runtime-safety.js';
-import { PracticeLabMetrics, predictContactMs, resolvePerfectDeflect, sanitizeRemoteSwingAgeMs } from './perfect-deflect.js';
+import { PracticeLabMetrics, predictContactMs, resolvePerfectDeflect, sanitizeRemoteSwingAgeMs, classifyDeflectLead } from './perfect-deflect.js';
 import { getDeflectPresentation } from './deflect-presentation.js';
 import { GuidedDeflectDrill } from './guided-deflect-drill.js';
 import { MatchAnalytics } from './match-analytics.js';
@@ -62,6 +62,13 @@ import {
     planRallyDuelRoster
 } from './rally-duel.js';
 import { shouldSpawnMatchTrophy, resolveTrophySpot, trophyTeardownPlan } from './arena-decor.js';
+import {
+    SOLO_CELEBRATION_SECONDS,
+    celebrationSkipAction,
+    roundEndOutcome,
+    shouldEndFinalRoundEarly
+} from './run-it-back.js';
+import { sanitizeName } from './match-analytics.js';
 
 const BASE_HIT_DAMAGE = 25;
 // Chance a match opens with its in-court props (parkour + cover). Mostly off so
@@ -272,8 +279,19 @@ export class Game {
 
         this.playerName = 'Player';
         this.botCounter = 0;
-        this.botDifficulty = 'hard';
+        // New profiles start on medium (js/store.js DEFAULTS.settings); js/main.js
+        // applies the stored setting at boot so existing profiles keep theirs.
+        this.botDifficulty = 'medium';
         this.rallyCount = 0;
+        // Run-it-back loop (js/run-it-back.js): best rally across every round of
+        // the match (rallyCount resets per round), the local player's own match
+        // numbers for the post-game strip, and wall-clock timers for the solo
+        // final round / victory lap that slow-mo and hit-stop cannot stretch.
+        this._matchBestRally = 0;
+        this._personalMatch = { perfects: 0, topSpeed: 0 };
+        this._roundEndElapsed = 0;
+        this._celebrationElapsed = 0;
+        this._postGameOpenedEarly = false;
         // Hold-to-charge deflect + rally heat (see _updateCharge/_applyRallyHeat).
         this._charging = false;
         this._chargeHeldSeconds = 0;
@@ -520,6 +538,11 @@ export class Game {
         if (s === STATES.PLAYING && prev === STATES.PAUSED) this.cancelIncomingSettlement();
         RuntimeLog.auditTransition(prev, s);
         this.state = s;
+        if (s === STATES.ROUND_END && prev !== STATES.ROUND_END) this._roundEndElapsed = 0;
+        if (s === STATES.CELEBRATION && prev !== STATES.CELEBRATION) {
+            this._celebrationElapsed = 0;
+            this._postGameOpenedEarly = false;
+        }
         // Countdown keeps only its compact identity chip on screen; the persistent
         // controls hint and red threat frame return once the round is actually live.
         if (typeof document !== 'undefined') document.body?.classList.toggle('countdown-ui', s === STATES.COUNTDOWN);
@@ -560,7 +583,18 @@ export class Game {
         this.scoreboard.setTimeLimit(parseInt(document.getElementById('setting-match-time')?.value || 300));
         this.scoreboard.setMaxRounds(parseInt(document.getElementById('setting-max-rounds')?.value || 16));
         this.scoreboard.addPlayer(this.playerName, 'red', { isYou: true });
+        // First solo match of a fresh profile (js/run-it-back.js firstSoloMatchConfig,
+        // resolved by js/main.js from Store): medium bot, 5 rounds, 180 s. Only the
+        // opponent created here is medium; the session difficulty is left alone.
+        const firstMatch = this.resolveFirstSoloMatch?.() || null;
+        const sessionDifficulty = this.botDifficulty;
+        if (firstMatch) {
+            this.scoreboard.setTimeLimit(firstMatch.timeLimit);
+            this.scoreboard.setMaxRounds(firstMatch.maxRounds);
+            this.botDifficulty = firstMatch.botDifficulty;
+        }
         this.addBot('blue');
+        this.botDifficulty = sessionDifficulty;
         this.setState(STATES.LOBBY);
         this._startMusic();
         this.updateLobbyUI();
@@ -958,6 +992,8 @@ startGame(skipPreGame = false, matchId = null) {
         this._remotePerfectChains.clear();
         this.practiceMetrics.reset();
         this.matchAnalytics.reset();
+        this._resetPersonalMatch();
+        this._postGameOpenedEarly = false;
     this.onMatchStart?.();
     this.applyMatchModifier();
     if (this.competitiveRules) applyCompetitiveRules(this, this.competitiveRules);
@@ -1343,6 +1379,14 @@ startGame(skipPreGame = false, matchId = null) {
             target.mesh.visible = true;
         });
         this._deflectHistory = []; // son 2 deflector (assist için)
+        // Fold the finished round's rally into the match best before it resets.
+        // Round 1 follows the countdown warm-up ball, which never counts.
+        if (this.scoreboard.roundNum <= 1) {
+            this._matchBestRally = 0;
+            this._personalMatch = { perfects: 0, topSpeed: 0 };
+        } else {
+            this._matchBestRally = Math.max(this._matchBestRally || 0, this.rallyCount || 0);
+        }
         this.rallyCount = 0;
         this._perfectDeflectCutTotals.clear(); // V3_UX_ROADMAP.md 3.3: fresh 6s budget each round
         this.heatTier = BALL_HEAT_TIERS[0].id;
@@ -2319,6 +2363,10 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         // below: an elimination triggers hit-stop at the same instant the finisher spawns,
         // so gating it on effectiveDt would freeze the very effect the kill just started.
         window.shaderFinishers?.update?.(dt);
+        // Run-it-back timers read RAW dt too: the final kill's hit-stop and slow-mo
+        // used to stretch the solo hand-off to the report (js/run-it-back.js).
+        if (this.state === STATES.ROUND_END) this._roundEndElapsed += dt;
+        else if (this.state === STATES.CELEBRATION) this._celebrationElapsed += dt;
         // Juice: hit-stop/slow-mo/screen shake uygula, effective dt döndür
         const effectiveDt = this.juice.update(dt);
         if (effectiveDt === 0 && this.state !== STATES.CELEBRATION) return; // hit-stop: dünya donar (ama celebration'da değil)
@@ -2362,10 +2410,18 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             this.updateSplitBalls(dt);
         } else if (this.state === STATES.CELEBRATION) {
             this._celebrationTimer -= dt;
+            // Solo lap is a wall-clock 4 s (js/run-it-back.js) and hands off through
+            // the same end check below; multiplayer keeps the host's 8 s untouched.
+            const soloLap = !this.network?.connected;
+            if (soloLap) {
+                this._celebrationTimer = Math.min(this._celebrationTimer, SOLO_CELEBRATION_SECONDS - this._celebrationElapsed);
+            }
             // Only update timer message every second (not every frame)
-            if (Math.floor(this._celebrationTimer) !== this._lastCelebSec) {
+            if (Math.floor(this._celebrationTimer) !== this._lastCelebSec && !this._postGameOpenedEarly) {
                 this._lastCelebSec = Math.floor(this._celebrationTimer);
-                this.ui.showMessage?.(`🎉 ${Math.ceil(this._celebrationTimer)}s`, 900);
+                const skip = celebrationSkipAction({ solo: soloLap, elapsed: this._celebrationElapsed });
+                const hint = skip ? ` · ${t(skip === 'skip' ? 'postgame.skipHint' : 'postgame.peekHint')}` : '';
+                this.ui.showMessage?.(`🎉 ${Math.ceil(this._celebrationTimer)}s${hint}`, 900);
             }
 
             this._celebWeapon = 'rocket';
@@ -2433,7 +2489,16 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 this.ui.showMessage?.(this._roundEndStatusText(curSec), 500);
             }
             const isClient = this.network?.connected && !this.network?.isHost;
-            if (!isClient && this.roundRestartTimer <= 0) {
+            // Solo only: the deciding round hands off after 1.5 s wall-clock instead
+            // of the full restart delay. Connected sessions never take this path.
+            const soloFinalRound = !this.network?.connected && shouldEndFinalRoundEarly({
+                solo: true,
+                elapsed: this._roundEndElapsed,
+                outcome: this._roundEndOutcome()
+            });
+            if (soloFinalRound) {
+                this.endGame();
+            } else if (!isClient && this.roundRestartTimer <= 0) {
                 if (this._overtimeExtends > 0 && shouldEndOvertime({
                     redScore: this.scoreboard.redScore,
                     blueScore: this.scoreboard.blueScore,
@@ -3321,6 +3386,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 shot: result.shot,
                 speedPercent: (this.ball.getSpeed() / this.ball.baseSpeed) * 100
             }));
+            if (!this._practiceMode) this._notePersonalDeflect(classifyDeflectLead(deflectLeadMs) === 'perfect');
             return true;
         }
 
@@ -3454,6 +3520,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
 
         const spd = Math.round((this.ball.getSpeed() / this.ball.baseSpeed) * 100);
         if (result.shot === 'spike') this.spikeCount++;
+        if (!this._practiceMode) this._notePersonalDeflect(isPerfect);
         this._presentLocalDeflectResult({
             ...getDeflectPresentation({
                 leadMs: deflectLeadMs,
@@ -4028,6 +4095,27 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             this._roundStatusHoldUntil = performance.now() + duration;
         }, delay);
         return false;
+    }
+
+    // What the ROUND_END timer will do on expiry — same decisions, same order as
+    // the host branch in update(). Only the solo final-round hand-off reads it.
+    _roundEndOutcome() {
+        const score = {
+            redScore: this.scoreboard.redScore,
+            blueScore: this.scoreboard.blueScore
+        };
+        const timeUp = this.scoreboard.isTimeUp();
+        const maxRounds = this.scoreboard.isMaxRounds();
+        return roundEndOutcome({
+            overtimeExtends: this._overtimeExtends || 0,
+            overtimeComplete: (this._overtimeExtends || 0) > 0 && shouldEndOvertime({
+                ...score,
+                roundsExtended: this._overtimeExtends
+            }),
+            goalComplete: !!this._goalRush && Math.max(score.redScore, score.blueScore) >= this._goalScoreToWin,
+            regulationComplete: timeUp || maxRounds,
+            overtimeWanted: (timeUp || maxRounds) && shouldStartOvertime({ ...score, timeUp, maxRounds })
+        });
     }
 
     _roundEndStatusText(curSec) {
@@ -4944,6 +5032,9 @@ spawnPowerUp() {
             ? rankedFfa[0].name
             : this.scoreboard.getWinner();
         this._notifyGameplayEnded();
+        // A final-kill killcam must not hold the camera into the lap: hide it and
+        // hand camera control back in this same frame.
+        this._hideKillcam();
         this.clearBlackHoles();
         this.clearSplitBalls();
         this._clearRockets();
@@ -4956,6 +5047,8 @@ spawnPowerUp() {
         // Eight-second victory lap — winners can still use the celebration loadout.
         this.setState(STATES.CELEBRATION);
         this._celebrationTimer = CELEBRATION_DURATION_SECONDS;
+        // Solo: a 4 s lap that opens the report on its own (skippable from 1 s).
+        if (!this.network?.connected) this._celebrationTimer = SOLO_CELEBRATION_SECONDS;
         this._winningTeam = winner === 'RED' ? 'red' : winner === 'BLUE' ? 'blue' : null;
         this._won = this._ffa ? winner === this.playerName : this._winningTeam !== null && this.player.team === this._winningTeam;
 
@@ -5105,7 +5198,7 @@ spawnPowerUp() {
         this.player.unlock(); // free mouse for XP screen buttons
         this.player._celebNoAttack = false; // attack restriction cleared
         const gm = document.getElementById('game-message');
-        if (gm) gm.classList.add('hidden');
+        if (gm && !this._postGameOpenedEarly) gm.classList.add('hidden');
         const wh = document.getElementById('celeb-weapon-hud');
         if (wh) {
             wh.classList.add('hidden');
@@ -5134,22 +5227,10 @@ spawnPowerUp() {
             ? this._ffa ? 'DRAW: FFA tie' : `DRAW: Red ${this.scoreboard.redScore} - ${this.scoreboard.blueScore} Blue`
             : this._ffa ? `${this._finalWinner} WINS FFA` : `${this._finalWinner} TEAM WINS: Red ${this.scoreboard.redScore} - ${this.scoreboard.blueScore} Blue`;
         const playerStats = this.scoreboard.getPlayerStats();
-        this.onMatchComplete?.();
-        const analytics = this.matchAnalytics.getReport({
-            heatmap: {
-                columns: 12,
-                rows: 8,
-                bounds: { minX: -24, maxX: 24, minZ: -18, maxZ: 18 }
-            }
-        });
-        this.ui.showPostGame(this._won, 0, 1, kills, this.rallyCount, this.audio, {
-            winnerText,
-            playerStats,
-            analytics,
-            rewardsPending: true,
-            matchId: this.matchId,
-            roundHistory: this.scoreboard.roundHistory
-        });
+        // A multiplayer player who already opened their report over the lap keeps
+        // it: rewards settle once and the report is not re-painted underneath them.
+        if (!this._postGameOpenedEarly) this._openPostGameReport({ kills, winnerText, playerStats });
+        this.onGameOverState?.();
         // P2P: gameOver state'ini client'lara yayınla
         if (this.network?.isHost) {
             this.network.broadcast({
@@ -5163,6 +5244,132 @@ spawnPowerUp() {
         }
         // Start map voting after a brief delay (post-game screen must render first)
         setTimeout(() => this._startMapVoting(), 500);
+    }
+
+    // The local report: settle this player's rewards (js/main.js onMatchComplete
+    // returns the pre-grant account + personal-best result) and paint it.
+    _openPostGameReport({ kills = 0, winnerText = '', playerStats = [] } = {}) {
+        const completion = this.onMatchComplete?.() || null;
+        const analytics = this.matchAnalytics.getReport({
+            heatmap: {
+                columns: 12,
+                rows: 8,
+                bounds: { minX: -24, maxX: 24, minZ: -18, maxZ: 18 }
+            }
+        });
+        this.ui.showPostGame(this._won, 0, 1, kills, this.getMatchBestRally(), this.audio, {
+            winnerText,
+            playerStats,
+            analytics,
+            rewardsPending: true,
+            matchId: this.matchId,
+            roundHistory: this.scoreboard.roundHistory,
+            prevAccount: completion?.prevAccount || null,
+            personal: completion?.personal || null
+        });
+    }
+
+    // Space / click / E over the lap. Solo: from 1 s the lap ends now and the
+    // report opens (the same _onCelebrationEnd the 4 s timer calls). Multiplayer:
+    // from 2 s this player opens their own report; the host keeps CELEBRATION,
+    // its 8 s timer and its gameOver broadcast exactly as before.
+    skipCelebration() {
+        if (this.state !== STATES.CELEBRATION) return false;
+        const solo = !this.network?.connected;
+        const action = celebrationSkipAction({
+            solo,
+            elapsed: this._celebrationElapsed,
+            postGameOpen: this._postGameOpenedEarly
+        });
+        if (action === 'skip') {
+            this._onCelebrationEnd();
+            return true;
+        }
+        if (action === 'peek') {
+            this._openPostGameEarly();
+            return true;
+        }
+        return false;
+    }
+
+    _openPostGameEarly() {
+        if (this.state !== STATES.CELEBRATION || this._postGameOpenedEarly) return false;
+        this._postGameOpenedEarly = true;
+        this.player.unlock();
+        this.player.attacking = false;
+        this.player._celebNoAttack = true; // clicks on the report never fire rockets
+        this.ui.hideMessage?.();
+        // The host decided the winner in endGame(); a client reads its mirrored score.
+        const ranked = [...this.scoreboard.getPlayerStats()].sort((a, b) => b.score - a.score);
+        const winner = this.network?.isHost && this._finalWinner
+            ? this._finalWinner
+            : this._ffa
+                ? (ranked[0] && ranked[0].score !== ranked[1]?.score ? ranked[0].name : 'DRAW')
+                : this.scoreboard.getWinner();
+        const red = this.scoreboard.redScore;
+        const blue = this.scoreboard.blueScore;
+        const winnerText = winner === 'DRAW'
+            ? this._ffa ? 'DRAW: FFA tie' : `DRAW: Red ${red} - ${blue} Blue`
+            : this._ffa ? `${winner} WINS FFA` : `${winner} TEAM WINS: Red ${red} - ${blue} Blue`;
+        const kills = this.player.totalDamageDealt > 0 ? Math.floor(this.player.totalDamageDealt / 25) : 0;
+        this._openPostGameReport({ kills, winnerText, playerStats: this.scoreboard.getPlayerStats() });
+        return true;
+    }
+
+    // Best rally across every round of this match; rallyCount itself resets
+    // each round (startRound) so it only ever described the last round.
+    getMatchBestRally() {
+        return Math.max(this._matchBestRally || 0, this.rallyCount || 0);
+    }
+
+    _resetPersonalMatch() {
+        this._matchBestRally = 0;
+        this._personalMatch = { perfects: 0, topSpeed: 0 };
+    }
+
+    // Local deflect bookkeeping for the post-game strip: perfect count and the
+    // fastest ball (as a multiple of base speed) this player sent back.
+    _notePersonalDeflect(perfect) {
+        const stats = this._personalMatch || (this._personalMatch = { perfects: 0, topSpeed: 0 });
+        if (perfect) stats.perfects++;
+        const base = Number(this.ball?.baseSpeed) || 0;
+        const speed = Number(this.ball?.getSpeed?.()) || 0;
+        if (base > 0 && speed > 0) stats.topSpeed = Math.max(stats.topSpeed, speed / base);
+    }
+
+    getPersonalMatchStats() {
+        const me = this.scoreboard?.players?.get?.(this.playerName) || {};
+        const ids = new Set(['local', this.playerName, this.network?.playerId].filter(Boolean));
+        const name = sanitizeName(this.playerName);
+        let kos = 0;
+        for (const player of this.matchAnalytics?.getPlayerStats?.() || []) {
+            if (ids.has(player.id) || player.name === name) kos += Number(player.kos) || 0;
+        }
+        return {
+            deflects: Number(me.deflections) || 0,
+            perfects: this._personalMatch?.perfects || 0,
+            topSpeed: this._personalMatch?.topSpeed || 0,
+            bestRally: this.getMatchBestRally(),
+            kos
+        };
+    }
+
+    // Solo "Next map": leave the finished map for another rotation map. The
+    // plain Rematch keeps the map (see the solo branch of _startMapVoting).
+    rotateSoloMap() {
+        if (this.network?.connected) return null;
+        const current = this.arena?.mapId;
+        const pool = Object.keys(Arena.MAPS || {})
+            .filter(id => !Arena.MAPS[id]?.hiddenFromRotation && id !== current && !this.bannedMaps?.has?.(id));
+        if (!pool.length) return null;
+        let picked = pool[Math.floor(Math.random() * pool.length)];
+        if (this._rallyDuel) picked = normalizeRallyDuelMap(picked);
+        if (!picked || picked === current) return null;
+        this.arena.rebuild(picked);
+        this.player.respawn();
+        this.bots.forEach(b => b.respawn());
+        this.onMapChange?.(picked);
+        return picked;
     }
 
     // --- Map Voting ---
@@ -5194,16 +5401,9 @@ spawnPowerUp() {
                 this._castMapVote(mapId);
             });
         } else {
-            // Solo: just apply a random map directly
+            // Solo: Rematch runs it back on the same map. Changing map is the
+            // report's explicit "Next map" action (rotateSoloMap).
             this._mapVoteActive = false;
-            const picked = options[Math.floor(Math.random() * options.length)];
-            if (this.arena?.mapId !== picked) {
-                this.arena.rebuild(picked);
-                this.player.respawn();
-                this.bots.forEach(b => b.respawn());
-                this.ui.showMessage(t('match.nextMap', { name: Arena.MAPS[picked]?.name || picked }), 2000);
-                this.onMapChange?.(picked);
-            }
         }
     }
 
@@ -7409,13 +7609,19 @@ applyPowerUpState(data) {
         const winnerText = winner === 'DRAW'
             ? `DRAW: RED ${data.redScore} - ${data.blueScore} BLUE`
             : `${winner} TEAM WINS: RED ${data.redScore} - ${data.blueScore} BLUE`;
-        this.onMatchComplete?.();
-        this.ui.showPostGame?.(this._won, 0, 1, data.kills || 0, data.rally || 0, this.audio, {
-            winnerText,
-            playerStats: data.playerStats || [],
-            rewardsPending: true,
-            matchId: this.matchId
-        });
+        // Already opened over the lap (skipCelebration 'peek'): keep that report.
+        if (!this._postGameOpenedEarly) {
+            const completion = this.onMatchComplete?.() || null;
+            this.ui.showPostGame?.(this._won, 0, 1, data.kills || 0, data.rally || 0, this.audio, {
+                winnerText,
+                playerStats: data.playerStats || [],
+                rewardsPending: true,
+                matchId: this.matchId,
+                prevAccount: completion?.prevAccount || null,
+                personal: completion?.personal || null
+            });
+        }
+        this.onGameOverState?.();
     }
 
     setBotDifficulty(d) { this.botDifficulty = d; }

@@ -915,6 +915,32 @@ export default {
         kills: 'Eleme',
         damage: 'Hasar'
     },
+    postgame: {
+        skipHint: 'Boşluk · Geç',
+        peekHint: 'Boşluk · Sonuçlar',
+        rematchAfterLap: 'Rövanş, zafer turu bitince açılır.',
+        nextMap: 'Sonraki harita',
+        yourMatch: 'Senin maçın',
+        deflects: 'Sektirme',
+        perfects: 'Kusursuz',
+        topSpeed: 'En yüksek hız',
+        bestRally: 'En iyi ralli',
+        kos: 'Eleme',
+        newBest: 'YENİ REKOR',
+        best: 'Rekor {value}',
+        levelStamp: 'SEVİYE {level}',
+        dailyNudge: '{name} için {count} {unit} kaldı',
+        units: {
+            wins: { one: 'galibiyet', other: 'galibiyet' },
+            deflects: { one: 'sektirme', other: 'sektirme' },
+            games: { one: 'maç', other: 'maç' },
+            rally: { one: 'ralli vuruşu', other: 'ralli vuruşu' },
+            spikes: { one: 'smaç', other: 'smaç' },
+            damage: { one: 'hasar', other: 'hasar' },
+            cleanWins: { one: 'temiz galibiyet', other: 'temiz galibiyet' },
+            steps: { one: 'adım', other: 'adım' }
+        }
+    },
     earn: {
         promo: 'Tanıtım',
         title: 'İzle ve Kazan'

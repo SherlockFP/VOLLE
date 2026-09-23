@@ -16,7 +16,8 @@ test('_paintXpBarFill sets the final width instantly under reduced motion, with 
     const start = ui.indexOf('    _paintXpBarFill(');
     const end = ui.indexOf('\n    // Animated XP-source', start);
     const body = ui.slice(start, end === -1 ? undefined : end);
-    assert.match(body, /if \(!leveledUp \|\| this\._isReducedMotion\(\)\) \{\s*fill\.style\.width = perc \+ '%';\s*return;/);
+    // Reduced motion still lands the LEVEL N stamp (G8), just without the roll.
+    assert.match(body, /if \(!leveledUp \|\| this\._isReducedMotion\(\)\) \{\s*fill\.style\.width = perc \+ '%';\s*if \(leveledUp\) onRolled\?\.\(\);\s*return;/);
     assert.match(body, /fill\.classList\.remove\('pg-xp-levelup'\);/);
 });
 
@@ -42,7 +43,7 @@ test('setPostGameRewardReceipt detects level-up by comparing to the pre-grant sn
     const end = ui.indexOf('\n    setPostGameRewardRetry(', start);
     const body = ui.slice(start, end);
     assert.match(body, /const leveledUp = account\.level > \(this\._postGameStartLevel \?\? account\.level\)\s*\|\| \(account\.prestige \|\| 0\) > \(this\._postGameStartPrestige \?\? \(account\.prestige \|\| 0\)\);/);
-    assert.match(body, /this\._paintXpBarFill\(progress, \{ leveledUp \}\);/);
+    assert.match(body, /this\._paintXpBarFill\(progress, \{ leveledUp, onRolled: \(\) => this\._showLevelStamp\(account\) \}\);/);
     assert.match(body, /document\.getElementById\('pg-level'\)\.textContent = accountRankLabel\(account\);/);
 });
 

@@ -921,6 +921,34 @@ export default {
         kills: 'Kills',
         damage: 'Damage'
     },
+    // Run-it-back loop (Gauntlet G8): skip hints, personal strip, level stamp,
+    // Next map and the daily nudge.
+    postgame: {
+        skipHint: 'Space · Skip',
+        peekHint: 'Space · Results',
+        rematchAfterLap: 'Rematch opens when the victory lap ends.',
+        nextMap: 'Next map',
+        yourMatch: 'Your match',
+        deflects: 'Deflects',
+        perfects: 'Perfects',
+        topSpeed: 'Top speed',
+        bestRally: 'Best rally',
+        kos: 'KOs',
+        newBest: 'NEW BEST',
+        best: 'Best {value}',
+        levelStamp: 'LEVEL {level}',
+        dailyNudge: '{count} {unit} from {name}',
+        units: {
+            wins: { one: 'win', other: 'wins' },
+            deflects: { one: 'deflect', other: 'deflects' },
+            games: { one: 'match', other: 'matches' },
+            rally: { one: 'rally hit', other: 'rally hits' },
+            spikes: { one: 'spike', other: 'spikes' },
+            damage: { one: 'damage', other: 'damage' },
+            cleanWins: { one: 'clean win', other: 'clean wins' },
+            steps: { one: 'step', other: 'steps' }
+        }
+    },
     earn: {
         promo: 'House Promo',
         title: 'Watch & Earn'

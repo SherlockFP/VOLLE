@@ -27,6 +27,22 @@ import { selectMvp } from './mvp-select.js';
 import { createMvpShowcaseStage } from './mvp-showcase.js';
 import { localizedName, setText, t } from './i18n.js';
 import { awaitGemCredit, buildGemShop, gemShopView, readPurchaseReturn, rememberGemsBeforeCheckout, stripPurchaseParams, takeGemsBeforeCheckout } from './gem-shop.js';
+import { LEVEL_STAMP_VISIBLE_MS, TOAST_QUEUE_MAX, TOAST_QUEUE_MIN_MS } from './run-it-back.js';
+
+// Queued post-match toasts outrank generic in-match copy (priority 0-2) so a
+// level-up is never erased by the next ordinary message.
+const TOAST_QUEUE_PRIORITY = 3;
+// js/daily.js challenge type -> postgame.units.* plural key for the nudge line.
+const DAILY_NUDGE_UNITS = Object.freeze({
+    wins: 'wins',
+    deflects: 'deflects',
+    games: 'games',
+    bestRally: 'rally',
+    spikes: 'spikes',
+    damage: 'damage',
+    winStreak: 'wins',
+    cleanWins: 'cleanWins'
+});
 
 const BALL_BASE_SPEED = 17;
 // Countdown "COVER ON / OPEN COURT" chip lifetime (>= 2.5 s readable).
@@ -1044,9 +1060,18 @@ export class UI {
         // Prestige-aware rank so the progression a player is chasing is the thing
         // the match report leads with. Falls back to the passed-in level for any
         // store shape predating getAccount().
-        const account = typeof store?.getAccount === 'function'
+        const liveAccount = typeof store?.getAccount === 'function'
             ? store.getAccount()
             : { level, xp: 0, prestige: 0 };
+        // js/main.js snapshots the account BEFORE store.grant() and passes it as
+        // result.prevAccount; without it the report would open on the post-grant
+        // level and a crossed level could never read as a level-up.
+        const prev = result.prevAccount && Number.isFinite(Number(result.prevAccount.level))
+            ? result.prevAccount
+            : null;
+        const account = prev
+            ? { level: Number(prev.level), xp: Number(prev.xp) || 0, prestige: Number(prev.prestige) || 0 }
+            : liveAccount;
         document.getElementById('pg-level').textContent = accountRankLabel(account);
         this._paintPrestigeBadge('pg-prestige', account.prestige);
         // Snapshot so setPostGameRewardReceipt() can tell a real level-up (this
@@ -1054,6 +1079,9 @@ export class UI {
         this._postGameStartLevel = account.level;
         this._postGameStartPrestige = account.prestige || 0;
         document.getElementById('pg-xp-fill')?.classList.remove('pg-xp-levelup');
+        this._hideLevelStamp();
+        this._renderPersonalStrip(result.personal);
+        this.setPostGameDailyNudge(result.matchId, null);
         // Detailed AAR stats table
         const playerStats = result.playerStats || [];
         const statsHTML = this._buildAARTable(playerStats, kills, deflects);
@@ -1121,6 +1149,8 @@ export class UI {
         const lobby = document.getElementById('pg-lobby');
         const mainMenu = document.getElementById('pg-main-menu');
         if (playAgain) playAgain.onclick = () => window._postGameAction?.('play_again');
+        const nextMap = document.getElementById('pg-next-map');
+        if (nextMap) nextMap.onclick = () => window._postGameAction?.('next_map');
         if (lobby) lobby.onclick = () => {
             el.classList.add('hidden');
             window._postGameAction?.('lobby');
@@ -1362,7 +1392,8 @@ export class UI {
             || (account.prestige || 0) > (this._postGameStartPrestige ?? (account.prestige || 0));
         document.getElementById('pg-level').textContent = accountRankLabel(account);
         this._paintPrestigeBadge('pg-prestige', account.prestige);
-        this._paintXpBarFill(progress, { leveledUp });
+        // Level-up moment: the bar rolls over first, then the LEVEL N stamp lands.
+        this._paintXpBarFill(progress, { leveledUp, onRolled: () => this._showLevelStamp(account) });
         this._lastMatchReward = receipt.coins && typeof receipt.coins === 'object' ? receipt.coins : null;
         this._renderMatchRewardBreakdown();
         const battlepass = document.getElementById('pg-bp-progress');
@@ -1421,13 +1452,17 @@ export class UI {
     // the new level's progress — one continuous "rolled over" motion instead of the
     // number quietly going backwards. Reduced motion always sets the final value with
     // no transition (css/postgame.css disables the CSS transition/animation too).
-    _paintXpBarFill(progress, { leveledUp = false } = {}) {
+    _paintXpBarFill(progress, { leveledUp = false, onRolled = null } = {}) {
         const fill = document.getElementById('pg-xp-fill');
-        if (!fill) return;
+        if (!fill) {
+            if (leveledUp) onRolled?.();
+            return;
+        }
         const perc = Math.max(0, Math.min(100, Math.round((progress?.ratio || 0) * 100)));
         fill.classList.remove('pg-xp-levelup');
         if (!leveledUp || this._isReducedMotion()) {
             fill.style.width = perc + '%';
+            if (leveledUp) onRolled?.();
             return;
         }
         fill.style.width = '100%';
@@ -1445,6 +1480,7 @@ export class UI {
             // Synchronous, not rAF: a backgrounded tab can throttle animation
             // frames indefinitely, which would otherwise strand the bar at 0%.
             fill.style.width = perc + '%';
+            onRolled?.();
         };
         const onFull = event => { if (event.target === fill && event.propertyName === 'width') rollover(); };
         fill.addEventListener('transitionend', onFull);
@@ -1452,6 +1488,120 @@ export class UI {
         // closing mid-flash can all suppress transitionend. Without this the bar
         // would stay pinned at 100% forever instead of settling on the real value.
         const safety = setTimeout(rollover, 1700);
+    }
+
+    // "LEVEL N" stamp over the report's rank line, shown once the XP bar has
+    // rolled over. Visible for LEVEL_STAMP_VISIBLE_MS (>= 1.5 s); reduced motion
+    // keeps the same dwell with no scale animation (css/postgame.css).
+    _showLevelStamp(account) {
+        const stamp = document.getElementById('pg-levelup-stamp');
+        if (!stamp) return false;
+        const level = Math.max(1, Math.floor(Number(account?.level) || 1));
+        stamp.textContent = t('postgame.levelStamp', { level });
+        clearTimeout(this._levelStampTimer);
+        stamp.classList.remove('is-stamping');
+        stamp.hidden = false;
+        void stamp.offsetWidth; // restart the stamp animation on a repeat level-up
+        stamp.classList.add('is-stamping');
+        stamp.closest?.('.pg-level')?.classList.add('pg-level-up');
+        this._levelStampShownAt = performance.now();
+        this._levelStampTimer = setTimeout(() => this._hideLevelStamp(), LEVEL_STAMP_VISIBLE_MS);
+        return true;
+    }
+
+    _hideLevelStamp() {
+        clearTimeout(this._levelStampTimer);
+        this._levelStampTimer = null;
+        const stamp = document.getElementById('pg-levelup-stamp');
+        if (!stamp) return;
+        stamp.hidden = true;
+        stamp.classList.remove('is-stamping');
+        stamp.closest?.('.pg-level')?.classList.remove('pg-level-up');
+    }
+
+    // Personal strip above the fold: this player's match numbers against their
+    // stored records (js/store.js#recordPersonalBests). A beaten record reads
+    // NEW BEST; otherwise the standing record is shown for context.
+    _renderPersonalStrip(personal) {
+        const wrap = document.getElementById('pg-personal');
+        if (!wrap) return;
+        const stats = personal?.stats;
+        wrap.hidden = !stats;
+        if (!stats) return;
+        const previous = personal.previous || {};
+        const beaten = personal.beaten || {};
+        const format = (key, value) => key === 'topSpeed'
+            ? `${(Number(value) || 0).toFixed(1)}×`
+            : String(Math.max(0, Math.floor(Number(value) || 0)));
+        wrap.querySelectorAll('[data-stat]').forEach(cell => {
+            const key = cell.dataset.stat;
+            const value = cell.querySelector('.pg-personal-value');
+            const best = cell.querySelector('.pg-personal-best');
+            if (value) value.textContent = format(key, stats[key]);
+            const isNew = beaten[key] === true;
+            cell.classList.toggle('is-new-best', isNew);
+            if (best) {
+                best.textContent = isNew
+                    ? t('postgame.newBest')
+                    : (Number(previous[key]) || 0) > 0 ? t('postgame.best', { value: format(key, previous[key]) }) : '';
+            }
+        });
+    }
+
+    // One report line for the nearest incomplete daily at >= 50% (js/daily.js
+    // nearestDailyNudge). A null nudge hides it; a stale match id is ignored.
+    setPostGameDailyNudge(matchId, nudge) {
+        const line = document.getElementById('pg-daily-nudge');
+        if (!line) return false;
+        if (!nudge) {
+            line.hidden = true;
+            line.textContent = '';
+            return false;
+        }
+        if (typeof matchId !== 'string' || matchId !== this._postGameRewardMatchId) return false;
+        const count = Math.max(1, Math.floor(Number(nudge.remaining) || 1));
+        const unitKey = DAILY_NUDGE_UNITS[nudge.type] || 'steps';
+        line.textContent = t('postgame.dailyNudge', {
+            count,
+            unit: t(`postgame.units.${unitKey}`, { count }),
+            name: nudge.name
+        });
+        line.hidden = false;
+        return true;
+    }
+
+    // Post-match toasts: sequential, each on screen >= TOAST_QUEUE_MIN_MS, at
+    // most TOAST_QUEUE_MAX in flight (overflow is dropped, never interleaved).
+    // Uses the shared #game-message surface at a priority generic messages
+    // cannot overwrite, so a level-up no longer disappears under the next toast.
+    queueToast(text, duration = 2000) {
+        const message = String(text ?? '').trim();
+        if (!message) return false;
+        this._toastQueue ||= [];
+        if (this._toastQueue.length + (this._toastActive ? 1 : 0) >= TOAST_QUEUE_MAX) return false;
+        this._toastQueue.push({ text: message, duration: Math.max(TOAST_QUEUE_MIN_MS, Number(duration) || 0) });
+        if (!this._toastActive) this._pumpToastQueue();
+        return true;
+    }
+
+    _pumpToastQueue() {
+        const next = this._toastQueue?.shift();
+        if (!next) {
+            this._toastActive = false;
+            this._toastTimer = null;
+            return;
+        }
+        this._toastActive = true;
+        this.showMessage(next.text, next.duration, { priority: TOAST_QUEUE_PRIORITY });
+        this._toastTimer = setTimeout(() => this._pumpToastQueue(), next.duration);
+    }
+
+    clearToastQueue() {
+        clearTimeout(this._toastTimer);
+        this._toastTimer = null;
+        this._toastQueue = [];
+        if (this._toastActive) this.hideMessage();
+        this._toastActive = false;
     }
 
     // Animated XP-source + daily-challenge breakdown. index.html is owned

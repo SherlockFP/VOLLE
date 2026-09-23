@@ -91,6 +91,135 @@
     35% { box-shadow: 0 0 34px 6px rgba(255, 214, 90, 0.9); }
 }
 
+/* Run-it-back loop (Gauntlet G8) ------------------------------------------ */
+
+/* Personal strip: five compact cells, above the fold at every size. */
+#post-game-screen .pg-personal {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 6px;
+    margin: 4px 0 8px;
+}
+
+#post-game-screen .pg-personal[hidden] { display: none; }
+
+#post-game-screen .pg-personal-stat {
+    display: grid;
+    justify-items: center;
+    align-content: start;
+    gap: 1px;
+    min-width: 0;
+    padding: 6px 4px 5px;
+    text-align: center;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid color-mix(in srgb, var(--screen-line, #7fd4ff) 18%, transparent);
+    border-radius: 10px;
+}
+
+#post-game-screen .pg-personal-value {
+    color: #fff;
+    font-size: 1.12rem;
+    font-weight: 900;
+    line-height: 1.05;
+    font-variant-numeric: tabular-nums;
+}
+
+#post-game-screen .pg-personal-label {
+    max-width: 100%;
+    overflow: hidden;
+    color: var(--text-dim, #9fb2c4);
+    font-size: .6rem;
+    font-weight: 800;
+    letter-spacing: .05em;
+    text-overflow: ellipsis;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+#post-game-screen .pg-personal-best {
+    min-height: 1.1em;
+    max-width: 100%;
+    overflow: hidden;
+    color: #8aa6ba;
+    font-size: .58rem;
+    font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#post-game-screen .pg-personal-stat.is-new-best {
+    border-color: rgba(255, 214, 90, 0.7);
+    background: linear-gradient(180deg, rgba(255, 214, 90, 0.16), rgba(255, 214, 90, 0.04));
+}
+
+#post-game-screen .pg-personal-stat.is-new-best .pg-personal-best {
+    color: #ffd65a;
+    font-weight: 900;
+    letter-spacing: .08em;
+}
+
+/* Secondary "Next map" under the full-width Rematch (solo only). */
+#post-game-screen .pg-rematch-hero #pg-next-map {
+    justify-self: center;
+    min-height: 36px;
+    padding: 6px 16px;
+    font-size: .74rem;
+}
+
+#post-game-screen .pg-rematch-hero #pg-next-map[hidden] { display: none; }
+
+#post-game-screen .pg-daily-nudge {
+    margin: 0;
+    padding: 0 2px;
+    color: #ffd887;
+    font-size: .74rem;
+    font-weight: 800;
+    text-align: center;
+}
+
+#post-game-screen .pg-daily-nudge[hidden] { display: none; }
+
+/* LEVEL N stamp: lands on the rank pill once the XP bar has rolled over. */
+#post-game-screen .pg-level { position: relative; }
+
+#post-game-screen .pg-level.pg-level-up {
+    border-color: rgba(255, 214, 90, 0.8);
+    box-shadow: 0 0 18px rgba(255, 214, 90, 0.35);
+}
+
+#post-game-screen .pg-levelup-stamp {
+    display: inline-block;
+    margin-left: 4px;
+    padding: 1px 8px;
+    color: #1a1204;
+    font-size: .78rem;
+    font-weight: 900;
+    letter-spacing: .12em;
+    white-space: nowrap;
+    background: linear-gradient(100deg, #ffd65a, #ff9f3a);
+    border-radius: 999px;
+    box-shadow: 0 0 16px rgba(255, 190, 70, 0.55);
+}
+
+#post-game-screen .pg-levelup-stamp[hidden] { display: none; }
+
+#post-game-screen .pg-levelup-stamp.is-stamping {
+    animation: pg-level-stamp 0.55s cubic-bezier(.2, 1.6, .4, 1) both;
+}
+
+@keyframes pg-level-stamp {
+    0% { opacity: 0; transform: scale(2.2) rotate(-8deg); }
+    60% { opacity: 1; transform: scale(.92) rotate(2deg); }
+    100% { opacity: 1; transform: scale(1) rotate(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #post-game-screen .pg-levelup-stamp.is-stamping { animation: none; }
+}
+
+body.reduced-motion #post-game-screen .pg-levelup-stamp.is-stamping,
+.reduce-motion #post-game-screen .pg-levelup-stamp.is-stamping { animation: none; }
+
 body.reduced-motion #post-game-screen .pg-xp-bar-fill,
 body.reduced-motion #post-game-screen .pg-bp-bar-fill,
 .reduce-motion #post-game-screen .pg-xp-bar-fill,
@@ -103,4 +232,9 @@ body.reduced-motion #post-game-screen .pg-bp-bar-fill,
     #post-game-screen .pg-mvp-card { padding: 8px; gap: 9px; }
     #post-game-screen .pg-mvp-stage { width: 72px; height: 72px; }
     #post-game-screen .pg-mvp-stats { gap: 10px; }
+    #post-game-screen .pg-personal { gap: 4px; }
+    #post-game-screen .pg-personal-stat { padding: 5px 2px 4px; }
+    #post-game-screen .pg-personal-value { font-size: .98rem; }
+    #post-game-screen .pg-personal-label { font-size: .54rem; letter-spacing: .02em; }
+    #post-game-screen .pg-personal-best { font-size: .52rem; }
 }

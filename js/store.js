@@ -24,6 +24,7 @@ import {
 import { createSocialProfile } from './social-service.js';
 import { DEFAULT_NETCODE, normalizeNetcode } from './experimental-netcode.js';
 import { isTrustedCheckoutUrl } from './gem-shop.js';
+import { comparePersonalBests, emptyPersonalBests, normalizePersonalBests } from './run-it-back.js';
 import { COSMETICS, DEFAULT_WEARABLE_LOADOUT, normalizeWearableLoadout } from './cosmetic-catalog.js';
 import {
     BALL_PRICES,
@@ -141,6 +142,9 @@ export function computeStreakState(streak, now = new Date()) {
     return { today, day, claimed, reward: loginStreakReward(day) };
 }
 
+// The bot difficulty every profile had before new profiles defaulted to medium.
+const LEGACY_BOT_DIFFICULTY = 'hard';
+
 const DEFAULTS = {
     currency: 200,
     gems: 0,
@@ -212,11 +216,13 @@ const DEFAULTS = {
     socialProfile: createSocialProfile(),
     experimentalNetcode: { ...DEFAULT_NETCODE },
     settings: {
-        sensitivity: 2, volume: 50, musicVolume: 2, soundVolume: 50, botDifficulty: 'hard', fov: 75,
+        sensitivity: 2, volume: 50, musicVolume: 2, soundVolume: 50, botDifficulty: 'medium', fov: 75,
         quality: 'medium', autoQuality: true, publicDiagnostics: true, reduceMotion: false, screenShake: true,
         screenFlash: true, highContrast: false, colorBlind: 'none', keybinds: {}
     },
     stats: { gamesPlayed: 0, totalWins: 0, totalDeflects: 0, totalHits: 0, bestRally: 0, totalSpent: 0, winStreak: 0, rankedElo: 1000, rankedGames: 0 },
+    // Local-only personal records for the post-game strip (js/run-it-back.js).
+    personalBests: emptyPersonalBests(),
     unlockedAchievements: [],
     playerName: 'Player',
     onboardingSeen: false,
@@ -271,6 +277,9 @@ class StoreClass {
             return { ...structuredClone(DEFAULTS), ...parsed,
                 settings: {
                     ...DEFAULTS.settings,
+                    // New profiles default to a medium bot; a save from before that
+                    // default keeps the hard bot it has always played against.
+                    botDifficulty: LEGACY_BOT_DIFFICULTY,
                     ...(parsed.settings || {}),
                     musicVolume: Number(parsed.settings?.musicVolume ?? parsed.settings?.volume ?? DEFAULTS.settings.musicVolume),
                     soundVolume: Number(parsed.settings?.soundVolume ?? parsed.settings?.volume ?? DEFAULTS.settings.soundVolume)
@@ -290,6 +299,7 @@ class StoreClass {
                 characterProgress: { ...DEFAULTS.characterProgress, ...(parsed.characterProgress||{}) },
                 battlepass: normalizeBattlepassProgress(parsed.battlepass),
                 stats: { ...DEFAULTS.stats, ...(parsed.stats||{}) },
+                personalBests: normalizePersonalBests(parsed.personalBests),
                 rankedState: parsed.rankedState || createRankedState({ elo: Math.round(legacyElo) }),
                 unlockedChars: Object.keys(CHARACTERS),
                 ownedAvatarSkins: parsed.ownedAvatarSkins || DEFAULTS.ownedAvatarSkins,
@@ -1763,6 +1773,23 @@ class StoreClass {
         return tier >= 50 ? 0 : battlepassXpForTier(tier + 1);
     }
     getBattlepassPremiumPrice() { return PREMIUM_PASS_PRICE; }
+
+    getPersonalBests() {
+        return normalizePersonalBests(this.data.personalBests);
+    }
+
+    // Compares one match's personal numbers against the stored records and keeps
+    // the better of each. Local presentation only: no currency, XP or server
+    // state reads this. Returns the previous records the post-game strip compares
+    // against and which of them this match beat.
+    recordPersonalBests(stats) {
+        const result = comparePersonalBests(stats, this.data.personalBests);
+        if (result.anyBeaten) {
+            this.data.personalBests = result.next;
+            this.save();
+        }
+        return { stats: result.stats, previous: result.previous, beaten: result.beaten };
+    }
 
     // İstatistik güncelle + win streak + ranked ELO
     recordGame({ won = false, deflects = 0, hits = 0, rally = 0, ranked = false, opponentElo = 1000, characterId = 'rally', characterXp = 0 } = {}) {
