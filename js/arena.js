@@ -1135,6 +1135,9 @@ export class Arena {
         this._applyPresentation(this.mapId);
         this.objects = [];
         this.collidables = [];  // ball collision objects: {mesh, radius, pos}
+        // In-court gameplay props (parkour + cover layout). Matches roll this per
+        // map load (mostly off, see Game._rollMapProps); menus/tests keep them on.
+        this.propsEnabled = true;
         this.hazardZones = [];
         this.portals = [];
         this.portalTimer = 0;
@@ -1217,7 +1220,7 @@ export class Arena {
         this._buildHazardZones();
         if (this.config.isMinecraft) {
             this.buildMinecraft();
-            this.buildParkour();
+            if (this.propsEnabled) this.buildParkour();
             this._registerDeckBallColliders();
             this.buildNet();
             this.buildSkybox();
@@ -1272,8 +1275,10 @@ export class Arena {
         if (this.config.isStadium) this.buildStadiumProps();
         if (this.config.isPinball) this.buildPinballComplex();
         if (this.config.isCosmeticStudio) this.buildCosmeticStudio();
-        this.buildGameplayLayout();
-        this.buildParkour();
+        if (this.propsEnabled) {
+            this.buildGameplayLayout();
+            this.buildParkour();
+        }
         if (!this.config.isCosmeticStudio) this.buildSpectatorStands();
         this.buildHazardVisuals();
         // Generic open-world env for open-sided maps without specific theming
@@ -5413,8 +5418,10 @@ varying float vNearFade;`)
     }
 
     // Tear down and rebuild as a different map.
-    rebuild(mapId) {
+    // `props` (optional boolean) sets propsEnabled for this build; omitted keeps it.
+    rebuild(mapId, { props } = {}) {
         if (!MAPS[mapId]) return;
+        if (typeof props === 'boolean') this.propsEnabled = props;
         this.clearMap();
         this.mapId = mapId;
         this.config = MAPS[mapId];
@@ -5430,6 +5437,14 @@ varying float vNearFade;`)
         this.build();
         // ponytail: apply per-map UI theme overrides
         this._applyTheme(mapId);
+    }
+
+    // Toggle in-court props on the current map; rebuilds only when it changes.
+    setPropsEnabled(enabled) {
+        const next = enabled === true;
+        if (next === this.propsEnabled) return false;
+        this.rebuild(this.mapId, { props: next });
+        return true;
     }
 
     _applyPresentation(mapId) {

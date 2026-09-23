@@ -64,6 +64,13 @@ import {
 import { shouldSpawnMatchTrophy, resolveTrophySpot, trophyTeardownPlan } from './arena-decor.js';
 
 const BASE_HIT_DAMAGE = 25;
+// Chance a match opens with its in-court props (parkour + cover). Mostly off so
+// the default court stays an open rally floor; the host rolls, clients follow.
+export const MAP_PROPS_CHANCE = 0.3;
+
+export function rollMapProps(random = Math.random) {
+    return random() < MAP_PROPS_CHANCE;
+}
 // Kill-confirm "hot ball" window (docs/V3_UX_ROADMAP.md 3.2) — shooter's next
 // connecting hit gets a small damage bump for a few seconds after a kill.
 const KILL_CONFIRM_DURATION = 3.5;           // seconds
@@ -950,6 +957,8 @@ startGame(skipPreGame = false, matchId = null) {
     this.onMatchStart?.();
     this.applyMatchModifier();
     if (this.competitiveRules) applyCompetitiveRules(this, this.competitiveRules);
+    // Every match rolls its in-court props (host/solo); the snapshot carries it.
+    if (!this.network?.connected || this.network.isHost) this.arena.setPropsEnabled?.(rollMapProps());
         this.setState(STATES.COUNTDOWN);
         // Lobby'de gösterilen bot dummy'leri oyun başlamadan temizle
         for (const [peerId, p] of this.remotePlayers) {
@@ -5588,7 +5597,11 @@ spawnPowerUp() {
         if (typeof data.state === 'string' && data.state !== STATES.MENU && data.state !== STATES.LOBBY) {
             // Mode ve map'i senkronize et
             if (data.mode) this.selectMode(data.mode);
-            if (data.map && this.arena.mapId !== data.map) this.arena.rebuild(data.map);
+            if (data.map && this.arena.mapId !== data.map) {
+                this.arena.rebuild(data.map, typeof data.props === 'boolean' ? { props: data.props } : {});
+            } else if (typeof data.props === 'boolean') {
+                this.arena.setPropsEnabled?.(data.props);
+            }
             // Skoru koru — startGame reset'lemesin diye önce sakla
             const savedScore = {
                 red: typeof data.red === 'number' ? data.red : this.scoreboard.redScore,
@@ -5698,8 +5711,11 @@ spawnPowerUp() {
         if (this.network?.isHost) return;
         this.onMatchLoading?.(data);
         if (data.mode) this.selectMode(data.mode);
+        // Follow the host's map and its rolled in-court props.
         if (data.map && this.arena.mapId !== data.map) {
-            this.arena.rebuild(data.map);
+            this.arena.rebuild(data.map, typeof data.props === 'boolean' ? { props: data.props } : {});
+        } else if (typeof data.props === 'boolean') {
+            this.arena.setPropsEnabled?.(data.props);
         }
         // ponytail: client skips warmup/countdown — host already playing
         // gameStart is sent while the host is counting down. The client prepares
@@ -6004,6 +6020,7 @@ spawnPowerUp() {
                 : 0,
             mode: this.mode?.id,
             map: this.arena?.mapId,
+            props: this.arena?.propsEnabled !== false,
             maxRounds: this.scoreboard.maxRounds,
             timeLimit: this.scoreboard.timeLimit,
             round: this.scoreboard.roundNum,

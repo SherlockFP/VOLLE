@@ -29,7 +29,7 @@ test('arena presentation profiles lock the approved exposure, sun, and bloom cha
 });
 test('initial construction and every rebuild apply all presentation channels', () => {
     assert.match(source, /this\.spectatorBounds = getSpectatorBounds\(this\.config\);\s*this\._applyPresentation\(this\.mapId\);/);
-    assert.match(source, /rebuild\(mapId\)[\s\S]*?this\.spectatorBounds = getSpectatorBounds\(this\.config\);\s*this\._applyPresentation\(mapId\);\s*this\.build\(\);/);
+    assert.match(source, /rebuild\(mapId, \{ props \} = \{\}\)[\s\S]*?this\.spectatorBounds = getSpectatorBounds\(this\.config\);\s*this\._applyPresentation\(mapId\);\s*this\.build\(\);/);
     const method = source.slice(
         source.indexOf('    _applyPresentation(mapId) {'),
         source.indexOf('    // Apply per-map CSS theme', source.indexOf('    _applyPresentation(mapId) {'))

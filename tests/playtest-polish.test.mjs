@@ -62,3 +62,27 @@ test('Mouse1 spam cannot keep a deflect hitbox up: live window is shorter than t
     assert.match(player, /if \(this\.attackActive <= 0\) \{\s*this\.attackActive = 0;\s*this\.attacking = false;/);
     assert.match(game, /const swingWindow = Number\(player\.attackActive\) \|\|/);
 });
+
+test('in-court props are rolled per match (mostly off) and follow the host on clients', async () => {
+    const arenaSrc = await readFile(new URL('../js/arena.js', import.meta.url), 'utf8');
+    const { MAP_PROPS_CHANCE, rollMapProps } = await import('../js/game.js').catch(() => ({}));
+    const chance = MAP_PROPS_CHANCE ?? Number(game.match(/export const MAP_PROPS_CHANCE = ([\d.]+);/)?.[1]);
+    assert.ok(chance > 0 && chance < 0.5, 'props appear sometimes, but mostly off');
+    if (rollMapProps) {
+        assert.equal(rollMapProps(() => chance - 0.01), true);
+        assert.equal(rollMapProps(() => chance), false);
+    }
+    assert.match(arenaSrc, /if \(this\.propsEnabled\) \{\s*this\.buildGameplayLayout\(\);\s*this\.buildParkour\(\);\s*\}/);
+    assert.match(arenaSrc, /if \(this\.propsEnabled\) this\.buildParkour\(\);/);
+    assert.match(game, /if \(!this\.network\?\.connected \|\| this\.network\.isHost\) this\.arena\.setPropsEnabled\?\.\(rollMapProps\(\)\);/);
+    assert.match(game, /props: this\.arena\?\.propsEnabled !== false,/);
+    assert.equal((game.match(/this\.arena\.rebuild\(data\.map, typeof data\.props === 'boolean' \? \{ props: data\.props \} : \{\}\)/g) || []).length, 2);
+});
+
+test('a targeted ball phases through props briefly after a prop bounce instead of pinning to them', async () => {
+    const ballSrc = await readFile(new URL('../js/ball.js', import.meta.url), 'utf8');
+    const ghost = Number(ballSrc.match(/export const PROP_GHOST_SECONDS = ([\d.]+);/)?.[1]);
+    assert.ok(ghost >= 0.3 && ghost <= 1);
+    assert.match(ballSrc, /if \(this\.arena\.collidables && !\(this\._propGhost > 0 && this\.targetPlayer\)\) \{/);
+    assert.match(ballSrc, /if \(this\.bounceCount > propBouncesBefore && this\.targetPlayer\) this\._propGhost = PROP_GHOST_SECONDS;/);
+});

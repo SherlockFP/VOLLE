@@ -551,6 +551,9 @@ export const SPIN_MAX = 3;
 export const SPIN_MAGNUS_COEFF = 0.40;
 export const SPIN_DECAY_PER_SECOND = 0.95;
 export const SPIN_EPSILON = 0.001;
+// First contact with a prop still bounces; then a targeted ball phases through
+// props this long so homing can finish the shot instead of pinning to a wall.
+export const PROP_GHOST_SECONDS = 0.6;
 export const DEFLECT_SPIN_SCALE = Object.freeze({ normal: 0.45, great: 0.75, perfect: 1 });
 
 export function spinFromStrafe(strafeVelocity, forward, tier = 'normal') {
@@ -698,6 +701,7 @@ export class Ball {
         // süre sayacı başlar. Oyuncu vurmazsa 0.4s sonra zorunlu hit.
         this._proximityTimer = 0;
         this._proximityThreshold = 0.4; // saniye
+        this._propGhost = 0; // s left phasing through props after a prop bounce
         this._proximityRange = 1.5;     // hitRange'den büyük ama çok da değil
         this._forceHit = false;
 
@@ -1226,8 +1230,13 @@ export class Ball {
         let cleanBounce = false;
         let bounceSpeed = 0;
 
-        // Collision with map props (trees, pillars, mecha legs, canyon rocks)
-        if (this.arena.collidables) {
+        // Collision with map props (trees, pillars, mecha legs, canyon rocks).
+        // After a prop bounce a targeted ball phases through props briefly:
+        // homing steers it straight back into the same prop otherwise, and it
+        // pinned itself against walls/parkour and never reached the player.
+        if (this._propGhost > 0) this._propGhost = Math.max(0, this._propGhost - dt);
+        const propBouncesBefore = this.bounceCount;
+        if (this.arena.collidables && !(this._propGhost > 0 && this.targetPlayer)) {
             for (const c of this.arena.collidables) {
                 if (c.breakable && c.broken) continue;
                 // Solid props (exact box / capped-cylinder extents, see
@@ -1295,6 +1304,7 @@ export class Ball {
                 }
             }
         }
+        if (this.bounceCount > propBouncesBefore && this.targetPlayer) this._propGhost = PROP_GHOST_SECONDS;
 
         // Floor bounce — speed-dependent: fast ball bounces higher, slow dies
         if (this.position.y - this.radius < 0) {
