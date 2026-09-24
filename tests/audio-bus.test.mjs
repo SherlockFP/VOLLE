@@ -461,7 +461,8 @@ test('streak sting starts exactly once locally and exactly once per client; the 
     hostGame.announce('🔥 DOUBLE KILL!', 'tf2_crit', 0.5, 2500, { localSfx: false });
     assert.equal(host.ctx.started.length, 1, 'host hears one sting');
     assert.equal(host.ctx.started[0].node.buffer, host.audio._samples.get('music/2kill.sfx').buffer);
-    assert.deepEqual(JSON.parse(JSON.stringify(packets)), [{ type: 'announce', text: '🔥 DOUBLE KILL!', sfx: 'tf2_crit', sfxVol: 0.5, duration: 2500 }]);
+    // Same fields as before plus a host sequence number (additive, JSON packet).
+    assert.deepEqual(JSON.parse(JSON.stringify(packets)), [{ type: 'announce', text: '🔥 DOUBLE KILL!', sfx: 'tf2_crit', sfxVol: 0.5, duration: 2500, seq: 1 }]);
 
     const client = await createBus();
     const { game: clientGame } = killGame(client.audio, { playerName: 'Guest', isHost: false });
@@ -615,4 +616,65 @@ test('deflect path adds no latency: the sample source starts at currentTime, syn
     assert.ok(starts.length >= 3);
     assert.ok(starts.every(at => at === 7.25), `all deflect layers start now: ${starts}`);
     assert.ok(Math.abs(dbToGain(-6) - 0.5012) < 1e-3);
+});
+
+test('two distinct announcements with the same text both play; a re-delivered one does not', async () => {
+    const host = await createBus();
+    const { game: hostGame, packets } = killGame(host.audio);
+    hostGame.announce('🔥 DOUBLE KILL!', 'tf2_crit', 0.5, 2500, { localSfx: false });
+    hostGame.announce('🔥 DOUBLE KILL!', 'tf2_crit', 0.5, 2500, { localSfx: false });
+    assert.deepEqual(packets.map(p => p.seq), [1, 2]);
+
+    const client = await createBus();
+    const { game: clientGame } = killGame(client.audio, { playerName: 'Guest', isHost: false });
+    clientGame.applyAnnounce(packets[0]);
+    clientGame.applyAnnounce(packets[0]); // retransmission of the first
+    clientGame.applyAnnounce(packets[1]); // a genuinely distinct second DOUBLE KILL
+    assert.equal(client.ctx.started.length, 2);
+
+    // An older host without seq keeps the 400 ms same-content window.
+    const legacy = await createBus();
+    const { game: legacyGame } = killGame(legacy.audio, { playerName: 'Guest', isHost: false });
+    const bare = { type: 'announce', text: 'RED WINS', sfx: 'tf2_domination', sfxVol: 0.5, duration: 2000 };
+    legacyGame.applyAnnounce(bare);
+    legacyGame.applyAnnounce(bare);
+    assert.equal(legacy.ctx.started.length, 1);
+});
+
+test('rocket blasts do not open a kill duck; a real kill impact still does', async () => {
+    const rocket = await createBus({ decode: ['tf2_explosion'] });
+    rocket.audio.playSfx('tf2_explosion', 0.55);
+    assert.equal(rocket.ctx.started.length, 1);
+    for (const bus of ['sfx', 'announcer']) {
+        assert.equal(rocket.audio._duckNodes[bus].gain.events.length, 0, `rocket leaves ${bus} unducked`);
+    }
+    const kill = await createBus({ decode: ['tf2_explosion'] });
+    kill.audio.playKillImpact();
+    for (const bus of ['sfx', 'announcer']) {
+        assert.ok(kill.audio._duckNodes[bus].gain.events.length > 0, `kill impact ducks ${bus}`);
+    }
+});
+
+test('a failed sample fetch backs off instead of re-fetching on every play', async () => {
+    const { SAMPLE_RETRY_MS } = await import('../js/audio.js');
+    const audio = new Audio();
+    audio.init(new FakeAudioContext());
+    let fetches = 0;
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async () => { fetches++; return { ok: false, status: 404 }; };
+    const realWarn = console.warn;
+    console.warn = () => {};
+    try {
+        await audio._fetchSample('tf2_hit');
+        await audio._fetchSample('tf2_hit');
+        await audio._fetchSample('tf2_hit');
+        assert.equal(fetches, 1, 'one request inside the back-off window');
+        assert.equal(audio._pendingPlays.has('tf2_hit'), false);
+        audio._sampleFailedAt.set('tf2_hit', -SAMPLE_RETRY_MS * 2);
+        await audio._fetchSample('tf2_hit');
+        assert.equal(fetches, 2, 'retries once the window has passed');
+    } finally {
+        globalThis.fetch = realFetch;
+        console.warn = realWarn;
+    }
 });
