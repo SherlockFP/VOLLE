@@ -144,7 +144,7 @@ test('the shipped round-start method replaces pending work and never creates a c
         ui: { hideMatchIntro() {}, showRoundBanner() {} },
         clearBlackHoles() {}, clearSplitBalls() {}, _clearRockets() {}, _hideKillcam() {},
         _killPresentationKeys: new Set(), _perfectDeflectCutTotals: new Map(),
-        matchAnalytics: { recordEvent() {} }, activateQueuedPlayers() {},
+        matchAnalytics: { recordEvent() {} }, activateQueuedPlayers() {}, _applyNextRoundTeams() {},
         bots: [], remotePlayers: new Map(), _chaosModeIds: new Set(),
         arena: { config: {} }, mode: {}, guidedDrill: { active: false },
         player: { alive: true }, _applyBallAffix() {}, _cancelCharge() {},
