@@ -132,7 +132,18 @@ export default {
         dailyDone: '{done}/{total} tamamlandı',
         bpTier: 'Battle Pass — Kademe {tier}',
         maxTier: 'Son kademe',
-        bpNext: 'Sıradaki: {name}'
+        bpNext: 'Sıradaki: {name}',
+        // Gece Yayını ana ekranı (docs/MENU_DESIGN.md)
+        ovdLive: 'CANLI',
+        ovdSeries: 'GECE SERİSİ',
+        ovdLine1: 'Sektir.',
+        ovdLine2: 'Hızlan.',
+        ovdLine3: 'Aşırı hız.',
+        ovdLede: 'Her karşılayış topu hızlandırır. Bıçağı zamanla, soğukkanlı kal, ralliye hükmet.',
+        featuredKicker: 'Öne çıkan',
+        openInShop: '{name} — mağazada aç',
+        streakDay: '{day}. gün',
+        streakClaim: 'Günlük seri: {day} — +{reward} al'
     },
     social: {
         social: 'Sosyal',

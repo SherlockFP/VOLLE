@@ -92,6 +92,7 @@ import {
 } from './crosshair.js';
 import { selectMvp, resolveMvpLoadout } from './mvp-select.js';
 import { applyI18n, getLanguage, initI18n, localizedName, onLanguageChange, setLanguage, setText, t } from './i18n.js';
+import { initMenuOverdrive } from './menu-overdrive.js';
 
 const SOCIAL_DISCOVERY_KEY = 'warrball.social.discovery.v1';
 const PARTY_FOLLOW_SCREENS = new Set(['mainMenu', 'multiplayerMenu', 'joinMenu']);
@@ -780,6 +781,8 @@ class App {
 
         // ponytail: mouse-follow glow + custom cursor for main menu
         this._setupMenuMouse();
+        // Night Broadcast menu layer: magnetic PLAY, screen wipe, reduced-motion mirror.
+        initMenuOverdrive({ signal: this._mainAbort.signal });
 
         this.setupMenuHandlers();
         this._initShopShowcase();
@@ -1595,14 +1598,14 @@ class App {
         root.hidden = false;
         const kicker = document.createElement('span');
         kicker.className = 'ow-featured-kicker';
-        kicker.textContent = 'Featured';
+        setText(kicker, 'menu.featuredKicker');
         root.appendChild(kicker);
         for (const item of items) {
             const btn = document.createElement('button');
             btn.type = 'button';
             btn.className = `ow-featured-item ow-featured-${item.kind}`;
             btn.dataset.tab = item.tab;
-            btn.setAttribute('aria-label', `${item.name} — open in shop`);
+            btn.setAttribute('aria-label', t('menu.openInShop', { name: item.name }));
             if (item.art) {
                 const img = document.createElement('img');
                 img.className = 'ow-featured-art';
@@ -1650,8 +1653,8 @@ class App {
         const label = document.createElement('span');
         label.className = 'ow-streak-label';
         label.textContent = state.claimed
-            ? `Day ${state.day}`
-            : `Daily Streak: ${state.day} — Claim +${state.reward}`;
+            ? t('menu.streakDay', { day: state.day })
+            : t('menu.streakClaim', { day: state.day, reward: state.reward });
         badge.appendChild(fire);
         badge.appendChild(label);
     }
@@ -1956,11 +1959,23 @@ class App {
         const glow = menu?.querySelector('.ow-mouse-glow');
         const cursor = menu?.querySelector('.ow-cursor');
         if (!menu || !glow || !cursor) return;
+        // The glow is the only consumer of --mx/--my, so write them on the glow itself:
+        // an inherited property on #main-menu would restyle the whole menu subtree on
+        // every mousemove. Skip entirely while the glow/cursor are not rendered (the
+        // Night Broadcast layer hides both; its spotlight rides --px/--py instead).
+        let pointerFxRendered = true;
+        const syncPointerFx = () => {
+            pointerFxRendered = getComputedStyle(glow).display !== 'none' || getComputedStyle(cursor).display !== 'none';
+        };
+        window.addEventListener('warrball:screen', event => {
+            if (event.detail?.screen === 'mainMenu') requestAnimationFrame(syncPointerFx);
+        }, { signal: this._mainAbort.signal });
         const onMove = (e) => {
+            if (!pointerFxRendered) return;
             const x = (e.clientX / window.innerWidth) * 100;
             const y = (e.clientY / window.innerHeight) * 100;
-            menu.style.setProperty('--mx', x + '%');
-            menu.style.setProperty('--my', y + '%');
+            glow.style.setProperty('--mx', x + '%');
+            glow.style.setProperty('--my', y + '%');
             cursor.style.left = e.clientX + 'px';
             cursor.style.top = e.clientY + 'px';
         };
@@ -1989,17 +2004,26 @@ class App {
         let frame = 0;
         const reduced = () => document.body.classList.contains('reduced-motion')
             || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+        // Publish the eased pointer only on the layers that consume it (atmosphere +
+        // hero stage). Inherited custom properties on #main-menu itself restyled every
+        // menu node (rail, nav, cards) each frame of pointer movement.
+        const layers = [...menu.querySelectorAll('.ovd-atmos, .ow-showcase')];
+        const depthTargets = layers.length ? layers : [menu];
+        const publish = (x, y) => {
+            for (const el of depthTargets) {
+                el.style.setProperty('--px', x);
+                el.style.setProperty('--py', y);
+            }
+        };
         const tick = () => {
             frame = 0;
             if (menu.classList.contains('hidden') || reduced()) {
-                menu.style.setProperty('--px', '0');
-                menu.style.setProperty('--py', '0');
+                publish('0', '0');
                 return;
             }
             current.x += (target.x - current.x) * 0.12;
             current.y += (target.y - current.y) * 0.12;
-            menu.style.setProperty('--px', current.x.toFixed(4));
-            menu.style.setProperty('--py', current.y.toFixed(4));
+            publish(current.x.toFixed(4), current.y.toFixed(4));
             if (Math.abs(target.x - current.x) > 0.001 || Math.abs(target.y - current.y) > 0.001) {
                 frame = requestAnimationFrame(tick);
             }
