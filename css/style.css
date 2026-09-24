@@ -4,10 +4,13 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 :root {
-    --red: #e63946;
-    --red-dark: #b02a33;
-    --blue: #457bca;
-    --blue-dark: #2d5a9e;
+    /* Team palette: one true-but-subdued red and blue shared by the court
+       halves (js/team-colors.js TEAM_COLORS), HUD score, scoreboard, kill feed
+       and the M team menu. Colour-blind modes below override --red/--blue. */
+    --red: #c0392b;
+    --red-dark: #8e2a20;
+    --blue: #2e6fd8;
+    --blue-dark: #1f4fa3;
     --bg: #6fdfd9;
     --panel: rgba(15, 15, 35, 0.85);
     --glass: rgba(255, 255, 255, 0.05);
@@ -403,8 +406,8 @@ body.social-hub-active #menu-particles {
 .player-dot.red { background: var(--red); }
 .player-dot.blue { background: var(--blue); }
 
-.team-red { color: var(--red); }
-.team-blue { color: var(--blue); }
+.team-red { color: var(--red-ink); }
+.team-blue { color: var(--blue-ink); }
 
 /* ===== HUD ===== */
 
@@ -442,8 +445,8 @@ body.social-hub-active #menu-particles {
     min-width: 60px;
     text-align: center;
 }
-.hud-team-score.red { background: rgba(230,57,70,0.3); color: var(--red); }
-.hud-team-score.blue { background: rgba(69,123,202,0.3); color: var(--blue); }
+.hud-team-score.red { background: color-mix(in srgb, var(--red) 30%, transparent); color: var(--red-ink); }
+.hud-team-score.blue { background: color-mix(in srgb, var(--blue) 30%, transparent); color: var(--blue-ink); }
 
 .hud-timer {
     padding: 10px 16px;
@@ -1002,8 +1005,8 @@ body.reduced-motion #combo-edge-glow { display: none; }
     border-bottom: 1px solid rgba(255,255,255,0.04);
 }
 
-.scoreboard-table tr.red td:first-child { color: var(--red); }
-.scoreboard-table tr.blue td:first-child { color: var(--blue); }
+.scoreboard-table tr.red td:first-child { color: var(--red-ink); }
+.scoreboard-table tr.blue td:first-child { color: var(--blue-ink); }
 
 /* ===== GAME OVER ===== */
 
@@ -4553,6 +4556,9 @@ body.high-contrast {
 body[data-color-blind="deuteranopia"] { --red: #ffb000; --blue: #1f9eff; }
 body[data-color-blind="protanopia"] { --red: #f0e442; --blue: #0072b2; }
 body[data-color-blind="tritanopia"] { --red: #d55e00; --blue: #cc79a7; }
+/* Readable team text on dark panels, derived where --red/--blue resolve so
+   colour-blind overrides carry through. */
+:root, body { --red-ink: color-mix(in srgb, var(--red) 72%, #fff); --blue-ink: color-mix(in srgb, var(--blue) 70%, #fff); }
 
 /* ===== 2026 LIGHT ARCADE SHELL ===== */
 :root {

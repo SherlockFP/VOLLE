@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { WeatherSystem } from './weather.js';
 import { computeGoalZones } from './goal-mode.js';
 import { getTexture, clearTextureCache } from './procedural-textures.js';
+import { withTeamPalette, teamCourtMaterial } from './team-colors.js';
 import { loadArenaDecor, disposeArenaDecor, preloadTrophyTemplate } from './arena-decor.js';
 import { loadSkyboxTexture, resolveFogColor } from './skybox-loader.js';
 
@@ -96,6 +97,8 @@ export const MAPS = {
         name: '🚀 Space Station',
         courtWidth: 115, courtLength: 125, wallHeight: 24, ceilingHeight: 34,
         floorRed: 0xd04080, floorBlue: 0x4080d0, wallColor: 0x8090b0,
+        // Violet sky light + high exposure washed the red half to salmon.
+        teamCourt: { lightness: 0.3, albedo: 0.3 },
         skyTop: 0x1a2050, skyBottom: 0x3a4080, fogColor: 0x2a3060,
         hasOcean: false, hasGlass: true, isSpace: true, size: 'large',
         lowGravity: true, hasPortals: true, weather: 'clear', openSides: true,
@@ -158,6 +161,8 @@ export const MAPS = {
     volcano: {
         courtWidth: 88, courtLength: 60, wallHeight: 20, ceilingHeight: 28,
         floorRed: 0x2d1b00, floorBlue: 0x1f1200, wallColor: 0x1a0f00, fogColor: 0x330000,
+        // Lava-red lighting turned the blue half purple; lean on emissive.
+        teamCourt: { lightness: 0.3, albedo: 0.25, emissive: 0.9 },
         isVolcano: true,
         name: 'Volcano', emoji: '🌋',
         floor: 0x2d1b00, wall: 0x1a0f00, ceiling: 0x0a0500,
@@ -224,6 +229,7 @@ export const MAPS = {
         name: '🌋 Lava Pit',
         courtWidth: 110, courtLength: 125, wallHeight: 22, ceilingHeight: 0,
         floorRed: 0xff3300, floorBlue: 0xff5500, wallColor: 0x4a2020,
+        teamCourt: { albedo: 0.25, emissive: 0.9 },
         skyTop: 0xff4422, skyBottom: 0x662200, fogColor: 0x442200,
         hasOcean: false, hasGlass: false, isLava: true, size: 'medium',
         openAir: true, openSides: true, weather: 'clear'
@@ -1247,7 +1253,9 @@ export class Arena {
         this.renderer = renderer;
         this.scene = renderer.scene;
         this.mapId = MAPS[mapId] ? mapId : 'beach';
-        this.config = MAPS[this.mapId];
+        // Derived copy: team halves, banners, rings and lights use the shared
+        // red/blue palette (js/team-colors.js); MAPS keeps the authored theme.
+        this.config = withTeamPalette(MAPS[this.mapId], this.mapId);
         this.portalsEnabled = options.portalsEnabled !== false;
         // ponytail: goal geometry only builds when Goal Rush is the active mode.
         this.goalRushEnabled = !!options.goalRush;
@@ -3432,9 +3440,10 @@ export class Arena {
     }
 
     buildLavaProps() {
-        // Glowing lava floor + embers
+        // Glowing lava floor + embers. Kept very faint: at 0.15-0.45 this full-court
+        // orange wash turned the blue team half purple.
         const glowMat = new THREE.MeshBasicMaterial({
-            color: 0xff4400, transparent: true, opacity: 0.4
+            color: 0xff4400, transparent: true, opacity: 0.035
         });
         const glow = new THREE.Mesh(
             new THREE.PlaneGeometry(this.courtWidth, this.courtLength),
@@ -3657,13 +3666,20 @@ export class Arena {
         const floorMaterial = c.floorMaterial || {};
         const floorRoughness = Number.isFinite(floorMaterial.roughness) ? floorMaterial.roughness : 0.7;
         const floorMetalness = Number.isFinite(floorMaterial.metalness) ? floorMaterial.metalness : 0.1;
-        const floorEmissive = Number.isFinite(floorMaterial.emissiveIntensity) ? floorMaterial.emissiveIntensity : 0.05;
+        const authoredEmissive = Number.isFinite(floorMaterial.emissiveIntensity) ? floorMaterial.emissiveIntensity : 0.05;
+        // Shared team palette (js/team-colors.js): scale the albedo down and add
+        // the team colour back as emissive so tinted map lighting keeps red red
+        // and blue blue. Custom maps keep their authored look.
+        const teamCourt = c.teamPalette ? teamCourtMaterial(c) : null;
+        const floorEmissive = teamCourt ? Math.max(authoredEmissive, teamCourt.emissive) : authoredEmissive;
+        const floorAlbedo = teamCourt ? teamCourt.albedo : 1;
 
         // Red half
         const rGeo = new THREE.PlaneGeometry(this.courtWidth, halfL);
         const rTex = this._buildFloorTexture(c.floorRed);
         const rMat = new THREE.MeshStandardMaterial({
             map: rTex, roughness: floorRoughness, metalness: floorMetalness,
+            color: new THREE.Color(floorAlbedo, floorAlbedo, floorAlbedo),
             emissive: new THREE.Color(c.floorRed), emissiveIntensity: floorEmissive
         });
         const rFloor = new THREE.Mesh(rGeo, rMat);
@@ -3677,6 +3693,7 @@ export class Arena {
         const bTex = this._buildFloorTexture(c.floorBlue);
         const bMat = new THREE.MeshStandardMaterial({
             map: bTex, roughness: floorRoughness, metalness: floorMetalness,
+            color: new THREE.Color(floorAlbedo, floorAlbedo, floorAlbedo),
             emissive: new THREE.Color(c.floorBlue), emissiveIntensity: floorEmissive
         });
         const bFloor = new THREE.Mesh(bGeo, bMat);
@@ -5323,7 +5340,7 @@ export class Arena {
         }
         // Lava glow pulse
         if (this._lavaGlow) {
-            this._lavaGlow.material.opacity = 0.3 + Math.sin(time * 2) * 0.15;
+            this._lavaGlow.material.opacity = 0.035 + Math.sin(time * 2) * 0.015;
             this._lavaGlow.scale.setScalar(1 + Math.sin(time * 1.5) * 0.02);
         }
         if (this._embers) {
@@ -5714,7 +5731,7 @@ varying float vNearFade;`)
         if (typeof props === 'boolean') this.propsEnabled = props;
         this.clearMap();
         this.mapId = mapId;
-        this.config = MAPS[mapId];
+        this.config = withTeamPalette(MAPS[mapId], mapId);
         this.courtWidth = this.config.courtWidth;
         this.courtLength = this.config.courtLength;
         this.wallHeight = this.config.wallHeight;
