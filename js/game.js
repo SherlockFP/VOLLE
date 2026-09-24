@@ -2112,8 +2112,8 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         this.juice?.burst?.(origin, 0xff8a35, 30, 18);
         this.juice?.shockwave?.(origin, 0xffaa44);
         this.juice?.shake?.(0.35);
-        this.audio?.playSfx?.('tf2_explosion', 0.55);
-        this.audio?.playExplosion?.();
+        // One impact: the recorded blast when it plays, otherwise the synth (never both).
+        if (!this.audio?.playSfx?.('tf2_explosion', 0.55)) this.audio?.playExplosion?.();
         if (!rocket.visualOnly && this.network?.isHost) {
             this.network.broadcastSkillEffect('soldier_rocket_explode', null, null, {
                 x: origin.x, y: origin.y, z: origin.z
@@ -7792,7 +7792,10 @@ handleSkillEffect(data = {}) {
         this._showMatchMessage(text, duration);
         if (sfx && this.audio && opts?.localSfx !== false) this._playAnnounceSfx(sfx, sfxVol);
         if (this.network?.isHost) {
-            this.network.broadcast({ type: 'announce', text, sfx, sfxVol, duration });
+            // seq lets clients drop a re-delivered packet without also dropping a
+            // distinct announcement that happens to share its text (two DOUBLE KILLs).
+            this._announceSeq = (this._announceSeq || 0) + 1;
+            this.network.broadcast({ type: 'announce', text, sfx, sfxVol, duration, seq: this._announceSeq });
         }
     }
 
@@ -7801,11 +7804,18 @@ handleSkillEffect(data = {}) {
         if (!data || this.network?.isHost) return;
         this._showMatchMessage(data.text, data.duration || 1500);
         if (!data.sfx || !this.audio) return;
-        // A re-delivered packet must not stack the same sting twice.
+        // A re-delivered packet must not stack the same sting twice. Hosts number
+        // announcements (seq); only an older host without seq falls back to the
+        // 400 ms same-content window.
         const now = performance.now();
-        const key = `${data.text}\u0000${data.sfx}`;
-        if (this._lastAnnounceSfx?.key === key && now - this._lastAnnounceSfx.at < 400) return;
-        this._lastAnnounceSfx = { key, at: now };
+        if (Number.isInteger(data.seq)) {
+            if (data.seq === this._lastAnnounceSeq) return;
+            this._lastAnnounceSeq = data.seq;
+        } else {
+            const key = `${data.text}\u0000${data.sfx}`;
+            if (this._lastAnnounceSfx?.key === key && now - this._lastAnnounceSfx.at < 400) return;
+            this._lastAnnounceSfx = { key, at: now };
+        }
         this._playAnnounceSfx(data.sfx, data.sfxVol || 0.4);
     }
 

@@ -42,6 +42,8 @@ const PENDING_PLAY_MS = 150;
 // Kill stack window: ≤ 3 layers per listener role inside it. Match announcements
 // (round win, broadcast stings) that land inside an open window start right after it.
 export const KILL_STACK_WINDOW = 0.15;
+// Back-off after a sample fetch fails (404, offline) before trying it again.
+export const SAMPLE_RETRY_MS = 30000;
 
 export function dbToGain(db) {
     return Math.pow(10, db / 20);
@@ -62,7 +64,8 @@ const SAMPLE_SPECS = Object.freeze({
     tf2_hit: { url: 'sfx/tf2_hit.sfx', bus: 'sfx', db: DEFLECT_SAMPLE_DB, nominal: 0.35 },
     tf2_frying_pan: { url: 'sfx/tf2_frying_pan.sfx', bus: 'sfx', db: DEFLECT_SAMPLE_DB, nominal: 0.35 },
     tf2_crit: { url: 'sfx/tf2_crit.sfx', bus: 'sfx', db: -3, nominal: 0.65 },
-    tf2_explosion: { url: 'sfx/tf2_explosion.sfx', bus: 'sfx', db: LOUDNESS_DB.killImpact, nominal: 0.5, kill: true },
+    // Not a kill layer by default: rockets also use it. playKillImpact() opts in with { kill: true }.
+    tf2_explosion: { url: 'sfx/tf2_explosion.sfx', bus: 'sfx', db: LOUDNESS_DB.killImpact, nominal: 0.5 },
     tf2_scout_scream: { url: 'sfx/tf2_scout_scream.sfx', bus: 'sfx', db: -5, nominal: 0.45 },
     tf2_you_are_dead: { url: 'sfx/tf2_you_are_dead.sfx', bus: 'announcer', db: LOUDNESS_DB.victimCue, nominal: 0.5, kill: true },
     tf2_notification: { url: 'sfx/tf2_notification.sfx', bus: 'announcer', db: LOUDNESS_DB.observerCue, nominal: 0.4 },
@@ -764,6 +767,11 @@ export class Audio {
         if (this._sampleBytes.has(name)) return Promise.resolve(true);
         const inFlight = this._sampleFetches.get(name);
         if (inFlight) return inFlight;
+        // A missing/broken sample must not re-fetch on every play (tf2_hit fires
+        // on every deflect): back off for SAMPLE_RETRY_MS after a failure.
+        this._sampleFailedAt ??= new Map();
+        const failedAt = this._sampleFailedAt.get(name);
+        if (failedAt !== undefined && nowMs() - failedAt < SAMPLE_RETRY_MS) return Promise.resolve(false);
         const url = this._sampleUrl(name);
         if (!url || typeof fetch !== 'function') return Promise.resolve(false);
         const flight = fetch(url)
@@ -775,6 +783,8 @@ export class Audio {
             })
             .catch(e => {
                 console.warn(`SFX load failed: ${name}`, e);
+                this._sampleFailedAt.set(name, nowMs());
+                this._pendingPlays.delete(name);
                 return false;
             })
             .finally(() => this._sampleFetches.delete(name));

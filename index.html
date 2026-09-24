@@ -26,6 +26,12 @@
     <link rel="stylesheet" href="css/spectator.css?v=1">
     <link rel="stylesheet" href="css/postgame.css?v=2">
     <link rel="stylesheet" href="css/touch.css?v=1">
+    <!-- Night Broadcast menu layer (docs/MENU_DESIGN.md): display + data faces, then the
+         menu stylesheet last so it owns the menu/shell cascade without editing older sheets. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800;900&family=JetBrains+Mono:wght@500;700&display=swap">
+    <link rel="stylesheet" href="css/menu-overdrive.css?v=1">
     <script type="importmap">
     {
         "imports": {
@@ -213,10 +219,19 @@
     <!-- ===== MAIN MENU ===== -->
     <div id="main-menu" class="screen ow-screen">
         <canvas id="menu-stage-canvas" aria-hidden="true"></canvas>
+        <!-- Night Broadcast atmosphere: graded arena plate, floodlights, cursor spot, grain. Decorative. -->
+        <div class="ovd-atmos" aria-hidden="true">
+            <div class="ovd-plate"></div>
+            <div class="ovd-beam ovd-beam-l"></div>
+            <div class="ovd-beam ovd-beam-r"></div>
+            <div class="ovd-spot"></div>
+            <div class="ovd-grain"></div>
+        </div>
         <div class="ow-mouse-glow"></div>
         <div class="ow-cursor"></div>
         <div class="ow-menu">
             <header class="ow-topbar">
+                <div class="ovd-brand" aria-hidden="true"><img src="assets/generated/volle-logo-512.png" alt=""><b>VOLLE</b></div>
                 <div class="ow-profile">
                     <div class="ow-avatar" id="ow-avatar"><svg class="ui-icon" aria-hidden="true"><use href="#i-ball"></use></svg></div>
                     <div class="ow-profile-info">
@@ -251,6 +266,18 @@
             <section class="ow-showcase" id="menu-character-showcase" aria-label="Featured original arena runner" data-i18n-attr="aria-label:menu.featuredRunner">
                 <div class="menu-arena-plate" aria-hidden="true"></div>
                 <div class="ow-sun-disc" aria-hidden="true"></div>
+                <div class="ovd-wordmark" aria-hidden="true"><span>VOLLE</span></div>
+                <!-- Deflect telestration: a static dotted trajectory plus a compositor-only ball (CSS
+                     transforms in % of a fixed 6:7 box, so it scales with the hero without main-thread work). -->
+                <div class="ovd-arc" aria-hidden="true">
+                    <svg class="ovd-arc-svg" viewBox="0 0 600 700" focusable="false">
+                        <defs><linearGradient id="ovd-arc-heat" gradientUnits="userSpaceOnUse" x1="0" y1="760" x2="0" y2="-80"><stop offset="0" stop-color="#5ee7f7" stop-opacity="0"/><stop offset=".38" stop-color="#5ee7f7"/><stop offset=".52" stop-color="#ff3d5a"/><stop offset="1" stop-color="#ffb13b" stop-opacity="0"/></linearGradient></defs>
+                        <path class="ovd-arc-line" d="M 700 760 Q 500 470 395 385 L 760 -80"/>
+                    </svg>
+                    <span class="ovd-ball-track ovd-ball-in"><i></i></span>
+                    <span class="ovd-ball-track ovd-ball-out"><i></i></span>
+                    <span class="ovd-spark"></span>
+                </div>
                 <div class="ow-hero-stage" id="menu-hero-stage"><canvas id="menu-hero-canvas"></canvas></div>
                 <div class="ow-character" aria-hidden="true">
                     <span class="ow-character-head"></span>
@@ -274,11 +301,16 @@
             </section>
 
             <aside class="ow-action-panel" aria-label="Play menu" data-i18n-attr="aria-label:menu.playMenu">
+                <div class="ovd-headline">
+                    <span class="ovd-onair"><i aria-hidden="true"></i><b data-i18n="menu.ovdLive">LIVE</b><span data-i18n="menu.ovdSeries">NIGHT SERIES</span></span>
+                    <h1 class="ovd-title"><span class="ovd-line"><span data-i18n="menu.ovdLine1">Deflect.</span></span><span class="ovd-line"><span data-i18n="menu.ovdLine2">Escalate.</span></span><span class="ovd-line ovd-line-heat"><span data-i18n="menu.ovdLine3">Overdrive.</span></span></h1>
+                    <p class="ovd-lede" data-i18n="menu.ovdLede">Every return speeds the ball up. Time the knife, hold your nerve, own the rally.</p>
+                </div>
                 <div class="ow-action-heading">
                     <span class="ow-kicker" data-i18n="menu.playKicker">PLAY</span>
                     <strong data-i18n="menu.chooseMatch">Choose your match</strong>
                 </div>
-                <button id="btn-play-solo" class="ow-play"><svg class="ui-icon" aria-hidden="true"><use href="#i-play"></use></svg><span><b data-i18n="menu.quickPlayCaps">QUICK PLAY</b><small data-i18n="menu.createOrJoin">Create or join a lobby</small></span></button>
+                <button id="btn-play-solo" class="ow-play"><span class="ovd-play-label" data-i18n="menu.playKicker">PLAY</span><span class="ovd-play-meta"><b data-i18n="menu.quickPlayCaps">QUICK PLAY</b><small data-i18n="menu.createOrJoin">Create or join a lobby</small></span><span class="ovd-play-go" aria-hidden="true"><svg class="ui-icon"><use href="#i-arrow-right"></use></svg></span></button>
                 <div class="ow-world-grid">
                     <button id="btn-social-lobby" class="ow-social-lobby">
                         <svg class="ui-icon" aria-hidden="true"><use href="#i-globe"></use></svg>

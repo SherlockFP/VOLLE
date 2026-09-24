@@ -132,7 +132,18 @@ export default {
         dailyDone: '{done}/{total} done',
         bpTier: 'Battle Pass — Tier {tier}',
         maxTier: 'Max Tier',
-        bpNext: 'Next: {name}'
+        bpNext: 'Next: {name}',
+        // Night Broadcast hub (docs/MENU_DESIGN.md)
+        ovdLive: 'LIVE',
+        ovdSeries: 'NIGHT SERIES',
+        ovdLine1: 'Deflect.',
+        ovdLine2: 'Escalate.',
+        ovdLine3: 'Overdrive.',
+        ovdLede: 'Every return speeds the ball up. Time the knife, hold your nerve, own the rally.',
+        featuredKicker: 'Featured drop',
+        openInShop: '{name} — open in shop',
+        streakDay: 'Day {day}',
+        streakClaim: 'Daily Streak: {day} — Claim +{reward}'
     },
     social: {
         social: 'Social',
