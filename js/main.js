@@ -2244,7 +2244,10 @@ class App {
             this._joinAsSpectator = false;
             try {
                 const code = document.getElementById('join-code-input')?.value;
-                const name = document.getElementById('join-name-input')?.value || 'Player';
+                // An empty join name falls back to your profile/guest name, never a
+                // shared "Player" (team switches and the roster are keyed by name).
+                const name = document.getElementById('join-name-input')?.value?.trim()
+                    || document.getElementById('player-name-input')?.value?.trim() || 'Player';
                 const password = document.getElementById('join-pass-input')?.value || '';
                 if (!code) return;
                 this._setupClientNetHandlers();
@@ -7078,8 +7081,8 @@ updateCarousel() {
             this.broadcastLobbyState();
             this._syncRematchRoster?.();
         };
-        this.network.onTeamChange = (name, team) => {
-            this.game.switchPlayerTeam?.(name, team);
+        this.network.onTeamChange = (name, team, playerId) => {
+            this.game.switchPlayerTeam?.(name, team, playerId);
             this.broadcastLobbyState();
         };
         this.network.onLateJoinTeam = (playerId, team) => {
@@ -7340,8 +7343,8 @@ updateCarousel() {
         this.network.onKicked = (reason) => {
             this._exitToMenu(reason === 'password' ? 'Wrong lobby password.' : 'You were kicked from the lobby.');
         };
-        this.network.onTeamChange = (pName, team) => {
-            this.game.switchPlayerTeam?.(pName, team);
+        this.network.onTeamChange = (pName, team, playerId) => {
+            this.game.switchPlayerTeam?.(pName, team, playerId);
             if (this.network.isHost) this.broadcastLobbyState();
         };
         // Live lobby updates + initial welcome — host broadcasts a fresh
@@ -7949,6 +7952,12 @@ updateCarousel() {
     }
 
     async _registerLobby(code, name, players, map, mode) {
+        // The public registry only lists signed-in hosts. A guest (or a session the
+        // server no longer knows) still hosts a real P2P room joinable by code.
+        if (!account.getToken()) {
+            this._lastLobbyApiStatus = 401;
+            return false;
+        }
         const ranked = this.game.mode?.id === 'competitive' || this._rankedHosting === true;
         const sportRoute = resolveSportRoute({
             sportId: this._selectedSportId,
@@ -7977,9 +7986,21 @@ updateCarousel() {
         return true;
     }
 
+    // Registry admission only records this account as a member of the host's listed
+    // lobby so the server can credit the match. The P2P room works without it: a
+    // guest joiner, a guest/unlisted host or a registry hiccup must never cancel a
+    // join whose connection is already open. Returns whether the server admitted us.
     async _confirmLobbyAdmission(code) {
+        if (!account.getToken()) return false;
         const proof = await this.network.waitForLobbyAdmissionProof();
-        if (!proof) throw new Error('Lobby admission proof was not received. Please try again.');
+        if (!proof) {
+            // The host may list the room a moment later; its proof then arrives late.
+            if (this.network) this.network.onLobbyAdmissionProof = () => {
+                this.network.onLobbyAdmissionProof = null;
+                if (this._lobbyCode === code) this._confirmLobbyAdmission(code);
+            };
+            return false;
+        }
         // Spectators do not take one of the registry's player slots.
         const spectator = this.network?.spectatorMode === true;
         const admitted = await this._lobbyApi(`/api/lobbies/${encodeURIComponent(code)}/join`, {
@@ -7987,7 +8008,7 @@ updateCarousel() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ admissionToken: proof, ...(spectator ? { spectator: true } : {}) })
         });
-        if (!admitted?.ok) throw new Error('Lobby admission failed. Please try again.');
+        if (!admitted?.ok) return false;
         this._adoptTrustedLobbySport?.(admitted);
         return true;
     }
@@ -8225,12 +8246,6 @@ updateCarousel() {
             this.ui.showMessage?.(t('toast.volleyDev'), 2200);
             return false;
         }
-        // The lobby registry only accepts signed-in hosts. Guests get a playable
-        // local lobby right away instead of a P2P room that is doomed to fail.
-        if (!account.getToken()) {
-            this._openLocalLobbyFallback('toast.lobbyLocalGuest');
-            return true;
-        }
         try {
             clearInterval(this._lobbyKeepAlive); // önceki varsa durdur
             if (this._lobbyCode) await this._unregisterLobby(this._lobbyCode); // eski varsa sil
@@ -8301,7 +8316,7 @@ updateCarousel() {
                     this.broadcastLobbyState();
                     return;
                 }
-                this.game.switchPlayerTeam?.(pName, team);
+                this.game.switchPlayerTeam?.(pName, team, playerId);
                 this.broadcastLobbyState();
             };
             this.network.onLateJoinTeam = (playerId, team) => {
@@ -8322,11 +8337,15 @@ updateCarousel() {
                 this.arena?.config?.name || 'Unknown',
                 this.game.mode?.name || 'Classic'
             );
-            if (!registered) {
-                this._openLocalLobbyFallback(this._lastLobbyApiStatus === 401 ? 'toast.lobbySessionExpired' : 'toast.lobbyLocalFallback');
-                return true;
+            // Not listed (guest, expired session, registry down): the P2P room is still
+            // live and friends join with the code; the keep-alive keeps trying to list it.
+            if (registered) {
+                this.ui.showMessage?.(t('toast.lobbyCreated', { code }), 3000);
+            } else {
+                const reason = !account.getToken() ? 'toast.lobbyPrivateGuest'
+                    : this._lastLobbyApiStatus === 401 ? 'toast.lobbyPrivateSession' : 'toast.lobbyPrivateOffline';
+                this.ui.showMessage?.(t(reason, { code }), 5200);
             }
-            this.ui.showMessage?.(t('toast.lobbyCreated', { code }), 3000);
             // Auto-re-register every 12s to keep lobby alive
             this._lobbyKeepAlive = setInterval(() => {
                 if (this.network.connected && this.network.isHost) {
@@ -8339,23 +8358,6 @@ updateCarousel() {
             alert('Failed to create lobby: ' + e.message);
             return false;
         }
-    }
-
-    // Hosting could not be registered online: drop any half-open P2P room and land
-    // in the same local bot lobby as "Solo vs Bots", with a toast saying why.
-    _openLocalLobbyFallback(reasonKey) {
-        clearInterval(this._lobbyKeepAlive);
-        this._lobbyKeepAlive = null;
-        this._lobbyCode = null;
-        if (this.network?.connected || this.network?.isHost) {
-            this._stopHostCheckpointLifecycle();
-            this._stopBgLoop();
-            this.network.disconnect();
-        }
-        this.game.startSolo();
-        this.ui.setRoomCode('LOCAL');
-        this.ui.showScreen('lobby');
-        this.ui.showMessage?.(t(reasonKey), 4200);
     }
 
     // Open/close the M team menu. Releases pointer lock while open so you can

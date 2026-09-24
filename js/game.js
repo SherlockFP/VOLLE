@@ -739,14 +739,17 @@ addBot(team, { name: preferredName = null } = {}) {
         if (this.state === STATES.LOBBY) this.updateLobbyUI();
     }
 
-    switchPlayerTeam(name, team) {
+    // `playerId` (a remote's network id) wins over `name`: two players can share
+    // a display name, and a request from a remote must never move the host.
+    switchPlayerTeam(name, team, playerId = null) {
         if (!isTeam(team)) return;
-        if (name === this.playerName) {
+        const byId = playerId ? this.remotePlayers.get(playerId) : null;
+        if (!byId && name === this.playerName) {
             this.switchTeam(team);
             return;
         }
-        const bot = this.bots.find(b => b.name === name);
-        const remote = [...this.remotePlayers.values()].find(p => p.name === name);
+        const bot = byId ? null : this.bots.find(b => b.name === name);
+        const remote = byId || [...this.remotePlayers.values()].find(p => p.name === name);
         const target = bot || remote;
         if (!target) return;
         const mode = this._teamSwitchModeNow();
@@ -6061,7 +6064,10 @@ spawnPowerUp() {
             data.vx, data.vy, data.vz, data.ry, data.vx !== undefined, arrival);
         p.lastPacketTime = performance.now();
         if (!p._interp) p.group.rotation.y = data.ry || 0;
-        p.team = data.team || p.team;
+        // The host owns team membership (teamChange / next-round queue); a packet's
+        // team only updates the display on guests. Trusting it on the host let a
+        // client skip the next-round rule and desync the roster at round start.
+        if (!this.network?.isHost) p.team = data.team || p.team;
         // Position packets are movement reports, not authority to heal or revive.
         // Guests still reconcile the host's snapshots; the host keeps its own life state.
         if (!this.network?.isHost) {
@@ -6430,7 +6436,16 @@ spawnPowerUp() {
             if ((pl.playerId && pl.playerId === myId) || (!pl.playerId && pl.peerId === myPeerId)) {
                 if (deferLocalPlayer) continue;
                 const revived = this.player.alive === false && pl.alive === true;
+                // The host overruled a local switch mid-match (e.g. it was already
+                // PLAYING and queued it): go back to the host's half, not stay across.
+                const overruled = isTeam(pl.team) && pl.team !== this.player.team
+                    && this.state !== STATES.LOBBY && this.state !== STATES.MENU
+                    && !this.localSpectator && !pl.queuedForNextRound && this.player.alive !== false;
                 this.player.setTeam(pl.team);
+                if (overruled) {
+                    this.player.respawn();
+                    this.player.courtSide = this.getCourtConfinementSide(pl.team);
+                }
                 this.player.queuedForNextRound = !!pl.queuedForNextRound;
                 this.player.pendingTeam = pl.pendingTeam || null;
                 this.player.nextRoundTeam = isTeam(pl.nextRoundTeam) ? pl.nextRoundTeam : null;

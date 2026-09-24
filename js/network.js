@@ -608,6 +608,8 @@ export class Network {
         this.lobbyAdmissionToken = '';
         this._lobbyAdmissionProof = '';
         this._lobbyAdmissionWaiters = [];
+        this._lobbyAdmissionUnlisted = false;
+        this.onLobbyAdmissionProof = null;
         this.joinPassword = '';
         this.onReconnectState = null;
         this.onRematchReady = null;
@@ -1680,6 +1682,14 @@ export class Network {
             }
             return admitted;
         });
+    }
+
+    _rosterPlayerIdForPeer(peerId) {
+        if (!peerId || !(this.migrationRoster instanceof Map)) return '';
+        for (const entry of this.migrationRoster.values()) {
+            if (entry?.peerId === peerId) return entry.playerId;
+        }
+        return '';
     }
 
     _updateMigrationRoster(players = []) {
@@ -3110,7 +3120,9 @@ export class Network {
             case 'welcome':
                 if (this.isHost || peerId !== this.hostConn?.peer) break;
                 this._applyBallAppearance(data);
-                this._acceptLobbyAdmissionProof(data.admissionToken);
+                // A welcome without a token means the host's room is not listed
+                // (guest host / registry down): stop waiting, the room still works.
+                if (!this._acceptLobbyAdmissionProof(data.admissionToken)) this._settleLobbyAdmissionUnlisted();
                 if (Array.isArray(data.players)) {
                     this._updateMigrationRoster(
                         Array.isArray(data.migrationRoster)
@@ -3301,8 +3313,12 @@ case 'modeChange':
         const boundPlayerId = this.peerToPlayerId.get(peerId);
         if (!trustedRelay && boundPlayerId && data.playerId && data.playerId !== boundPlayerId) return;
         const playerId = trustedRelay
-            ? (data.playerId || this.peerToPlayerId.get(transportPeerId) || transportPeerId)
+            ? (data.playerId || this.peerToPlayerId.get(transportPeerId) || this._rosterPlayerIdForPeer(transportPeerId))
             : (boundPlayerId || data.playerId || peerId);
+        // POS_Q carries the playerId only on every Nth packet. A sample that arrives
+        // before the sender's id is known is dropped: keying it by the transport peer
+        // id spawned a phantom "P-xxxx" copy of a player already on the roster.
+        if (!playerId) return;
         if (trustedRelay) this.peerToPlayerId.set(transportPeerId, playerId);
         if (data.seq !== undefined) {
             const previous = this._lastPositionSeq.get(playerId);
@@ -3761,6 +3777,14 @@ case 'modeChange':
     _resetLobbyAdmissionProof() {
         this.lobbyAdmissionToken = '';
         this._lobbyAdmissionProof = '';
+        this._lobbyAdmissionUnlisted = false;
+        this.onLobbyAdmissionProof = null;
+        this._lobbyAdmissionWaiters.splice(0).forEach(resolve => resolve(''));
+    }
+
+    _settleLobbyAdmissionUnlisted() {
+        if (this._lobbyAdmissionProof) return;
+        this._lobbyAdmissionUnlisted = true;
         this._lobbyAdmissionWaiters.splice(0).forEach(resolve => resolve(''));
     }
 
@@ -3788,13 +3812,22 @@ case 'modeChange':
 
     _acceptLobbyAdmissionProof(token) {
         if (!LOBBY_ADMISSION_TOKEN_PATTERN.test(String(token || ''))) return false;
+        const changed = String(token) !== this._lobbyAdmissionProof;
         this._lobbyAdmissionProof = String(token);
-        this._lobbyAdmissionWaiters.splice(0).forEach(resolve => resolve(this._lobbyAdmissionProof));
+        this._lobbyAdmissionUnlisted = false;
+        const waiters = this._lobbyAdmissionWaiters.splice(0);
+        waiters.forEach(resolve => resolve(this._lobbyAdmissionProof));
+        // Nobody waiting: the join already went ahead unlisted and the host has
+        // listed the room since. Let the app admit this account late.
+        if (!waiters.length && changed) {
+            try { this.onLobbyAdmissionProof?.(this._lobbyAdmissionProof); } catch (_) {}
+        }
         return true;
     }
 
     waitForLobbyAdmissionProof(timeoutMs = 5000) {
         if (this._lobbyAdmissionProof) return Promise.resolve(this._lobbyAdmissionProof);
+        if (this._lobbyAdmissionUnlisted) return Promise.resolve('');
         return new Promise(resolve => {
             const finish = token => { clearTimeout(timer); resolve(token || ''); };
             const timer = setTimeout(() => {

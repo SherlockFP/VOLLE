@@ -711,8 +711,11 @@ export class UI {
         const popup = overlay.querySelector('.team-popup');
         if (classSwitcher && popup) popup.insertBefore(classSwitcher, popup.querySelector('.team-popup-actions'));
         // Open on the side you are headed for: a late-join pick or a queued
-        // next-round switch, else your current team.
-        this.selectedTeam = game.player.pendingTeam || game.player.nextRoundTeam || game.player.team;
+        // next-round switch. Otherwise opening the menu means "switch", so the
+        // other side is preselected and one Enter / click on Join confirms it.
+        const current = game.player.team === 'blue' ? 'blue' : 'red';
+        this.selectedTeam = game.player.pendingTeam || game.player.nextRoundTeam
+            || (game.player.queuedForNextRound ? current : (current === 'red' ? 'blue' : 'red'));
         classSwitcher?.classList.remove('hidden');
         this._renderTeamLists(game);
         this._renderClassSwitch(game);
@@ -793,7 +796,12 @@ export class UI {
             const col = document.getElementById(`team-col-${side}`);
             header?.classList.toggle('selected', target === side);
             header?.setAttribute?.('aria-pressed', String(target === side));
-            if (header) header.onclick = () => selectTeam(side);
+            // First click picks a side; clicking the picked side again joins it.
+            if (header) header.onclick = () => {
+                const confirm = document.getElementById('btn-team-popup-confirm');
+                if (target === side && confirm && !confirm.disabled) confirm.click();
+                else selectTeam(side);
+            };
             if (col) {
                 col.classList.toggle('current', current === side && !queued);
                 col.classList.toggle('next', (pendingNext || (queued ? game.player.pendingTeam : null)) === side);
@@ -873,9 +881,10 @@ export class UI {
         }
     }
 
-    // While the team popup is open it owns: 1 / 2 (and ← / →) pick a side,
-    // Enter confirms, Space presses the focused button, Tab cycles focus
-    // inside the dialog. main.js leaves these keys alone while it is open.
+    // While the team popup is open it owns: 1 / 2 join red / blue in one press
+    // (CS-style M → 1/2), ← / → only move the pick, Enter confirms, Space
+    // presses the focused button, Tab cycles focus inside the dialog. main.js
+    // leaves these keys alone while it is open.
     _bindTeamPopupKeys(game) {
         this._teamKeyGame = game;
         if (this._teamKeysBound || typeof document === 'undefined') return;
@@ -883,15 +892,18 @@ export class UI {
         document.addEventListener('keydown', event => {
             if (!this.isTeamPopupOpen()) return;
             if (event.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
-            const pick = team => {
-                if (!event.repeat) {
-                    this.selectedTeam = team;
-                    this._renderTeamLists(this._teamKeyGame);
-                    this._focusTeamDoor(team);
-                }
+            const pick = (team, join = false) => {
+                if (event.repeat) return;
+                this.selectedTeam = team;
+                this._renderTeamLists(this._teamKeyGame);
+                this._focusTeamDoor(team);
+                const confirm = document.getElementById('btn-team-popup-confirm');
+                if (join && confirm && !confirm.disabled) confirm.click();
             };
-            if (event.code === 'Digit1' || event.code === 'Numpad1' || event.code === 'ArrowLeft') pick('red');
-            else if (event.code === 'Digit2' || event.code === 'Numpad2' || event.code === 'ArrowRight') pick('blue');
+            if (event.code === 'Digit1' || event.code === 'Numpad1') pick('red', true);
+            else if (event.code === 'Digit2' || event.code === 'Numpad2') pick('blue', true);
+            else if (event.code === 'ArrowLeft') pick('red');
+            else if (event.code === 'ArrowRight') pick('blue');
             else if (event.code === 'Enter' || event.code === 'NumpadEnter') {
                 const confirm = document.getElementById('btn-team-popup-confirm');
                 if (!event.repeat && confirm && !confirm.disabled) confirm.click();
