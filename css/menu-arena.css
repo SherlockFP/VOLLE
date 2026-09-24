@@ -1,0 +1,1033 @@
+/* css/menu-arena.css — "Arena Lobby" menu layer. Brief: docs/MENU_DESIGN.md.
+   Loaded LAST so it owns the main-menu and menu-flow cascade without editing the older
+   sheets (style / polish / menu-depth stay untouched).
+     - Only #main-menu, the menu-flow screens and the lobby chrome are styled here.
+       The in-match HUD, postgame and the 3D arenas are out of scope.
+     - Faces are the game's own DM Sans (body) and Nunito (display). No web-font extras.
+     - No ambient loops. Motion is feedback only (press / hover depth) plus a short
+       fade + scale when a screen opens. Everything is off under reduced motion. */
+
+/* ============================================================================
+   0. Tokens
+   ========================================================================== */
+:root {
+    --mm-ink: #f4f8ff;
+    --mm-mute: #a9bfcc;
+    --mm-accent: var(--ui-menu-accent, #5ee7f7);
+    --mm-accent-ink: #062028;
+    --mm-panel: rgb(7 22 32 / .86);
+    --mm-panel-solid: #0b2230;
+    --mm-raise: rgb(255 255 255 / .055);
+    --mm-raise-hover: rgb(255 255 255 / .09);
+    --mm-line: rgb(190 225 240 / .14);
+    --mm-line-strong: rgb(190 225 240 / .28);
+    --mm-gold: var(--ui-menu-gold, #ffc857);
+    --mm-red: #e5485c;
+    --mm-blue: #3f80e8;
+    /* The "go" button: one warm, chunky, pressable face shared by PLAY, Find Match,
+       Host and Start Game. The lip is a hard inset shadow, like a physical key. */
+    --mm-go: #ffc043;
+    --mm-go-top: #ffd772;
+    --mm-go-lip: #c47a0e;
+    --mm-go-ink: #2b1804;
+    --mm-display: var(--font-display, 'Nunito'), 'Nunito', 'DM Sans', sans-serif;
+    --mm-body: var(--font, 'DM Sans'), 'DM Sans', sans-serif;
+    --mm-r-sm: 10px;
+    --mm-r: 14px;
+    --mm-r-lg: 18px;
+    --mm-ease: cubic-bezier(.22, 1, .36, 1);
+    --mm-bar-h: 64px;
+    --mm-pad: clamp(12px, 1.5vw, 22px);
+    --mm-rail-w: clamp(300px, 21vw, 348px);
+    --mm-gap: clamp(14px, 1.6vw, 26px);
+}
+
+/* ============================================================================
+   1. Main menu: daylight arena backdrop
+   ========================================================================== */
+#main-menu {
+    --menu-cyan: var(--mm-accent);
+    --menu-line: var(--mm-line);
+    --menu-ink: var(--mm-ink);
+    --menu-muted: var(--mm-mute);
+    color: var(--mm-ink);
+    background: #0a1e29;
+    background-image: none;
+    font-family: var(--mm-body);
+    cursor: default;
+}
+#main-menu::before,
+#main-menu::after { content: none; }
+#main-menu .ow-mouse-glow,
+#main-menu .ow-cursor,
+#main-menu .menu-arena-plate,
+#main-menu .ow-sun-disc,
+#main-menu .ow-showcase::before,
+#main-menu .ow-showcase::after,
+#main-menu .ow-splash { display: none; }
+#main-menu #menu-stage-canvas { opacity: .2; mix-blend-mode: screen; }
+
+#main-menu .menu-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    overflow: hidden;
+    pointer-events: none;
+    contain: strict;
+}
+#main-menu .menu-backdrop-plate {
+    position: absolute;
+    inset: -2%;
+    background: var(--arena-menu-image, none) center 42% / cover no-repeat;
+    transform: translate3d(calc(var(--px, 0) * -8px), calc(var(--py, 0) * -5px), 0);
+    will-change: transform;
+}
+/* Legibility only where UI sits (left panel, top bar, floor); the court stays bright. */
+#main-menu .menu-backdrop::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+        linear-gradient(90deg, rgb(4 14 22 / .62) 0%, rgb(4 14 22 / .2) 30%, transparent 48%, transparent 72%, rgb(4 14 22 / .42) 100%),
+        linear-gradient(180deg, rgb(4 14 22 / .45) 0%, transparent 16%, transparent 72%, rgb(4 14 22 / .55) 100%);
+}
+
+/* ============================================================================
+   2. Main menu grid (≥ 1340 px: play panel | hero | social rail)
+   ========================================================================== */
+#main-menu .ow-menu {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    margin: 0;
+    padding: var(--mm-pad) var(--mm-pad) 0;
+    display: grid;
+    grid-template-columns: clamp(340px, 28vw, 420px) minmax(0, 1fr) var(--mm-rail-w);
+    grid-template-rows: var(--mm-bar-h) minmax(0, 1fr) 52px;
+    column-gap: var(--mm-gap);
+    row-gap: 12px;
+    overflow: hidden;
+    animation: mmFade .22s ease-out both;
+}
+
+/* ---- Top bar: player card | tabs | wallet ----------------------------------- */
+#main-menu .ow-topbar {
+    position: relative;
+    grid-column: 1 / -1;
+    grid-row: 1;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-rows: minmax(0, 1fr);
+    align-items: center;
+    gap: 0 clamp(10px, 1.2vw, 20px);
+    min-width: 0;
+    height: var(--mm-bar-h);
+    min-height: 0;
+    max-height: none;
+    margin: 0;
+    padding: 0 10px;
+    border: 1px solid var(--mm-line);
+    border-radius: var(--mm-r);
+    background: rgb(5 17 26 / .8);
+    box-shadow: 0 10px 28px -18px rgb(0 0 0 / .8);
+    backdrop-filter: none;
+    overflow: visible;
+    animation: none;
+}
+#main-menu .ow-profile {
+    grid-column: 1;
+    grid-row: 1;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    max-width: 230px;
+    height: 48px;
+    padding: 0 12px 0 4px;
+    border: 0;
+    border-right: 1px solid var(--mm-line);
+}
+#main-menu .ow-avatar {
+    flex: 0 0 auto;
+    width: 42px;
+    height: 42px;
+    border: 2px solid color-mix(in srgb, var(--mm-accent) 45%, transparent);
+    border-radius: 12px;
+    background: var(--mm-panel-solid);
+    box-shadow: none;
+    overflow: hidden;
+}
+#main-menu .ow-profile-info { min-width: 0; display: grid; gap: 3px; }
+#main-menu .ow-eyebrow { display: none; }
+#main-menu .ow-name-input {
+    width: 100%;
+    max-width: 150px;
+    height: 20px;
+    min-height: 20px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--mm-ink);
+    font: 800 1rem/1.1 var(--mm-display);
+    text-overflow: ellipsis;
+}
+#main-menu .ow-level { display: flex; align-items: center; gap: 6px; color: var(--mm-mute); font: 700 .74rem/1 var(--mm-body); }
+
+#main-menu .ow-tabs {
+    grid-column: 2;
+    grid-row: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    width: auto;
+    min-width: 0;
+    height: 100%;
+    padding: 0;
+    margin: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    overscroll-behavior-inline: contain;
+    animation: none;
+}
+#main-menu .ow-tabs::-webkit-scrollbar { display: none; }
+#main-menu .ow-tab {
+    position: relative;
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: max-content;
+    min-height: 44px;
+    height: 44px;
+    padding: 0 clamp(9px, .9vw, 15px);
+    border: 0;
+    border-radius: var(--mm-r-sm);
+    background: transparent;
+    box-shadow: none;
+    color: var(--mm-mute);
+    font: 800 .98rem/1 var(--mm-display);
+    letter-spacing: 0;
+    text-transform: none;
+    text-shadow: none;
+    white-space: nowrap;
+    translate: none;
+    transition: color .15s ease, background-color .15s ease;
+}
+#main-menu .ow-tab::before { content: none; }
+#main-menu .ow-tab::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    bottom: 5px;
+    width: 18px;
+    height: 3px;
+    margin-left: -9px;
+    border-radius: 3px;
+    background: var(--mm-accent);
+    box-shadow: none;
+    opacity: 0;
+    scale: .4 1;
+    transition: opacity .15s ease, scale .2s var(--mm-ease);
+}
+#main-menu .ow-tab:hover,
+#main-menu .ow-tab:focus-visible { color: var(--mm-ink); background: var(--mm-raise); border-color: transparent; translate: none; text-shadow: none; }
+#main-menu .ow-tab:hover::after,
+#main-menu .ow-tab:focus-visible::after { opacity: .6; scale: 1 1; }
+/* The menu itself is the Play route. */
+#main-menu #btn-play { color: var(--mm-ink); background: var(--mm-raise); }
+#main-menu #btn-play::after { opacity: 1; scale: 1 1; }
+/* New-player gating keeps its lock as a small tag after the label. */
+body.is-new-player #main-menu :is(#btn-ranked, #btn-battlepass)::after {
+    content: '🔒';
+    position: static;
+    width: auto;
+    height: auto;
+    margin: 0;
+    background: none;
+    opacity: .7;
+    scale: 1;
+    font-size: .6rem;
+    filter: grayscale(1);
+}
+
+#main-menu .ow-currency { grid-column: 3; grid-row: 1; display: flex; align-items: center; gap: 6px; margin: 0; min-width: 0; }
+#main-menu .ow-coin {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 38px;
+    padding: 0 12px;
+    border: 1px solid color-mix(in srgb, var(--mm-gold) 38%, transparent);
+    border-radius: var(--mm-r-sm);
+    background: color-mix(in srgb, var(--mm-gold) 10%, transparent);
+    color: var(--mm-gold);
+    font: 800 .9rem/1 var(--mm-display);
+    font-variant-numeric: tabular-nums;
+}
+#main-menu .ow-coin.ow-pass { color: var(--mm-ink); border-color: var(--mm-line-strong); background: var(--mm-raise); }
+#main-menu .ow-coin .ui-icon { width: 17px; height: 17px; }
+#main-menu .ow-gear {
+    width: 44px;
+    height: 44px;
+    min-height: 44px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 1px solid var(--mm-line);
+    border-radius: 12px;
+    background: var(--mm-raise);
+    color: var(--mm-mute);
+    box-shadow: none;
+    transition: color .15s ease, border-color .15s ease, background-color .15s ease;
+}
+#main-menu .ow-gear:hover,
+#main-menu .ow-gear:focus-visible { color: var(--mm-ink); border-color: var(--mm-line-strong); background: var(--mm-raise-hover); }
+
+/* ---- Play panel: "Choose your match" card ---------------------------------- */
+#main-menu .ow-action-panel {
+    position: relative;
+    z-index: 3;
+    grid-column: 1;
+    grid-row: 2;
+    align-self: end;
+    min-height: 0;
+    max-height: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+        "head head"
+        "play play"
+        "hub  hub"
+        "sec  sec"
+        "ret  ret"
+        "feat feat";
+    grid-template-rows: auto;
+    align-content: start;
+    gap: 10px;
+    padding: 14px;
+    border: 1px solid var(--mm-line);
+    border-radius: var(--mm-r-lg);
+    background: var(--mm-panel);
+    box-shadow: 0 24px 50px -28px rgb(0 0 0 / .85);
+    backdrop-filter: none;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    /* menu-depth.css tilts this panel in 3D; keep it flat so type stays crisp (and
+       `perspective` would re-parent the absolute footer). */
+    perspective: none;
+    transform-style: flat;
+    transform: none;
+    /* Opacity only: a transform animation would make the panel the containing block
+       of the absolute footer links (and clip them inside its scroller). */
+    animation: mmFade .25s ease-out both;
+}
+#main-menu .ow-action-heading { grid-area: head; display: block; margin: 0 2px; padding: 0; }
+#main-menu .ow-action-heading strong { display: block; color: var(--mm-ink); font: 900 1.2rem/1.15 var(--mm-display); letter-spacing: 0; text-transform: none; }
+
+/* PLAY: the one dominant action. A chunky key with a hard lip that presses down. */
+#main-menu .ow-play {
+    grid-area: play;
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+    min-height: clamp(76px, 10vh, 92px);
+    margin: 0;
+    padding: 0 20px 6px;
+    border: 0;
+    border-radius: 16px;
+    background: linear-gradient(180deg, var(--mm-go-top), var(--mm-go) 55%);
+    box-shadow:
+        inset 0 -6px 0 var(--mm-go-lip),
+        inset 0 2px 0 rgb(255 255 255 / .5),
+        0 12px 22px -12px rgb(0 0 0 / .7);
+    color: var(--mm-go-ink);
+    text-align: left;
+    filter: none;
+    overflow: hidden;
+    cursor: pointer;
+    transform: none;
+    translate: 0 0;
+    transition: translate .12s var(--mm-ease), box-shadow .12s ease, filter .15s ease;
+    animation: none;
+}
+#main-menu .ow-play::before { content: none; }
+#main-menu .ow-play::after { content: none; animation: none; }
+#main-menu .ow-play:hover,
+#main-menu .ow-play:focus-visible {
+    translate: 0 -2px;
+    transform: none;
+    filter: brightness(1.05);
+    box-shadow:
+        inset 0 -7px 0 var(--mm-go-lip),
+        inset 0 2px 0 rgb(255 255 255 / .55),
+        0 16px 26px -12px rgb(0 0 0 / .75);
+}
+#main-menu .ow-play:active {
+    translate: 0 3px;
+    transform: none;
+    filter: brightness(.98);
+    box-shadow:
+        inset 0 -2px 0 var(--mm-go-lip),
+        inset 0 2px 0 rgb(255 255 255 / .4),
+        0 6px 12px -8px rgb(0 0 0 / .7);
+    transition-duration: .05s;
+}
+#main-menu .ow-play > .ow-play-icon {
+    flex: 0 0 auto;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    fill: currentColor;
+    stroke: currentColor;
+    stroke-linejoin: round;
+    stroke-width: 2.4;
+}
+#main-menu .ow-play-copy { display: grid; gap: 3px; min-width: 0; }
+#main-menu .ow-play-copy b { font: 900 clamp(1.9rem, min(2.6vw, 5vh), 2.5rem)/.95 var(--mm-display); letter-spacing: .02em; text-transform: uppercase; }
+#main-menu .ow-play-copy small {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: rgb(43 24 4 / .78);
+    font: 700 .84rem/1.2 var(--mm-body);
+    opacity: 1;
+    white-space: nowrap;
+}
+#main-menu .ow-play-copy small > span { display: inline; }
+#main-menu .ow-play-copy small > span:first-child { font-weight: 800; }
+#main-menu .ow-play-detail::before { content: '·'; margin: 0 6px; }
+
+/* Secondary routes: Social Hub (full width) + Tournament / Avatar. */
+#main-menu .ow-world-grid { grid-area: hub; display: block; min-width: 0; margin: 0; }
+#main-menu .ow-secondary { grid-area: sec; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; min-width: 0; margin: 0; }
+#main-menu :is(.ow-social-lobby, .ow-sbtn) {
+    position: relative;
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+    border: 1px solid var(--mm-line);
+    border-radius: 12px;
+    background: var(--mm-raise);
+    box-shadow: inset 0 -3px 0 rgb(0 0 0 / .22);
+    color: var(--mm-ink);
+    transform: none;
+    translate: 0 0;
+    transition: border-color .15s ease, background-color .15s ease, translate .12s var(--mm-ease), box-shadow .12s ease;
+    animation: none;
+}
+#main-menu :is(.ow-social-lobby, .ow-sbtn):hover,
+#main-menu :is(.ow-social-lobby, .ow-sbtn):focus-visible {
+    border-color: color-mix(in srgb, var(--mm-accent) 50%, transparent);
+    background-color: var(--mm-raise-hover);
+    translate: 0 -1px;
+    transform: none;
+    box-shadow: inset 0 -3px 0 rgb(0 0 0 / .22);
+}
+#main-menu :is(.ow-social-lobby, .ow-sbtn):active { translate: 0 1px; box-shadow: inset 0 -1px 0 rgb(0 0 0 / .22); transition-duration: .05s; }
+#main-menu .ow-social-lobby {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    min-height: 60px;
+    padding: 8px 14px 10px 10px;
+    text-align: left;
+}
+#main-menu .ow-social-lobby > .ui-icon:first-child {
+    width: 40px;
+    height: 40px;
+    padding: 9px;
+    border: 0;
+    border-radius: 11px;
+    background: color-mix(in srgb, var(--mm-accent) 16%, transparent);
+    color: var(--mm-accent);
+}
+#main-menu .ow-social-lobby span { display: grid; gap: 3px; min-width: 0; }
+#main-menu .ow-social-lobby span b { overflow: hidden; font: 800 1.02rem/1.1 var(--mm-display); letter-spacing: 0; text-overflow: ellipsis; text-transform: none; white-space: nowrap; }
+#main-menu .ow-social-lobby small { display: block !important; overflow: hidden; color: var(--mm-mute); font: 600 .78rem/1.2 var(--mm-body); text-overflow: ellipsis; white-space: nowrap; }
+#main-menu .ow-social-lobby-arrow { width: 14px; height: 14px; color: var(--mm-mute); }
+#main-menu .ow-sbtn {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 10px;
+    min-height: 48px;
+    padding: 6px 12px 8px;
+    font: 800 .95rem/1 var(--mm-display);
+    letter-spacing: 0;
+    text-transform: none;
+}
+#main-menu .ow-sbtn .ui-icon { flex: 0 0 auto; width: 20px; height: 20px; color: var(--mm-accent); }
+#main-menu .ow-sbtn span { overflow: hidden; max-width: 100%; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Come-back-today cluster: daily challenges, battle pass, login streak. */
+#main-menu .ow-retention-strip {
+    grid-area: ret;
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin: 0;
+}
+#main-menu .ow-retention-card[hidden],
+#main-menu .ow-streak-badge[hidden] { display: none !important; }
+#main-menu .ow-retention-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    min-height: 58px;
+    padding: 8px 10px;
+    border: 1px solid var(--mm-line);
+    border-radius: 12px;
+    background: var(--mm-raise);
+    box-shadow: none;
+    color: var(--mm-ink);
+    text-align: left;
+    transform: none;
+    translate: 0 0;
+    transition: border-color .15s ease, background-color .15s ease, translate .12s var(--mm-ease);
+}
+#main-menu .ow-retention-card:hover,
+#main-menu .ow-retention-card:focus-visible { translate: 0 -1px; transform: none; box-shadow: none; border-color: var(--mm-line-strong); background-color: var(--mm-raise-hover); }
+#main-menu .ow-retention-icon {
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--mm-accent) 14%, transparent);
+    font-size: 1.05rem;
+    line-height: 1;
+}
+#main-menu .ow-retention-bp .ow-retention-icon { background: color-mix(in srgb, var(--mm-gold) 16%, transparent); }
+#main-menu .ow-retention-body { display: grid; gap: 4px; min-width: 0; width: 100%; }
+#main-menu .ow-retention-title { overflow: hidden; color: var(--mm-mute); font: 700 .74rem/1.15 var(--mm-body); letter-spacing: 0; text-overflow: ellipsis; text-transform: none; white-space: nowrap; }
+#main-menu .ow-retention-sub { overflow: hidden; color: var(--mm-ink); font: 800 .92rem/1.1 var(--mm-display); letter-spacing: 0; text-overflow: ellipsis; text-transform: none; white-space: nowrap; }
+#main-menu .ow-retention-bar { display: block; height: 6px; overflow: hidden; border-radius: 6px; background: rgb(255 255 255 / .1); }
+#main-menu .ow-retention-bar-fill { display: block; height: 100%; min-width: 6px; border-radius: 6px; background: var(--mm-accent); transition: width .5s var(--mm-ease); }
+#main-menu .ow-retention-bp .ow-retention-bar-fill { background: var(--mm-gold); }
+#main-menu .ow-streak-badge {
+    grid-column: 1 / -1;
+    min-height: 40px;
+    padding: 6px 12px;
+    border-color: color-mix(in srgb, var(--mm-gold) 40%, var(--mm-line));
+    background: color-mix(in srgb, var(--mm-gold) 10%, transparent);
+    color: var(--mm-ink);
+    font: 800 .84rem/1.2 var(--mm-body);
+    letter-spacing: 0;
+    text-transform: none;
+}
+#main-menu .ow-streak-badge.claimed { border-color: var(--mm-line); background: var(--mm-raise); color: var(--mm-mute); }
+#main-menu .ow-streak-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* In the shop: a small shelf that sells cosmetics without competing with PLAY. */
+#main-menu .ow-featured {
+    grid-area: feat;
+    position: relative;
+    display: flex !important;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 8px;
+    min-width: 0;
+    margin: 0;
+    padding: 10px;
+    border: 1px solid color-mix(in srgb, var(--mm-gold) 24%, var(--mm-line));
+    border-radius: var(--mm-r);
+    background: color-mix(in srgb, var(--mm-gold) 5%, rgb(255 255 255 / .03));
+    animation: none;
+}
+#main-menu .ow-featured[hidden] { display: none !important; }
+#main-menu .ow-featured-kicker {
+    flex: 1 0 100%;
+    align-self: auto;
+    margin: 0 2px;
+    writing-mode: horizontal-tb;
+    rotate: none;
+    color: var(--mm-gold);
+    font: 800 .8rem/1 var(--mm-display);
+    letter-spacing: 0;
+    text-transform: none;
+}
+#main-menu .ow-featured-item {
+    position: relative;
+    flex: 1 1 0;
+    min-width: 0;
+    display: grid;
+    grid-template-rows: 40px auto;
+    justify-items: center;
+    align-content: center;
+    gap: 6px;
+    min-height: 78px;
+    padding: 8px 6px;
+    overflow: hidden;
+    border: 1px solid var(--mm-line);
+    border-radius: 12px;
+    background: radial-gradient(90% 70% at 50% 30%, rgb(255 255 255 / .08), transparent 70%), rgb(0 0 0 / .16);
+    color: var(--mm-ink);
+    font: 700 .74rem/1.15 var(--mm-body);
+    text-align: center;
+    transform: none;
+    translate: 0 0;
+    transition: border-color .15s ease, background-color .15s ease, translate .12s var(--mm-ease);
+}
+#main-menu .ow-featured-item::after { content: none; }
+#main-menu .ow-featured-item:hover,
+#main-menu .ow-featured-item:focus-visible { border-color: color-mix(in srgb, var(--mm-gold) 60%, transparent); translate: 0 -2px; transform: none; }
+#main-menu .ow-featured-art { width: 40px; height: 40px; object-fit: contain; filter: drop-shadow(0 4px 8px rgb(0 0 0 / .45)); transition: scale .15s var(--mm-ease); }
+#main-menu .ow-featured-item:hover .ow-featured-art { scale: 1.08; }
+#main-menu .ow-featured-orb { align-self: center; width: 30px; height: 30px; box-shadow: 0 0 14px color-mix(in srgb, var(--fs-color, var(--mm-accent)) 55%, transparent), inset -4px -6px 10px rgb(0 0 0 / .35); }
+#main-menu .ow-featured-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Party rail stays in the social rail on this layout (existing C2 decision). */
+#main-menu .menu-party-rail { display: none !important; }
+
+/* Footer: low-priority routes in the bottom row, under the play panel and the hero. */
+#main-menu .ow-extralinks {
+    position: relative;
+    grid-column: 1 / 3;
+    grid-row: 3;
+    align-self: center;
+    z-index: 3;
+    display: flex !important;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+    height: 52px;
+    margin: 0;
+    padding: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+    animation: none;
+}
+#main-menu .ow-extralinks::-webkit-scrollbar { display: none; }
+#main-menu .ow-link {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 40px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: var(--mm-r-sm);
+    background: none;
+    box-shadow: none;
+    color: rgb(230 242 250 / .82);
+    font: 700 .82rem/1 var(--mm-body);
+    letter-spacing: 0;
+    text-transform: none;
+    text-shadow: 0 1px 2px rgb(0 0 0 / .6);
+    transform: none;
+    transition: color .15s ease, background-color .15s ease;
+}
+#main-menu .ow-link .ui-icon { width: 15px; height: 15px; opacity: .8; }
+#main-menu .ow-link:hover,
+#main-menu .ow-link:focus-visible { color: var(--mm-ink); background: rgb(5 17 26 / .6); transform: none; }
+#main-menu .ow-hint { display: none !important; }
+
+/* ---- Hero ------------------------------------------------------------------- */
+#main-menu .ow-showcase {
+    position: relative;
+    grid-column: 2;
+    grid-row: 2 / 4;
+    min-width: 0;
+    min-height: 0;
+    margin: 0 0 0 calc(var(--mm-gap) * -1);
+    border: 0;
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+    overflow: visible;
+    animation: none;
+}
+#main-menu .ow-hero-stage {
+    /* Reaches the floor so the stage plinth runs off-screen instead of ending in a
+       hard edge; the sides tuck under the play panel and the social rail. */
+    inset: 16% -8% 0 -8%;
+    z-index: 2;
+    overflow: visible;
+    border-radius: 0;
+    filter: drop-shadow(0 26px 22px rgb(0 0 0 / .55));
+    animation: mmRise .35s var(--mm-ease) .05s both;
+}
+#main-menu .menu-player-card {
+    position: absolute;
+    right: 0;
+    left: auto;
+    bottom: calc(52px + 6px);
+    z-index: 4;
+    display: grid;
+    grid-template-columns: 32px minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 12px;
+    min-width: min(320px, 100%);
+    max-width: 100%;
+    padding: 10px 14px;
+    border: 1px solid var(--mm-line);
+    border-image: none;
+    border-radius: var(--mm-r);
+    background: rgb(5 17 26 / .84);
+    box-shadow: 0 16px 34px -20px rgb(0 0 0 / .85);
+    translate: calc(var(--px, 0) * 6px) calc(var(--py, 0) * 4px);
+    animation: mmRise .35s var(--mm-ease) .1s both;
+}
+#main-menu .menu-rank-badge { width: 32px; height: 36px; }
+#main-menu .menu-player-card > div { display: grid; gap: 3px; min-width: 0; }
+#main-menu .menu-player-label { display: none; }
+#main-menu .menu-player-card strong { overflow: hidden; color: var(--mm-ink); font: 800 1.08rem/1.1 var(--mm-display); letter-spacing: 0; text-overflow: ellipsis; text-transform: none; white-space: nowrap; }
+#main-menu .menu-player-card #menu-player-rank { font: 700 .76rem/1 var(--mm-body); letter-spacing: 0; text-transform: none; }
+#main-menu .menu-player-elo { color: var(--mm-ink); font: 800 .9rem/1 var(--mm-display); font-variant-numeric: tabular-nums; }
+#main-menu .menu-party-mini { color: var(--mm-mute); font-family: var(--mm-body); letter-spacing: 0; border-left-color: var(--mm-line); }
+
+/* ---- Social rail -------------------------------------------------------------- */
+#main-menu .friends-sidebar {
+    top: calc(var(--mm-pad) + var(--mm-bar-h) + 12px);
+    right: var(--mm-pad);
+    bottom: var(--mm-pad);
+    width: var(--mm-rail-w);
+    border: 1px solid var(--mm-line);
+    border-radius: var(--mm-r-lg);
+    background: rgb(6 19 29 / .9);
+    box-shadow: 0 24px 50px -28px rgb(0 0 0 / .85);
+    animation: mmFade .25s ease-out both;
+}
+#main-menu .friends-sidebar:not(.collapsed) { transform: none; }
+#main-menu .friends-sidebar::before { content: none; }
+#main-menu .friends-sidebar-header { background: none; border-bottom: 1px solid var(--mm-line); }
+#main-menu .fbar-title strong { font: 900 1.15rem/1 var(--mm-display); letter-spacing: 0; text-transform: none; }
+#main-menu .fbar-party header small,
+#main-menu .fbar-directory-heading,
+#main-menu .fbar-profile-code > span { font-family: var(--mm-body); letter-spacing: .04em; }
+#main-menu .fbar-party header strong { font-family: var(--mm-display); font-weight: 800; letter-spacing: 0; text-transform: none; }
+#main-menu .fbar-party { border: 1px solid var(--mm-line); border-radius: 12px; background: var(--mm-raise); }
+#main-menu .fbar-tabs button { border-radius: var(--mm-r-sm); font: 800 .95rem/1 var(--mm-display); letter-spacing: 0; text-transform: none; }
+#main-menu .fbar-tabs button[aria-selected="true"] { color: var(--mm-accent-ink); border-color: transparent; background: var(--mm-accent); }
+#main-menu .fbar-guest-cta { border: 1px solid color-mix(in srgb, var(--mm-accent) 30%, var(--mm-line)); border-radius: 12px; background: color-mix(in srgb, var(--mm-accent) 7%, transparent); }
+#main-menu .fbar-guest-cta .btn-primary {
+    border: 0;
+    border-radius: 12px;
+    color: var(--mm-accent-ink);
+    background: var(--mm-accent);
+    box-shadow: inset 0 -3px 0 rgb(0 0 0 / .22);
+    font: 800 .9rem/1 var(--mm-display);
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+#main-menu :is(.fbar-add-toggle, .fbar-worldwide) { font-family: var(--mm-display); font-weight: 800; letter-spacing: 0; text-transform: none; }
+#main-menu .fbar-add-toggle { border-radius: 12px; }
+
+/* Opaque-ish panels instead of backdrop blur: the layers underneath move with the
+   pointer, which would force a re-blur every frame. */
+#main-menu :is(.ow-topbar, .friends-sidebar, .menu-player-card, .ow-action-panel) { backdrop-filter: none; }
+
+/* ---- Focus: always visible on every menu control ---------------------------- */
+#main-menu :is(button, input, select, [tabindex]):focus-visible {
+    outline: 2px solid var(--mm-accent);
+    outline-offset: 3px;
+}
+#main-menu .ow-tab:focus-visible { outline-offset: -2px; }
+
+/* ============================================================================
+   3. Main menu: compact desktop (761–1339 px) and short heights
+   ========================================================================== */
+@media (min-width: 761px) and (max-width: 1339px) {
+    #main-menu .ow-menu { grid-template-columns: minmax(320px, 380px) minmax(0, 1fr); }
+    #main-menu .ow-profile { max-width: 180px; }
+    #main-menu .ow-coin.ow-pass { display: none; }
+    #main-menu .ow-showcase { grid-column: 2; }
+    /* The rail is the existing collapsible overlay here; it starts under the bar. */
+    #main-menu .friends-sidebar { top: calc(var(--mm-pad) + var(--mm-bar-h) + 12px); width: min(348px, calc(100vw - 84px)); }
+    #main-menu .menu-player-card { bottom: calc(52px + 6px + 56px); }
+    #main-menu .ow-social-lobby-arrow { display: none; }
+    #main-menu .ow-social-lobby { grid-template-columns: auto minmax(0, 1fr); }
+}
+/* Narrow panels (compact desktop and phones): the label beats the icon tile. */
+@media (max-width: 1339px) {
+    #main-menu .ow-retention-icon { display: none; }
+    #main-menu .ow-sbtn { gap: 8px; padding-inline: 10px; }
+}
+@media (min-width: 761px) and (max-width: 1080px) {
+    #main-menu .ow-profile { display: none; }
+    #main-menu .ow-topbar { grid-template-columns: minmax(0, 1fr) auto; }
+    #main-menu .ow-tabs { grid-column: 1; justify-content: flex-start; }
+    #main-menu .ow-currency { grid-column: 2; }
+    #main-menu .ow-menu { grid-template-columns: minmax(300px, 350px) minmax(0, 1fr); }
+}
+/* Short viewports: the shelf becomes one row of pills, cards tighten. */
+@media (min-width: 761px) and (max-height: 820px) {
+    #main-menu .ow-action-panel { gap: 8px; padding: 12px; }
+    #main-menu .ow-play { min-height: 72px; }
+    #main-menu .ow-social-lobby { min-height: 54px; }
+    #main-menu .ow-sbtn { min-height: 44px; }
+    #main-menu .ow-retention-card { min-height: 50px; padding-block: 5px; }
+    #main-menu .ow-retention-icon { width: 30px; height: 30px; }
+    #main-menu .ow-streak-badge { min-height: 36px; }
+    #main-menu .ow-featured { padding: 8px; gap: 6px; }
+    #main-menu .ow-featured-kicker { display: none; }
+    #main-menu .ow-featured-item { display: flex; align-items: center; justify-content: flex-start; gap: 8px; min-height: 44px; padding: 4px 8px; text-align: left; }
+    #main-menu .ow-featured-art { flex: 0 0 auto; width: 28px; height: 28px; }
+    #main-menu .ow-featured-orb { flex: 0 0 auto; width: 20px; height: 20px; }
+}
+@media (min-width: 761px) and (max-height: 680px) {
+    #main-menu .ow-action-heading { display: none; }
+    #main-menu .ow-social-lobby small { display: none !important; }
+}
+@media (min-width: 761px) and (max-height: 620px) {
+    #main-menu .ow-featured { display: none !important; }
+}
+
+/* ============================================================================
+   4. Main menu: phones (≤ 760 px) — one column, PLAY in the first viewport
+   ========================================================================== */
+@media (max-width: 760px) {
+    #main-menu { overflow-x: hidden; overflow-y: auto; }
+    #main-menu .menu-backdrop::after { background: linear-gradient(180deg, rgb(4 14 22 / .4) 0%, transparent 18%, transparent 30%, rgb(4 14 22 / .7) 52%, rgb(4 14 22 / .88) 100%); }
+    #main-menu .ow-menu {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        height: auto;
+        min-height: 100%;
+        padding: 8px 12px 76px;
+        overflow: visible;
+    }
+    #main-menu .ow-topbar {
+        order: 0;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-rows: 52px 46px;
+        height: auto;
+        padding: 0 6px 0 8px;
+        row-gap: 0;
+    }
+    #main-menu .ow-profile { grid-column: 1; grid-row: 1; max-width: none; height: 44px; padding: 0; border: 0; }
+    #main-menu .ow-avatar { width: 38px; height: 38px; }
+    #main-menu .ow-currency { grid-column: 2; grid-row: 1; gap: 4px; }
+    #main-menu .ow-coin { min-height: 36px; padding: 0 9px; }
+    #main-menu .ow-coin.ow-pass { display: none; }
+    #main-menu .ow-tabs {
+        grid-column: 1 / -1;
+        grid-row: 2;
+        justify-content: flex-start;
+        height: 46px;
+        margin: 0 -6px 0 -8px;
+        padding: 0 4px;
+        border-top: 1px solid var(--mm-line);
+    }
+    #main-menu .ow-tab { height: 40px; min-height: 40px; font-size: .95rem; }
+    #main-menu .ow-tab::after { bottom: 3px; }
+    #main-menu .ow-showcase {
+        order: 1;
+        flex: 0 0 auto;
+        height: clamp(210px, 30vh, 280px);
+        min-height: 0;
+        max-height: none;
+        margin: 0;
+    }
+    #main-menu .ow-hero-stage { inset: -4% -8% 8% -8%; transform: none; }
+    #main-menu .menu-player-card {
+        right: 0;
+        bottom: 0;
+        min-width: 0;
+        grid-template-columns: 24px minmax(0, 1fr) auto;
+        gap: 8px;
+        padding: 6px 10px;
+    }
+    #main-menu .menu-party-mini { display: none; }
+    #main-menu .menu-rank-badge { width: 24px; height: 28px; }
+    #main-menu .menu-player-card strong { font-size: .98rem; }
+    #main-menu .ow-action-panel {
+        order: 2;
+        align-self: stretch;
+        max-height: none;
+        grid-template-areas:
+            "play play"
+            "hub  hub"
+            "sec  sec"
+            "ret  ret"
+            "feat feat";
+        gap: 10px;
+        padding: 10px;
+        overflow: visible;
+    }
+    #main-menu .ow-action-heading { display: none; }
+    #main-menu .ow-play { min-height: 76px; padding-inline: 18px; }
+    #main-menu .ow-play-detail { display: none; }
+    #main-menu .ow-sbtn { min-height: 48px; }
+    #main-menu .ow-extralinks {
+        order: 3;
+        position: static;
+        height: auto;
+        flex-wrap: wrap;
+        row-gap: 0;
+    }
+    #main-menu .ow-link { text-shadow: none; }
+    /* Bottom sheet: always docked as a 58 px handle unless opened. Restores the sheet
+       offset that menu-depth.css's narrow-screen `transform: none` was overriding. */
+    #main-menu .friends-sidebar,
+    #main-menu .friends-sidebar:not(.collapsed),
+    #main-menu .friends-sidebar.collapsed {
+        top: auto;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        height: min(78dvh, 620px);
+        border-radius: var(--mm-r-lg) var(--mm-r-lg) 0 0;
+        transform: translateY(calc(100% - 58px));
+        animation: none;
+    }
+    #main-menu .friends-sidebar.mobile-open { transform: translateY(0); }
+    #main-menu .fbar-sheet-handle { font: 800 1rem/1 var(--mm-display); letter-spacing: 0; text-transform: none; background: rgb(6 19 29 / .96); }
+    #main-menu .fbar-sheet-handle :is(strong, small) { font-family: var(--mm-display); letter-spacing: 0; text-transform: none; }
+}
+
+/* ============================================================================
+   5. Menu-flow shell: sport select, directory, lobby chrome, secondary screens
+   ========================================================================== */
+/* Same arena as the main menu, dimmed so panels read; each screen opens with a short
+   fade and its main panel with a small scale-in. */
+:is(#multiplayer-menu, #join-menu, #practice-menu-screen, #character-screen, #shop-screen,
+    #battlepass-screen, #achievements-screen, #daily-screen, #ranked-screen, #social-center-screen,
+    #leaderboard-screen, #replays-screen, #social-screen, #patchnotes-screen, #tournament-screen,
+    #screen-profile) {
+    color: var(--mm-ink);
+    background: linear-gradient(180deg, rgb(5 20 30 / .8), rgb(4 13 21 / .92)), var(--arena-menu-image) center / cover no-repeat;
+    background-color: #0a1e29;
+    animation: mmFade .2s ease-out both;
+}
+:is(#multiplayer-menu, #practice-menu-screen, #character-screen, #shop-screen, #battlepass-screen,
+    #achievements-screen, #daily-screen, #ranked-screen, #social-center-screen, #leaderboard-screen,
+    #replays-screen, #social-screen, #patchnotes-screen, #tournament-screen, #screen-profile, #join-menu)
+    > :is(.panel, .profile-container, .sport-select-stage, .mp-layout) {
+    animation: mmScaleIn .24s var(--mm-ease) both;
+}
+:is(#multiplayer-menu, #practice-menu-screen, #character-screen, #shop-screen, #battlepass-screen,
+    #achievements-screen, #daily-screen, #ranked-screen, #social-center-screen, #leaderboard-screen,
+    #replays-screen, #social-screen, #patchnotes-screen, #tournament-screen, #screen-profile, #join-menu, #lobby-screen)
+    :is(button, input, select, a, [tabindex]):focus-visible {
+    outline: 2px solid var(--mm-accent);
+    outline-offset: 3px;
+}
+
+/* The shared "go" key (PLAY, Find Match, Host, Start Game). */
+:is(#multiplayer-menu #btn-mp-quick, #multiplayer-menu #btn-mp-host-strip, #multiplayer-menu .mp-lobby-empty-cta, #lobby-screen .cs-btn-start) {
+    border: 0;
+    border-radius: 14px;
+    color: var(--mm-go-ink);
+    background: linear-gradient(180deg, var(--mm-go-top), var(--mm-go) 55%);
+    box-shadow: inset 0 -5px 0 var(--mm-go-lip), inset 0 2px 0 rgb(255 255 255 / .5), 0 10px 20px -12px rgb(0 0 0 / .7);
+    font-family: var(--mm-display);
+    font-weight: 900;
+    letter-spacing: .02em;
+    text-transform: uppercase;
+    translate: 0 0;
+    transition: translate .12s var(--mm-ease), box-shadow .12s ease, filter .15s ease;
+}
+:is(#multiplayer-menu #btn-mp-quick, #multiplayer-menu #btn-mp-host-strip, #multiplayer-menu .mp-lobby-empty-cta, #lobby-screen .cs-btn-start):is(:hover, :focus-visible):not(:disabled) {
+    translate: 0 -2px;
+    transform: none;
+    filter: brightness(1.05);
+    box-shadow: inset 0 -6px 0 var(--mm-go-lip), inset 0 2px 0 rgb(255 255 255 / .55), 0 14px 24px -12px rgb(0 0 0 / .75);
+}
+:is(#multiplayer-menu #btn-mp-quick, #multiplayer-menu #btn-mp-host-strip, #multiplayer-menu .mp-lobby-empty-cta, #lobby-screen .cs-btn-start):active:not(:disabled) {
+    translate: 0 3px;
+    box-shadow: inset 0 -2px 0 var(--mm-go-lip), inset 0 2px 0 rgb(255 255 255 / .4), 0 4px 10px -8px rgb(0 0 0 / .7);
+    transition-duration: .05s;
+}
+:is(#multiplayer-menu #btn-mp-quick, #multiplayer-menu #btn-mp-host-strip, #multiplayer-menu .mp-lobby-empty-cta, #lobby-screen .cs-btn-start) .ui-icon { fill: currentColor; }
+
+/* Shared ghost "Back" buttons across the flow. */
+:is(#btn-sport-back, #btn-mp-back, #btn-join-back) {
+    border: 1px solid var(--mm-line-strong);
+    border-radius: 12px;
+    background: var(--mm-raise);
+    box-shadow: inset 0 -3px 0 rgb(0 0 0 / .2);
+    color: var(--mm-ink);
+    font: 800 .9rem/1 var(--mm-display);
+    letter-spacing: 0;
+    text-transform: none;
+}
+:is(#btn-sport-back, #btn-mp-back, #btn-join-back):hover { border-color: var(--mm-accent); background: var(--mm-raise-hover); }
+
+/* ---- Sport select: two big, friendly cards ----------------------------------- */
+#multiplayer-menu .sport-select-stage { backdrop-filter: none; }
+#multiplayer-menu .sport-card {
+    translate: 0 0;
+    transition: translate .15s var(--mm-ease), border-color .15s ease, box-shadow .15s ease;
+    box-shadow: inset 0 -4px 0 rgb(0 0 0 / .22);
+}
+#multiplayer-menu .sport-card:hover,
+#multiplayer-menu .sport-card:focus-visible { translate: 0 -3px; transform: none; border-color: color-mix(in srgb, var(--mm-accent) 55%, transparent); box-shadow: inset 0 -4px 0 rgb(0 0 0 / .22), 0 18px 34px -20px rgb(0 0 0 / .8); }
+#multiplayer-menu .sport-card:active { translate: 0 1px; transition-duration: .05s; }
+#multiplayer-menu .sport-card-copy strong { font-family: var(--mm-display); font-weight: 900; }
+#multiplayer-menu .sport-card-action { font-family: var(--mm-display); font-weight: 800; letter-spacing: 0; text-transform: none; }
+#multiplayer-menu .sport-card-status { font-family: var(--mm-body); font-weight: 800; letter-spacing: .04em; }
+
+/* ---- Directory (Quick Play builder + server board) ----------------------- */
+#multiplayer-menu .mp-title { font-family: var(--mm-display); font-weight: 900; }
+#multiplayer-menu #btn-mp-quick { min-height: 58px; padding-bottom: 5px; font-size: 1.25rem; }
+#multiplayer-menu .mp-lobby-empty .shell-kicker { display: none; }
+#multiplayer-menu .mp-lobby-list,
+#multiplayer-menu .mp-lobby-list:is([data-lobby-state], :has(.mp-lobby-empty)) {
+    /* Opaque: a translucent board let the old backdrop blur show through as tiles. */
+    background: linear-gradient(180deg, #102c3a, #0b2230);
+    backdrop-filter: none;
+}
+
+/* ---- Lobby chrome (the 3D arena behind it is not restyled) ----------------- */
+#lobby-screen .cs-btn-start { min-height: 64px; padding-bottom: 5px; font-size: clamp(1.2rem, 1.8vw, 1.6rem); }
+#lobby-screen .cs-btn-start:disabled { filter: saturate(.3) brightness(.8); }
+
+/* ============================================================================
+   6. Keyframes (one-shot only)
+   ========================================================================== */
+@keyframes mmFade { from { opacity: 0; } }
+@keyframes mmRise { from { opacity: 0; transform: translateY(8px); } }
+@keyframes mmScaleIn { from { opacity: 0; transform: scale(.985); } }
+
+/* ============================================================================
+   7. Reduced motion — same composition, no movement
+   (media query + the in-game toggle on body.reduced-motion / html.reduce-motion)
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+    #main-menu *, #main-menu *::before, #main-menu *::after,
+    :is(#multiplayer-menu, #join-menu, #lobby-screen, #practice-menu-screen, #character-screen, #shop-screen,
+        #battlepass-screen, #achievements-screen, #daily-screen, #ranked-screen, #social-center-screen,
+        #leaderboard-screen, #replays-screen, #social-screen, #patchnotes-screen, #tournament-screen,
+        #screen-profile),
+    :is(#multiplayer-menu, #join-menu, #lobby-screen, #practice-menu-screen, #character-screen, #shop-screen,
+        #battlepass-screen, #achievements-screen, #daily-screen, #ranked-screen, #social-center-screen,
+        #leaderboard-screen, #replays-screen, #social-screen, #patchnotes-screen, #tournament-screen,
+        #screen-profile) * {
+        animation: none !important;
+        transition-duration: .01ms !important;
+    }
+    #main-menu :is(.menu-backdrop-plate, .ow-hero-stage, .menu-player-card) { transform: none; translate: none; }
+}
+:is(.reduced-motion, .reduce-motion) #main-menu *,
+:is(.reduced-motion, .reduce-motion) #main-menu *::before,
+:is(.reduced-motion, .reduce-motion) #main-menu *::after,
+:is(.reduced-motion, .reduce-motion) :is(#multiplayer-menu, #join-menu, #lobby-screen, #practice-menu-screen, #character-screen,
+    #shop-screen, #battlepass-screen, #achievements-screen, #daily-screen, #ranked-screen, #social-center-screen,
+    #leaderboard-screen, #replays-screen, #social-screen, #patchnotes-screen, #tournament-screen, #screen-profile),
+:is(.reduced-motion, .reduce-motion) :is(#multiplayer-menu, #join-menu, #lobby-screen, #practice-menu-screen, #character-screen,
+    #shop-screen, #battlepass-screen, #achievements-screen, #daily-screen, #ranked-screen, #social-center-screen,
+    #leaderboard-screen, #replays-screen, #social-screen, #patchnotes-screen, #tournament-screen, #screen-profile) * {
+    animation: none !important;
+    transition-duration: .01ms !important;
+}
+:is(.reduced-motion, .reduce-motion) #main-menu :is(.menu-backdrop-plate, .ow-hero-stage, .menu-player-card) { transform: none; translate: none; }

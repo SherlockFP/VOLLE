@@ -93,7 +93,6 @@ import {
 } from './crosshair.js';
 import { selectMvp, resolveMvpLoadout } from './mvp-select.js';
 import { applyI18n, getLanguage, initI18n, localizedName, onLanguageChange, setLanguage, setText, t } from './i18n.js';
-import { initMenuOverdrive } from './menu-overdrive.js';
 
 const SOCIAL_DISCOVERY_KEY = 'warrball.social.discovery.v1';
 const PARTY_FOLLOW_SCREENS = new Set(['mainMenu', 'multiplayerMenu', 'joinMenu']);
@@ -788,8 +787,6 @@ class App {
 
         // ponytail: mouse-follow glow + custom cursor for main menu
         this._setupMenuMouse();
-        // Night Broadcast menu layer: magnetic PLAY, screen wipe, reduced-motion mirror.
-        initMenuOverdrive({ signal: this._mainAbort.signal });
 
         this.setupMenuHandlers();
         this._initShopShowcase();
@@ -1969,7 +1966,7 @@ class App {
         // The glow is the only consumer of --mx/--my, so write them on the glow itself:
         // an inherited property on #main-menu would restyle the whole menu subtree on
         // every mousemove. Skip entirely while the glow/cursor are not rendered (the
-        // Night Broadcast layer hides both; its spotlight rides --px/--py instead).
+        // arena menu layer, css/menu-arena.css, hides both).
         let pointerFxRendered = true;
         const syncPointerFx = () => {
             pointerFxRendered = getComputedStyle(glow).display !== 'none' || getComputedStyle(cursor).display !== 'none';
@@ -2011,10 +2008,10 @@ class App {
         let frame = 0;
         const reduced = () => document.body.classList.contains('reduced-motion')
             || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-        // Publish the eased pointer only on the layers that consume it (atmosphere +
+        // Publish the eased pointer only on the layers that consume it (backdrop +
         // hero stage). Inherited custom properties on #main-menu itself restyled every
         // menu node (rail, nav, cards) each frame of pointer movement.
-        const layers = [...menu.querySelectorAll('.ovd-atmos, .ow-showcase')];
+        const layers = [...menu.querySelectorAll('.menu-backdrop, .ow-showcase')];
         const depthTargets = layers.length ? layers : [menu];
         const publish = (x, y) => {
             for (const el of depthTargets) {
