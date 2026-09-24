@@ -316,6 +316,7 @@ export class Game {
 
         // DMC-style kill combo tracker
         this.killStreak = 0;
+        this._matchKills = 0;
         this._comboDisplayTimer = 0;
 
         // Kill streak tracking per player (name → consecutive kills)
@@ -437,20 +438,13 @@ export class Game {
         this._musicVolume = 0.02;
         this._blobUrls = {}; // .sfx path → object URL
 
-        // Preload combo sounds to avoid latency (blob so no direct download)
-        this._comboAudio = {};
-        const comboFiles = ['music/1kill.sfx', 'music/2kill.sfx', 'music/3kill.sfx', 'music/4kill.sfx', 'music/ace.sfx'];
-        // Only the opening track (+ small combo stings) loads at boot, after the page is
+        // G7: kill-streak stings are samples on the audio bus (audio.js preloadSfx
+        // fetches them with the TF2 set), so they honour master/sound/mute.
+        // Only the opening track loads at boot, after the page is
         // idle; the rest stream in one at a time while the previous track plays. Loading
         // all four tracks up front cost ~4.7 MB before the menu felt ready.
         this._musicIndex = Math.floor(Math.random() * this._musicTracks.length);
-        const bootAudio = () => this._preloadBlobAudio([this._musicTracks[this._musicIndex], ...comboFiles]).then(() => {
-            comboFiles.forEach(f => {
-                const a = new Audio(this._blobUrls[f]);
-                a.preload = 'auto';
-                a.volume = 0.12; // combo sesleri
-                this._comboAudio[f] = a;
-            });
+        const bootAudio = () => this._preloadBlobAudio([this._musicTracks[this._musicIndex]]).then(() => {
             this._startMusic(); // boot music once the opening track is ready
         });
         if (typeof window === 'undefined') void bootAudio();
@@ -913,21 +907,30 @@ addBot(team, { name: preferredName = null } = {}) {
             }
 
             if (sb.life <= 0) {
-                this.arena.remove(sb.mesh);
-                sb.mesh.geometry.dispose();
-                sb.mesh.material.dispose();
+                // Splice first: a failing removal must never leave an expired
+                // split ball behind to throw again on every later frame.
                 this._splitBalls.splice(i, 1);
+                this._disposeSplitBall(sb);
             }
         }
     }
 
     clearSplitBalls() {
-        this._splitBalls.forEach(sb => {
-            this.arena.remove(sb.mesh);
-            sb.mesh.geometry.dispose();
-            sb.mesh.material.dispose();
-        });
+        const balls = this._splitBalls;
         this._splitBalls = [];
+        balls.forEach(sb => this._disposeSplitBall(sb));
+    }
+
+    _disposeSplitBall(sb) {
+        const mesh = sb?.mesh;
+        if (!mesh) return;
+        try {
+            if (typeof this.arena?.remove === 'function') this.arena.remove(mesh);
+            else mesh.parent?.remove(mesh);
+        } finally {
+            mesh.geometry?.dispose?.();
+            mesh.material?.dispose?.();
+        }
     }
 
     updateLobbyUI() {
@@ -1059,6 +1062,7 @@ startGame(skipPreGame = false, matchId = null) {
         });
         this.rallyCount = 0;
         this.killStreak = 0;
+        this._matchKills = 0; // G7: FIRST BLOOD is the match's first kill
         this._killStreaks.clear();
         this._killStreakTimers.forEach(t => clearTimeout(t));
         this._killStreakTimers.clear();
@@ -2662,7 +2666,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             ball.perfectWindow > 0 && ball._perfectWindowTarget === this.player,
             contactMs / 1000
         );
-        this.audio?.updateThreatAudio?.({ active: true, speed, distance });
+        this.audio?.updateThreatAudio?.({ active: true, speed, distance, pos: ball.position });
     }
 
     updatePlaying(dt) {
@@ -4073,8 +4077,14 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         this.juice.hitStop(150);
         this.juice.flash(0.55);
         this.spawnDeathExplosion(hitPos, victimTeam, false);
-        this.audio.playSfx('tf2_explosion', 0.5);
-        this.audio.playExplosion();
+        // G7 kill stack (≤ 3 layers per role): one impact (recorded OR synth), then
+        // the role cue. Killer: kill-confirm (_claimKillPresentation/_grantKillConfirm);
+        // victim: tf2_you_are_dead at the death site; observer: the notification.
+        this.audio?.playKillImpact?.();
+        const localName = this.playerName || this.player?.name;
+        if (victimName !== localName && attackerName !== localName) {
+            this.audio?.playKillRoleCue?.('observer', { teammate: !!victimTeam && victimTeam === this.player?.team });
+        }
         this._onCrowdBigPlay?.();
         return true;
     }
@@ -4556,7 +4566,8 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         if (isLethal && presentedLethal && hitTarget === this.player) {
             this.audio.playSfx('tf2_you_are_dead', 0.5);
         }
-        if (presentHit) this.audio.playHit(hitPos);
+        // G7: a lethal hit's impact layer replaces the ordinary hit bonk.
+        if (presentHit && !isLethal) this.audio.playHit(hitPos);
 
         // Kill flash on screen
         if (isLethal && presentedLethal) this._flashKill();
@@ -4583,7 +4594,9 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         // Host-only state continuation
         if (!isClient) {
             if (isLethal) {
-                if (hitTarget !== this.player) this.audio.playSfx('tf2_notification', 0.4);
+                // G7: the observer notification is a role cue in _presentLethalImpact
+                // (killer and victim no longer hear it on top of their own cue).
+                this._matchKills = (this._matchKills || 0) + 1;
                 if (hitTarget === this.player) {
                     this.player.die();
                     this.ui.flashHit();
@@ -4612,12 +4625,16 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 const comboSounds = ['', 'music/1kill.sfx', 'music/2kill.sfx', 'music/3kill.sfx', 'music/4kill.sfx', 'music/4kill.sfx', 'music/ace.sfx'];
                 const tf2ComboSounds = ['', 'tf2_domination', 'tf2_crit', 'tf2_victory', 'tf2_victory', 'tf2_victory', 'tf2_victory'];
                 const idx = Math.min(this.killStreak, 6);
-                const comboName = comboNames[idx] || '';
+                // G7: "FIRST BLOOD" only for the match's first kill (not every life's
+                // first); streak stings only from 2 up, played once here. announce()
+                // carries the sting to clients but does not replay it locally.
+                const firstBlood = idx === 1 && this._matchKills === 1;
+                const comboName = idx >= 2 || firstBlood ? comboNames[idx] || '' : '';
                 if (comboName && attacker === this.player && hitTarget !== this.player) {
-                    this._playComboSound(comboSounds[idx], comboPitchRate(comboTier(idx)));
-                    if (tf2ComboSounds[idx]) this.audio.playSfx(tf2ComboSounds[idx], 0.5, comboPitchRate(comboTier(idx)));
+                    const sting = idx >= 2 ? tf2ComboSounds[idx] || null : null;
+                    if (sting) this._playComboSound(comboSounds[idx], comboPitchRate(comboTier(idx)));
                     this.ui.showCombo(idx, 8.0);
-                    this.announce(`🔥 ${comboName}!`, tf2ComboSounds[idx] || null, 0.5, 2500);
+                    this.announce(`🔥 ${comboName}!`, sting, 0.5, 2500, { localSfx: false });
                 }
                 if (scorerName) this.scoreboard.recordPoint(scorerName, 1);
                 this.scoreboard.recordDeath(name);
@@ -5837,16 +5854,13 @@ spawnPowerUp() {
         }
     }
 
+    // G7: one streak sting on the announcer bus (honours master/sound/mute).
     _playComboSound(file, rate = 1) {
         try {
-            const a = this._comboAudio[file];
-            if (a) {
-                a.volume = 0.12;
-                a.playbackRate = Number.isFinite(rate) && rate > 0 ? rate : 1;
-                a.currentTime = 0;
-                a.play().catch(() => {});
-            }
-        } catch (_) {}
+            return this.audio?.playStreakSting?.(file, Number.isFinite(rate) && rate > 0 ? rate : 1) === true;
+        } catch (_) {
+            return false;
+        }
     }
 
     getPlayerList() {
@@ -6565,8 +6579,8 @@ spawnPowerUp() {
                 this.juice.shockwave(hitPos, 0xff8844);
                 this.juice.hitStop(35);
                 this.juice.flash(0.22);
+                this.audio.playHit(hitPos); // G7: lethal hits get the impact layer instead
             }
-            this.audio.playHit(hitPos);
 
             // Kill feed — eliminations only, names in team colour.
             if (presentedLethal) {
@@ -7642,9 +7656,11 @@ handleSkillEffect(data = {}) {
 
     // Host: announcement'ı hem local oynat hem tüm client'lara yayınla.
     // first blood, KO, combo, round/team win gibi juicy mesajlar herkeste çalsın.
-    announce(text, sfx, sfxVol = 0.4, duration = 1500) {
+    // G7: opts.localSfx === false → the caller already played its own sting locally;
+    // the packet (same fields) still carries sfx so each client plays it once.
+    announce(text, sfx, sfxVol = 0.4, duration = 1500, opts = {}) {
         this._showMatchMessage(text, duration);
-        if (sfx && this.audio) this.audio.playSfx(sfx, sfxVol);
+        if (sfx && this.audio && opts?.localSfx !== false) this._playAnnounceSfx(sfx, sfxVol);
         if (this.network?.isHost) {
             this.network.broadcast({ type: 'announce', text, sfx, sfxVol, duration });
         }
@@ -7654,7 +7670,18 @@ handleSkillEffect(data = {}) {
     applyAnnounce(data = {}) {
         if (!data || this.network?.isHost) return;
         this._showMatchMessage(data.text, data.duration || 1500);
-        if (data.sfx && this.audio) this.audio.playSfx(data.sfx, data.sfxVol || 0.4);
+        if (!data.sfx || !this.audio) return;
+        // A re-delivered packet must not stack the same sting twice.
+        const now = performance.now();
+        const key = `${data.text}\u0000${data.sfx}`;
+        if (this._lastAnnounceSfx?.key === key && now - this._lastAnnounceSfx.at < 400) return;
+        this._lastAnnounceSfx = { key, at: now };
+        this._playAnnounceSfx(data.sfx, data.sfxVol || 0.4);
+    }
+
+    _playAnnounceSfx(sfx, vol) {
+        if (typeof this.audio.playAnnouncement === 'function') this.audio.playAnnouncement(sfx, vol);
+        else this.audio.playSfx?.(sfx, vol);
     }
 
     // --- P2P SYNC HANDLERS ---

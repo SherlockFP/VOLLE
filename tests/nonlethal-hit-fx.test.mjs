@@ -42,7 +42,12 @@ test('local and P2P source paths gate death FX but retain normal hit feedback', 
     const presenterEnd = game.indexOf('    _showMatchMessage(', presenterStart);
     const presenter = game.slice(presenterStart, presenterEnd);
     assert.match(presenter, /this\.juice\.killBurst\(hitPos\);[\s\S]*?this\.juice\.hitStop\(150\);[\s\S]*?this\.juice\.flash\(0\.55\);/);
-    assert.match(presenter, /this\.audio\.playSfx\('tf2_explosion', 0\.5\);[\s\S]*?this\.audio\.playExplosion\(\);/);
+    // G7: one impact layer (recorded explosion OR synth, chosen in audio.js), never both.
+    assert.match(presenter, /this\.audio\?\.playKillImpact\?\.\(\);/);
+    assert.doesNotMatch(presenter, /playSfx\('tf2_explosion'|playExplosion\(/);
+    // A lethal hit's impact replaces the ordinary hit bonk on both routes.
+    assert.match(local, /if \(presentHit && !isLethal\) this\.audio\.playHit\(hitPos\);/);
+    assert.match(client, /if \(!isLethal\) \{[\s\S]*?this\.audio\.playHit\(hitPos\);[\s\S]*?\n {12}\}/);
     // G6: the dead window.addKillFeed call is gone; the feed is Game._pushKillFeedRow.
     assert.doesNotMatch(game, /window\.addKillFeed/);
 });
