@@ -26,8 +26,10 @@ test('Locker roster uses generated portraits and inventory never offers a purcha
     assert.match(roster, /characterPortraitPath\(c\.id\)/);
     const inventory = ui.slice(ui.indexOf('renderLockerInventory(store)'), ui.indexOf('_syncShopTabs('));
     assert.doesNotMatch(inventory, /shop-buy|Buy —|purchase/);
-    assert.match(inventory, /knife-inspect/);
-    assert.match(inventory, /wearable-inspect/);
+    // Inspect happens on the Locker's live stage (one renderer), not per tile.
+    assert.match(inventory, /class="locker-preview inventory-icon-area"/);
+    assert.match(inventory, /knife-equip locker-equip/);
+    assert.match(inventory, /data-type="cosmetic"/);
     assert.match(inventory, /data-type="ball"/);
     assert.match(inventory, /data-type="avatar"/);
 });

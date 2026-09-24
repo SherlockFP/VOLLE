@@ -26,12 +26,10 @@
     <link rel="stylesheet" href="css/spectator.css?v=1">
     <link rel="stylesheet" href="css/postgame.css?v=2">
     <link rel="stylesheet" href="css/touch.css?v=1">
-    <!-- Night Broadcast menu layer (docs/MENU_DESIGN.md): display + data faces, then the
-         menu stylesheet last so it owns the menu/shell cascade without editing older sheets. -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800;900&family=JetBrains+Mono:wght@500;700&display=swap">
-    <link rel="stylesheet" href="css/menu-overdrive.css?v=1">
+    <!-- Arena menu layer (docs/MENU_DESIGN.md): loaded last so it owns the menu/shell
+         cascade without editing the older sheets. Uses the existing DM Sans + Nunito faces. -->
+    <link rel="stylesheet" href="css/menu-arena.css?v=1">
+    <link rel="stylesheet" href="css/locker.css?v=1">
     <script type="importmap">
     {
         "imports": {
@@ -82,6 +80,10 @@
         <symbol id="i-clap" viewBox="0 0 24 24"><path d="m8 12-2-4a1.5 1.5 0 0 1 2.7-1.3L11 11M11 11 9.5 6.5a1.5 1.5 0 0 1 2.8-.9L14 10M14 10l-.6-4a1.5 1.5 0 0 1 3-.3l.5 4.3M17 10l.6-2.3a1.5 1.5 0 0 1 2.9.8l-1.4 6c-.8 3.5-3.1 5.5-6.4 5.5-2.7 0-4.5-1.3-6.2-3.8L4 12.5a1.5 1.5 0 0 1 2.4-1.8L9 13"/></symbol>
         <symbol id="i-flex" viewBox="0 0 24 24"><path d="M8 20c-3-1-4-3.5-3-6l2-4 3 2 2-4c.8-1.8 2.2-2.5 4-2l-1 4h3c2.2 0 3.5 1.7 3 4l-.6 2.4C19.8 18.7 17.7 20 15 20H8Z"/><path d="M7 10 5 6M10 8 9 3M14 6l2-4"/></symbol>
         <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 21S3 15.5 3 9a5 5 0 0 1 9-3 5 5 0 0 1 9 3c0 6.5-9 12-9 12Z"/></symbol>
+        <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
+        <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9L12 3.5Z"/></symbol>
+        <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+        <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></symbol>
         <symbol id="i-skull" viewBox="0 0 24 24"><path d="M5 10a7 7 0 1 1 14 0v5l-2 2v3H7v-3l-2-2v-5Z"/><circle cx="9" cy="11" r="1.5"/><circle cx="15" cy="11" r="1.5"/><path d="M10 16v4M14 16v4"/></symbol>
     </svg>
     <!-- Loading Screen -->
@@ -219,19 +221,12 @@
     <!-- ===== MAIN MENU ===== -->
     <div id="main-menu" class="screen ow-screen">
         <canvas id="menu-stage-canvas" aria-hidden="true"></canvas>
-        <!-- Night Broadcast atmosphere: graded arena plate, floodlights, cursor spot, grain. Decorative. -->
-        <div class="ovd-atmos" aria-hidden="true">
-            <div class="ovd-plate"></div>
-            <div class="ovd-beam ovd-beam-l"></div>
-            <div class="ovd-beam ovd-beam-r"></div>
-            <div class="ovd-spot"></div>
-            <div class="ovd-grain"></div>
-        </div>
+        <!-- Daylight arena backdrop with a light pointer parallax. Decorative. -->
+        <div class="menu-backdrop" aria-hidden="true"><div class="menu-backdrop-plate"></div></div>
         <div class="ow-mouse-glow"></div>
         <div class="ow-cursor"></div>
         <div class="ow-menu">
             <header class="ow-topbar">
-                <div class="ovd-brand" aria-hidden="true"><img src="assets/generated/volle-logo-512.png" alt=""><b>VOLLE</b></div>
                 <div class="ow-profile">
                     <div class="ow-avatar" id="ow-avatar"><svg class="ui-icon" aria-hidden="true"><use href="#i-ball"></use></svg></div>
                     <div class="ow-profile-info">
@@ -266,18 +261,6 @@
             <section class="ow-showcase" id="menu-character-showcase" aria-label="Featured original arena runner" data-i18n-attr="aria-label:menu.featuredRunner">
                 <div class="menu-arena-plate" aria-hidden="true"></div>
                 <div class="ow-sun-disc" aria-hidden="true"></div>
-                <div class="ovd-wordmark" aria-hidden="true"><span>VOLLE</span></div>
-                <!-- Deflect telestration: a static dotted trajectory plus a compositor-only ball (CSS
-                     transforms in % of a fixed 6:7 box, so it scales with the hero without main-thread work). -->
-                <div class="ovd-arc" aria-hidden="true">
-                    <svg class="ovd-arc-svg" viewBox="0 0 600 700" focusable="false">
-                        <defs><linearGradient id="ovd-arc-heat" gradientUnits="userSpaceOnUse" x1="0" y1="760" x2="0" y2="-80"><stop offset="0" stop-color="#5ee7f7" stop-opacity="0"/><stop offset=".38" stop-color="#5ee7f7"/><stop offset=".52" stop-color="#ff3d5a"/><stop offset="1" stop-color="#ffb13b" stop-opacity="0"/></linearGradient></defs>
-                        <path class="ovd-arc-line" d="M 700 760 Q 500 470 395 385 L 760 -80"/>
-                    </svg>
-                    <span class="ovd-ball-track ovd-ball-in"><i></i></span>
-                    <span class="ovd-ball-track ovd-ball-out"><i></i></span>
-                    <span class="ovd-spark"></span>
-                </div>
                 <div class="ow-hero-stage" id="menu-hero-stage"><canvas id="menu-hero-canvas"></canvas></div>
                 <div class="ow-character" aria-hidden="true">
                     <span class="ow-character-head"></span>
@@ -301,20 +284,14 @@
             </section>
 
             <aside class="ow-action-panel" aria-label="Play menu" data-i18n-attr="aria-label:menu.playMenu">
-                <div class="ovd-headline">
-                    <span class="ovd-onair"><i aria-hidden="true"></i><b data-i18n="menu.ovdLive">LIVE</b><span data-i18n="menu.ovdSeries">NIGHT SERIES</span></span>
-                    <h1 class="ovd-title"><span class="ovd-line"><span data-i18n="menu.ovdLine1">Deflect.</span></span><span class="ovd-line"><span data-i18n="menu.ovdLine2">Escalate.</span></span><span class="ovd-line ovd-line-heat"><span data-i18n="menu.ovdLine3">Overdrive.</span></span></h1>
-                    <p class="ovd-lede" data-i18n="menu.ovdLede">Every return speeds the ball up. Time the knife, hold your nerve, own the rally.</p>
-                </div>
                 <div class="ow-action-heading">
-                    <span class="ow-kicker" data-i18n="menu.playKicker">PLAY</span>
                     <strong data-i18n="menu.chooseMatch">Choose your match</strong>
                 </div>
-                <button id="btn-play-solo" class="ow-play"><span class="ovd-play-label" data-i18n="menu.playKicker">PLAY</span><span class="ovd-play-meta"><b data-i18n="menu.quickPlayCaps">QUICK PLAY</b><small data-i18n="menu.createOrJoin">Create or join a lobby</small></span><span class="ovd-play-go" aria-hidden="true"><svg class="ui-icon"><use href="#i-arrow-right"></use></svg></span></button>
+                <button id="btn-play-solo" class="ow-play"><svg class="ui-icon ow-play-icon" aria-hidden="true"><use href="#i-play"></use></svg><span class="ow-play-copy"><b data-i18n="menu.playKicker">PLAY</b><small><span data-i18n="mp.quickPlay">Quick Play</span><span class="ow-play-detail" data-i18n="menu.createOrJoin">Create or join a lobby</span></small></span></button>
                 <div class="ow-world-grid">
                     <button id="btn-social-lobby" class="ow-social-lobby">
                         <svg class="ui-icon" aria-hidden="true"><use href="#i-globe"></use></svg>
-                        <span><em data-i18n="menu.live3d">LIVE 3D</em><b data-i18n="menu.enterHub">ENTER SOCIAL HUB</b><small data-i18n="menu.hubCopy">Meet friends in the compact Neon Clubhouse lounge and pool</small></span>
+                        <span><b data-i18n="menu.enterHub">Social Hub</b><small data-i18n="menu.hubCopy">Hang out with friends in 3D</small></span>
                         <svg class="ui-icon ow-social-lobby-arrow" aria-hidden="true"><use href="#i-play"></use></svg>
                     </button>
                 </div>
@@ -347,15 +324,16 @@
                     <button type="button" id="menu-streak-badge" class="ow-retention-card ow-streak-badge" aria-label="Daily login streak" hidden data-i18n-attr="aria-label:menu.loginStreak"></button>
                 </div>
                 <div class="ow-featured" id="menu-featured" aria-label="Featured in the shop today" hidden data-i18n-attr="aria-label:menu.featuredShop"></div>
-                <div class="ow-extralinks">
-                    <button id="btn-replays" class="ow-link" data-i18n="menu.replays"><svg class="ui-icon" aria-hidden="true"><use href="#i-replay"></use></svg>Replays</button>
-                    <button id="btn-achievements" class="ow-link" data-i18n="menu.achievements"><svg class="ui-icon" aria-hidden="true"><use href="#i-trophy"></use></svg>Achievements</button>
-                    <button id="btn-leaderboard" class="ow-link" data-i18n="menu.leaderboard"><svg class="ui-icon" aria-hidden="true"><use href="#i-chart"></use></svg>Leaderboard</button>
-                    <button id="btn-social-center" class="ow-link" data-i18n="menu.community"><svg class="ui-icon" aria-hidden="true"><use href="#i-user"></use></svg>Community</button>
-                    <button id="btn-patchnotes" class="ow-link" data-i18n="menu.patchNotes"><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg>Patch Notes</button>
-                </div>
-                <span class="ow-hint" data-i18n="menu.controlsHint">WASD move / L-Click deflect / Q skill / Tab scores / Y chat</span>
             </aside>
+            <!-- Low-priority routes: a footer row under the play panel (desktop), after it (phone). -->
+            <div class="ow-extralinks">
+                <button id="btn-replays" class="ow-link" data-i18n="menu.replays"><svg class="ui-icon" aria-hidden="true"><use href="#i-replay"></use></svg>Replays</button>
+                <button id="btn-achievements" class="ow-link" data-i18n="menu.achievements"><svg class="ui-icon" aria-hidden="true"><use href="#i-trophy"></use></svg>Achievements</button>
+                <button id="btn-leaderboard" class="ow-link" data-i18n="menu.leaderboard"><svg class="ui-icon" aria-hidden="true"><use href="#i-chart"></use></svg>Leaderboard</button>
+                <button id="btn-social-center" class="ow-link" data-i18n="menu.community"><svg class="ui-icon" aria-hidden="true"><use href="#i-user"></use></svg>Community</button>
+                <button id="btn-patchnotes" class="ow-link" data-i18n="menu.patchNotes"><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg>Patch Notes</button>
+            </div>
+            <span class="ow-hint" data-i18n="menu.controlsHint">WASD move / L-Click deflect / Q skill / Tab scores / Y chat</span>
 
             <!-- Authoritative social rail: friends, online players, nearby discovery, party. -->
             <aside id="friends-sidebar" class="friends-sidebar" aria-label="Social and party" data-i18n-attr="aria-label:social.railLabel">
@@ -363,7 +341,7 @@
                 <div class="friends-sidebar-header">
                     <button id="fbar-toggle" class="fbar-toggle-btn" type="button" aria-label="Collapse social panel" aria-expanded="true" data-i18n-attr="aria-label:social.collapse"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg></button>
                     <span class="fbar-title-icon" aria-hidden="true"><svg class="ui-icon"><use href="#i-users"></use></svg></span>
-                    <span class="fbar-title"><small data-i18n="social.network">SQUAD NETWORK</small><strong data-i18n="social.socialCaps">SOCIAL</strong></span>
+                    <span class="fbar-title"><strong data-i18n="social.social">Social</strong></span>
                     <span class="friends-sidebar-count" id="fbar-count"><i aria-hidden="true"></i>0 online</span>
                 </div>
                 <div class="friends-sidebar-body" id="fbar-body">
@@ -557,7 +535,6 @@
     <div id="multiplayer-menu" class="screen hidden">
         <section id="sport-select-stage" class="sport-select-stage" aria-labelledby="sport-select-title" tabindex="-1">
             <header class="sport-select-header">
-                <span class="shell-kicker" data-i18n="mp.routeKicker">QUICK PLAY ROUTE</span>
                 <h1 id="sport-select-title" data-i18n="mp.chooseSport">Choose your sport</h1>
                 <p data-i18n="mp.chooseSportCopy">Each sport has its own rooms, rules and match flow.</p>
             </header>
@@ -581,11 +558,11 @@
             <div class="mp-left">
                 <header class="mp-command-header">
                     <span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-globe"></use></svg></span>
-                    <div><span class="shell-kicker" data-i18n="mp.commandKicker">MATCH COMMAND</span><h1 class="mp-title" data-i18n="mp.title">Multiplayer</h1><p class="mp-subtitle" data-i18n="mp.subtitle">Build a route, then enter the arena.</p></div>
+                    <div><h1 class="mp-title" data-i18n="mp.title">Multiplayer</h1><p class="mp-subtitle" data-i18n="mp.subtitle">Find a match or open your own room.</p></div>
                 </header>
                 <button id="btn-change-sport" class="mp-sport-route" type="button"><span data-i18n="mp.sport">SPORT</span><strong id="mp-current-sport">Dodgeball</strong><small data-i18n="mp.change">Change</small></button>
                 <section class="quick-play-builder" aria-labelledby="quick-play-title">
-                    <div class="quick-play-heading"><div><span class="shell-kicker" data-i18n="mp.fastDeploy">FAST DEPLOY</span><h2 id="quick-play-title" data-i18n="mp.quickPlay">Quick Play</h2></div><span class="quick-play-status">LIVE</span></div>
+                    <div class="quick-play-heading"><div><h2 id="quick-play-title" data-i18n="mp.quickPlay">Quick Play</h2></div><span class="quick-play-status">LIVE</span></div>
                     <div class="quick-play-fields">
                         <label for="quick-play-queue"><span data-i18n="mp.queue">Queue</span><select id="quick-play-queue"><option value="casual" data-i18n="mp.casual">Casual</option><option value="ranked" data-i18n="menu.ranked">Ranked</option></select></label>
                         <label for="quick-play-mode"><span data-i18n="mp.mode">Mode</span><select id="quick-play-mode"><option value="all" data-i18n="mp.anyMode">Any mode</option><option value="classic" data-i18n="modes.classic">Classic</option><option value="speedball">Speedball</option><option value="rally_duel" data-i18n="modes.rallyDuel">1V1 Rally Duel</option><option value="competitive" data-i18n="modes.competitive">Competitive</option></select></label>
@@ -604,7 +581,7 @@
             </div>
             <div class="mp-right">
                 <div class="mp-lobby-header">
-                    <div><span class="shell-kicker" data-i18n="mp.serverBoard">SERVER BOARD</span><h2 id="mp-lobby-heading">Open Dodgeball Lobbies</h2></div>
+                    <div><h2 id="mp-lobby-heading">Open Dodgeball Lobbies</h2></div>
                     <button id="btn-mp-refresh" class="btn btn-small" type="button" aria-label="Refresh lobby list" data-i18n-attr="aria-label:mp.refreshList"><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg></button>
                 </div>
                 <div class="mp-lobby-filters" aria-label="Lobby filters" data-i18n-attr="aria-label:mp.filters">
@@ -1120,25 +1097,56 @@
     <div id="character-screen" class="screen hidden">
         <div id="character-locker-content" class="panel wide-panel shell-panel hero-shell">
             <header class="shell-header">
-                <div class="shell-title"><span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-user"></use></svg></span><div><span class="shell-kicker" data-i18n="locker.kicker">PLAYER LOCKER</span><h1 data-i18n="menu.locker">Locker</h1><p data-i18n="locker.copy">Build your match loadout and manage everything you own.</p></div></div>
-                <div class="hero-loadout-summary" aria-label="Current loadout" data-i18n-attr="aria-label:locker.currentLoadout">
-                    <span><small data-i18n="locker.hero">Hero</small><strong id="hero-selected-name">Rally</strong></span>
-                    <span><small data-i18n="locker.ability">Ability</small><strong id="hero-selected-skill">Slow Ball</strong></span>
-                    <span><small data-i18n="locker.rune">Rune</small><strong id="hero-selected-rune">Deflect Power</strong></span>
-                </div>
+                <div class="shell-title"><span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-user"></use></svg></span><div><h1 data-i18n="menu.locker">Locker</h1><p data-i18n="locker.copy">Build your match loadout and manage everything you own.</p></div></div>
             </header>
             <nav id="locker-tabs" class="locker-rail" role="tablist" aria-label="Locker sections" data-i18n-attr="aria-label:locker.sections">
                 <button id="locker-tab-loadout" class="locker-tab selected" type="button" role="tab" aria-selected="true" aria-controls="locker-panel-loadout" data-locker-tab="loadout" data-i18n="locker.loadout">Loadout</button>
-                <button id="locker-tab-inventory" class="locker-tab" type="button" role="tab" aria-selected="false" aria-controls="locker-panel-inventory" data-locker-tab="inventory" data-i18n="locker.inventory">Inventory</button>
+                <button id="locker-tab-inventory" class="locker-tab" type="button" role="tab" aria-selected="false" aria-controls="locker-panel-inventory" data-locker-tab="inventory" data-i18n="locker.inventory">Inventory<span id="locker-new-count" class="locker-tab-badge" hidden></span></button>
                 <button id="locker-tab-cards" class="locker-tab" type="button" role="tab" aria-selected="false" aria-controls="locker-panel-cards" data-locker-tab="cards" data-i18n="locker.cards">Cards</button>
             </nav>
+            <!-- Live 3D stage: borrows the main-menu hero canvas (one WebGL context), shown for Loadout + Inventory. -->
+            <div class="locker-stage" id="locker-stage">
+                <div class="locker-stage-mount" id="locker-stage-mount"></div>
+                <div class="locker-stage-caption" id="locker-stage-caption" hidden><small data-i18n="locker.previewing">Preview</small><span class="locker-stage-tier"></span><strong class="locker-stage-name"></strong><button id="btn-locker-reset" class="locker-stage-reset" type="button" aria-label="Back to equipped" title="Back to equipped" data-i18n-attr="aria-label:locker.backToEquipped;title:locker.backToEquipped"><svg class="ui-icon" aria-hidden="true"><use href="#i-close"></use></svg></button></div>
+                <div class="locker-stage-bar">
+                    <button id="btn-locker-inspect" class="locker-stage-btn" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#i-spark"></use></svg><span data-i18n="locker.inspect">Inspect</span></button>
+                    <span class="locker-stage-hint" data-i18n="locker.dragHint">Drag to rotate</span>
+                </div>
+            </div>
             <div id="locker-panel-loadout" class="locker-panel" role="tabpanel" aria-labelledby="locker-tab-loadout" data-locker-panel="loadout">
+                <section class="locker-showroom" aria-label="Current loadout" data-i18n-attr="aria-label:locker.currentLoadout">
+                    <div class="locker-slots" id="locker-slots">
+                        <button id="locker-slot-hero" class="locker-slot" type="button" data-locker-slot="hero"><span class="locker-slot-art" aria-hidden="true"></span><span class="locker-slot-copy"><small data-i18n="locker.hero">Hero</small><strong id="hero-selected-name">Rally</strong></span><span class="locker-slot-tier"></span></button>
+                        <button id="locker-slot-avatar" class="locker-slot" type="button" data-locker-slot="avatar"><span class="locker-slot-art" aria-hidden="true"><svg class="ui-icon"><use href="#i-user"></use></svg></span><span class="locker-slot-copy"><small data-i18n="locker.slotSkin">Skin</small><strong class="locker-slot-name">Default</strong></span><span class="locker-slot-tier"></span></button>
+                        <button id="locker-slot-knife" class="locker-slot" type="button" data-locker-slot="knife"><span class="locker-slot-art" aria-hidden="true"><svg class="ui-icon"><use href="#i-flame"></use></svg></span><span class="locker-slot-copy"><small data-i18n="locker.slotKnife">Knife</small><strong class="locker-slot-name">Training</strong></span><span class="locker-slot-tier"></span></button>
+                        <button id="locker-slot-gloves" class="locker-slot" type="button" data-locker-slot="gloves"><span class="locker-slot-art" aria-hidden="true"><svg class="ui-icon"><use href="#i-flex"></use></svg></span><span class="locker-slot-copy"><small data-i18n="locker.slotGloves">Gloves</small><strong class="locker-slot-name">None</strong></span><span class="locker-slot-tier"></span></button>
+                        <button id="locker-slot-ball" class="locker-slot" type="button" data-locker-slot="ball"><span class="locker-slot-art" aria-hidden="true"><svg class="ui-icon"><use href="#i-ball"></use></svg></span><span class="locker-slot-copy"><small data-i18n="locker.slotBall">Ball</small><strong class="locker-slot-name">Classic</strong></span><span class="locker-slot-tier"></span></button>
+                        <button id="locker-slot-wearable" class="locker-slot" type="button" data-locker-slot="wearable"><span class="locker-slot-art" aria-hidden="true"><svg class="ui-icon"><use href="#i-star"></use></svg></span><span class="locker-slot-copy"><small data-i18n="locker.slotWearables">Wearables</small><strong class="locker-slot-name">None</strong></span><span class="locker-slot-tier"></span></button>
+                        <button id="locker-slot-ability" class="locker-slot" type="button" data-locker-slot="ability"><span class="locker-slot-art" aria-hidden="true"><svg class="ui-icon"><use href="#i-spark"></use></svg></span><span class="locker-slot-copy"><small data-i18n="locker.ability">Ability</small><strong id="hero-selected-skill">Slow Ball</strong></span><span class="locker-slot-tier"></span></button>
+                        <button id="locker-slot-rune" class="locker-slot" type="button" data-locker-slot="rune"><span class="locker-slot-art" aria-hidden="true"><svg class="ui-icon"><use href="#i-target"></use></svg></span><span class="locker-slot-copy"><small data-i18n="locker.rune">Rune</small><strong id="hero-selected-rune">Deflect Power</strong></span><span class="locker-slot-tier"></span></button>
+                    </div>
+                </section>
                 <section class="loadout-section hero-roster"><header><span class="shell-kicker" data-i18n="locker.roster">ROSTER</span><h2 data-i18n="locker.chooseHero">Choose Your Hero</h2><p data-i18n="locker.chooseHeroCopy">Compare health, speed, deflect power, and mastery at a glance.</p></header><div class="char-grid" id="char-grid"></div></section>
                 <section class="loadout-section"><header><span class="shell-kicker" data-i18n="locker.activeCard">ACTIVE CARD</span><h2 data-i18n="locker.abilityCard">Ability Card</h2><p data-i18n="locker.abilityCardCopy">Earn cards from Arena Cache drops. Cooldowns stay tuned for fair rallies.</p></header><div class="skill-grid" id="skill-grid"></div></section>
                 <section class="loadout-section"><header><span class="shell-kicker" data-i18n="locker.passiveKicker">PASSIVE CARD</span><h2 data-i18n="locker.passiveCard">Passive Card</h2><p data-i18n="locker.passiveCardCopy">Choose one collected passive card for a clear playstyle.</p></header><div class="rune-grid" id="rune-grid"></div></section>
             </div>
             <section id="locker-panel-inventory" class="locker-panel hidden" role="tabpanel" aria-labelledby="locker-tab-inventory" data-locker-panel="inventory">
-                <header class="locker-section-header"><div><span class="shell-kicker" data-i18n="locker.owned">OWNED COLLECTION</span><h2 data-i18n="locker.inventory">Inventory</h2><p data-i18n="locker.ownedCopy">Inspect and equip earned items. Nothing is sold from this screen.</p></div><span id="locker-inventory-count" class="shop-catalog-count">0 items</span></header>
+                <header class="locker-section-header"><div><h2 data-i18n="locker.inventory">Inventory</h2><p data-i18n="locker.ownedCopy">Equip what you own. Locked items show where to get them.</p></div><span id="locker-inventory-count" class="shop-catalog-count">0 items</span></header>
+                <div class="locker-toolbar">
+                    <div class="locker-filters" id="locker-filters" role="group" aria-label="Filter by slot" data-i18n-attr="aria-label:locker.filterLabel">
+                        <button type="button" class="locker-filter" data-locker-filter="all" aria-pressed="true"><span data-i18n="locker.filterAll">All</span><b class="locker-filter-count"></b></button>
+                        <button type="button" class="locker-filter" data-locker-filter="knife" aria-pressed="false"><span data-i18n="locker.filterKnife">Knives</span><b class="locker-filter-count"></b></button>
+                        <button type="button" class="locker-filter" data-locker-filter="gloves" aria-pressed="false"><span data-i18n="locker.filterGloves">Gloves</span><b class="locker-filter-count"></b></button>
+                        <button type="button" class="locker-filter" data-locker-filter="ball" aria-pressed="false"><span data-i18n="locker.filterBall">Balls</span><b class="locker-filter-count"></b></button>
+                        <button type="button" class="locker-filter" data-locker-filter="avatar" aria-pressed="false"><span data-i18n="locker.filterSkin">Skins</span><b class="locker-filter-count"></b></button>
+                        <button type="button" class="locker-filter" data-locker-filter="wearable" aria-pressed="false"><span data-i18n="locker.filterWearable">Wearables</span><b class="locker-filter-count"></b></button>
+                    </div>
+                    <div class="locker-toolbar-row">
+                        <label class="locker-search"><svg class="ui-icon" aria-hidden="true"><use href="#i-search"></use></svg><input id="locker-search" type="search" maxlength="40" autocomplete="off" placeholder="Search items" aria-label="Search items" data-i18n-attr="placeholder:locker.search;aria-label:locker.search"></label>
+                        <label class="locker-sort"><span data-i18n="locker.sortLabel">Sort</span><select id="locker-sort"><option value="rarity" data-i18n="locker.sortRarity">Rarity</option><option value="newest" data-i18n="locker.sortNewest">Newest</option><option value="name" data-i18n="locker.sortName">Name</option></select></label>
+                        <label class="locker-locked-toggle"><input id="locker-show-locked" type="checkbox" checked><span data-i18n="locker.showLocked">Show locked</span></label>
+                    </div>
+                </div>
                 <div id="locker-inventory-grid" class="locker-inventory-grid" aria-label="Owned inventory" data-i18n-attr="aria-label:locker.ownedInventory"></div>
             </section>
             <section id="locker-panel-cards" class="locker-panel hidden" role="tabpanel" aria-labelledby="locker-tab-cards" data-locker-panel="cards">

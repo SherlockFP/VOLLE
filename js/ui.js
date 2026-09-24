@@ -21,6 +21,7 @@ import { rewardRowState, tierCardState, SHOP_XP_BOOST } from './battlepass.js';
 import { buildRewardSummary, rewardStepDelays } from './match-analytics.js';
 import { Daily } from './daily.js';
 import { tierForRarity, tierBadgeHTML, tierRank, TIER_ORDER } from './tiers.js';
+import { LOCKER_FAVORITES_KEY, LOCKER_FILTERS, LOCKER_SEEN_KEY, LOCKER_SORTS, LOCKER_SOURCE_TAB, buildLockerEntries, filterLockerEntries, lockerCounts, readKeySet, seedSeenKeys, sortLockerEntries, writeKeySet } from './locker.js';
 import * as ItemThumbnails from './item-thumbnails.js';
 import { createCaseReveal3D } from './case-reveal-3d.js';
 import { selectMvp } from './mvp-select.js';
@@ -2675,73 +2676,299 @@ export class UI {
         }));
     }
 
-    renderLockerInventory(store) {
-        const grid = document.getElementById('locker-inventory-grid');
-        if (!grid) return;
-        const coinBalance = store.get('currency') || 0;
-        const ownedKnifeIds = new Set(store.get('ownedKnives') || []);
-        const equippedKnives = store.get('equippedKnives') || {};
-        const ownedCosmeticIds = new Set(store.get('ownedCosmetics') || []);
-        const equippedWearables = store.get('equippedWearables') || {};
-        const ownedBallIds = new Set(store.get('ownedBalls') || []);
-        const equippedBall = store.get('equippedBall') || 'classic';
-        const ownedAvatarIds = new Set(store.get('ownedAvatarSkins') || []);
-        const equippedAvatar = store.get('equippedAvatarSkin') || 'default';
-        const knifeStats = store.get('knifeStats') || {};
-        const groups = [
-            { label: 'Knives', type: 'knife', items: Object.values(KNIVES).filter(item => ownedKnifeIds.has(item.id)) },
-            { label: 'Wearables', type: 'cosmetic', items: Object.values(COSMETICS).filter(item => ownedCosmeticIds.has(item.id)) },
-            { label: 'Ball Skins', type: 'ball', items: Object.entries(BALL_SKINS).filter(([id]) => ownedBallIds.has(id)).map(([id, item]) => ({ ...item, id })) },
-            { label: 'Character Skins', type: 'avatar', items: Object.values(AVATAR_SKINS).filter(item => ownedAvatarIds.has(item.id)) }
-        ].filter(group => group.items.length);
-        const total = groups.reduce((sum, group) => sum + group.items.length, 0);
-        const count = document.getElementById('locker-inventory-count');
-        if (count) count.textContent = `${total} ${total === 1 ? 'item' : 'items'}`;
-        grid.replaceChildren();
-        for (const group of groups) {
-            const heading = document.createElement('h3');
-            heading.className = 'cosmetic-category-title';
-            heading.textContent = group.label;
-            grid.appendChild(heading);
-            for (const item of group.items) {
-                const card = document.createElement('article');
-                card.dataset.invType = group.type;
-                card.dataset.invRarity = item.rarity || 'common';
-                card.className = `shop-card inventory-card inventory-tile rarity-${item.rarity || 'common'}`;
-                if (group.type === 'knife') {
-                    const equippedAny = isKnifeEquippedAny(item.id, equippedKnives);
-                    const restriction = knifeTeamRestriction(item.teams);
-                    const restrictBadge = restriction ? `<span class="inventory-team-restrict team-${restriction}">${restriction.toUpperCase()} ONLY</span>` : '';
-                    card.dataset.invModel = item.model;
-                    card.innerHTML = `<div class="inventory-icon-area"><div class="knife-preview knife-preview-3d model-${item.model}" style="--knife-color:${item.color};--knife-accent:${item.accent}" aria-hidden="true"></div></div><div class="inventory-card-copy"><span class="skin-rarity rarity-${item.rarity}">${item.rarity}</span>${tierBadgeHTML(item.rarity)}${restrictBadge}<div class="char-name">${item.name}</div><div class="char-desc">${item.model.toUpperCase()} / ${(item.finish || 'satin').toUpperCase()}</div></div><div class="stat-track"><span>STATTRACK</span><b>${String(Number(knifeStats[item.id]) || 0).padStart(6, '0')}</b></div><button class="btn btn-small knife-inspect" data-id="${item.id}">3D Inspect</button><div class="inventory-actions">${item.teams.map(team => equippedKnives[team] === item.id ? `<span class="shop-owned">${team.toUpperCase()} equipped</span>` : `<button class="btn btn-small knife-equip" data-id="${item.id}" data-team="${team}">Equip ${team}</button>`).join('')}</div>`;
-                    this._decorateShopCard(card, { category: 'knife', owned: true, equipped: equippedAny, currency: coinBalance });
-                } else if (group.type === 'cosmetic') {
-                    const active = equippedWearables[item.type] === item.id;
-                    card.dataset.invModel = item.type;
-                    card.classList.add('cosmetic-card');
-                    card.style.setProperty('--cosmetic-primary', item.colors[0]);
-                    card.style.setProperty('--cosmetic-secondary', item.colors[1]);
-                    card.innerHTML = `<div class="inventory-icon-area"><div class="cosmetic-preview cosmetic-preview-${item.type}" data-style="${item.style}" aria-hidden="true"></div></div><div class="inventory-card-copy"><span class="skin-rarity rarity-${item.rarity}">${item.rarity}</span>${tierBadgeHTML(item.rarity)}<div class="char-name">${item.name}</div><div class="char-desc">${COSMETIC_TYPES[item.type] || item.type}</div></div><div class="inventory-actions"><button class="btn btn-small wearable-inspect" data-id="${item.id}">Inspect</button>${active ? '<span class="shop-owned">Equipped</span>' : `<button class="btn btn-small shop-equip" data-type="cosmetic" data-id="${item.id}">Equip</button>`}</div>`;
-                    appendCosmeticIcon(card.querySelector('.cosmetic-preview'), item);
-                    this._decorateShopCard(card, { category: 'cosmetic', owned: true, equipped: active, currency: coinBalance });
-                } else if (group.type === 'ball') {
-                    const active = equippedBall === item.id;
-                    card.dataset.invModel = item.shape || 'sphere';
-                    card.innerHTML = `<div class="inventory-icon-area"><div class="ball-preview" data-shape="${item.shape || 'sphere'}" data-effect="${item.effect || 'core'}" style="--ball-color:#${item.color.toString(16).padStart(6, '0')};--ball-glow:#${item.glow.toString(16).padStart(6, '0')}"></div></div><div class="inventory-card-copy"><span class="skin-rarity rarity-${item.rarity || 'common'}">${item.rarity || 'common'}</span>${tierBadgeHTML(item.rarity)}<div class="char-name">${item.name}</div><div class="char-desc">${(item.shape || 'sphere').toUpperCase()} BALL</div></div><div class="inventory-actions"><button class="btn btn-small ball-inspect" data-id="${item.id}">Inspect</button>${active ? '<span class="shop-owned">Equipped</span>' : `<button class="btn btn-small shop-equip" data-type="ball" data-id="${item.id}">Equip</button>`}</div>`;
-                    this._decorateShopCard(card, { category: 'ball', owned: true, equipped: active, currency: coinBalance });
-                } else {
-                    const active = equippedAvatar === item.id;
-                    card.dataset.invModel = item.model || 'classic';
-                    card.innerHTML = `<div class="inventory-icon-area"><span class="skin-preview" style="--skin-head:${item.head};--skin-body:${item.body};--skin-arms:${item.arms};--skin-legs:${item.legs}" aria-hidden="true"></span></div><div class="inventory-card-copy"><span class="skin-rarity rarity-${item.rarity || 'common'}">${item.rarity || 'common'}</span>${tierBadgeHTML(item.rarity)}<div class="char-name">${item.name}</div><div class="char-desc">${item.model === 'slim' ? 'SLIM' : 'CLASSIC'} PLAYER MODEL</div></div>${active ? '<div class="shop-owned">Equipped</div>' : `<button class="btn btn-small shop-equip" data-type="avatar" data-id="${item.id}">Equip</button>`}`;
-                    this._decorateShopCard(card, { category: 'avatar', owned: true, equipped: active, currency: coinBalance });
-                }
-                grid.appendChild(card);
-                if (group.type !== 'cosmetic' || item.type === 'gloves') {
-                    this._attachItemThumb(card.querySelector('.inventory-icon-area'), item, group.type);
-                }
+    // ===== LOCKER (js/locker.js holds the pure filter/sort/count rules) =====
+    // View state survives re-renders (equip, case drops) so the grid never jumps
+    // back to "All". Seen/favourite keys are per-device conveniences in localStorage.
+    _lockerView() {
+        if (!this._locker) {
+            this._locker = { filter: 'all', query: '', sort: 'rarity', showLocked: true, seen: null, favorites: null };
+        }
+        return this._locker;
+    }
+
+    _lockerStorage() {
+        try {
+            return typeof localStorage === 'undefined' ? null : localStorage;
+        } catch {
+            return null;
+        }
+    }
+
+    _lockerEntries(store) {
+        const view = this._lockerView();
+        const storage = this._lockerStorage();
+        if (!view.favorites) view.favorites = readKeySet(storage, LOCKER_FAVORITES_KEY) || new Set();
+        const state = {
+            ownedKnives: store.get('ownedKnives') || [],
+            ownedCosmetics: store.get('ownedCosmetics') || [],
+            ownedBalls: store.get('ownedBalls') || [],
+            ownedAvatarSkins: store.get('ownedAvatarSkins') || [],
+            equippedKnives: store.get('equippedKnives') || {},
+            equippedWearables: store.get('equippedWearables') || {},
+            equippedBall: store.get('equippedBall') || 'classic',
+            equippedAvatar: store.get('equippedAvatarSkin') || 'default',
+            favorites: view.favorites
+        };
+        const catalogs = { knives: KNIVES, cosmetics: COSMETICS, balls: BALL_SKINS, avatars: AVATAR_SKINS };
+        if (!view.seen) {
+            view.seen = readKeySet(storage, LOCKER_SEEN_KEY);
+            if (!view.seen) {
+                view.seen = seedSeenKeys(null, buildLockerEntries(catalogs, state));
+                writeKeySet(storage, LOCKER_SEEN_KEY, view.seen);
             }
         }
-        if (!total) grid.innerHTML = '<div class="shop-empty inventory-empty"><strong>Your collection is ready for its first drop.</strong><span>Complete matches and open earned cases to grow it.</span></div>';
+        return buildLockerEntries(catalogs, { ...state, seen: view.seen });
+    }
+
+    setLockerFilter(filter, store) {
+        const view = this._lockerView();
+        view.filter = LOCKER_FILTERS.includes(filter) ? filter : 'all';
+        if (store) this.renderLockerInventory(store);
+        return view.filter;
+    }
+
+    setLockerQuery(query, store) {
+        this._lockerView().query = String(query || '').slice(0, 40);
+        if (store) this.renderLockerInventory(store);
+    }
+
+    setLockerSort(sort, store) {
+        const view = this._lockerView();
+        view.sort = LOCKER_SORTS.includes(sort) ? sort : 'rarity';
+        if (store) this.renderLockerInventory(store);
+    }
+
+    setLockerShowLocked(flag, store) {
+        this._lockerView().showLocked = Boolean(flag);
+        if (store) this.renderLockerInventory(store);
+    }
+
+    toggleLockerFavorite(key, store) {
+        const view = this._lockerView();
+        if (!view.favorites) view.favorites = new Set();
+        const next = !view.favorites.has(key);
+        if (next) view.favorites.add(key);
+        else view.favorites.delete(key);
+        writeKeySet(this._lockerStorage(), LOCKER_FAVORITES_KEY, view.favorites);
+        if (store) this.renderLockerInventory(store);
+        return next;
+    }
+
+    // NEW clears the first time a tile is looked at (hover, focus or click); the
+    // badge is removed in place so the grid does not re-render under the pointer.
+    markLockerSeen(key) {
+        const view = this._lockerView();
+        if (!key || !view.seen || view.seen.has(key)) return false;
+        view.seen.add(key);
+        writeKeySet(this._lockerStorage(), LOCKER_SEEN_KEY, view.seen);
+        const card = [...document.querySelectorAll('#locker-inventory-grid [data-locker-key]')].find(el => el.dataset.lockerKey === key);
+        card?.classList.remove('is-new');
+        card?.querySelector('.locker-new')?.remove();
+        this._syncLockerNewCount(Math.max(0, (this._lockerFresh || 1) - 1));
+        return true;
+    }
+
+    _syncLockerNewCount(fresh) {
+        this._lockerFresh = fresh;
+        const badge = document.getElementById('locker-new-count');
+        if (!badge) return;
+        badge.hidden = !fresh;
+        badge.textContent = fresh ? String(fresh) : '';
+    }
+
+    _syncLockerToolbar(view, counts) {
+        document.querySelectorAll('#locker-filters [data-locker-filter]').forEach(button => {
+            const filter = button.dataset.lockerFilter;
+            const count = counts[filter] || { owned: 0, total: 0, fresh: 0 };
+            button.setAttribute('aria-pressed', String(filter === view.filter));
+            button.classList.toggle('has-new', count.fresh > 0);
+            const label = button.querySelector('.locker-filter-count');
+            if (label) label.textContent = t('locker.ownedCount', { owned: count.owned, total: count.total });
+        });
+        const search = document.getElementById('locker-search');
+        if (search && search.value !== view.query) search.value = view.query;
+        const sort = document.getElementById('locker-sort');
+        if (sort && sort.value !== view.sort) sort.value = view.sort;
+        const locked = document.getElementById('locker-show-locked');
+        if (locked) locked.checked = view.showLocked;
+    }
+
+    // Equipped-loadout slots on the Loadout tab. Hero / Ability / Rune names are
+    // written by renderCharacterSelect(); this fills the cosmetic slots.
+    renderLockerSlots(store) {
+        const slots = document.getElementById('locker-slots');
+        if (!slots) return;
+        const equippedKnives = store.get('equippedKnives') || {};
+        const knifeId = equippedKnives.red || equippedKnives.blue || 'training';
+        const wearables = store.get('equippedWearables') || {};
+        const gloveId = wearables.gloves && wearables.gloves !== 'none' ? wearables.gloves : '';
+        const ballId = store.get('equippedBall') || 'classic';
+        const avatarId = store.get('equippedAvatarSkin') || 'default';
+        const wornIds = Object.entries(wearables).filter(([type, id]) => type !== 'gloves' && id && id !== 'none' && COSMETICS[id]).map(([, id]) => id);
+        const topWorn = wornIds.map(id => COSMETICS[id]).sort((a, b) => tierRank(a.rarity) - tierRank(b.rarity))[0];
+        const fill = (slot, { name, rarity = '', art = null, empty = false }) => {
+            const button = document.getElementById(`locker-slot-${slot}`);
+            if (!button) return;
+            button.dataset.rarity = rarity || 'none';
+            button.classList.toggle('is-empty', empty);
+            const label = button.querySelector('.locker-slot-name');
+            if (label) label.textContent = name;
+            const tier = button.querySelector('.locker-slot-tier');
+            if (tier) tier.innerHTML = rarity && !empty ? tierBadgeHTML(rarity) : '';
+            // Real thumbnail when WebGL allows it; the slot icon underneath is the fallback.
+            const holder = button.querySelector('.locker-slot-art');
+            const itemKey = art && !empty ? `${art.type}:${art.item.id}` : '';
+            if (holder && holder.dataset.item !== itemKey) {
+                holder.dataset.item = itemKey;
+                holder.classList.remove('has-item-thumb');
+                holder.querySelector(':scope > img.item-thumb')?.remove();
+                if (itemKey) this._attachItemThumb(holder, art.item, art.type, { lazy: false });
+            }
+        };
+        const knife = KNIVES[knifeId];
+        fill('knife', knife && knifeId !== 'training'
+            ? { name: knife.name, rarity: knife.rarity, art: { item: knife, type: 'knife' } }
+            : { name: t('locker.none'), empty: true });
+        const glove = COSMETICS[gloveId];
+        fill('gloves', glove ? { name: glove.name, rarity: glove.rarity, art: { item: glove, type: 'cosmetic' } } : { name: t('locker.none'), empty: true });
+        const ball = BALL_SKINS[ballId] || BALL_SKINS.classic;
+        fill('ball', { name: ball?.name || ballId, rarity: ball?.rarity || 'common', art: ball ? { item: { ...ball, id: ballId }, type: 'ball' } : null });
+        const avatar = AVATAR_SKINS[avatarId];
+        fill('avatar', { name: avatar?.name || avatarId, rarity: avatar?.rarity || 'common', art: avatar ? { item: avatar, type: 'avatar' } : null });
+        fill('wearable', topWorn
+            ? { name: wornIds.length > 1 ? t('locker.wornCount', { name: topWorn.name, count: wornIds.length - 1 }) : topWorn.name, rarity: topWorn.rarity }
+            : { name: t('locker.none'), empty: true });
+        const heroArt = document.querySelector('#locker-slot-hero .locker-slot-art');
+        const heroId = store.get('selectedChar');
+        const portrait = characterPortraitPath(heroId);
+        if (heroArt && portrait && heroArt.dataset.portrait !== portrait) {
+            heroArt.dataset.portrait = portrait;
+            heroArt.innerHTML = `<img src="${portrait}" alt="" loading="lazy" decoding="async">`;
+        }
+    }
+
+    _lockerCard(entry, { knifeStats = {}, equippedKnives = {} } = {}) {
+        const group = { type: entry.group };
+        const item = entry.item;
+        const card = document.createElement('article');
+        card.dataset.invType = group.type;
+        card.dataset.invRarity = item.rarity || 'common';
+        card.dataset.lockerKey = entry.key;
+        card.dataset.invSlot = entry.slot;
+        card.className = `shop-card inventory-card inventory-tile locker-card rarity-${item.rarity || 'common'} tier-${entry.tier.replace('+', 'plus')}`;
+        card.classList.toggle('owned', entry.owned);
+        card.classList.toggle('equipped', entry.equipped);
+        card.classList.toggle('is-locked', !entry.owned);
+        card.classList.toggle('is-new', entry.isNew);
+        card.classList.toggle('is-favorite', entry.favorite);
+        let art = '';
+        let desc = '';
+        if (group.type === 'knife') {
+            card.dataset.invModel = item.model;
+            art = `<div class="knife-preview knife-preview-3d model-${item.model}" style="--knife-color:${item.color};--knife-accent:${item.accent}" aria-hidden="true"></div>`;
+            const restriction = knifeTeamRestriction(item.teams);
+            desc = `${String(item.model || 'knife').toUpperCase()} / ${String(item.finish || 'satin').toUpperCase()}${restriction ? ` · ${t(restriction === 'blue' ? 'hud.blueCaps' : 'hud.redCaps')}` : ''}`;
+        } else if (group.type === 'cosmetic') {
+            card.dataset.invModel = item.type;
+            card.classList.add('cosmetic-card');
+            card.style.setProperty('--cosmetic-primary', item.colors?.[0] || '#ffffff');
+            card.style.setProperty('--cosmetic-secondary', item.colors?.[1] || '#445566');
+            art = `<div class="cosmetic-preview cosmetic-preview-${item.type}" data-style="${item.style}" aria-hidden="true"></div>`;
+            desc = localizedName('cosmeticTypes', item.type, COSMETIC_TYPES[item.type] || item.type);
+        } else if (group.type === 'ball') {
+            card.dataset.invModel = item.shape || 'sphere';
+            const hex = value => `#${Number(value || 0).toString(16).padStart(6, '0')}`;
+            art = `<div class="ball-preview" data-shape="${item.shape || 'sphere'}" data-effect="${item.effect || 'core'}" style="--ball-color:${hex(item.color)};--ball-glow:${hex(item.glow)}"></div>`;
+            desc = t('locker.slotBall');
+        } else {
+            card.dataset.invModel = item.model || 'classic';
+            art = `<span class="skin-preview" style="--skin-head:${item.head};--skin-body:${item.body};--skin-arms:${item.arms};--skin-legs:${item.legs}" aria-hidden="true"></span>`;
+            desc = t('locker.slotSkin');
+        }
+        let action;
+        if (!entry.owned) {
+            const source = LOCKER_SOURCE_TAB[entry.slot] || 'wearables';
+            action = `<button class="btn btn-small locker-get" type="button" data-shop-tab="${source}"><svg class="ui-icon" aria-hidden="true"><use href="#i-lock"></use></svg>${t(source === 'cases' ? 'locker.openCase' : 'locker.getInShop')}</button>`;
+        } else if (entry.equipped && (group.type !== 'knife' || (item.teams || ['red', 'blue']).every(team => equippedKnives[team] === item.id))) {
+            action = `<span class="shop-owned locker-equipped"><svg class="ui-icon" aria-hidden="true"><use href="#i-check"></use></svg>${t('locker.equipped')}</span>`;
+        } else if (group.type === 'knife') {
+            action = `<button class="btn btn-small knife-equip locker-equip" type="button" data-id="${item.id}" data-team="both">${t('locker.equip')}</button>`;
+        } else if (group.type === 'cosmetic') {
+            action = `<button class="btn btn-small shop-equip locker-equip" type="button" data-type="cosmetic" data-id="${item.id}">${t('locker.equip')}</button>`;
+        } else if (group.type === 'ball') {
+            action = `<button class="btn btn-small shop-equip locker-equip" type="button" data-type="ball" data-id="${item.id}">${t('locker.equip')}</button>`;
+        } else {
+            action = `<button class="btn btn-small shop-equip locker-equip" type="button" data-type="avatar" data-id="${item.id}">${t('locker.equip')}</button>`;
+        }
+        const stat = group.type === 'knife' && entry.owned && Number(knifeStats[item.id])
+            ? `<span class="locker-stat">${t('locker.kills', { count: Number(knifeStats[item.id]) || 0 })}</span>`
+            : '';
+        const name = this._esc ? this._esc(entry.name) : entry.name;
+        card.innerHTML = `<button class="locker-preview inventory-icon-area" type="button" data-locker-key="${entry.key}" aria-label="${t('locker.previewItem', { name })}">${art}</button>`
+            + (entry.isNew ? `<span class="locker-new">${t('locker.new')}</span>` : '')
+            + `<button class="locker-fav" type="button" data-locker-key="${entry.key}" aria-pressed="${entry.favorite}" aria-label="${t(entry.favorite ? 'locker.unfavorite' : 'locker.favorite')}"><svg class="ui-icon" aria-hidden="true"><use href="#i-star"></use></svg></button>`
+            + `<div class="inventory-card-copy">${tierBadgeHTML(item.rarity)}<div class="char-name">${name}</div><div class="char-desc">${desc}</div>${stat}</div>`
+            + `<div class="inventory-actions">${action}</div>`;
+        if (group.type === 'cosmetic' && item.type !== 'gloves') appendCosmeticIcon(card.querySelector('.cosmetic-preview'), item);
+        return card;
+    }
+
+    renderLockerInventory(store) {
+        this.renderLockerSlots(store);
+        const grid = document.getElementById('locker-inventory-grid');
+        if (!grid) return;
+        const view = this._lockerView();
+        const knifeStats = store.get('knifeStats') || {};
+        const equippedKnives = store.get('equippedKnives') || {};
+        const entries = this._lockerEntries(store);
+        const counts = lockerCounts(entries);
+        this._syncLockerToolbar(view, counts);
+        this._syncLockerNewCount(counts.all.fresh);
+        const shown = sortLockerEntries(filterLockerEntries(entries, view), view.sort);
+        const count = document.getElementById('locker-inventory-count');
+        const bucket = counts[view.filter] || counts.all;
+        if (count) setText(count, 'locker.ownedOf', { owned: bucket.owned, total: bucket.total });
+        grid.replaceChildren();
+        const fragment = document.createDocumentFragment();
+        const cards = shown.map(entry => {
+            const card = this._lockerCard(entry, { knifeStats, equippedKnives });
+            fragment.appendChild(card);
+            return [card, entry];
+        });
+        grid.appendChild(fragment);
+        // Real 3D thumbnails are lazy (IntersectionObserver + idle slots), so a long
+        // filtered grid only renders what scrolls into view. Non-glove wearables keep
+        // their vector icon, as before.
+        for (const [card, entry] of cards) {
+            if (entry.group !== 'cosmetic' || entry.item.type === 'gloves') {
+                this._attachItemThumb(card.querySelector('.inventory-icon-area'), entry.item, entry.group);
+            }
+        }
+        if (!shown.length) {
+            const empty = document.createElement('div');
+            empty.className = 'shop-empty inventory-empty';
+            const title = document.createElement('strong');
+            const copy = document.createElement('span');
+            const filtered = Boolean(view.query) || (!view.showLocked && counts.all.owned > 0) || view.filter !== 'all';
+            title.textContent = t(filtered ? 'locker.noMatches' : 'locker.emptyTitle');
+            copy.textContent = t(filtered ? 'locker.noMatchesCopy' : 'locker.emptyCopy');
+            empty.append(title, copy);
+            grid.appendChild(empty);
+        }
+    }
+
+    // Visual confirmation after an equip: the tile and its loadout slot pop once.
+    flashLockerEquip(key, slot) {
+        const targets = [
+            [...document.querySelectorAll('#locker-inventory-grid [data-locker-key]')].find(el => el.dataset.lockerKey === key && el.classList.contains('locker-card')),
+            slot ? document.getElementById(`locker-slot-${slot}`) : null
+        ].filter(Boolean);
+        for (const element of targets) {
+            element.classList.remove('just-equipped');
+            void element.offsetWidth;
+            element.classList.add('just-equipped');
+        }
+        return targets.length;
     }
 
     _syncShopTabs(tab) {

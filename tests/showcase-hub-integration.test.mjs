@@ -67,7 +67,8 @@ test('all non-gameplay avatar surfaces share the saved-atlas resolver, including
     assert.match(source, /_resolveAvatarPreview\(skinId, characterId = this\.store\.get\('selectedChar'\), atlasOverride = null\)/);
     assert.match(source, /resolveAvatarAtlas\(resolvedSkinId, this\.store\.get\('customAvatar'\)\)/);
     assert.match(source, /_syncAvatarPreview\(this\.shopShowcase, selected, characterId \|\| this\.store\.get\('selectedChar'\)\)/);
-    assert.match(source, /_syncAvatarPreview\(this\.menuHero, skinId\)/);
+    // The menu hero doubles as the Locker stage, so it passes the previewed hero too.
+    assert.match(source, /_syncAvatarPreview\(this\.menuHero, skinId, characterId\)/);
     assert.match(source, /_syncAvatarPreview\(this\.avatarStage3D, this\.avatarPainter\.skinId, this\.store\.get\('selectedChar'\), \{/);
     const practice = source.slice(source.indexOf('    _renderCosmeticPractice('), source.indexOf('    _selectCosmeticPracticeSkin('));
     assert.match(practice, /_syncAvatarPreview\(this\._cosmeticPracticeAvatar, snapshot\.selectedSkinId\)/);
