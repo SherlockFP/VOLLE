@@ -22,14 +22,16 @@ const mainMenu = () => block('<div id="main-menu"', '<!-- ===== MULTIPLAYER MENU
 const multiplayer = () => block('<div id="multiplayer-menu"', '<!-- ===== JOIN MENU');
 const section = (from, to) => css.slice(css.indexOf(from), css.indexOf(to));
 
-test('menu-arena.css is the last stylesheet, precached, and no extra web fonts are loaded', () => {
+test('menu-arena.css loads after every older sheet, is precached, and no extra web fonts are loaded', () => {
     const links = [...html.matchAll(/<link rel="stylesheet" href="([^"?]+)/g)].map(match => match[1]);
-    assert.equal(links.at(-1), 'css/menu-arena.css', 'the menu layer must load after every older sheet');
+    assert.deepEqual(links.slice(-2), ['css/menu-arena.css', 'css/locker.css'],
+        'the menu layer loads after every older sheet; only the Locker sheet (same tokens) follows it');
     assert.ok(!links.some(href => /fonts\.googleapis/.test(href)), 'the menu uses the game fonts (DM Sans + Nunito from style.css)');
     assert.doesNotMatch(css, /Big Shoulders|JetBrains Mono/);
     assert.match(sw, /'css\/menu-arena\.css'/);
     assert.doesNotMatch(sw, /menu-overdrive/);
-    assert.match(sw, /CACHE_V1\s*=\s*'volle-shell-v12'/, 'shell list changed, so the cache name must be bumped');
+    assert.match(sw, /CACHE_V1\s*=\s*'volle-shell-v13'/, 'shell list changed, so the cache name must be bumped');
+    assert.match(sw, /'css\/locker\.css'/);
     assert.equal(fs.existsSync(new URL('../js/menu-overdrive.js', import.meta.url)), false);
     assert.doesNotMatch(main, /menu-overdrive|initMenuOverdrive/);
 });

@@ -29,6 +29,7 @@
     <!-- Arena menu layer (docs/MENU_DESIGN.md): loaded last so it owns the menu/shell
          cascade without editing the older sheets. Uses the existing DM Sans + Nunito faces. -->
     <link rel="stylesheet" href="css/menu-arena.css?v=1">
+    <link rel="stylesheet" href="css/locker.css?v=1">
     <script type="importmap">
     {
         "imports": {
@@ -79,6 +80,10 @@
         <symbol id="i-clap" viewBox="0 0 24 24"><path d="m8 12-2-4a1.5 1.5 0 0 1 2.7-1.3L11 11M11 11 9.5 6.5a1.5 1.5 0 0 1 2.8-.9L14 10M14 10l-.6-4a1.5 1.5 0 0 1 3-.3l.5 4.3M17 10l.6-2.3a1.5 1.5 0 0 1 2.9.8l-1.4 6c-.8 3.5-3.1 5.5-6.4 5.5-2.7 0-4.5-1.3-6.2-3.8L4 12.5a1.5 1.5 0 0 1 2.4-1.8L9 13"/></symbol>
         <symbol id="i-flex" viewBox="0 0 24 24"><path d="M8 20c-3-1-4-3.5-3-6l2-4 3 2 2-4c.8-1.8 2.2-2.5 4-2l-1 4h3c2.2 0 3.5 1.7 3 4l-.6 2.4C19.8 18.7 17.7 20 15 20H8Z"/><path d="M7 10 5 6M10 8 9 3M14 6l2-4"/></symbol>
         <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 21S3 15.5 3 9a5 5 0 0 1 9-3 5 5 0 0 1 9 3c0 6.5-9 12-9 12Z"/></symbol>
+        <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
+        <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9L12 3.5Z"/></symbol>
+        <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+        <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></symbol>
         <symbol id="i-skull" viewBox="0 0 24 24"><path d="M5 10a7 7 0 1 1 14 0v5l-2 2v3H7v-3l-2-2v-5Z"/><circle cx="9" cy="11" r="1.5"/><circle cx="15" cy="11" r="1.5"/><path d="M10 16v4M14 16v4"/></symbol>
     </svg>
     <!-- Loading Screen -->
@@ -1092,25 +1097,56 @@
     <div id="character-screen" class="screen hidden">
         <div id="character-locker-content" class="panel wide-panel shell-panel hero-shell">
             <header class="shell-header">
-                <div class="shell-title"><span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-user"></use></svg></span><div><span class="shell-kicker" data-i18n="locker.kicker">PLAYER LOCKER</span><h1 data-i18n="menu.locker">Locker</h1><p data-i18n="locker.copy">Build your match loadout and manage everything you own.</p></div></div>
-                <div class="hero-loadout-summary" aria-label="Current loadout" data-i18n-attr="aria-label:locker.currentLoadout">
-                    <span><small data-i18n="locker.hero">Hero</small><strong id="hero-selected-name">Rally</strong></span>
-                    <span><small data-i18n="locker.ability">Ability</small><strong id="hero-selected-skill">Slow Ball</strong></span>
-                    <span><small data-i18n="locker.rune">Rune</small><strong id="hero-selected-rune">Deflect Power</strong></span>
-                </div>
+                <div class="shell-title"><span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-user"></use></svg></span><div><h1 data-i18n="menu.locker">Locker</h1><p data-i18n="locker.copy">Build your match loadout and manage everything you own.</p></div></div>
             </header>
             <nav id="locker-tabs" class="locker-rail" role="tablist" aria-label="Locker sections" data-i18n-attr="aria-label:locker.sections">
                 <button id="locker-tab-loadout" class="locker-tab selected" type="button" role="tab" aria-selected="true" aria-controls="locker-panel-loadout" data-locker-tab="loadout" data-i18n="locker.loadout">Loadout</button>
-                <button id="locker-tab-inventory" class="locker-tab" type="button" role="tab" aria-selected="false" aria-controls="locker-panel-inventory" data-locker-tab="inventory" data-i18n="locker.inventory">Inventory</button>
+                <button id="locker-tab-inventory" class="locker-tab" type="button" role="tab" aria-selected="false" aria-controls="locker-panel-inventory" data-locker-tab="inventory" data-i18n="locker.inventory">Inventory<span id="locker-new-count" class="locker-tab-badge" hidden></span></button>
                 <button id="locker-tab-cards" class="locker-tab" type="button" role="tab" aria-selected="false" aria-controls="locker-panel-cards" data-locker-tab="cards" data-i18n="locker.cards">Cards</button>
             </nav>
+            <!-- Live 3D stage: borrows the main-menu hero canvas (one WebGL context), shown for Loadout + Inventory. -->
+            <div class="locker-stage" id="locker-stage">
+                <div class="locker-stage-mount" id="locker-stage-mount"></div>
+                <div class="locker-stage-caption" id="locker-stage-caption" hidden><small data-i18n="locker.previewing">Preview</small><span class="locker-stage-tier"></span><strong class="locker-stage-name"></strong><button id="btn-locker-reset" class="locker-stage-reset" type="button" aria-label="Back to equipped" title="Back to equipped" data-i18n-attr="aria-label:locker.backToEquipped;title:locker.backToEquipped"><svg class="ui-icon" aria-hidden="true"><use href="#i-close"></use></svg></button></div>
+                <div class="locker-stage-bar">
+                    <button id="btn-locker-inspect" class="locker-stage-btn" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#i-spark"></use></svg><span data-i18n="locker.inspect">Inspect</span></button>
+                    <span class="locker-stage-hint" data-i18n="locker.dragHint">Drag to rotate</span>
+                </div>
+            </div>
             <div id="locker-panel-loadout" class="locker-panel" role="tabpanel" aria-labelledby="locker-tab-loadout" data-locker-panel="loadout">
+                <section class="locker-showroom" aria-label="Current loadout" data-i18n-attr="aria-label:locker.currentLoadout">
+                    <div class="locker-slots" id="locker-slots">
+                        <button id="locker-slot-hero" class="locker-slot" type="button" data-locker-slot="hero"><span class="locker-slot-art" aria-hidden="true"></span><span class="locker-slot-copy"><small data-i18n="locker.hero">Hero</small><strong id="hero-selected-name">Rally</strong></span><span class="locker-slot-tier"></span></button>
+                        <button id="locker-slot-avatar" class="locker-slot" type="button" data-locker-slot="avatar"><span class="locker-slot-art" aria-hidden="true"><svg class="ui-icon"><use href="#i-user"></use></svg></span><span class="locker-slot-copy"><small data-i18n="locker.slotSkin">Skin</small><strong class="locker-slot-name">Default</strong></span><span class="locker-slot-tier"></span></button>
+                        <button id="locker-slot-knife" class="locker-slot" type="button" data-locker-slot="knife"><span class="locker-slot-art" aria-hidden="true"><svg class="ui-icon"><use href="#i-flame"></use></svg></span><span class="locker-slot-copy"><small data-i18n="locker.slotKnife">Knife</small><strong class="locker-slot-name">Training</strong></span><span class="locker-slot-tier"></span></button>
+                        <button id="locker-slot-gloves" class="locker-slot" type="button" data-locker-slot="gloves"><span class="locker-slot-art" aria-hidden="true"><svg class="ui-icon"><use href="#i-flex"></use></svg></span><span class="locker-slot-copy"><small data-i18n="locker.slotGloves">Gloves</small><strong class="locker-slot-name">None</strong></span><span class="locker-slot-tier"></span></button>
+                        <button id="locker-slot-ball" class="locker-slot" type="button" data-locker-slot="ball"><span class="locker-slot-art" aria-hidden="true"><svg class="ui-icon"><use href="#i-ball"></use></svg></span><span class="locker-slot-copy"><small data-i18n="locker.slotBall">Ball</small><strong class="locker-slot-name">Classic</strong></span><span class="locker-slot-tier"></span></button>
+                        <button id="locker-slot-wearable" class="locker-slot" type="button" data-locker-slot="wearable"><span class="locker-slot-art" aria-hidden="true"><svg class="ui-icon"><use href="#i-star"></use></svg></span><span class="locker-slot-copy"><small data-i18n="locker.slotWearables">Wearables</small><strong class="locker-slot-name">None</strong></span><span class="locker-slot-tier"></span></button>
+                        <button id="locker-slot-ability" class="locker-slot" type="button" data-locker-slot="ability"><span class="locker-slot-art" aria-hidden="true"><svg class="ui-icon"><use href="#i-spark"></use></svg></span><span class="locker-slot-copy"><small data-i18n="locker.ability">Ability</small><strong id="hero-selected-skill">Slow Ball</strong></span><span class="locker-slot-tier"></span></button>
+                        <button id="locker-slot-rune" class="locker-slot" type="button" data-locker-slot="rune"><span class="locker-slot-art" aria-hidden="true"><svg class="ui-icon"><use href="#i-target"></use></svg></span><span class="locker-slot-copy"><small data-i18n="locker.rune">Rune</small><strong id="hero-selected-rune">Deflect Power</strong></span><span class="locker-slot-tier"></span></button>
+                    </div>
+                </section>
                 <section class="loadout-section hero-roster"><header><span class="shell-kicker" data-i18n="locker.roster">ROSTER</span><h2 data-i18n="locker.chooseHero">Choose Your Hero</h2><p data-i18n="locker.chooseHeroCopy">Compare health, speed, deflect power, and mastery at a glance.</p></header><div class="char-grid" id="char-grid"></div></section>
                 <section class="loadout-section"><header><span class="shell-kicker" data-i18n="locker.activeCard">ACTIVE CARD</span><h2 data-i18n="locker.abilityCard">Ability Card</h2><p data-i18n="locker.abilityCardCopy">Earn cards from Arena Cache drops. Cooldowns stay tuned for fair rallies.</p></header><div class="skill-grid" id="skill-grid"></div></section>
                 <section class="loadout-section"><header><span class="shell-kicker" data-i18n="locker.passiveKicker">PASSIVE CARD</span><h2 data-i18n="locker.passiveCard">Passive Card</h2><p data-i18n="locker.passiveCardCopy">Choose one collected passive card for a clear playstyle.</p></header><div class="rune-grid" id="rune-grid"></div></section>
             </div>
             <section id="locker-panel-inventory" class="locker-panel hidden" role="tabpanel" aria-labelledby="locker-tab-inventory" data-locker-panel="inventory">
-                <header class="locker-section-header"><div><span class="shell-kicker" data-i18n="locker.owned">OWNED COLLECTION</span><h2 data-i18n="locker.inventory">Inventory</h2><p data-i18n="locker.ownedCopy">Inspect and equip earned items. Nothing is sold from this screen.</p></div><span id="locker-inventory-count" class="shop-catalog-count">0 items</span></header>
+                <header class="locker-section-header"><div><h2 data-i18n="locker.inventory">Inventory</h2><p data-i18n="locker.ownedCopy">Equip what you own. Locked items show where to get them.</p></div><span id="locker-inventory-count" class="shop-catalog-count">0 items</span></header>
+                <div class="locker-toolbar">
+                    <div class="locker-filters" id="locker-filters" role="group" aria-label="Filter by slot" data-i18n-attr="aria-label:locker.filterLabel">
+                        <button type="button" class="locker-filter" data-locker-filter="all" aria-pressed="true"><span data-i18n="locker.filterAll">All</span><b class="locker-filter-count"></b></button>
+                        <button type="button" class="locker-filter" data-locker-filter="knife" aria-pressed="false"><span data-i18n="locker.filterKnife">Knives</span><b class="locker-filter-count"></b></button>
+                        <button type="button" class="locker-filter" data-locker-filter="gloves" aria-pressed="false"><span data-i18n="locker.filterGloves">Gloves</span><b class="locker-filter-count"></b></button>
+                        <button type="button" class="locker-filter" data-locker-filter="ball" aria-pressed="false"><span data-i18n="locker.filterBall">Balls</span><b class="locker-filter-count"></b></button>
+                        <button type="button" class="locker-filter" data-locker-filter="avatar" aria-pressed="false"><span data-i18n="locker.filterSkin">Skins</span><b class="locker-filter-count"></b></button>
+                        <button type="button" class="locker-filter" data-locker-filter="wearable" aria-pressed="false"><span data-i18n="locker.filterWearable">Wearables</span><b class="locker-filter-count"></b></button>
+                    </div>
+                    <div class="locker-toolbar-row">
+                        <label class="locker-search"><svg class="ui-icon" aria-hidden="true"><use href="#i-search"></use></svg><input id="locker-search" type="search" maxlength="40" autocomplete="off" placeholder="Search items" aria-label="Search items" data-i18n-attr="placeholder:locker.search;aria-label:locker.search"></label>
+                        <label class="locker-sort"><span data-i18n="locker.sortLabel">Sort</span><select id="locker-sort"><option value="rarity" data-i18n="locker.sortRarity">Rarity</option><option value="newest" data-i18n="locker.sortNewest">Newest</option><option value="name" data-i18n="locker.sortName">Name</option></select></label>
+                        <label class="locker-locked-toggle"><input id="locker-show-locked" type="checkbox" checked><span data-i18n="locker.showLocked">Show locked</span></label>
+                    </div>
+                </div>
                 <div id="locker-inventory-grid" class="locker-inventory-grid" aria-label="Owned inventory" data-i18n-attr="aria-label:locker.ownedInventory"></div>
             </section>
             <section id="locker-panel-cards" class="locker-panel hidden" role="tabpanel" aria-labelledby="locker-tab-cards" data-locker-panel="cards">

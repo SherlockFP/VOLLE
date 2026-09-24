@@ -65,3 +65,35 @@ teams) and keeps the parts of the 2026 redesign that worked.
   `.reduce-motion`) turns off every animation and transition and pins the
   parallax.
 - Focus is always visible: a 2 px accent outline on every menu and flow control.
+
+## Locker
+
+Implementation: `css/locker.css` (after `menu-arena.css`), `js/locker.js` (pure
+filter, sort, count and inspect helpers), with rendering in `js/ui.js` and wiring
+in `js/main.js`.
+
+- **Stage.** The main-menu hero canvas moves into `#locker-stage-mount`, so
+  there is no second renderer. The stage shows the equipped look: skin,
+  knife, gloves and wearables, plus the ball in the free hand. Drag turns the
+  model. Inspect plays the viewmodel's keyframed knife inspect and twirl on
+  the rig; with no knife equipped, the model does one slow turn. The
+  renderer pauses on the Cards tab and on any other screen.
+- **Slots.** Hero, Skin, Knife, Gloves, Ball, Wearables, Ability and Rune. Each
+  slot shows the equipped item with its tier. A cosmetic slot opens the
+  inventory filtered to that slot. Hero, Ability and Rune scroll to their
+  pickers.
+- **Inventory.** Slot chips show counts like "owned / total". The grid has
+  search, sorting (Rarity, Newest or Name; favourites first, owned before
+  locked), a "Show locked" toggle, NEW badges for unseen drops and a
+  favourite star. Clicking a tile previews the item on the stage. Locked
+  tiles are dimmed and link to the right Shop tab, or to cases for knives.
+  The Locker never sells anything.
+- **Equip.** Equip uses the existing Store paths: `knife-equip` (with
+  `data-team="both"`) and `shop-equip`. Each equip plays the `equip-change`
+  cue and a one-shot pop on the tile and its slot.
+- **Layout.** At 1440 and 1280 px the stage sits beside the panel and only the
+  panel scrolls. On phones the stage is on top, the content is below, and the
+  whole sheet scrolls in one column.
+- **Accessibility.** Arrow keys move between tiles. Focus rings are always
+  visible. Reduced motion turns off the pops and transitions, and Inspect
+  holds a single presented frame instead of animating.

@@ -30,6 +30,9 @@ import { createMenuStage } from './menu-stage.js';
 import { deriveFeaturedStrip } from './menu-featured.js';
 import { COSMETIC_PRACTICE_MAP_ID, CosmeticPracticeSession } from './cosmetic-practice.js';
 import { CASES, KNIVES, getCaseDropRates } from './cosmetics.js';
+import { KNIFE_TRACKS, sampleKnifeTrack } from './knife-animation.js';
+import { lockerInspectPlan, sampleLockerInspect } from './locker.js';
+import { tierBadgeHTML } from './tiers.js';
 import { createKnifeModel, disposeObject3D } from './weapon-models.js';
 import { applyEntityCosmetics, updateEntityCosmetics } from './cosmetic-models.js';
 import { COSMETICS } from './cosmetic-catalog.js';
@@ -2275,6 +2278,7 @@ class App {
             this.openSettingsModal();
         });
 
+        this._bindLockerControls();
         bind('btn-character', () => {
             this.ui.renderCharacterSelect(this.store);
             this.ui.renderLockerInventory(this.store);
@@ -3726,9 +3730,11 @@ updateCSLobbyInfo();
                 const tab = this.ui.setLockerTab(lockerTab.dataset.lockerTab);
                 if (tab === 'inventory') this.ui.renderLockerInventory(this.store);
                 if (tab === 'cards') this._renderCardCollection();
+                this._syncLockerStageRunning(tab);
                 document.querySelector(`[data-locker-panel="${tab}"]`)?.focus?.({ preventScroll: true });
                 return;
             }
+            if (e.target.closest('#character-screen') && this._handleLockerClick(e.target)) return;
             const cardTradeup = e.target.closest('#btn-card-tradeup');
             if (cardTradeup) {
                 const cardId = document.getElementById('card-tradeup-select')?.value;
@@ -3760,6 +3766,8 @@ updateCSLobbyInfo();
                 document.querySelectorAll('.char-card').forEach(c => c.classList.remove('selected'));
                 charCard.classList.add('selected');
                 this.audio.playCue('equip-change');
+                // The Locker stage previews the picked hero until the loadout is saved.
+                if (charCard.closest('#character-screen')) this._previewLockerItem('char', charId);
             }
             const skillCard = e.target.closest('.skill-card');
             if (skillCard) {
@@ -3933,8 +3941,10 @@ updateCSLobbyInfo();
                 }
                 const activeTab = document.querySelector('.shop-tab.selected')?.dataset.tab || 'chars';
                 if (equippedForAnalytics) this.productAnalytics.track('cosmetic_equip', { itemType, itemId: ballId });
-                if (equipBtn.closest('#character-screen')) this.ui.renderLockerInventory(this.store);
-                else if (document.body.dataset.screen === 'shop') this.ui.renderShop(this.store, activeTab);
+                if (equipBtn.closest('#character-screen')) {
+                    this.ui.renderLockerInventory(this.store);
+                    if (equippedForAnalytics) this._confirmLockerEquip(itemType, ballId);
+                } else if (document.body.dataset.screen === 'shop') this.ui.renderShop(this.store, activeTab);
                 this.refreshMetaStats();
             }
             const ballInspect = e.target.closest('.ball-inspect');
@@ -4181,17 +4191,27 @@ updateCSLobbyInfo();
             }
             const knifeBtn = e.target.closest('.knife-equip');
             if (knifeBtn) {
-                const ok = this.store.equipKnife(knifeBtn.dataset.id, knifeBtn.dataset.team);
-                if (ok && knifeBtn.dataset.team === this.player.team) {
+                // data-team="both" (Locker) equips every side the knife allows, one
+                // Store.equipKnife call per team, exactly like the per-team buttons.
+                const teams = knifeBtn.dataset.team === 'both'
+                    ? (KNIVES[knifeBtn.dataset.id]?.teams || ['red', 'blue'])
+                    : [knifeBtn.dataset.team];
+                const equippedTeams = teams.filter(team => this.store.equipKnife(knifeBtn.dataset.id, team));
+                const ok = equippedTeams.length > 0;
+                if (ok && equippedTeams.includes(this.player.team)) {
                     const custom = migrateCosmeticLoadout(this.store.get('cosmeticLoadout'));
                     custom.knife.id = knifeBtn.dataset.id;
                     this.store.set('cosmeticLoadout', normalizeCosmeticLoadout(custom));
                     this.player.knifeId = knifeBtn.dataset.id;
                     this.player.setKnifeStyle?.(this._getKnifeStyle(knifeBtn.dataset.id));
                 }
-                this.ui.showMessage?.(ok ? t('toast.knifeEquipped', { team: t(knifeBtn.dataset.team === 'blue' ? 'hud.blueCaps' : 'hud.redCaps') }) : t('toast.knifeNo'));
+                const teamLabel = equippedTeams.length > 1
+                    ? t('locker.bothTeams')
+                    : t(equippedTeams[0] === 'blue' || (!ok && knifeBtn.dataset.team === 'blue') ? 'hud.blueCaps' : 'hud.redCaps');
+                this.ui.showMessage?.(ok ? t('toast.knifeEquipped', { team: teamLabel }) : t('toast.knifeNo'));
                 if (ok) this.audio.playCue('equip-change');
                 this.ui.renderLockerInventory(this.store);
+                if (ok && knifeBtn.closest('#character-screen')) this._confirmLockerEquip('knife', knifeBtn.dataset.id, { sound: false });
                 return;
             }
             const inspectBtn = e.target.closest('.knife-inspect');
@@ -6095,14 +6115,63 @@ updateCarousel() {
         }
         this.menuHero.setFrameLimit(this.store.get('fpsLimit'));
         showcase?.setAttribute('data-live', 'on');
+        // One WebGL context for both stages: the Locker borrows this canvas (see
+        // _placeMenuHero) and hands it back; every other screen pauses it.
         window.addEventListener('warrball:screen', event => {
-            if (event.detail?.screen === 'mainMenu') {
+            const screen = event.detail?.screen;
+            if (screen === 'mainMenu' || screen === 'character') {
+                this._placeMenuHero(screen);
                 this._syncMenuHero();
-                this.menuHero.start();
+                if (screen === 'mainMenu' || this._lockerStageVisible()) this.menuHero.start();
+                else this.menuHero.stop();
             } else {
                 this.menuHero.stop();
             }
         }, { signal: this._mainAbort.signal });
+    }
+
+    // Moves the hero canvas between the main-menu showcase and the Locker stage. The
+    // renderer (mount = canvas) keeps its context; its ResizeObserver follows the move.
+    _placeMenuHero(screen) {
+        const hero = this.menuHero;
+        const canvas = hero?.canvas;
+        const locker = screen === 'character';
+        const target = document.getElementById(locker ? 'locker-stage-mount' : 'menu-hero-stage');
+        if (!canvas || !target) return false;
+        if (this._lockerStageActive !== locker) {
+            this._lockerStageActive = locker;
+            this._lockerPreview = null;
+            this._lockerInspect = null;
+            this._setLockerStageCaption(null);
+        }
+        document.getElementById('locker-stage')?.classList.toggle('is-live', locker);
+        if (canvas.parentElement !== target) {
+            target.appendChild(canvas);
+            // Showroom: the player turns the model; the menu keeps its slow idle turn.
+            hero.setAutoRotate(!locker);
+            hero.resetView();
+            // A slightly closer camera in the Locker so knife, gloves and ball read.
+            const framing = locker ? { position: [0, 1.3, 5.3], target: [0, 1.02, 0] } : { position: [0, 1.42, 6.4], target: [0, 1.02, 0] };
+            hero.camera?.position.set(...framing.position);
+            hero.camera?.lookAt(...framing.target);
+        }
+        hero.resize();
+        return true;
+    }
+
+    _lockerStageVisible() {
+        const panel = document.getElementById('locker-panel-cards');
+        return Boolean(this._lockerStageActive) && Boolean(panel?.classList.contains('hidden'));
+    }
+
+    // The stage is hidden behind the Cards tab, so the renderer pauses there.
+    _syncLockerStageRunning(tab) {
+        if (!this.menuHero || !this._lockerStageActive) return;
+        if (tab === 'cards') this.menuHero.stop();
+        else {
+            this.menuHero.start();
+            this.menuHero.resize();
+        }
     }
 
     // Full-viewport Three.js backdrop behind the main menu (js/menu-stage.js). Mirrors
@@ -6136,16 +6205,31 @@ updateCarousel() {
     }
 
     _syncMenuHero() {
-        const skinId = this.store.get('equippedAvatarSkin');
-        this._syncAvatarPreview(this.menuHero, skinId);
+        // In the Locker a tile click previews an item on the stage without equipping
+        // it (_previewLockerItem); everywhere else the hero wears the saved loadout.
+        const preview = this._lockerStageActive ? this._lockerPreview : null;
+        const skinId = preview?.group === 'avatar' ? preview.id : this.store.get('equippedAvatarSkin');
+        const characterId = preview?.group === 'char' ? preview.id : this.store.get('selectedChar');
+        this._syncAvatarPreview(this.menuHero, skinId, characterId);
+        const heroRoot = this.menuHero?.avatar?.root;
+        if (heroRoot) {
+            const wearables = this.store.get('equippedWearables') || {};
+            const cosmetic = preview?.group === 'cosmetic' ? COSMETICS[preview.id] : null;
+            applyEntityCosmetics(heroRoot, cosmetic ? { ...wearables, [cosmetic.type]: cosmetic.id } : wearables);
+            this.menuHero.avatar.onPoseTime = (seconds, reducedMotion) => {
+                updateEntityCosmetics(heroRoot, seconds);
+                this._stepLockerInspect(seconds, reducedMotion);
+            };
+        }
         // Apply equipped cosmetics to the hero avatar
         const heroRig = this.menuHero?.avatar?.rig || this.menuHero?.root?.rig;
         if (heroRig) {
             // The hero shows off the equipped knife (it used to read a non-existent
             // `equippedKnife` key and pass a missing `.style`, so it never appeared).
             const equipped = this.store.get('equippedKnives') || {};
-            const knifeId = equipped.red || equipped.blue || 'training';
+            const knifeId = preview?.group === 'knife' ? preview.id : (equipped.red || equipped.blue || 'training');
             const rig = heroRig;
+            this.menuHero._heroKnifeId = knifeId;
             if (this.menuHero._heroKnife) {
                 disposeViewmodelFx(this.menuHero._heroKnife.userData.viewmodelFx);
                 disposeObject3D(this.menuHero._heroKnife);
@@ -6165,8 +6249,253 @@ updateCarousel() {
             }
             // Present an owned knife at chest height; stay relaxed with the default one.
             this.menuHero.setAnimation?.(this.menuHero._heroKnife ? 'showoff' : 'idle');
+            this._syncLockerBall(preview?.group === 'ball' ? preview.id : this.store.get('equippedBall'));
         }
         this.menuHero?.resize();
+    }
+
+    // ===== Locker stage (the borrowed menu hero) =====
+    // The equipped ball rests in the free hand, only in the Locker showroom.
+    _syncLockerBall(ballId) {
+        const hero = this.menuHero;
+        if (hero?._heroBall) {
+            disposeObject3D(hero._heroBall);
+            hero._heroBall = null;
+        }
+        const hand = hero?.avatar?.rig?.sockets?.handL;
+        if (!this._lockerStageActive || !hand) return null;
+        const skin = BALL_SKINS[ballId] || BALL_SKINS.classic;
+        if (!skin) return null;
+        const ball = this._buildBallPreviewModel(skin);
+        ball.scale.setScalar(.36);
+        ball.position.set(0, -.2, -.06);
+        hand.add(ball);
+        hero._heroBall = ball;
+        return ball;
+    }
+
+    _previewLockerItem(group, id) {
+        const known = {
+            knife: KNIVES[id], cosmetic: COSMETICS[id], ball: BALL_SKINS[id], avatar: AVATAR_SKINS[id], char: CHARACTERS[id]
+        }[group];
+        if (!known || !this.menuHero || !this._lockerStageActive) return false;
+        this._lockerPreview = { group, id };
+        this._lockerInspect = null;
+        this._syncMenuHero();
+        const hero = this.menuHero;
+        // Back-worn pieces read best from behind; everything else faces the camera.
+        const backPiece = group === 'cosmetic' && ['cape', 'wings', 'backpack', 'banner'].includes(known.type);
+        hero._yaw = backPiece ? 0 : Math.PI;
+        hero._renderFrame?.();
+        this._setLockerStageCaption({ name: known.name || id, rarity: group === 'char' ? '' : (known.rarity || 'common') });
+        if (group === 'knife' && id !== 'training') this._playLockerInspect();
+        if (window.matchMedia?.('(max-width: 700px)').matches) {
+            document.getElementById('locker-stage')?.scrollIntoView?.({ block: 'nearest', behavior: this._reducedMotion() ? 'auto' : 'smooth' });
+        }
+        return true;
+    }
+
+    _clearLockerPreview() {
+        if (!this._lockerPreview) return false;
+        this._lockerPreview = null;
+        this._lockerInspect = null;
+        this._setLockerStageCaption(null);
+        this._syncMenuHero();
+        if (this.menuHero) {
+            this.menuHero._yaw = Math.PI;
+            this.menuHero._renderFrame?.();
+        }
+        return true;
+    }
+
+    _setLockerStageCaption(info) {
+        const caption = document.getElementById('locker-stage-caption');
+        if (!caption) return;
+        caption.hidden = !info;
+        if (!info) return;
+        const name = caption.querySelector('.locker-stage-name');
+        if (name) name.textContent = info.name;
+        const tier = caption.querySelector('.locker-stage-tier');
+        if (tier) tier.innerHTML = info.rarity ? tierBadgeHTML(info.rarity) : '';
+    }
+
+    _reducedMotion() {
+        return document.body.classList.contains('reduced-motion')
+            || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+    }
+
+    // Inspect: the equipped (or previewed) knife plays the viewmodel's keyframed
+    // inspect + twirl on the rig; without a knife the model does one slow turn.
+    _playLockerInspect() {
+        const hero = this.menuHero;
+        if (!hero || !this._lockerStageActive) return false;
+        const knife = hero._heroKnife || null;
+        const knifeId = knife ? hero._heroKnifeId : 'training';
+        this._lockerInspect = {
+            plan: lockerInspectPlan({ knifeId, rarity: KNIVES[knifeId]?.rarity }),
+            startAt: null,
+            knife,
+            rotation: knife ? knife.rotation.clone() : null,
+            position: knife ? knife.position.clone() : null,
+            yaw: hero._yaw,
+            buffer: new Array(12).fill(0)
+        };
+        if (knife) this.audio?.playCue?.('knife-inspect');
+        hero.start();
+        // Reduced motion has no animation loop: hold the most telling frame instead.
+        if (hero.reducedMotion) this._stepLockerInspect(0, true);
+        hero._renderFrame?.();
+        return true;
+    }
+
+    _stepLockerInspect(seconds, reducedMotion = false) {
+        const state = this._lockerInspect;
+        const hero = this.menuHero;
+        if (!state || !hero) return;
+        const restore = () => {
+            if (state.knife) {
+                state.knife.rotation.copy(state.rotation);
+                state.knife.position.copy(state.position);
+            } else hero._yaw = state.yaw;
+        };
+        if (reducedMotion) {
+            if (state.knife) {
+                sampleKnifeTrack(KNIFE_TRACKS.inspect, .45, state.buffer);
+                state.knife.rotation.set(state.rotation.x + state.buffer[6], state.rotation.y + state.buffer[7], state.rotation.z + state.buffer[8]);
+            } else hero._yaw = state.yaw + Math.PI;
+            this._lockerInspect = null;
+            return;
+        }
+        if (state.startAt === null || seconds < state.startAt) state.startAt = seconds;
+        const sample = sampleLockerInspect(state.plan, seconds - state.startAt);
+        if (!sample) {
+            restore();
+            this._lockerInspect = null;
+            return;
+        }
+        if (sample.step.action === 'spin') {
+            const eased = sample.progress * sample.progress * (3 - 2 * sample.progress);
+            hero._yaw = state.yaw + eased * Math.PI * 2;
+            return;
+        }
+        const track = sample.step.action === 'twirl'
+            ? KNIFE_TRACKS.twirl
+            : (sample.step.variant === 'rare' ? KNIFE_TRACKS.inspectRare : KNIFE_TRACKS.inspect);
+        const out = sampleKnifeTrack(track, sample.progress, state.buffer);
+        state.knife.rotation.set(state.rotation.x + out[6], state.rotation.y + out[7], state.rotation.z + out[8]);
+        state.knife.position.set(state.position.x + out[9], state.position.y + out[10], state.position.z + out[11]);
+    }
+
+    // A short, satisfying confirmation: the equip cue on the UI bus plus a one-shot
+    // pop on the tile and its loadout slot; the stage drops any preview.
+    _confirmLockerEquip(type, id, { sound = true } = {}) {
+        const group = type === 'cosmetic' || type === 'avatar' || type === 'ball' || type === 'knife' ? type : 'ball';
+        const slot = group === 'cosmetic' ? (COSMETICS[id]?.type === 'gloves' ? 'gloves' : 'wearable') : group;
+        if (sound) this.audio?.playCue?.('equip-change');
+        this._lockerPreview = null;
+        this._lockerInspect = null;
+        this._setLockerStageCaption(null);
+        if (this._lockerStageActive) this._syncMenuHero();
+        this.ui.flashLockerEquip?.(`${group}:${id}`, slot);
+        this.ui.markLockerSeen?.(`${group}:${id}`);
+    }
+
+    // Locker-only clicks (slots, filters, favourites, previews, shop links). Returns
+    // true when the click was handled. Equip buttons keep their existing handlers.
+    _handleLockerClick(target) {
+        const slot = target.closest('.locker-slot[data-locker-slot]');
+        if (slot) {
+            const kind = slot.dataset.lockerSlot;
+            const grids = { hero: 'char-grid', ability: 'skill-grid', rune: 'rune-grid' };
+            if (grids[kind]) {
+                const grid = document.getElementById(grids[kind]);
+                grid?.closest('.loadout-section')?.scrollIntoView?.({ block: 'start', behavior: this._reducedMotion() ? 'auto' : 'smooth' });
+                grid?.querySelector('.selected, button')?.focus?.({ preventScroll: true });
+                return true;
+            }
+            this.ui.setLockerTab('inventory');
+            this.ui.setLockerFilter(kind, this.store);
+            this._syncLockerStageRunning('inventory');
+            document.getElementById('locker-panel-inventory')?.scrollTo?.({ top: 0 });
+            document.querySelector(`#locker-filters [data-locker-filter="${kind}"]`)?.focus?.({ preventScroll: true });
+            return true;
+        }
+        const filter = target.closest('[data-locker-filter]');
+        if (filter) {
+            this.ui.setLockerFilter(filter.dataset.lockerFilter, this.store);
+            return true;
+        }
+        const favorite = target.closest('.locker-fav');
+        if (favorite) {
+            const on = this.ui.toggleLockerFavorite(favorite.dataset.lockerKey, this.store);
+            this.audio?.playCue?.('ui-click');
+            document.querySelector(`#locker-inventory-grid .locker-fav[data-locker-key="${CSS.escape(favorite.dataset.lockerKey)}"]`)?.focus?.({ preventScroll: true });
+            this.ui.showMessage?.(t(on ? 'locker.favoriteAdded' : 'locker.favoriteRemoved'), 1100);
+            return true;
+        }
+        const preview = target.closest('.locker-preview');
+        if (preview) {
+            const key = preview.dataset.lockerKey || '';
+            const split = key.indexOf(':');
+            this.ui.markLockerSeen(key);
+            if (split > 0) this._previewLockerItem(key.slice(0, split), key.slice(split + 1));
+            return true;
+        }
+        const get = target.closest('.locker-get');
+        if (get) {
+            const tab = get.dataset.shopTab || 'wearables';
+            this.ui.renderShop(this.store, tab);
+            this.ui.showScreen('shop');
+            this._syncShopShowcase();
+            this.shopShowcase?.start();
+            return true;
+        }
+        if (target.closest('#btn-locker-inspect')) {
+            this._playLockerInspect();
+            return true;
+        }
+        if (target.closest('#btn-locker-reset')) {
+            this._clearLockerPreview();
+            return true;
+        }
+        return false;
+    }
+
+    // Search / sort / locked toggle, NEW clearing and arrow-key grid navigation.
+    _bindLockerControls() {
+        const signal = this._mainAbort.signal;
+        let searchTimer = 0;
+        document.getElementById('locker-search')?.addEventListener('input', event => {
+            clearTimeout(searchTimer);
+            const value = event.target.value;
+            searchTimer = setTimeout(() => this.ui.setLockerQuery(value, this.store), 120);
+        }, { signal });
+        document.getElementById('locker-sort')?.addEventListener('change', event => {
+            this.ui.setLockerSort(event.target.value, this.store);
+        }, { signal });
+        document.getElementById('locker-show-locked')?.addEventListener('change', event => {
+            this.ui.setLockerShowLocked(event.target.checked, this.store);
+        }, { signal });
+        const grid = document.getElementById('locker-inventory-grid');
+        const seen = event => {
+            const card = event.target.closest?.('.locker-card.is-new');
+            if (card) this.ui.markLockerSeen(card.dataset.lockerKey);
+        };
+        grid?.addEventListener('pointerover', seen, { signal });
+        grid?.addEventListener('focusin', seen, { signal });
+        grid?.addEventListener('keydown', event => {
+            const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
+            const row = { ArrowDown: 1, ArrowUp: -1 }[event.key];
+            if (!step && !row) return;
+            const card = event.target.closest?.('.locker-card');
+            if (!card || event.target.matches?.('input, select')) return;
+            const cards = [...grid.querySelectorAll('.locker-card')];
+            const columns = Math.max(1, getComputedStyle(grid).gridTemplateColumns.split(' ').filter(Boolean).length);
+            const next = cards[cards.indexOf(card) + (step || row * columns)];
+            if (!next) return;
+            event.preventDefault();
+            next.querySelector('.locker-preview')?.focus?.();
+        }, { signal });
     }
 
     _syncCosmeticPracticeCommerce() {

@@ -1,0 +1,503 @@
+/* css/locker.css — Locker screen: live 3D stage, loadout slots, inventory grid.
+   Same "Arena Lobby" language as css/menu-arena.css (tokens --mm-*): DM Sans + Nunito,
+   rounded panels, the teal accent for focus and selection, tier colours from
+   css/shop-studio.css (.tier-badge). Loaded after menu-arena.css.
+   The stage borrows the main-menu hero canvas (js/main.js _placeMenuHero), so there is
+   exactly one extra-to-the-game WebGL context for both screens. */
+
+#character-screen {
+    --lk-tier: #9fb4c9;
+    --lk-line: var(--mm-line, rgb(190 225 240 / .14));
+    --lk-raise: var(--mm-raise, rgb(255 255 255 / .055));
+}
+#character-screen .tier-C { --lk-tier: #9fb4c9; }
+#character-screen .tier-Cplus { --lk-tier: #7fd9ff; }
+#character-screen .tier-B { --lk-tier: #6ef0dc; }
+#character-screen .tier-A { --lk-tier: #b77dff; }
+#character-screen .tier-S { --lk-tier: #ffd36b; }
+#character-screen .tier-Splus { --lk-tier: #ff6b5f; }
+
+/* ---- Shell: header, tabs, stage | panel, actions ------------------------------ */
+#character-screen #character-locker-content {
+    width: min(1320px, calc(100vw - 32px));
+    min-width: 0;
+    max-width: none;
+    height: min(940px, calc(100dvh - 28px));
+    max-height: none;
+    display: grid;
+    grid-template-columns: minmax(300px, 40%) minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    grid-template-areas:
+        "head head"
+        "tabs tabs"
+        "stage panel"
+        "actions actions";
+    column-gap: 18px;
+    padding: 18px 20px;
+    overflow: hidden;
+}
+#character-screen #character-locker-content > .shell-header { grid-area: head; margin: 0; padding-bottom: 12px; }
+#character-screen #character-locker-content > .locker-rail { grid-area: tabs; position: static; margin-top: 0; backdrop-filter: none; }
+#character-screen #character-locker-content > .locker-panel {
+    grid-area: panel;
+    min-height: 0;
+    margin-top: 14px;
+    padding-right: 6px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+}
+#character-screen #character-locker-content > .locker-panel.hidden { display: none; }
+#character-screen #character-locker-content > .hero-actions { grid-area: actions; margin-top: 14px; }
+#character-screen .shell-kicker { display: none; }
+#character-screen .shell-header h1 { font-family: var(--mm-display, 'Nunito', sans-serif); font-weight: 900; }
+
+/* Tabs: one rounded segmented control, sentence case (Arena Lobby). */
+#character-screen .locker-rail {
+    gap: 6px;
+    padding: 5px;
+    border: 1px solid var(--lk-line);
+    border-radius: 14px;
+    background: rgb(4 14 22 / .7);
+}
+#character-screen .locker-tab {
+    border: 0;
+    border-radius: 10px;
+    color: var(--mm-mute, #a9bfcc);
+    font: 800 1rem/1 var(--mm-display, 'Nunito', sans-serif);
+    letter-spacing: 0;
+    text-transform: none;
+}
+#character-screen .locker-tab:hover { color: var(--mm-ink, #f4f8ff); background: var(--lk-raise); }
+#character-screen .locker-tab.selected { color: var(--mm-accent-ink, #062028); background: var(--mm-accent, #5ee7f7); box-shadow: inset 0 -3px 0 rgb(0 0 0 / .2); }
+
+/* Footer: Back / View Cards as ghost keys, Save Loadout as the go-key. */
+#character-screen .hero-actions .btn {
+    border-radius: 12px;
+    font: 800 .95rem/1 var(--mm-display, 'Nunito', sans-serif);
+    letter-spacing: 0;
+    text-transform: none;
+}
+#character-screen .hero-actions .btn-secondary { border: 1px solid var(--mm-line-strong, rgb(190 225 240 / .28)); background: var(--lk-raise); color: var(--mm-ink, #f4f8ff); box-shadow: inset 0 -3px 0 rgb(0 0 0 / .2); }
+#character-screen .hero-actions #btn-char-save {
+    border: 0;
+    background: linear-gradient(180deg, var(--mm-go-top, #ffd772), var(--mm-go, #ffc043) 55%);
+    box-shadow: inset 0 -5px 0 var(--mm-go-lip, #c47a0e), inset 0 2px 0 rgb(255 255 255 / .5);
+    color: var(--mm-go-ink, #2b1804);
+    font-weight: 900;
+    padding-bottom: 4px;
+}
+#character-screen .hero-actions #btn-char-save:hover { filter: brightness(1.05); translate: 0 -1px; }
+#character-screen .hero-actions #btn-char-save:active { translate: 0 2px; box-shadow: inset 0 -2px 0 var(--mm-go-lip, #c47a0e); }
+
+/* Cards keeps its full-width collection (the stage has nothing to show there). */
+#character-screen #character-locker-content:has(#locker-panel-cards:not(.hidden)) {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "head" "tabs" "panel" "actions";
+}
+#character-screen #character-locker-content:has(#locker-panel-cards:not(.hidden)) > .locker-stage { display: none; }
+
+.locker-tab-badge {
+    display: inline-grid;
+    place-items: center;
+    min-width: 20px;
+    height: 20px;
+    margin-left: 8px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: var(--mm-go, #ffc043);
+    color: var(--mm-go-ink, #2b1804);
+    font: 900 .7rem/1 var(--mm-display, 'Nunito', sans-serif);
+    letter-spacing: 0;
+    vertical-align: 1px;
+}
+.locker-tab-badge[hidden] { display: none; }
+
+/* ---- Stage ----------------------------------------------------------------- */
+.locker-stage {
+    grid-area: stage;
+    position: relative;
+    min-height: 0;
+    margin-top: 14px;
+    overflow: hidden;
+    border: 1px solid var(--lk-line);
+    border-radius: 18px;
+    background:
+        radial-gradient(60% 46% at 50% 36%, color-mix(in srgb, var(--mm-accent, #5ee7f7) 16%, transparent), transparent 72%),
+        linear-gradient(180deg, #11303f, #081a25 78%);
+    box-shadow: inset 0 1px rgb(255 255 255 / .05);
+}
+.locker-stage-mount { position: absolute; inset: 0 0 56px; }
+.locker-stage-mount > canvas {
+    position: absolute;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    cursor: grab;
+    touch-action: none;
+}
+.locker-stage-mount > canvas:active { cursor: grabbing; }
+.locker-stage-mount > canvas:focus-visible { outline: 2px solid var(--mm-accent, #5ee7f7); outline-offset: -4px; }
+/* No live renderer (no WebGL): the hero slot portrait stands in. */
+.locker-stage:not(.is-live) .locker-stage-mount { background: url('../assets/generated/volle-logo-512.png') center 40% / 34% no-repeat; opacity: .35; }
+
+.locker-stage-caption {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    right: 12px;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: max-content;
+    max-width: calc(100% - 24px);
+    padding: 6px 6px 6px 12px;
+    border: 1px solid var(--lk-line);
+    border-radius: 12px;
+    background: rgb(5 17 26 / .86);
+    color: var(--mm-ink, #f4f8ff);
+}
+.locker-stage-caption[hidden] { display: none; }
+.locker-stage-caption small { color: var(--mm-mute, #a9bfcc); font: 700 .74rem/1 var(--mm-body, 'DM Sans', sans-serif); }
+.locker-stage-caption strong { overflow: hidden; font: 800 .95rem/1.1 var(--mm-display, 'Nunito', sans-serif); text-overflow: ellipsis; white-space: nowrap; }
+.locker-stage-reset {
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 0;
+    border-radius: 9px;
+    background: var(--lk-raise);
+    color: var(--mm-ink, #f4f8ff);
+    cursor: pointer;
+}
+.locker-stage-reset .ui-icon { width: 16px; height: 16px; }
+.locker-stage-reset:hover { background: rgb(255 255 255 / .12); }
+
+.locker-stage-bar {
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+.locker-stage-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 0 18px 3px;
+    border: 0;
+    border-radius: 12px;
+    background: var(--mm-accent, #5ee7f7);
+    box-shadow: inset 0 -4px 0 rgb(0 0 0 / .25), inset 0 2px 0 rgb(255 255 255 / .35);
+    color: var(--mm-accent-ink, #062028);
+    font: 900 .95rem/1 var(--mm-display, 'Nunito', sans-serif);
+    cursor: pointer;
+    translate: 0 0;
+    transition: translate .12s ease, box-shadow .12s ease, filter .15s ease;
+}
+.locker-stage-btn .ui-icon { width: 18px; height: 18px; }
+.locker-stage-btn:hover { translate: 0 -1px; filter: brightness(1.06); }
+.locker-stage-btn:active { translate: 0 2px; box-shadow: inset 0 -1px 0 rgb(0 0 0 / .25); transition-duration: .05s; }
+.locker-stage-hint { color: var(--mm-mute, #a9bfcc); font: 700 .78rem/1.2 var(--mm-body, 'DM Sans', sans-serif); text-align: right; }
+
+/* ---- Loadout slots --------------------------------------------------------- */
+.locker-showroom { margin: 0; }
+.locker-slots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.locker-slot {
+    position: relative;
+    display: grid;
+    grid-template-columns: 52px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    min-height: 70px;
+    padding: 8px 12px 10px 8px;
+    overflow: hidden;
+    border: 1px solid var(--lk-line);
+    border-radius: 14px;
+    background: var(--lk-raise);
+    box-shadow: inset 0 -3px 0 rgb(0 0 0 / .22);
+    color: var(--mm-ink, #f4f8ff);
+    text-align: left;
+    cursor: pointer;
+    translate: 0 0;
+    transition: border-color .15s ease, background-color .15s ease, translate .12s ease;
+}
+/* Rarity edge on the left, like the tile stripe in the grid. */
+.locker-slot::before { content: ''; position: absolute; inset: 8px auto 8px 0; width: 3px; border-radius: 0 3px 3px 0; background: var(--lk-slot-tier, transparent); }
+.locker-slot[data-rarity="common"] { --lk-slot-tier: #9fb4c9; }
+.locker-slot[data-rarity="uncommon"] { --lk-slot-tier: #7fd9ff; }
+.locker-slot[data-rarity="rare"] { --lk-slot-tier: #6ef0dc; }
+.locker-slot[data-rarity="epic"] { --lk-slot-tier: #b77dff; }
+.locker-slot[data-rarity="legendary"] { --lk-slot-tier: #ffd36b; }
+.locker-slot[data-rarity="exotic"] { --lk-slot-tier: #ff6b5f; }
+.locker-slot:hover,
+.locker-slot:focus-visible { border-color: color-mix(in srgb, var(--mm-accent, #5ee7f7) 55%, transparent); background-color: rgb(255 255 255 / .085); translate: 0 -1px; }
+.locker-slot:active { translate: 0 1px; transition-duration: .05s; }
+.locker-slot-art {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 52px;
+    height: 52px;
+    overflow: hidden;
+    border-radius: 12px;
+    background: radial-gradient(circle at 50% 80%, color-mix(in srgb, var(--lk-slot-tier, var(--mm-accent, #5ee7f7)) 26%, transparent), transparent 70%), rgb(0 0 0 / .22);
+    color: var(--mm-accent, #5ee7f7);
+}
+.locker-slot-art .ui-icon { width: 24px; height: 24px; }
+.locker-slot-art img:not(.item-thumb) { width: 100%; height: 100%; object-fit: cover; object-position: 50% 26%; }
+.locker-slot-art > .item-thumb { width: 100%; height: 100%; }
+.locker-slot-art.has-item-thumb > :not(.item-thumb) { display: none; }
+.locker-slot-copy { display: grid; gap: 3px; min-width: 0; }
+.locker-slot-copy small { color: var(--mm-mute, #a9bfcc); font: 700 .74rem/1.1 var(--mm-body, 'DM Sans', sans-serif); letter-spacing: 0; text-transform: none; }
+.locker-slot-copy strong { overflow: hidden; font: 800 1rem/1.15 var(--mm-display, 'Nunito', sans-serif); text-overflow: ellipsis; white-space: nowrap; }
+.locker-slot.is-empty .locker-slot-copy strong { color: var(--mm-mute, #a9bfcc); font-weight: 700; }
+.locker-slot-tier:empty { display: none; }
+#character-screen .locker-showroom + .loadout-section { margin-top: 16px; }
+
+/* ---- Inventory toolbar ------------------------------------------------------ */
+/* The tab already says "Inventory": the header keeps only the hint and the owned count. */
+#character-screen #locker-panel-inventory .locker-section-header { flex-direction: row; align-items: center; margin-top: 0; padding: 0 2px; border: 0; background: none; }
+#character-screen #locker-panel-inventory .locker-section-header h2 { display: none; }
+#character-screen #locker-panel-inventory .locker-section-header p { color: var(--mm-mute, #a9bfcc); font-size: .82rem; }
+#character-screen #locker-inventory-count { flex: 0 0 auto; white-space: nowrap; }
+.locker-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    display: grid;
+    gap: 10px;
+    margin: 12px 0 0;
+    padding: 10px;
+    border: 1px solid var(--lk-line);
+    border-radius: 14px;
+    background: rgb(6 20 30 / .96);
+}
+.locker-filters { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+.locker-filters::-webkit-scrollbar { display: none; }
+.locker-filter {
+    position: relative;
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 40px;
+    padding: 0 12px;
+    border: 1px solid var(--lk-line);
+    border-radius: 10px;
+    background: var(--lk-raise);
+    color: var(--mm-mute, #a9bfcc);
+    font: 800 .9rem/1 var(--mm-display, 'Nunito', sans-serif);
+    cursor: pointer;
+}
+.locker-filter b { color: inherit; font: 700 .74rem/1 var(--mm-body, 'DM Sans', sans-serif); opacity: .8; font-variant-numeric: tabular-nums; }
+.locker-filter:hover { color: var(--mm-ink, #f4f8ff); border-color: var(--mm-line-strong, rgb(190 225 240 / .28)); }
+.locker-filter[aria-pressed="true"] { color: var(--mm-accent-ink, #062028); border-color: transparent; background: var(--mm-accent, #5ee7f7); }
+.locker-filter.has-new::after { content: ''; position: absolute; top: 5px; right: 5px; width: 7px; height: 7px; border-radius: 50%; background: var(--mm-go, #ffc043); }
+.locker-toolbar-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.locker-search {
+    flex: 1 1 200px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    min-height: 40px;
+    padding: 0 10px;
+    border: 1px solid var(--lk-line);
+    border-radius: 10px;
+    background: rgb(0 0 0 / .22);
+    color: var(--mm-mute, #a9bfcc);
+}
+.locker-search:focus-within { border-color: var(--mm-accent, #5ee7f7); }
+.locker-search .ui-icon { flex: 0 0 auto; width: 16px; height: 16px; }
+.locker-search input { flex: 1 1 auto; min-width: 0; min-height: 38px; padding: 0; border: 0; outline: 0; background: transparent; color: var(--mm-ink, #f4f8ff); font: 600 .9rem/1 var(--mm-body, 'DM Sans', sans-serif); }
+.locker-sort,
+.locker-locked-toggle { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; color: var(--mm-mute, #a9bfcc); font: 700 .82rem/1 var(--mm-body, 'DM Sans', sans-serif); }
+.locker-sort select { min-height: 40px; padding: 0 10px; border: 1px solid var(--lk-line); border-radius: 10px; background: rgb(0 0 0 / .22); color: var(--mm-ink, #f4f8ff); font: 700 .85rem/1 var(--mm-body, 'DM Sans', sans-serif); }
+.locker-locked-toggle input { width: 18px; height: 18px; margin: 0; accent-color: var(--mm-accent, #5ee7f7); }
+
+/* ---- Inventory grid ---------------------------------------------------------- */
+#character-screen .locker-inventory-grid {
+    grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+    gap: 12px;
+    margin-top: 12px;
+    padding-bottom: 8px;
+}
+#character-screen .locker-inventory-grid .locker-card {
+    min-height: 0;
+    padding: 10px;
+    gap: 0;
+    border-color: color-mix(in srgb, var(--lk-tier) 26%, var(--lk-line));
+    border-radius: 14px;
+    background: radial-gradient(120% 70% at 50% 0%, color-mix(in srgb, var(--lk-tier) 14%, transparent), transparent 60%), linear-gradient(180deg, #0f2a38, #081a25);
+    content-visibility: auto;
+    contain-intrinsic-size: auto 250px;
+    transition: border-color .15s ease, translate .12s ease;
+    translate: 0 0;
+}
+#character-screen .locker-inventory-grid .locker-card::before { height: 3px; background: var(--lk-tier); }
+#character-screen .locker-inventory-grid .locker-card:hover { border-color: color-mix(in srgb, var(--lk-tier) 60%, transparent); translate: 0 -2px; }
+#character-screen .locker-inventory-grid .locker-card.equipped { border-color: var(--mm-accent, #5ee7f7); box-shadow: 0 0 0 1px color-mix(in srgb, var(--mm-accent, #5ee7f7) 45%, transparent); }
+#character-screen .locker-card .locker-preview {
+    position: relative;
+    width: auto;
+    min-height: 112px;
+    margin: -2px -2px 8px;
+    padding: 6px;
+    border: 0;
+    border-radius: 10px;
+    color: inherit;
+    cursor: zoom-in;
+}
+#character-screen .locker-card .locker-preview > .item-thumb { max-height: 112px; }
+#character-screen .locker-card .inventory-card-copy { gap: 4px; padding: 0 2px 10px; }
+#character-screen .locker-card .inventory-card-copy .tier-badge { justify-self: start; }
+#character-screen .locker-card .char-name { font-family: var(--mm-display, 'Nunito', sans-serif); font-size: .96rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#character-screen .locker-card .char-desc { font-size: .7rem; letter-spacing: .02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.locker-stat { color: var(--mm-gold, #ffc857); font: 700 .7rem/1.2 var(--mm-body, 'DM Sans', sans-serif); }
+#character-screen .locker-card .inventory-actions { grid-template-columns: 1fr; margin-top: auto; }
+#character-screen .locker-card .inventory-actions :is(.btn, .shop-owned) { min-height: 40px; }
+#character-screen .locker-card .locker-equip {
+    border: 0;
+    border-radius: 11px;
+    background: var(--mm-accent, #5ee7f7);
+    box-shadow: inset 0 -3px 0 rgb(0 0 0 / .25);
+    color: var(--mm-accent-ink, #062028);
+    font: 900 .9rem/1 var(--mm-display, 'Nunito', sans-serif);
+    letter-spacing: 0;
+    text-transform: none;
+}
+#character-screen .locker-card .locker-equip:active { translate: 0 2px; box-shadow: inset 0 -1px 0 rgb(0 0 0 / .25); }
+#character-screen .locker-card .locker-equipped { display: flex; align-items: center; justify-content: center; gap: 6px; color: var(--mm-accent, #5ee7f7); font: 800 .85rem/1 var(--mm-display, 'Nunito', sans-serif); text-transform: none; }
+#character-screen .locker-card .locker-equipped .ui-icon { width: 16px; height: 16px; stroke-width: 3; }
+#character-screen .locker-card .locker-get {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border: 1px dashed var(--mm-line-strong, rgb(190 225 240 / .28));
+    border-radius: 11px;
+    background: transparent;
+    color: var(--mm-ink, #f4f8ff);
+    font: 800 .82rem/1 var(--mm-display, 'Nunito', sans-serif);
+    text-transform: none;
+}
+#character-screen .locker-card .locker-get .ui-icon { width: 14px; height: 14px; }
+#character-screen .locker-card .locker-get:hover { border-style: solid; border-color: var(--mm-gold, #ffc857); color: var(--mm-gold, #ffc857); }
+
+/* Locked: dimmed art and name, the "where to get it" link stays fully readable. */
+#character-screen .locker-card.is-locked { background: linear-gradient(180deg, #0b1f2a, #071520); }
+#character-screen .locker-card.is-locked :is(.locker-preview, .inventory-card-copy) { opacity: .5; filter: grayscale(.65); }
+
+.locker-new {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 2;
+    padding: 4px 7px;
+    border-radius: 7px;
+    background: var(--mm-go, #ffc043);
+    color: var(--mm-go-ink, #2b1804);
+    font: 900 .66rem/1 var(--mm-display, 'Nunito', sans-serif);
+    letter-spacing: .04em;
+    pointer-events: none;
+}
+.locker-fav {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 2;
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 0;
+    border-radius: 9px;
+    background: rgb(0 0 0 / .32);
+    color: rgb(230 242 250 / .55);
+    cursor: pointer;
+}
+.locker-fav .ui-icon { width: 17px; height: 17px; }
+.locker-fav:hover { color: var(--mm-ink, #f4f8ff); }
+.locker-fav[aria-pressed="true"] { color: var(--mm-gold, #ffc857); }
+.locker-fav[aria-pressed="true"] .ui-icon { fill: currentColor; }
+
+/* One-shot equip confirmation (tile + its slot). */
+.locker-card.just-equipped,
+.locker-slot.just-equipped { animation: lockerPop .32s cubic-bezier(.34, 1.56, .64, 1); }
+.locker-card.just-equipped .locker-equipped,
+.locker-slot.just-equipped .locker-slot-art { animation: lockerGlow .6s ease-out; }
+@keyframes lockerPop { 0% { transform: scale(1); } 40% { transform: scale(1.045); } 100% { transform: scale(1); } }
+@keyframes lockerGlow { from { opacity: .4; transform: scale(.9); } }
+
+/* Focus is always visible. */
+#character-screen :is(.locker-slot, .locker-filter, .locker-preview, .locker-fav, .locker-equip, .locker-get, .locker-stage-btn, .locker-stage-reset, #locker-sort, #locker-show-locked):focus-visible {
+    outline: 2px solid var(--mm-accent, #5ee7f7);
+    outline-offset: 2px;
+}
+
+/* ---- Compact desktop --------------------------------------------------------- */
+@media (max-width: 1100px) and (min-width: 701px) {
+    #character-screen #character-locker-content { grid-template-columns: minmax(260px, 38%) minmax(0, 1fr); }
+    .locker-slots { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-height: 760px) and (min-width: 701px) {
+    #character-screen #character-locker-content > .shell-header p { display: none; }
+    .locker-slot { min-height: 60px; }
+    .locker-slot-art { width: 44px; height: 44px; }
+    .locker-slot { grid-template-columns: 44px minmax(0, 1fr) auto; }
+}
+
+/* ---- Phones: stage on top, content below, one scroll ------------------------ */
+@media (max-width: 700px) {
+    #character-screen #character-locker-content,
+    #character-screen #character-locker-content:has(#locker-panel-cards:not(.hidden)) {
+        width: 100%;
+        height: 100dvh;
+        max-height: 100dvh;
+        grid-template-columns: minmax(0, 1fr);
+        /* max-content: the panel row must hold its full grid (the whole sheet scrolls). */
+        grid-template-rows: auto auto auto max-content auto;
+        grid-template-areas: "head" "tabs" "stage" "panel" "actions";
+        padding: 12px;
+        border-radius: 0;
+        overflow-x: hidden;
+        overflow-y: auto;
+    }
+    #character-screen #character-locker-content > .locker-panel { min-height: auto; overflow: visible; padding-right: 0; }
+    #character-screen .locker-tab { padding-inline: 6px; font-size: .92rem; white-space: nowrap; }
+    .locker-tab-badge { min-width: 18px; height: 18px; margin-left: 5px; padding: 0 5px; }
+    #character-screen #character-locker-content > .shell-header p { display: none; }
+    .locker-stage { height: clamp(260px, 42dvh, 340px); }
+    .locker-stage-hint { display: none; }
+    .locker-slots { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .locker-slot { grid-template-columns: 40px minmax(0, 1fr); gap: 8px; min-height: 58px; padding: 6px 8px 8px 6px; }
+    .locker-slot-art { width: 40px; height: 40px; }
+    .locker-slot-tier { display: none; }
+    .locker-slot-copy strong { font-size: .9rem; }
+    .locker-toolbar { position: static; }
+    .locker-toolbar-row { gap: 6px; }
+    .locker-search { flex-basis: 100%; }
+    #character-screen .locker-inventory-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    #character-screen .locker-card .locker-preview { min-height: 96px; }
+}
+
+/* ---- Reduced motion ------------------------------------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+    #character-screen *, #character-screen *::before, #character-screen *::after { animation: none !important; transition-duration: .01ms !important; }
+}
+:is(.reduced-motion, .reduce-motion) #character-screen *,
+:is(.reduced-motion, .reduce-motion) #character-screen *::before,
+:is(.reduced-motion, .reduce-motion) #character-screen *::after { animation: none !important; transition-duration: .01ms !important; }

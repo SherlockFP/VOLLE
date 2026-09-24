@@ -4,7 +4,7 @@
 // PeerJS/WebRTC signaling and /api/* calls are never intercepted — P2P
 // networking and the account/lobby backend must always hit the network live.
 // New deploy? bump CACHE_V1 so clients drop the stale shell.
-const CACHE_V1 = 'volle-shell-v12';
+const CACHE_V1 = 'volle-shell-v13';
 
 const SHELL_URLS = [
     './',
@@ -28,6 +28,7 @@ const SHELL_URLS = [
     'css/postgame.css',
     'css/touch.css',
     'css/menu-arena.css',
+    'css/locker.css',
     // TR/EN string tables: tiny and needed by the first paint of any localised page.
     'js/i18n.js',
     'js/locales/en.js',
