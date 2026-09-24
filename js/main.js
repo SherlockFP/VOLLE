@@ -38,6 +38,7 @@ import { normalizeMapConfig, validateMapConfig } from './map-config.js';
 import { checkAchievements } from './achievements.js';
 import { Daily, nearestDailyNudge } from './daily.js';
 import { firstSoloMatchConfig, CELEBRATION_SKIP_KEYS } from './run-it-back.js';
+import { TEAM_MENU_KEYS } from './team-switch.js';
 import { getReward as getBattlepassRewardEntry } from './battlepass.js';
 import { Replay, extractReplayHighlight } from './replay.js';
 import { ReplayView } from './replay-view.js';
@@ -555,6 +556,9 @@ class App {
             // (Enter used to both send the emote and open chat). G/Z still toggle it.
             if (this.game.emotes?.wheelOpen && e.target?.closest?.('#emote-wheel')
                 && e.code !== 'KeyG' && e.code !== 'KeyZ') return;
+            // The M team menu owns 1 / 2 / arrows / Enter / Space / Tab while open
+            // (ui._bindTeamPopupKeys); chat, scoreboard and skills must not steal them.
+            if (this.ui.isTeamPopupOpen?.() && TEAM_MENU_KEYS.includes(e.code)) return;
 
             if (e.code === 'Tab' && [STATES.PLAYING, STATES.COUNTDOWN, STATES.CELEBRATION, STATES.ROUND_END].includes(this.game.state)) {
                 e.preventDefault();
@@ -612,7 +616,7 @@ class App {
                     return;
                 }
                 if (e.code === 'KeyF') { Spectator.setFreeCam(!Spectator.freeCam); return; }
-                if (e.code === 'KeyM' && !Replay.playing) { e.preventDefault(); this.toggleTeamPopup(); return; }
+                if (e.code === 'KeyM' && !Replay.playing) { e.preventDefault(); if (!e.repeat) this.toggleTeamPopup(); return; }
                 // ESC falls through to the normal pause/settings flow.
             }
 
@@ -627,9 +631,12 @@ class App {
             }
 
             // M → team popup (only in-game, lobby has team buttons)
-            if (e.code === 'KeyM' && (this.game.state === STATES.PLAYING || this.game.state === STATES.COUNTDOWN)) {
+            // (held M used to flicker it open/closed on key repeat; it now also
+            // opens between rounds, and closes from any state it was left open in)
+            if (e.code === 'KeyM' && (this.ui.isTeamPopupOpen()
+                || this.game.state === STATES.PLAYING || this.game.state === STATES.COUNTDOWN || this.game.state === STATES.ROUND_END)) {
                 e.preventDefault();
-                this.toggleTeamPopup();
+                if (!e.repeat) this.toggleTeamPopup();
             }
             // B → cycle ball skin in-game
             if (e.code === 'KeyB' && (this.game.state === STATES.PLAYING || this.game.state === STATES.LOBBY)) {
@@ -696,7 +703,7 @@ class App {
                     this._exitReplay();
                     return;
                 }
-                if (this.ui.isTeamPopupOpen()) { this.ui.hideTeamPopup(); return; }
+                if (this.ui.isTeamPopupOpen()) { this.closeTeamPopup(); return; }
                 const earnEl = document.getElementById('earn-overlay');
                 if (earnEl && !earnEl.classList.contains('hidden')) { this.ui.hideEarnOverlay(); return; }
                 const inspectorEl = document.getElementById('case-inspector');
@@ -8005,20 +8012,36 @@ updateCarousel() {
     // click players, re-locks on close (unless spectating).
     toggleTeamPopup() {
         if (this.ui.isTeamPopupOpen()) {
-            this.ui.hideTeamPopup();
-            if (!Spectator.active && [STATES.PLAYING, STATES.COUNTDOWN, STATES.ROUND_END, STATES.CELEBRATION].includes(this.game.state)) this.player.lock();
-        } else {
-            this.ui.spectating = Spectator.active;
-            this.ui.showTeamPopup(this.game);
-            this.player.unlock(); // free the mouse for clicking
+            this.closeTeamPopup();
+            return;
         }
+        // FFA / Rally Duel have no sides to pick (spectators and late joiners
+        // still use the menu to leave spectator / choose their next-round side).
+        if (!Spectator.active && !this.player.queuedForNextRound && this.game._teamSwitchModeNow?.() === 'blocked') {
+            this.ui.showMessage?.(t('team.unavailable'), 1400);
+            return;
+        }
+        this.ui.spectating = Spectator.active;
+        this.ui.showTeamPopup(this.game);
+        this.player.unlock(); // free the mouse for clicking
     }
 
+    // Every close path (M, Esc, a confirmed pick) re-locks the pointer so play
+    // resumes without an extra click (Esc used to leave the mouse free).
+    closeTeamPopup() {
+        if (!this.ui.isTeamPopupOpen()) return;
+        this.ui.hideTeamPopup();
+        if (!Spectator.active && !this.ui.spectating && !this.chatOpen
+            && [STATES.PLAYING, STATES.COUNTDOWN, STATES.ROUND_END].includes(this.game.state)) this.player.lock();
+    }
+
+    // Game.switchTeam shows the one localized toast (switched / next round /
+    // cancelled) and rebalances bots; a confirmed pick closes the menu.
     _confirmTeamSelection(team) {
         if (team !== 'red' && team !== 'blue') return;
-        this.game.switchTeam(team);
-        this.ui.showMessage?.(t('toast.selectedTeam', { team: t(team === 'blue' ? 'hud.blueCaps' : 'hud.redCaps') }), 1200);
-        this.ui._renderTeamLists(this.game);
+        const result = this.game.switchTeam(team);
+        if (result === 'instant' || result === 'nextRound' || result === 'cancelled') this.closeTeamPopup();
+        else if (this.ui.isTeamPopupOpen()) this.ui._renderTeamLists(this.game);
     }
 
     _handlePlayerSafety(player) {

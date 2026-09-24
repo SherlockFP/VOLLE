@@ -3191,8 +3191,8 @@ body.photo-mode #hud,body.photo-mode #scoreboard-overlay,body.photo-mode .networ
 /* TF2-style team doors with a shared class deck below. */
 #team-overlay .team-popup-grid { gap: 18px; }
 #team-overlay .team-col { min-height: 210px; padding: 0 14px 13px; overflow: hidden; cursor: default; border-top-width: 0; background: rgba(4, 18, 30, .7); }
-#team-overlay .team-col.red { border-color: rgba(238, 80, 90, .6); box-shadow: inset 0 4px #e84d58, inset 0 0 58px rgba(207, 48, 56, .16); }
-#team-overlay .team-col.blue { border-color: rgba(83, 152, 255, .6); box-shadow: inset 0 4px #4b8efa, inset 0 0 58px rgba(43, 104, 212, .16); }
+#team-overlay .team-col.red { border-color: color-mix(in srgb, var(--red-ink) 60%, transparent); box-shadow: inset 0 4px var(--red), inset 0 0 58px color-mix(in srgb, var(--red) 16%, transparent); }
+#team-overlay .team-col.blue { border-color: color-mix(in srgb, var(--blue-ink) 60%, transparent); box-shadow: inset 0 4px var(--blue), inset 0 0 58px color-mix(in srgb, var(--blue) 16%, transparent); }
 #team-overlay .team-door { width: calc(100% + 28px); min-height: 112px; margin: 0 -14px 12px; padding: 18px; display: grid; place-content: center; gap: 7px; border: 0; border-bottom: 1px solid rgba(255,255,255,.15); color: #fff; background: linear-gradient(145deg, rgba(255,255,255,.13), transparent); cursor: pointer; text-align: center; }
 #team-overlay .team-door span { font-size: .78rem; font-weight: 900; letter-spacing: .17em; } #team-overlay .team-door b { font-size: 1.1rem; letter-spacing: .05em; }
 #team-overlay .team-col.red .team-door { color: #ffd9dc; } #team-overlay .team-col.blue .team-door { color: #dce9ff; }
@@ -3880,8 +3880,8 @@ body.photo-mode #hud,body.photo-mode #scoreboard-overlay,body.photo-mode .networ
     text-align: center;
 }
 #hud .hud-team-score { width: 64px; }
-#hud .hud-team-score.red { color: #fff; background: linear-gradient(145deg, #bc263b, #76182a); }
-#hud .hud-team-score.blue { color: #fff; background: linear-gradient(145deg, #2774cf, #164484); }
+#hud .hud-team-score.red { color: #fff; background: linear-gradient(145deg, var(--red), var(--red-dark)); }
+#hud .hud-team-score.blue { color: #fff; background: linear-gradient(145deg, var(--blue), var(--blue-dark)); }
 #hud .hud-team-score span,
 #hud .hud-timer span { color: rgba(255, 255, 255, .72); font-size: .5rem; font-weight: 900; letter-spacing: .12em; line-height: 1; }
 #hud .hud-team-score b { font-size: 1.45rem; line-height: .95; }

@@ -26,6 +26,7 @@ import { createCaseReveal3D } from './case-reveal-3d.js';
 import { selectMvp } from './mvp-select.js';
 import { createMvpShowcaseStage } from './mvp-showcase.js';
 import { localizedName, setText, t } from './i18n.js';
+import { autoAssignTeam, effectiveTeam, isTeam as isTeamId, teamCounts } from './team-switch.js';
 import { awaitGemCredit, buildGemShop, gemShopView, readPurchaseReturn, rememberGemsBeforeCheckout, stripPurchaseParams, takeGemsBeforeCheckout } from './gem-shop.js';
 import { LEVEL_STAMP_VISIBLE_MS, TOAST_QUEUE_MAX, TOAST_QUEUE_MIN_MS } from './run-it-back.js';
 
@@ -708,21 +709,34 @@ export class UI {
         const classSwitcher = document.getElementById('class-switcher-template');
         const popup = overlay.querySelector('.team-popup');
         if (classSwitcher && popup) popup.insertBefore(classSwitcher, popup.querySelector('.team-popup-actions'));
-        this.selectedTeam = game.player.pendingTeam || game.player.team;
+        // Open on the side you are headed for: a late-join pick or a queued
+        // next-round switch, else your current team.
+        this.selectedTeam = game.player.pendingTeam || game.player.nextRoundTeam || game.player.team;
         classSwitcher?.classList.remove('hidden');
         this._renderTeamLists(game);
         this._renderClassSwitch(game);
+        // Keyboard users land on the selected side (Tab cycles inside).
+        this._focusTeamDoor(this.selectedTeam);
     }
 
     hideTeamPopup() {
         const overlay = document.getElementById('team-overlay');
-        if (overlay) overlay.classList.add('hidden');
+        if (overlay) {
+            overlay.classList.add('hidden');
+            const active = typeof document !== 'undefined' ? document.activeElement : null;
+            if (active && overlay.contains?.(active)) active.blur?.();
+        }
         this._closeExclusive('teamPopup');
     }
 
     isTeamPopupOpen() {
         const overlay = document.getElementById('team-overlay');
-        return overlay && !overlay.classList.contains('hidden');
+        return !!overlay && !overlay.classList.contains('hidden');
+    }
+
+    _focusTeamDoor(team) {
+        const door = document.getElementById?.(team === 'blue' ? 'team-header-blue' : 'team-header-red');
+        try { door?.focus?.({ preventScroll: true }); } catch (_) {}
     }
 
     _renderTeamLists(game) {
@@ -731,103 +745,169 @@ export class UI {
         if (!redList || !blueList) return;
         const players = game.getPlayerList();
         const isHost = !game.network || !game.network.connected || game.network.isHost;
-        redList.innerHTML = '';
-        blueList.innerHTML = '';
+        const current = game.player.team === 'blue' ? 'blue' : 'red';
+        const queued = !!game.player.queuedForNextRound;
+        const pendingNext = queued ? null : (isTeamId(game.player.nextRoundTeam) ? game.player.nextRoundTeam : null);
+        const mode = typeof game._teamSwitchModeNow === 'function' ? game._teamSwitchModeNow() : 'instant';
+        redList.replaceChildren();
+        blueList.replaceChildren();
 
-        const counts = { red: 0, blue: 0 };
+        // Players are listed (and counted) on the side they will play for;
+        // a queued switch carries a NEXT ROUND badge.
+        const counts = teamCounts(players);
         players.forEach(p => {
-            const queued = !!p.queuedForNextRound;
-            const displayTeam = queued ? (p.pendingTeam || p.team) : p.team;
-            const side = displayTeam === 'red' ? 'red' : 'blue';
-            counts[side]++;
+            const side = effectiveTeam(p);
+            const moving = !!p.queuedForNextRound || (isTeamId(p.nextRoundTeam) && p.nextRoundTeam !== p.team);
             const isYou = p.name === game.playerName;
             const li = document.createElement('li');
             li.className = 'team-chip';
             if (isYou) li.classList.add('you');
+            if (moving) li.classList.add('next-round');
             const avatar = document.createElement('i');
             avatar.textContent = String(p.name || '?').slice(0, 1).toUpperCase();
             const name = document.createElement('span');
             name.textContent = p.name;
             li.append(avatar, name);
-            const tag = isYou ? t('team.you') : p.isBot ? t('team.bot') : queued ? t('team.nextRound') : '';
-            if (tag) {
+            const tags = [];
+            if (isYou) tags.push(t('team.you'));
+            else if (p.isBot) tags.push(t('team.bot'));
+            if (moving) tags.push(t('team.nextRound'));
+            if (tags.length) {
                 const badge = document.createElement('small');
-                badge.textContent = tag;
+                badge.textContent = tags.join(' · ');
                 li.append(badge);
             }
             li.title = isHost || isYou ? t('team.confirmedBelow') : '';
             (side === 'red' ? redList : blueList).appendChild(li);
         });
 
-        const current = game.player.team;
         const selectTeam = (team) => {
             this.selectedTeam = team;
             this._renderTeamLists(game);
         };
-        const headerRed = document.getElementById('team-header-red');
-        const headerBlue = document.getElementById('team-header-blue');
-        headerRed?.classList.toggle('selected', this.selectedTeam === 'red');
-        headerBlue?.classList.toggle('selected', this.selectedTeam === 'blue');
-        document.getElementById('team-col-red')?.classList.toggle('current', current === 'red');
-        document.getElementById('team-col-blue')?.classList.toggle('current', current === 'blue');
-        if (headerRed) headerRed.onclick = () => selectTeam('red');
-        if (headerBlue) headerBlue.onclick = () => selectTeam('blue');
+        const target = this.selectedTeam === 'blue' || this.selectedTeam === 'red' ? this.selectedTeam : (pendingNext || current);
+        const other = target === 'red' ? 'blue' : 'red';
         for (const side of ['red', 'blue']) {
+            const header = document.getElementById(`team-header-${side}`);
+            const col = document.getElementById(`team-col-${side}`);
+            header?.classList.toggle('selected', target === side);
+            header?.setAttribute?.('aria-pressed', String(target === side));
+            if (header) header.onclick = () => selectTeam(side);
+            if (col) {
+                col.classList.toggle('current', current === side && !queued);
+                col.classList.toggle('next', (pendingNext || (queued ? game.player.pendingTeam : null)) === side);
+                if (col.dataset) {
+                    col.dataset.currentLabel = t('team.current');
+                    col.dataset.nextLabel = t('team.nextRound');
+                }
+            }
             const node = document.getElementById(`team-count-${side}`);
             if (node) node.textContent = t('team.players', { count: counts[side] });
         }
 
-        // Balance hint: joining a team that would end up 2+ players bigger.
-        const target = this.selectedTeam || current;
-        const other = target === 'red' ? 'blue' : 'red';
-        const moving = target !== current;
+        // Balance: counts once this pick applies. Solo/host bots fill in, so
+        // say that instead of nagging about Auto-assign.
+        const mine = pendingNext || (queued ? game.player.pendingTeam : null) || current;
         const after = { red: counts.red, blue: counts.blue };
-        if (moving) { after[target]++; after[current] = Math.max(0, after[current] - 1); }
+        if (target !== mine) { after[target]++; after[mine] = Math.max(0, after[mine] - 1); }
+        const stacked = after[target] - after[other] >= 2;
+        const botCanMove = isHost && players.some(p => p.isBot && effectiveTeam(p) === target);
         const note = document.getElementById('team-balance-note');
         if (note) {
-            const stacked = after[target] - after[other] >= 2;
             note.hidden = !stacked;
-            note.textContent = stacked ? t('team.stackedNote', { team: teamLabel(target), count: after[target] - after[other] }) : '';
+            note.textContent = !stacked ? ''
+                : botCanMove ? t('team.botBalance', { team: teamLabel(other) })
+                    : t('team.stackedNote', { team: teamLabel(target), count: after[target] - after[other] });
+        }
+        const rule = document.getElementById('team-switch-rule');
+        if (rule) {
+            const text = pendingNext ? t('team.pendingNote', { team: teamLabel(pendingNext) })
+                : mode === 'nextRound' && !queued ? t('team.nextRoundRule') : '';
+            rule.hidden = !text;
+            rule.textContent = text;
+            rule.classList.toggle('pending', !!pendingNext);
         }
         const auto = document.getElementById('btn-team-popup-auto');
-        if (auto) auto.onclick = () => {
-            const withoutMe = { red: counts.red - (current === 'red' ? 1 : 0), blue: counts.blue - (current === 'blue' ? 1 : 0) };
-            selectTeam(withoutMe.red === withoutMe.blue ? current : (withoutMe.red < withoutMe.blue ? 'red' : 'blue'));
-        };
+        if (auto) {
+            auto.disabled = mode === 'blocked';
+            auto.onclick = () => selectTeam(autoAssignTeam(players, game.playerName, current));
+        }
         this._bindTeamPopupKeys(game);
 
         const confirm = document.getElementById('btn-team-popup-confirm');
         if (confirm) {
-            const alreadyThere = !moving && !game.player.queuedForNextRound;
-            confirm.textContent = alreadyThere ? t('team.alreadyOn', { team: teamLabel(target) }) : t('team.joinTeam', { team: teamLabel(target) });
-            confirm.disabled = alreadyThere;
-            confirm.onclick = () => this.onTeamConfirm?.(this.selectedTeam || game.player.team);
+            let key = 'team.joinTeam';
+            let disabled = false;
+            if (mode === 'blocked' && !queued) {
+                key = 'team.unavailable';
+                disabled = true;
+            } else if (queued) {
+                key = 'team.joinNextRound';
+                disabled = game.player.pendingTeam === target;
+            } else if (mode === 'nextRound') {
+                if (target === current) {
+                    key = pendingNext ? 'team.stayOn' : 'team.alreadyOn';
+                    disabled = !pendingNext;
+                } else {
+                    key = pendingNext === target ? 'team.queuedFor' : 'team.joinNextRound';
+                    disabled = pendingNext === target;
+                }
+            } else if (target === current) {
+                key = 'team.alreadyOn';
+                disabled = true;
+            }
+            confirm.textContent = t(key, { team: teamLabel(target) });
+            confirm.disabled = disabled;
+            confirm.dataset.mode = mode;
+            confirm.onclick = () => { if (!confirm.disabled) this.onTeamConfirm?.(target); };
         }
 
         const specBtn = document.getElementById('btn-team-popup-spectate');
         if (specBtn && this.onToggleSpectate) {
-            const waiting = !!game.player.queuedForNextRound;
-            setText(specBtn, waiting
+            setText(specBtn, queued
                 ? 'team.waitingNextRound'
                 : (this.spectating ? 'team.leaveSpectator' : 'common.spectate'));
-            specBtn.disabled = waiting;
+            specBtn.disabled = queued;
             specBtn.onclick = () => { this.onToggleSpectate(); };
         }
     }
 
-    // 1 / 2 pick a side, Enter confirms — only while the team popup is open.
+    // While the team popup is open it owns: 1 / 2 (and ← / →) pick a side,
+    // Enter confirms, Space presses the focused button, Tab cycles focus
+    // inside the dialog. main.js leaves these keys alone while it is open.
     _bindTeamPopupKeys(game) {
         this._teamKeyGame = game;
         if (this._teamKeysBound || typeof document === 'undefined') return;
         this._teamKeysBound = true;
         document.addEventListener('keydown', event => {
-            if (!this.isTeamPopupOpen() || event.repeat) return;
+            if (!this.isTeamPopupOpen()) return;
             if (event.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
-            if (event.code === 'Digit1' || event.code === 'Numpad1') { this.selectedTeam = 'red'; this._renderTeamLists(this._teamKeyGame); }
-            else if (event.code === 'Digit2' || event.code === 'Numpad2') { this.selectedTeam = 'blue'; this._renderTeamLists(this._teamKeyGame); }
-            else if (event.code === 'Enter') {
+            const pick = team => {
+                if (!event.repeat) {
+                    this.selectedTeam = team;
+                    this._renderTeamLists(this._teamKeyGame);
+                    this._focusTeamDoor(team);
+                }
+            };
+            if (event.code === 'Digit1' || event.code === 'Numpad1' || event.code === 'ArrowLeft') pick('red');
+            else if (event.code === 'Digit2' || event.code === 'Numpad2' || event.code === 'ArrowRight') pick('blue');
+            else if (event.code === 'Enter' || event.code === 'NumpadEnter') {
                 const confirm = document.getElementById('btn-team-popup-confirm');
-                if (confirm && !confirm.disabled) confirm.click();
+                if (!event.repeat && confirm && !confirm.disabled) confirm.click();
+            } else if (event.code === 'Space') {
+                const active = document.activeElement;
+                if (!event.repeat && active?.closest?.('#team-overlay') && active.tagName === 'BUTTON' && !active.disabled) active.click();
+            } else if (event.code === 'Tab') {
+                const popup = document.querySelector('#team-overlay .team-popup');
+                const focusable = [...(popup?.querySelectorAll('button:not([disabled])') || [])]
+                    .filter(el => el.offsetParent !== null);
+                if (focusable.length) {
+                    const index = focusable.indexOf(document.activeElement);
+                    const next = event.shiftKey
+                        ? (index <= 0 ? focusable.length - 1 : index - 1)
+                        : (index + 1) % focusable.length;
+                    focusable[next].focus();
+                }
             } else return;
             event.preventDefault();
             event.stopPropagation();
@@ -4461,7 +4541,7 @@ export class UI {
         if (!list) return;
         const round = Number(game.scoreboard?.roundNum) || 0;
         const locked = game.state === 'PLAYING' && game.player?._classChangeRound === round;
-        if (status) status.textContent = locked ? 'Class change used this round' : 'One change per round';
+        if (status) status.textContent = locked ? t('team.classUsed') : t('team.classOnce');
         const selected = CHARACTERS[game.player?.charId] || CHARACTERS.rally;
         if (detail) {
             detail.replaceChildren();

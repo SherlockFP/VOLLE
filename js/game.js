@@ -48,6 +48,7 @@ import {
     queueForNextRound,
     selectQueuedTeam
 } from './late-join.js';
+import { teamSwitchMode, botRebalanceMoves, isTeam } from './team-switch.js';
 import { shouldEndOvertime, shouldStartOvertime } from './competitive-service.js';
 import { normalizeNetcode, rewindSnapshot } from './experimental-netcode.js';
 import { RemoteInterp, ballPredictAt, ballErrorDecay, BALL_SMOOTHING } from './net-interp.js';
@@ -567,6 +568,10 @@ export class Game {
         if (s !== STATES.PLAYING) this._clearLocalDeflectAttempt();
         // G6: the celebration (and leaving the match) starts from clean bodies.
         if (s === STATES.CELEBRATION || s === STATES.MENU || s === STATES.LOBBY) this._resetKnockouts?.();
+        if (s === STATES.CELEBRATION || s === STATES.GAME_OVER || s === STATES.MENU || s === STATES.LOBBY) {
+            if (this.player) this.player.nextRoundTeam = null;
+            if (this.ui?.isTeamPopupOpen?.()) this.ui.hideTeamPopup?.();
+        }
         if (s === STATES.ROUND_END && prev !== STATES.ROUND_END) {
             this.onRoundEnd?.();
             // Valorant-style round-end flourish keyed off the winning side's ball skin.
@@ -735,6 +740,7 @@ addBot(team, { name: preferredName = null } = {}) {
     }
 
     switchPlayerTeam(name, team) {
+        if (!isTeam(team)) return;
         if (name === this.playerName) {
             this.switchTeam(team);
             return;
@@ -743,11 +749,24 @@ addBot(team, { name: preferredName = null } = {}) {
         const remote = [...this.remotePlayers.values()].find(p => p.name === name);
         const target = bot || remote;
         if (!target) return;
+        const mode = this._teamSwitchModeNow();
+        if (mode === 'blocked') return;
+        // Live match: a remote player's pick waits for the next round
+        // (applied by _applyNextRoundTeams), exactly like the local one.
+        if (mode === 'nextRound' && remote && !bot) {
+            target.nextRoundTeam = team === target.team ? null : team;
+            return;
+        }
+        if (target.team === team) return;
         target.setTeam?.(team);
         if (remote && !remote.setTeam) target.team = team;
-        this.scoreboard.removePlayer(name);
-        this.scoreboard.addPlayer(name, team, { isBot: !!bot, peerId: remote?.peerId });
+        // Keep the player's match stats — only the team moves.
+        this._moveScoreboardEntry(name, team, { isBot: !!bot, peerId: remote?.peerId });
         if (this.state === STATES.LOBBY) this.updateLobbyUI();
+        else if (mode === 'instant' && this.state !== STATES.MENU) {
+            if (remote && !bot) this._placeRemoteAtSpawn(remote);
+            this._rebalanceBots();
+        }
     }
 
     // Black hole — rastgele konumda açılır, topu 4sn çeker.
@@ -1389,6 +1408,7 @@ startGame(skipPreGame = false, matchId = null) {
             blue: this.scoreboard.blueScore
         });
         this.activateQueuedPlayers();
+        if (!fromNetwork && (!this.network?.connected || this.network.isHost)) this._applyNextRoundTeams();
         // Each bot rolls a fresh round tendency (aggressive/defensive/flanker) that
         // biases its existing decision parameters for the whole round — see bot.js
         // rollTendency/TENDENCY_PROFILES. Difficulty stats are untouched.
@@ -1828,9 +1848,10 @@ getSelectableMaps() {
         const stats = this.scoreboard.players.get(this.playerName);
         if (stats) stats.pendingTeam = team;
         this.network?.send?.({ type: 'lateJoinTeam', team });
+        const label = t(team === 'blue' ? 'hud.blueCaps' : 'hud.redCaps');
         const status = document.getElementById('late-join-status');
-        if (status) status.textContent = `SPECTATING - ${team.toUpperCase()} next round`;
-        this.ui.showMessage?.(`Joining ${team.toUpperCase()} next round`, 1600);
+        if (status) status.textContent = t('lobby.spectatingNext', { team: label });
+        this.ui.showMessage?.(t('toast.teamNextRound', { team: label }), 1600);
         return true;
     }
 
@@ -4922,31 +4943,129 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
 
     // --- TEAM SWITCH ---
 
+    // Lobby / menu: always instant. In a match (js/team-switch.js): instant
+    // during the opening countdown, queued for the next round once a round is
+    // live, blocked in FFA / Rally Duel / celebration / post-game.
+    _teamSwitchModeNow() {
+        if (this.state === STATES.LOBBY || this.state === STATES.MENU) return 'instant';
+        return teamSwitchMode(this.state, { ffa: this._ffa === true || this._rallyDuel === true });
+    }
+
+    // Returns 'instant' | 'nextRound' | 'cancelled' | 'queued' | false.
     switchTeam(forcedTeam) {
-        const newTeam = forcedTeam || (this.player.team === 'red' ? 'blue' : 'red');
+        const newTeam = isTeam(forcedTeam) ? forcedTeam : (this.player.team === 'red' ? 'blue' : 'red');
         if (this.player.queuedForNextRound) {
             this.selectQueuedLocalTeam(newTeam);
-            this.ui?._renderTeamLists?.(this);
-            return;
+            this._refreshTeamMenu();
+            return 'queued';
         }
-        const prevTeam = this.player.team;
-        if (prevTeam === newTeam) return;
-        this.player.setTeam(newTeam);
-        this.scoreboard.removePlayer(this.playerName);
-        this.scoreboard.addPlayer(this.playerName, newTeam, { isYou: true });
-        this.ui.showMessage(`Switched to ${newTeam.toUpperCase()} team`, 1500);
+        const mode = this._teamSwitchModeNow();
+        if (mode === 'blocked') return false;
+        const label = t(newTeam === 'blue' ? 'hud.blueCaps' : 'hud.redCaps');
+        if (mode === 'nextRound') {
+            // Picking your current side again cancels a queued switch.
+            const pending = newTeam === this.player.team ? null : newTeam;
+            if ((this.player.nextRoundTeam || null) === pending) return false;
+            this.player.nextRoundTeam = pending;
+            this.ui?.showMessage?.(pending
+                ? t('toast.teamNextRound', { team: label })
+                : t('toast.teamSwitchCancelled', { team: label }), 1600);
+            this._syncLocalTeamChange(newTeam);
+            this._refreshTeamMenu();
+            return pending ? 'nextRound' : 'cancelled';
+        }
+        this.player.nextRoundTeam = null;
+        if (this.player.team === newTeam) return false;
+        this._setLocalTeam(newTeam);
+        this.ui?.showMessage?.(t('toast.switchedTeam', { team: label }), 1500);
         if (this.state === STATES.LOBBY) this.updateLobbyUI();
-        // Takım menüsü (M overlay) açıksa yeniden render et ki kullanıcı kendi hareketini görsün.
-        if (typeof this.ui?._renderTeamLists === 'function') {
-            try { this.ui._renderTeamLists(this); } catch (_) {}
+        else if (this.state !== STATES.MENU) this._rebalanceBots();
+        this._syncLocalTeamChange(newTeam);
+        this._refreshTeamMenu();
+        return 'instant';
+    }
+
+    // Moves the local player to `team`: keeps match stats, and outside the
+    // lobby respawns on the new half (spawn, facing, court side) so nobody is
+    // left standing on the wrong side of the net.
+    _setLocalTeam(team) {
+        this.player.setTeam(team);
+        this._moveScoreboardEntry(this.playerName, team, { isYou: true });
+        if (this.state !== STATES.LOBBY && this.state !== STATES.MENU
+            && !this.localSpectator && !this.player.queuedForNextRound) {
+            this.player.respawn();
+            this.player.courtSide = this.getCourtConfinementSide(team);
         }
-        // P2P: bağlıysak → host'a teamChange bildir; host ise yeni liste yayınla.
+    }
+
+    _moveScoreboardEntry(name, team, opts = {}) {
+        const entry = this.scoreboard?.players?.get?.(name);
+        if (entry) entry.team = team;
+        else this.scoreboard?.addPlayer?.(name, team, opts);
+    }
+
+    _placeRemoteAtSpawn(p) {
+        const spawn = this.arena?.getPlayerSpawn?.(p.team);
+        if (!spawn || !p.position) return;
+        p.position.copy(spawn);
+        p.group?.position?.copy?.(p.position).add(new THREE.Vector3(0, -1.2, 0));
+        if (p.group) p.group.rotation.y = p.team === 'red' ? 0 : Math.PI;
+    }
+
+    // Solo / host: bots fill in so the sides never differ by 2+ after a human
+    // switches (humans never move). Returns the moves applied.
+    _rebalanceBots() {
+        if (this.network?.connected && !this.network.isHost) return [];
+        if (this._ffa || this._rallyDuel || !this.bots?.length) return [];
+        const moves = botRebalanceMoves(this.getPlayerList());
+        for (const move of moves) {
+            const bot = this.bots.find(b => b.name === move.name);
+            if (!bot) continue;
+            if (typeof bot.setTeam === 'function') bot.setTeam(move.team);
+            else bot.team = move.team;
+            this._moveScoreboardEntry(bot.name, move.team, { isBot: true });
+        }
+        if (moves.length) this.ui?.showMessage?.(t('toast.botsRebalanced'), 1800);
+        return moves;
+    }
+
+    // Host / solo, at round start: apply the queued next-round picks.
+    _applyNextRoundTeams() {
+        let changed = false;
+        const next = this.player.nextRoundTeam;
+        this.player.nextRoundTeam = null;
+        if (isTeam(next) && next !== this.player.team && !this.player.queuedForNextRound) {
+            this._setLocalTeam(next);
+            this.ui?.showMessage?.(t('toast.switchedTeam', { team: t(next === 'blue' ? 'hud.blueCaps' : 'hud.redCaps') }), 1600);
+            changed = true;
+        }
+        this.remotePlayers.forEach(p => {
+            const team = p.nextRoundTeam;
+            p.nextRoundTeam = null;
+            if (!isTeam(team) || team === p.team || p.queuedForNextRound || p.isBotEntity) return;
+            if (typeof p.setTeam === 'function') p.setTeam(team);
+            else p.team = team;
+            this._moveScoreboardEntry(p.name, team, { peerId: p.peerId });
+            this._placeRemoteAtSpawn(p);
+            changed = true;
+        });
+        if (changed) this._rebalanceBots();
+        this._refreshTeamMenu();
+        return changed;
+    }
+
+    _syncLocalTeamChange(team) {
+        // P2P: client → ask the host; host → broadcast the new roster.
         if (this.network?.connected && !this.network.isHost) {
-            this.network.send({ type: 'teamChange', name: this.playerName, team: newTeam });
+            this.network.send({ type: 'teamChange', name: this.playerName, team });
         } else if (this.network?.isHost) {
-            // Host kendi değişimini broadcasting lobbyState ile halleder, böylece herkes görür.
             this.network.broadcast({ type: 'lobbyState', players: this.getPlayerList() });
         }
+    }
+
+    _refreshTeamMenu() {
+        if (!this.ui?.isTeamPopupOpen?.() || typeof this.ui._renderTeamLists !== 'function') return;
+        try { this.ui._renderTeamLists(this); } catch (_) {}
     }
 
     // --- POWER-UPS ---
@@ -5879,6 +5998,7 @@ spawnPowerUp() {
             cosmetics: normalizeWearableLoadout(window.__store?.get?.('equippedWearables')),
             queuedForNextRound: !!this.player.queuedForNextRound,
             pendingTeam: this.player.pendingTeam || null,
+            nextRoundTeam: isTeam(this.player.nextRoundTeam) ? this.player.nextRoundTeam : null,
             activateRound: this.player.activateRound || null
         }];
         this.bots.forEach(b => list.push({ name: b.name, team: b.team, isBot: true, charId: b.charId }));
@@ -5894,6 +6014,7 @@ spawnPowerUp() {
             cosmetics: normalizeWearableLoadout(p.wearableLoadout),
             queuedForNextRound: !!p.queuedForNextRound,
             pendingTeam: p.pendingTeam || null,
+            nextRoundTeam: isTeam(p.nextRoundTeam) ? p.nextRoundTeam : null,
             activateRound: p.activateRound || null
         }));
         return list;
@@ -6312,6 +6433,7 @@ spawnPowerUp() {
                 this.player.setTeam(pl.team);
                 this.player.queuedForNextRound = !!pl.queuedForNextRound;
                 this.player.pendingTeam = pl.pendingTeam || null;
+                this.player.nextRoundTeam = isTeam(pl.nextRoundTeam) ? pl.nextRoundTeam : null;
                 this.player.activateRound = pl.activateRound || null;
                 if (this.player.queuedForNextRound) {
                     this.player.alive = false;
@@ -6354,6 +6476,7 @@ spawnPowerUp() {
                     p.team = pl.team || p.team;
                     p.queuedForNextRound = !!pl.queuedForNextRound;
                     p.pendingTeam = pl.pendingTeam || null;
+                    p.nextRoundTeam = isTeam(pl.nextRoundTeam) ? pl.nextRoundTeam : null;
                     p.activateRound = pl.activateRound || null;
                     if (p.queuedForNextRound) {
                         p.alive = false;
@@ -7466,7 +7589,9 @@ spawnPowerUp() {
         if (roundKey && this._lastNetworkRoundStartKey === roundKey) return;
         if (roundKey) this._lastNetworkRoundStartKey = roundKey;
         const wasQueued = !!this.player.queuedForNextRound;
+        const teamBefore = this.player.team;
         if (Array.isArray(data.players)) this.applyLobbyState(data);
+        const movedTeam = !wasQueued && !this.player.queuedForNextRound && this.player.team !== teamBefore;
         const own = data.players?.find(pl =>
             pl.playerId === this.network?.playerId
             || (!pl.playerId && pl.peerId === this.network?.peer?.id)
@@ -7478,6 +7603,11 @@ spawnPowerUp() {
         }
         this.cancelPreGame();
         this.startRound({ fromNetwork: true });
+        if (movedTeam && !this.localSpectator) {
+            this.player.respawn();
+            this._moveScoreboardEntry(this.playerName, this.player.team, { isYou: true });
+            this.ui?.showMessage?.(t('toast.switchedTeam', { team: t(this.player.team === 'blue' ? 'hud.blueCaps' : 'hud.redCaps') }), 1600);
+        }
         this.ui.showCountdownGo?.();
         if (data.ball && Number.isFinite(data.ball.x) && Number.isFinite(data.ball.y)
             && Number.isFinite(data.ball.z) && Number.isFinite(data.ball.vx)
