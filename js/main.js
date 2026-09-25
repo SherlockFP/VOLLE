@@ -20,6 +20,7 @@ import { Network } from './network.js';
 import { VoiceChat } from './voice.js';
 import { Store, isNewPlayerProfile, shouldShowFtueWelcome } from './store.js';
 import { streakCaseForDay } from './reward-track.js';
+import { filterChatText } from './chat-filter.js';
 import { attachViewmodelFx, disposeViewmodelFx } from './viewmodel-fx.js';
 import { DEFAULT_LOADOUT } from './skills.js';
 import { ARENA_CARDS, CARD_RARITIES } from './cards.js';
@@ -1422,6 +1423,7 @@ class App {
             'setting-sound-volume': settings.soundVolume ?? settings.volume ?? 50,
             'setting-reduce-motion': !!settings.reduceMotion,
             'setting-screen-shake': settings.screenShake !== false,
+            'setting-chat-filter': settings.chatFilter !== false,
             'setting-screen-flash': settings.screenFlash !== false,
             'setting-high-contrast': !!settings.highContrast,
             'setting-color-blind': settings.colorBlind || 'none'
@@ -3342,6 +3344,11 @@ bind('carousel-next', () => {
                 applyUiPreferences(document.documentElement, loadUiPreferences(this.store));
             });
         };
+        bindSetting('setting-chat-filter', e => {
+            const s = this.store.get('settings');
+            s.chatFilter = e.target.checked;
+            this.store.set('settings', s);
+        });
         bindAccessibility('setting-reduce-motion', 'reduceMotion');
         bindAccessibility('setting-screen-shake', 'screenShake');
         bindAccessibility('setting-screen-flash', 'screenFlash');
@@ -4693,6 +4700,11 @@ updateCSLobbyInfo();
         this._appendSocialLobbyChat(data.name, data.text);
     }
 
+    // Reader-side chat filter (Settings > Gameplay > Chat Filter, on by default).
+    _chatClean(text) {
+        return filterChatText(text, { enabled: this.store.get('settings')?.chatFilter !== false });
+    }
+
     _appendSocialLobbyChat(name, text, system = false) {
         const log = document.getElementById('social-lobby-chat-log');
         if (!log) return;
@@ -4700,8 +4712,8 @@ updateCSLobbyInfo();
         const row = document.createElement('p');
         row.className = system ? 'social-lobby-chat-message system' : 'social-lobby-chat-message';
         const sender = document.createElement('strong');
-        sender.textContent = `${String(name).slice(0, 24)}: `;
-        row.append(sender, document.createTextNode(String(text).slice(0, 160)));
+        sender.textContent = `${this._chatClean(String(name).slice(0, 24))}: `;
+        row.append(sender, document.createTextNode(this._chatClean(String(text).slice(0, 160))));
         log.appendChild(row);
         while (log.children.length > 40) log.firstElementChild?.remove();
         log.scrollTop = log.scrollHeight;
@@ -4764,7 +4776,7 @@ updateCSLobbyInfo();
             for (const message of messages) {
                 const row = document.createElement('p');
                 row.className = 'social-chat-message';
-                row.textContent = `${message.senderId}: ${message.text}`;
+                row.textContent = `${message.senderId}: ${this._chatClean(message.text)}`;
                 chat.appendChild(row);
             }
             if (!messages.length) chat.textContent = selected ? 'No messages yet.' : 'Join or create a clan to chat.';
@@ -9136,7 +9148,7 @@ updateCarousel() {
             const row = document.createElement('div');
             row.className = `friends-chat-msg ${message.senderAccountId === myId ? 'msg-mine' : ''}`;
             const from = document.createElement('span'); from.className = 'msg-from'; from.textContent = message.senderAccountId === myId ? 'You' : (Friends.getFriend(name)?.username || 'Friend');
-            const body = document.createElement('span'); body.className = 'msg-text'; body.textContent = String(message.body || '');
+            const body = document.createElement('span'); body.className = 'msg-text'; body.textContent = this._chatClean(String(message.body || ''));
             row.append(from, body); return row;
         }));
         log.scrollTop = log.scrollHeight;

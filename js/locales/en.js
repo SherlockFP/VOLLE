@@ -469,6 +469,8 @@ export default {
         done: 'Done',
         language: 'Language',
         languageDesc: 'Menu and HUD language. Changes apply instantly.',
+        chatFilter: 'Chat Filter',
+        chatFilterDesc: 'Masks slurs and swear words in every chat (English and Turkish).',
         close: 'Close settings',
         categories: 'Settings categories',
         accessibility: 'Accessibility',

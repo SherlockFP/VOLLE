@@ -14,6 +14,7 @@ import { Arena } from './arena.js';
 import { COSMETICS, COSMETIC_TYPES, cosmeticsByType } from './cosmetic-catalog.js';
 import { accountRankLabel, accountRankShort, levelProgress, prestigeTitle } from './prestige.js';
 import { Store } from './store.js';
+import { filterChatText } from './chat-filter.js';
 import { matchesShopFilter, matchesShopQuery, compareShopItems, deriveShopCardState, SHOP_COLLECTIONS, shopCollectionForItem } from './shop-clarity.js';
 import { characterPortraitPath, shopNameFitTier, knifeTeamRestriction, isKnifeEquippedAny } from './shop-ux2.js';
 import { classifyDamageTier, nextPoolCursor, damageJitterFor, comboTier, OVERDRIVE_MAX_RATIO } from './combat-fx.js';
@@ -2204,7 +2205,12 @@ export class UI {
 
     // --- CHAT ---
 
-    addChatMessage(name, text) {
+    addChatMessage(rawName, rawText) {
+        // Reader-side filter (Settings > Chat Filter). Names are escaped too: they
+        // arrive from peers and were inserted as raw HTML in two of these logs.
+        const filterOn = Store.get('settings')?.chatFilter !== false;
+        const name = this.escapeHTML(filterChatText(rawName, { enabled: filterOn }));
+        const text = filterChatText(rawText, { enabled: filterOn });
         // In-game chat log (floating overlay)
         const chatLog = document.getElementById('chat-log');
         if (chatLog) {
@@ -2232,7 +2238,7 @@ export class UI {
         if (postLog) {
             const msg = document.createElement('div');
             msg.className = 'chat-msg';
-            msg.innerHTML = `<span class="chat-name">${this.escapeHTML(name)}:</span> ${this.escapeHTML(text)}`;
+            msg.innerHTML = `<span class="chat-name">${name}:</span> ${this.escapeHTML(text)}`;
             postLog.appendChild(msg);
             postLog.scrollTop = postLog.scrollHeight;
             while (postLog.children.length > 50) postLog.firstChild.remove();

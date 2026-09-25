@@ -469,6 +469,8 @@ export default {
         done: 'Tamam',
         language: 'Dil',
         languageDesc: 'Menü ve HUD dili. Değişiklik anında uygulanır.',
+        chatFilter: 'Sohbet Filtresi',
+        chatFilterDesc: 'Tüm sohbetlerde hakaret ve küfürleri gizler (Türkçe ve İngilizce).',
         close: 'Ayarları kapat',
         categories: 'Ayar kategorileri',
         accessibility: 'Erişilebilirlik',
