@@ -22,8 +22,10 @@ const SERVER_ONLY_PRODUCT_EVENT_NAMES = new Set(['payment_completed']);
 const PRODUCT_EVENT_NAMES = new Set([...CLIENT_PRODUCT_EVENT_NAMES, ...SERVER_ONLY_PRODUCT_EVENT_NAMES]);
 const ID_PATTERN = /^[A-Za-z0-9._:-]{8,96}$/;
 const VALUE_PATTERN = /^[a-zA-Z0-9._:-]{1,40}$/;
-const DIMENSIONS = new Set(['screen', 'shopTab', 'itemType', 'itemId', 'queue', 'mode', 'map', 'entry', 'result', 'networkRole', 'reason', 'latencyBucket', 'practiceType', 'matchId', 'source', 'sku', 'currency', 'provider']);
-const METRIC_LIMITS = Object.freeze({ sessionDurationSec: 86400, matchDurationSec: 10800, postgameDelaySec: 300, postgameToRematchSec: 3600, joinLatencyMs: 300000, matchLoadElapsedMs: 60000, matchSetupMs: 60000, clickToCountdownMs: 60000, revenueMinor: 100000000 });
+const DIMENSIONS = new Set(['screen', 'shopTab', 'itemType', 'itemId', 'queue', 'mode', 'map', 'entry', 'result', 'networkRole', 'reason', 'latencyBucket', 'practiceType', 'matchId', 'source', 'sku', 'currency', 'provider', 'difficulty', 'character', 'teamSize']);
+const METRIC_LIMITS = Object.freeze({ sessionDurationSec: 86400, matchDurationSec: 10800, postgameDelaySec: 300, postgameToRematchSec: 3600, joinLatencyMs: 300000, matchLoadElapsedMs: 60000, matchSetupMs: 60000, clickToCountdownMs: 60000, revenueMinor: 100000000,
+    // Balance facts on match_complete (js/balance-outcome.js, scripts/balance-report.js).
+    roundsWon: 99, roundsLost: 99, maxDeficit: 99, kills: 999, deaths: 999, bestRally: 999, botCount: 32, humanCount: 32 });
 
 function profileKey(secret, profileId) {
     return crypto.createHmac('sha256', secret).update(String(profileId)).digest('hex').slice(0, 40);

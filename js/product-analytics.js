@@ -21,7 +21,9 @@ export const MATCH_START_TIMING_MAX_MS = 60_000;
 const DIMENSIONS = new Set([
     'screen', 'shopTab', 'itemType', 'itemId', 'queue', 'mode', 'map',
     'entry', 'result', 'networkRole', 'reason', 'latencyBucket', 'practiceType',
-    'matchId', 'source'
+    'matchId', 'source',
+    // Balance facts on match_complete (js/balance-outcome.js).
+    'difficulty', 'character', 'teamSize'
 ]);
 const METRICS = Object.freeze({
     sessionDurationSec: 86400,
@@ -31,7 +33,15 @@ const METRICS = Object.freeze({
     joinLatencyMs: 300000,
     matchLoadElapsedMs: MATCH_START_TIMING_MAX_MS,
     matchSetupMs: MATCH_START_TIMING_MAX_MS,
-    clickToCountdownMs: MATCH_START_TIMING_MAX_MS
+    clickToCountdownMs: MATCH_START_TIMING_MAX_MS,
+    roundsWon: 99,
+    roundsLost: 99,
+    maxDeficit: 99,
+    kills: 999,
+    deaths: 999,
+    bestRally: 999,
+    botCount: 32,
+    humanCount: 32
 });
 
 function boundedTiming(value) {

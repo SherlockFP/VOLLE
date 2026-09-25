@@ -66,6 +66,7 @@ import { MatchHistory } from './matchhistory.js';
 import { getRank } from './ranked.js';
 import { CHARACTERS } from './characters.js';
 import { ClanClient } from './clan-client.js';
+import { matchOutcomeFacts } from './balance-outcome.js';
 import { account } from './account.js';
 import { SOCIAL_HUB_MAPS, SOCIAL_HUB_MAP_ID, SocialLobby, getSocialLobbyMapState } from './social-lobby.js';
 import { applyUiPreferences, loadUiPreferences, normalizeTheme, normalizeUiScale } from './ui-theme.js';
@@ -348,15 +349,19 @@ class App {
             // store.grant(), so the report can roll the bar over a crossed level.
             const prevAccount = this.store.getAccount?.() || null;
             const personal = this._settlePersonalBests();
+            // Read before awardMatchRewards() clears the practice flag.
+            const balance = this._matchBalanceFacts?.() || null;
             this._presentPlayOfTheGame?.(this.game.matchId);
             this.awardMatchRewards();
             this.productAnalytics.track('match_complete', {
                 mode: this.game.mode?.id || 'classic',
                 networkRole: this.network.isHost ? 'host' : this.network.connected ? 'client' : 'solo',
+                ...balance?.dimensions,
                 ...(typeof this.game.matchId === 'string' && this.game.matchId.length <= 40 ? { matchId: this.game.matchId } : {})
             }, {
                 matchDurationSec: this._analyticsMatchStartedAt ? Math.max(0, (gameplayEndedAt - this._analyticsMatchStartedAt) / 1000) : 0,
-                postgameDelaySec: Math.max(0, (postgameReadyAt - gameplayEndedAt) / 1000)
+                postgameDelaySec: Math.max(0, (postgameReadyAt - gameplayEndedAt) / 1000),
+                ...balance?.metrics
             });
             this.refreshMetaStats();
             this.ui.updateContractTracker(Daily, this.store);
@@ -1795,6 +1800,27 @@ class App {
         this.ui.renderDaily(Daily, this.store);
         this.refreshMetaStats();
         return result;
+    }
+
+    // Balance facts for match_complete (js/balance-outcome.js ->
+    // scripts/balance-report.js). Practice, spectating and an already-claimed
+    // match report none. Clients see host bots without a difficulty ('none').
+    _matchBalanceFacts() {
+        if (!isTerminalRematchState(this.game.state) || this.game._rewardsClaimed) return null;
+        if (this.game.localSpectator || this.game._practiceMode) return null;
+        const scoreboard = this.game.scoreboard;
+        const me = scoreboard?.players?.get?.(this.game.playerName) || {};
+        const ffa = !!this.game._ffa;
+        const winner = ffa ? this.game._finalWinner : scoreboard?.getWinner?.();
+        const team = this.player.team;
+        const won = ffa ? winner === this.game.playerName : winner === String(team).toUpperCase();
+        return matchOutcomeFacts({
+            queue: this._activeMatchMode, mapId: this.arena?.mapId, result: winner === 'DRAW' ? 'draw' : won ? 'win' : 'loss',
+            team, ffa, character: this.store.get('selectedChar') || 'rally',
+            players: this.game.getPlayerList(), bots: this.game.bots,
+            redScore: scoreboard?.redScore, blueScore: scoreboard?.blueScore, roundHistory: scoreboard?.roundHistory,
+            kills: me.score, deaths: me.deaths, bestRally: this.game.getMatchBestRally?.()
+        });
     }
 
     // Post-game personal strip: this player's match numbers against their stored
