@@ -28,7 +28,7 @@
     <link rel="stylesheet" href="css/touch.css?v=2">
     <!-- Arena menu layer (docs/MENU_DESIGN.md): loaded last so it owns the menu/shell
          cascade without editing the older sheets. Uses the existing DM Sans + Nunito faces. -->
-    <link rel="stylesheet" href="css/menu-arena.css?v=3">
+    <link rel="stylesheet" href="css/menu-arena.css?v=4">
     <link rel="stylesheet" href="css/locker.css?v=1">
     <script type="importmap">
     {
@@ -1490,6 +1490,7 @@
             <div class="community-layout">
                 <section class="community-party"><header><h2>Party</h2><button id="party-ready-check" class="btn btn-primary btn-small">Ready check</button></header><div id="community-party-list"></div></section>
                 <section class="community-friends"><header><h2>Friends & invites</h2></header><div class="community-tag"><span>Your friend tag</span><button id="community-friend-tag" type="button" title="Copy friend tag"></button></div><div class="community-add"><label class="sr-only" for="community-friend-name">Friend tag</label><input id="community-friend-name" maxlength="32" placeholder="Player#TAG"><button id="community-friend-add" class="btn btn-secondary btn-small" data-i18n="social.addFriend">Add friend</button></div><div id="community-friend-requests"></div><div id="community-friend-invites"></div><div id="community-friend-list"></div></section>
+                <section class="community-clans"><header><h2 data-i18n="clans.title">Clan</h2><button id="btn-open-clans" type="button" class="btn btn-primary btn-small" data-i18n="clans.open">Clans</button></header><p id="community-clan-summary" class="community-clan-summary"></p></section>
                 <section class="community-recent"><header><h2>Recently played</h2></header><div id="community-recent-list"></div></section>
                 <section class="community-showcase"><header><h2>Profile showcase</h2></header><div id="community-showcase-preview" class="showcase-preview"><span>POSE</span><b id="showcase-pose-name">HERO</b></div><label>Skin<select id="showcase-skin"><option value="default">Default</option><option value="neon">Neon</option><option value="frost">Frost</option><option value="astro">Astro</option></select></label><label>Emote<select id="showcase-emote"><option value="wave">Wave</option><option value="cheer">Cheer</option><option value="dance">Dance</option></select></label><label>Pose<select id="showcase-pose"><option value="hero">Hero</option><option value="victory">Victory</option><option value="guard">Guard</option></select></label><button id="photo-mode-toggle" class="btn btn-secondary btn-small">Photo mode</button></section>
             </div>
@@ -1548,28 +1549,31 @@
                     <span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-user"></use></svg></span>
                     <div><span class="shell-kicker">SOCIAL HUB</span><h1>Clans</h1><p>Find a crew, coordinate matches, and keep the team together.</p></div>
                 </div>
-                <span class="social-status"><i aria-hidden="true"></i>Local social preview</span>
+                <span class="social-status"><i aria-hidden="true"></i><span id="social-status-text">Clans</span></span>
             </header>
             <div class="social-layout">
                 <section class="social-clans" aria-labelledby="social-clans-title">
                     <div class="social-section-title">
-                        <div><span class="shell-kicker">YOUR NETWORK</span><h2 id="social-clans-title">Clan list</h2></div>
-                        <span class="social-count">CREWS</span>
+                        <div><span class="shell-kicker" data-i18n="clans.kicker">YOUR CLAN</span><h2 id="social-clans-title" data-i18n="clans.title">Clan</h2></div>
+                        <span class="social-count" data-i18n="clans.crews">CREWS</span>
                     </div>
-                    <div id="social-clan-list" class="social-clan-list" aria-live="polite">
-                        <div class="social-empty">
-                            <svg class="ui-icon" aria-hidden="true"><use href="#i-user"></use></svg>
-                            <strong>No clans yet</strong>
-                            <span>Create one below or join an invite.</span>
-                        </div>
-                    </div>
-                    <form class="social-create" onsubmit="return false">
-                        <label for="social-clan-name">Create a clan</label>
+                    <!-- Server clans (js/clan-client.js ↔ server/clan-store.js). -->
+                    <div id="social-my-clan" class="social-my-clan" aria-live="polite"></div>
+                    <form id="social-clan-forms" class="social-create" onsubmit="return false" hidden>
+                        <label for="social-clan-name" data-i18n="clans.createLabel">Create a clan</label>
                         <div class="social-input-row">
-                            <input id="social-clan-name" type="text" maxlength="24" placeholder="Clan name" autocomplete="off">
-                            <button id="social-create-clan" class="btn btn-primary" type="button">Create</button>
+                            <input id="social-clan-name" type="text" maxlength="24" placeholder="Clan name" autocomplete="off" data-i18n-attr="placeholder:clans.namePlaceholder">
+                            <input id="social-clan-tag" class="social-tag-input" type="text" maxlength="5" placeholder="TAG" autocomplete="off" data-i18n-attr="placeholder:clans.tagPlaceholder">
+                            <button id="social-create-clan" class="btn btn-primary" type="button" data-i18n="clans.create">Create</button>
+                        </div>
+                        <label for="social-join-tag" data-i18n="clans.joinLabel">Join by tag</label>
+                        <div class="social-input-row">
+                            <input id="social-join-tag" class="social-tag-input" type="text" maxlength="5" placeholder="TAG" autocomplete="off" data-i18n-attr="placeholder:clans.tagPlaceholder">
+                            <button id="social-join-clan" class="btn btn-secondary" type="button" data-i18n="clans.join">Join</button>
                         </div>
                     </form>
+                    <div class="social-section-title social-top-title"><div><span class="shell-kicker" data-i18n="clans.topKicker">CLAN WARS</span><h3 data-i18n="clans.topTitle">Top clans</h3></div></div>
+                    <ol id="social-top-clans" class="social-top-clans"></ol>
                 </section>
                 <section class="social-chat" aria-labelledby="social-chat-title">
                     <div class="social-section-title">

@@ -65,7 +65,7 @@ import { Friends } from './friends.js';
 import { MatchHistory } from './matchhistory.js';
 import { getRank } from './ranked.js';
 import { CHARACTERS } from './characters.js';
-import { appendClanMessage, createClan, listClans } from './social.js';
+import { ClanClient } from './clan-client.js';
 import { account } from './account.js';
 import { SOCIAL_HUB_MAPS, SOCIAL_HUB_MAP_ID, SocialLobby, getSocialLobbyMapState } from './social-lobby.js';
 import { applyUiPreferences, loadUiPreferences, normalizeTheme, normalizeUiScale } from './ui-theme.js';
@@ -1923,6 +1923,10 @@ class App {
         if (synced) {
             cardReward = synced.cardReward || null;
             bonusCard = synced.bonusCard || null;
+            // Clan vs clan (server/clan-store.js): every winner in one clan, every loser in another.
+            if (synced.clanMatch && !synced.replayed) {
+                this.ui.queueToast?.(t('clans.matchToast', { winner: synced.clanMatch.winner, loser: synced.clanMatch.loser }), 2600);
+            }
             if (!synced.replayed && Array.isArray(synced.dailyProgress?.completed)) {
                 for (const challengeId of synced.dailyProgress.completed) {
                     this.productAnalytics.track('daily_challenge_completed', { itemId: challengeId, source: 'match_authority' });
@@ -2665,6 +2669,17 @@ class App {
         });
         bind('social-back', () => this.ui.showScreen('mainMenu'));
         bind('social-create-clan', () => this._createClan());
+        bind('social-join-clan', () => this._joinClan());
+        bind('btn-open-clans', () => {
+            this.ui.showScreen('social');
+            void this._renderSocial();
+        });
+        // Clan chat refreshes every 4 s while the clans screen is open.
+        window.addEventListener('warrball:screen', event => {
+            clearInterval(this._clanChatTimer);
+            this._clanChatTimer = null;
+            if (event.detail?.screen === 'social') this._clanChatTimer = setInterval(() => { void this._renderClanChat?.(); }, 4000);
+        }, { signal: this._mainAbort.signal });
         bind('social-chat-send', () => this._sendClanMessage());
         document.getElementById('social-chat-input')?.addEventListener('keydown', event => {
             if (event.key === 'Enter') this._sendClanMessage();
@@ -2683,6 +2698,7 @@ class App {
         const openSocialCenter = () => {
             this._renderSocialCenter();
             this.ui.showScreen('socialCenter');
+            void this._renderSocial?.();
         };
         bind('btn-social-center', openSocialCenter);
         bind('btn-menu-party-invite', () => {
@@ -5083,89 +5099,131 @@ updateCSLobbyInfo();
         return clean || 'player';
     }
 
-    _renderSocial() {
-        const state = this.store.get('socialState');
-        const clans = listClans(state);
-        const userId = this._socialUserId();
-        const selected = clans.find(clan => clan.id === this._selectedClanId)
-            || clans.find(clan => clan.members.some(member => member.userId === userId))
-            || clans[0];
-        this._selectedClanId = selected?.id || null;
-        const list = document.getElementById('social-clan-list');
+    // Clans screen, server-backed (js/clan-client.js ↔ server/clan-store.js). Accounts
+    // own a clan; guests see the top list and a free-account prompt.
+    async _renderSocial() {
+        const client = this.clanClient ||= new ClanClient({ getToken: () => account.getToken?.() || '' });
+        const signedIn = !!account.getToken?.();
+        const status = document.getElementById('social-status-text');
+        if (status) status.textContent = t(signedIn ? 'clans.statusOnline' : 'clans.statusGuest');
+        const [mine, top] = await Promise.all([signedIn ? client.mine() : Promise.resolve(null), client.top()]);
+        const clan = mine?.ok ? mine.clan : null;
+        this._myClan = clan;
+        const box = document.getElementById('social-my-clan');
+        const forms = document.getElementById('social-clan-forms');
+        if (forms) forms.hidden = !signedIn || !!clan;
+        if (box) {
+            box.replaceChildren();
+            if (!signedIn) {
+                box.textContent = t('clans.needAccount');
+            } else if (!clan) {
+                box.textContent = t('clans.none');
+            } else {
+                const head = document.createElement('div');
+                head.className = 'social-clan-head';
+                const title = document.createElement('strong');
+                title.textContent = `[${clan.tag}] ${clan.name}`;
+                const record = document.createElement('span');
+                record.textContent = t('clans.record', { wins: clan.record.wins, losses: clan.record.losses });
+                head.append(title, record);
+                const members = document.createElement('ul');
+                members.className = 'social-clan-members';
+                for (const member of clan.members) {
+                    const row = document.createElement('li');
+                    row.textContent = `${member.name}${member.role === 'owner' ? ' ★' : ''}${member.you ? ` (${t('clans.you')})` : ''}`;
+                    members.append(row);
+                }
+                const recent = document.createElement('p');
+                recent.className = 'social-clan-recent';
+                recent.textContent = clan.recent.length
+                    ? clan.recent.slice(-5).reverse().map(entry => `${entry.won ? '✓' : '✗'} ${entry.vs}`).join('  ')
+                    : t('clans.noMatches');
+                const leave = document.createElement('button');
+                leave.type = 'button';
+                leave.className = 'btn btn-secondary btn-small';
+                leave.textContent = t('clans.leave');
+                leave.addEventListener('click', () => this._leaveClan(), { once: true });
+                box.append(head, members, recent, leave);
+            }
+        }
+        const list = document.getElementById('social-top-clans');
         if (list) {
             list.replaceChildren();
+            const clans = top?.ok ? top.clans : [];
             if (!clans.length) {
-                const empty = document.createElement('div');
+                const empty = document.createElement('li');
                 empty.className = 'social-empty';
-                empty.textContent = 'No clans yet. Create the first crew.';
-                list.appendChild(empty);
+                empty.textContent = t('clans.topEmpty');
+                list.append(empty);
             }
-            for (const clan of clans) {
-                const card = document.createElement('button');
-                card.type = 'button';
-                card.className = `social-clan-card${clan.id === this._selectedClanId ? ' selected' : ''}`;
-                card.textContent = `[${clan.tag}] ${clan.name} - ${clan.members.length} members`;
-                card.addEventListener('click', () => {
-                    this._selectedClanId = clan.id;
-                    this._renderSocial();
-                }, { once: true });
-                list.appendChild(card);
+            for (const entry of clans) {
+                const row = document.createElement('li');
+                row.textContent = `#${entry.rank} [${entry.tag}] ${entry.name} · ${t('clans.record', { wins: entry.wins, losses: entry.losses })}`;
+                list.append(row);
             }
         }
+        await this._renderClanChat();
+        const summary = document.getElementById('community-clan-summary');
+        if (summary) summary.textContent = clan ? `[${clan.tag}] ${clan.name} · ${t('clans.record', { wins: clan.record.wins, losses: clan.record.losses })}` : t(signedIn ? 'clans.none' : 'clans.needAccount');
+    }
+
+    async _renderClanChat() {
         const chat = document.getElementById('social-chat-log');
-        if (chat) {
-            chat.replaceChildren();
-            const messages = selected ? state.clanChats[selected.id] || [] : [];
-            for (const message of messages) {
-                const row = document.createElement('p');
-                row.className = 'social-chat-message';
-                row.textContent = `${message.senderId}: ${this._chatClean(message.text)}`;
-                chat.appendChild(row);
-            }
-            if (!messages.length) chat.textContent = selected ? 'No messages yet.' : 'Join or create a clan to chat.';
+        if (!chat) return;
+        if (!this._myClan) {
+            chat.textContent = t('clans.chatLocked');
+            return;
         }
+        const result = await this.clanClient.chat(0);
+        chat.replaceChildren();
+        const messages = result?.ok ? result.messages : [];
+        for (const message of messages) {
+            const row = document.createElement('p');
+            row.className = 'social-chat-message';
+            row.textContent = `${message.author}: ${this._chatClean(message.text)}`;
+            chat.appendChild(row);
+        }
+        if (!messages.length) chat.textContent = t('clans.chatEmpty');
     }
 
-    _createClan() {
-        const input = document.getElementById('social-clan-name');
-        const name = input?.value.trim();
-        if (!name) return;
-        const userId = this._socialUserId();
-        const tag = name.replace(/[^A-Za-z0-9]/g, '').slice(0, 5).padEnd(2, 'X');
-        try {
-            const next = createClan(this.store.get('socialState'), {
-                clanId: `clan-${Date.now()}`,
-                name,
-                tag,
-                ownerId: userId,
-                createdAt: Date.now()
-            });
-            this.store.set('socialState', next);
-            input.value = '';
-            this._renderSocial();
-        } catch (error) {
-            this.ui.showMessage?.(error.message, 1800);
-        }
+    _clanError(result) {
+        const key = { in_clan: 'clans.errInClan', bad_name: 'clans.errName', bad_tag: 'clans.errTag', tag_taken: 'clans.errTagTaken', name_taken: 'clans.errNameTaken', not_found: 'clans.errNotFound', full: 'clans.errFull', sign_in_required: 'clans.needAccount', rate_limited: 'toast.gchatRateLimited' }[result?.code];
+        this.ui.showMessage?.(key ? t(key) : (result?.error || t('clans.errGeneric')), 2000);
     }
 
-    _sendClanMessage() {
+    async _createClan() {
+        const name = document.getElementById('social-clan-name')?.value.trim();
+        const tag = document.getElementById('social-clan-tag')?.value.trim();
+        if (!name || !tag) return;
+        const result = await this.clanClient?.create(name, tag);
+        if (!result?.ok) return this._clanError(result);
+        this.ui.showMessage?.(t('clans.created', { tag: result.clan.tag }), 1800);
+        await this._renderSocial();
+    }
+
+    async _joinClan() {
+        const tag = document.getElementById('social-join-tag')?.value.trim();
+        if (!tag) return;
+        const result = await this.clanClient?.join(tag);
+        if (!result?.ok) return this._clanError(result);
+        this.ui.showMessage?.(t('clans.joined', { tag: result.clan.tag }), 1800);
+        await this._renderSocial();
+    }
+
+    async _leaveClan() {
+        const result = await this.clanClient?.leave();
+        if (!result?.ok) return this._clanError(result);
+        await this._renderSocial();
+    }
+
+    async _sendClanMessage() {
         const input = document.getElementById('social-chat-input');
         const text = input?.value;
-        if (!text || !this._selectedClanId) return;
-        try {
-            const next = appendClanMessage(this.store.get('socialState'), {
-                clanId: this._selectedClanId,
-                messageId: `msg-${Date.now()}`,
-                senderId: this._socialUserId(),
-                text,
-                sentAt: Date.now()
-            });
-            this.store.set('socialState', next);
-            input.value = '';
-            this._renderSocial();
-        } catch (error) {
-            this.ui.showMessage?.(error.message, 1800);
-        }
+        if (!text || !this._myClan) return;
+        const result = await this.clanClient?.post(text);
+        if (!result?.ok) return this._clanError(result);
+        input.value = '';
+        await this._renderClanChat();
     }
 
     _queueRoundReplay() {

@@ -3,8 +3,8 @@ const MATCH_ID = /^[A-Za-z0-9_-]{22,128}$/;
 const MODES = new Set(['solo', 'casual', 'ranked']);
 
 class MatchAuthority {
-    constructor(profiles, { getLobby = () => null, now = () => Date.now(), minDurationMs = 20_000, ttlMs = 7200000, maxFinalized = 1000 } = {}) {
-        this.profiles = profiles; this.getLobby = getLobby; this.now = now;
+    constructor(profiles, { getLobby = () => null, now = () => Date.now(), minDurationMs = 20_000, ttlMs = 7200000, maxFinalized = 1000, clans = null } = {}) {
+        this.profiles = profiles; this.getLobby = getLobby; this.now = now; this.clans = clans;
         this.minDurationMs = minDurationMs; this.ttlMs = ttlMs; this.maxFinalized = maxFinalized;
         this.matches = new Map(); this.activeByProfile = new Map(); this.finalized = new Map(); this.finalizedOrder = [];
     }
@@ -101,6 +101,9 @@ class MatchAuthority {
             const [a, b] = ids; const ranked = this.profiles.finalizeRankedMatch(this.profiles.getById(a), this.profiles.getById(b), { matchId, firstResult: match.reports.get(a).result, secondResult: match.reports.get(b).result, playedAt: now });
             for (const id of ids) { const record = this.profiles.getById(id); const reward = this.profiles.reward(record, { matchId, won: match.reports.get(id).result === 'win', score: 0, deflections: 0, gameMode: match.gameMode }, now); completions.set(id, { ...reward, rankedState: ranked[id] }); }
         } else for (const id of ids) { const record = this.profiles.getById(id); completions.set(id, this.profiles.reward(record, { matchId, won: match.reports.get(id).result === 'win', score: 0, deflections: 0, gameMode: match.gameMode }, now)); }
+        // Clan match: every winner in one clan, every loser in another (server/clan-store.js).
+        const clanMatch = this.clans?.recordClanMatch?.(ids.filter(id => match.reports.get(id).result === 'win'), ids.filter(id => match.reports.get(id).result === 'loss')) || null;
+        if (clanMatch) for (const id of ids) completions.set(id, { ...completions.get(id), clanMatch });
         match.completions = completions; this._finish(match);
         return { ...this._public(match, profile), httpStatus: 200, replayed: false };
     }

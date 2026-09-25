@@ -24,6 +24,7 @@ const { resolvePublicPath, resolveEntryHtml, isImmutableAsset } = require('./ser
 const { CompressionCache } = require('./server/compress');
 const { GlobalChat } = require('./server/global-chat');
 const { WEEKLY_EVENT_POINTS, weeklyEvent } = require('./server/weekly-event');
+const { ClanStore } = require('./server/clan-store');
 const staticCompression = new CompressionCache();
 const { createLiveMarket, findLiveOffer } = require('./server/live-market');
 const {
@@ -43,6 +44,8 @@ if (process.env.RENDER && !process.env.DATA_DIR) {
     console.warn('[server] RENDER is set without DATA_DIR; account data will not survive deploys. Mount a persistent disk and set DATA_DIR to its mount path.');
 }
 const profiles = new ProfileStore(path.join(DATA_DIR, 'profiles.json'));
+// Server clans and clan-vs-clan records (accounts only).
+const clans = new ClanStore(path.join(DATA_DIR, 'clans.json'));
 // Main-menu chat keeps its last 100 messages (24 h) across restarts and deploys.
 const globalChat = new GlobalChat({ file: path.join(DATA_DIR, 'global-chat.json') });
 const accounts = new AccountStore(path.join(DATA_DIR, 'accounts.db'), profiles);
@@ -203,7 +206,7 @@ const socialHubs = new Map(); // code -> { code, mapId, mapName, hostName, playe
 const SOCIAL_HUB_MAP_NAMES = Object.freeze({
     plaza: 'Neon Clubhouse'
 });
-matchAuthority = new MatchAuthority(profiles, { getLobby: code => lobbies.get(code) || null });
+matchAuthority = new MatchAuthority(profiles, { getLobby: code => lobbies.get(code) || null, clans });
 const partyStore = new PartyStore({
     isAccountAvailable: accountId => presence.isAccountAvailable(accountId),
     isAccountActive: accountId => {
@@ -686,6 +689,31 @@ const server = http.createServer(async (req, res) => {
             }
         }
         sendJson(res, response);
+        return;
+    }
+    // --- Clans (server/clan-store.js): accounts only ---
+    if (urlPath === '/api/clans/top' && req.method === 'GET') {
+        if (!allowRequest(req, res, 'leaderboard')) return;
+        sendJson(res, { clans: clans.top(20) });
+        return;
+    }
+    if (urlPath.startsWith('/api/clans/') && ['GET', 'POST'].includes(req.method)) {
+        const action = urlPath.slice('/api/clans/'.length);
+        if (!['mine', 'create', 'join', 'leave', 'chat'].includes(action)) { sendJson(res, { error: 'not found' }, 404); return; }
+        if (!allowRequest(req, res, req.method === 'GET' ? 'chatRead' : 'chatWrite')) return;
+        const body = req.method === 'POST' ? await readBody(req, 1024) : null;
+        const profile = requireAuth(req, res, body)?.profile;
+        if (!profile) return;
+        let result;
+        if (action === 'mine' && req.method === 'GET') result = { status: 200, clan: clans.mine(profile) };
+        else if (action === 'create' && req.method === 'POST') result = clans.create(profile, { name: body?.name, tag: body?.tag });
+        else if (action === 'join' && req.method === 'POST') result = clans.join(profile, { tag: body?.tag });
+        else if (action === 'leave' && req.method === 'POST') result = clans.leave(profile);
+        else if (action === 'chat' && req.method === 'GET') result = clans.chat(profile, new URLSearchParams(req.url.split('?')[1] || '').get('after'));
+        else if (action === 'chat' && req.method === 'POST') result = clans.post(profile, body?.text);
+        else { sendJson(res, { error: 'method not allowed' }, 405); return; }
+        const { status, ...payload } = result;
+        sendJson(res, payload, status);
         return;
     }
     // Weekly event ladder (server/weekly-event.js): this week's mode, the top 20 and
