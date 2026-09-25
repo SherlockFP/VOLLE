@@ -11,8 +11,9 @@
 - **Görünürlük:** uzak top ≥12 px işaret, rakip başında takım renkli ok. **Akıcılık:** maç başı shader ön-derleme; maç ortası derleme donmaları 3 maçta 5 → 0 (en kötü 442 ms).
 - **CS:GO tarzı droplar:** zarlar oyuncu başına, maç başı %20 ekstra kart, kendi dropun sağda, başkalarınınki solda, maç sonunda "Herkesin dropları" listesi.
 - **Tempo:** raund arası 3 sn, soloda Boşluk ile atlanıyor. **Bot doldurma:** casual online lobide boş yerler botla doluyor (≥2v2), ranked'de asla.
+- Doldurma botları lobide canlı ve atılabiliyor (2v1 mümkün). **Maçın Anı:** raporda en iyi an kartı var, soloda izlenebiliyor; tekrarlarda gerçek karakter modelleri kullanılıyor.
 - `sfx/tf2_*.mp3` TF2 kaynaklı; sahip bu sesleri tutmaya karar verdi.
-- Doğrulama **2624/2625 test** (+1 skip), check 154 dosya OK. Dal main'e birleşmedi.
+- Doğrulama **2631/2632 test** (+1 skip), check 155 dosya OK. Dal main'e birleşmedi.
 
 ## En yeni — Sınırlı döngü: mobil + ilk yükleme ([[sessions/2026-09-25-bounded-mobile-perf]])
 - Sözleşme önceden yazıldı (sabit hedef, kanıt, değişmezler, tur limiti, ayrı commit). main'in çevrimiçi oyun düzeltmesiyle birleştirildi.
