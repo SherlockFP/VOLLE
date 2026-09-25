@@ -51,6 +51,7 @@ import { TEAM_MENU_KEYS } from './team-switch.js';
 import { getReward as getBattlepassRewardEntry } from './battlepass.js';
 import { Replay, extractReplayHighlight } from './replay.js';
 import { ReplayView } from './replay-view.js';
+import { pickPlayOfTheGame } from './play-of-game.js';
 import { CAMERA_MODES, Spectator } from './spectator.js';
 import { JOINED_SPECTATOR_MODES } from './spectator.js';
 import { BALL_SKINS, ballShapeParts } from './ball.js';
@@ -339,6 +340,7 @@ class App {
             // store.grant(), so the report can roll the bar over a crossed level.
             const prevAccount = this.store.getAccount?.() || null;
             const personal = this._settlePersonalBests();
+            this._presentPlayOfTheGame?.(this.game.matchId);
             this.awardMatchRewards();
             this.productAnalytics.track('match_complete', {
                 mode: this.game.mode?.id || 'classic',
@@ -369,6 +371,8 @@ class App {
             clearTimeout(this._deferredRewardRetryTimer);
             this._deferredRewardRetryTimer = null;
             this.ui.clearPostGameMatchDrops?.();
+            this.ui.setPlayOfTheGame?.(null);
+            this._playOfTheGame = null;
             this.dropFeed?.bindLog?.(this.game.matchId);
             this.ui.clearToastQueue?.();
             this._analyticsMatchStartedAt = Date.now();
@@ -2061,6 +2065,34 @@ class App {
         return true;
     }
 
+    // Play of the Game: the best moment of the match so far (js/play-of-game.js),
+    // cut from the live recording while the report opens.
+    _presentPlayOfTheGame(matchId) {
+        if (!Replay.recording || !Replay.events.length) {
+            this.ui.setPlayOfTheGame?.(null);
+            return null;
+        }
+        const replay = { meta: Replay.meta || {}, events: Replay.events.slice(), duration: Math.max(0, performance.now() - Replay.startTs) };
+        const play = pickPlayOfTheGame(replay);
+        this._playOfTheGame = play ? { matchId, play, replay: extractReplayHighlight(replay, { label: 'Play of the Game', start: play.start, end: play.end }) } : null;
+        // Watching leaves the report; online a rematch may start meanwhile, so solo only.
+        this.ui.setPlayOfTheGame?.(play, { canWatch: !!play && !this.network?.connected });
+        return play;
+    }
+
+    _watchPlayOfTheGame() {
+        const entry = this._playOfTheGame;
+        if (!entry || entry.matchId !== this.game.matchId || this.network?.connected || this.game.state !== STATES.GAME_OVER) return false;
+        // The match's own bodies would stand in the replay: hide them until we return.
+        const hidden = [...this.game.bots, ...this.game.remotePlayers.values(), this.game.localCosmeticEntity]
+            .map(entity => entity?.group)
+            .filter(group => group?.visible);
+        hidden.forEach(group => { group.visible = false; });
+        this._startReplay(entry.replay);
+        this._replayReturn = { hidden };
+        return true;
+    }
+
     _startDeferredMatchRewardRetry(matchId, context) {
         clearTimeout(this._deferredRewardRetryTimer);
         const active = () => this.game.matchId === matchId
@@ -2374,6 +2406,7 @@ class App {
         bind('replay-prev', () => Spectator.prevTarget());
         bind('replay-next', () => Spectator.nextTarget());
         bind('replay-exit', () => this._exitReplay());
+        bind('btn-pg-potg-watch', () => this._watchPlayOfTheGame());
         document.getElementById('replay-seek')?.addEventListener('input', event => {
             const state = Replay.getPlaybackState();
             Replay.seek((Number(event.target.value) / 1000) * state.duration);
@@ -5032,6 +5065,7 @@ updateCSLobbyInfo();
         Replay.play(replay, {
             deflect: data => this.ui.showMessage?.(`Rally ${data?.rally || ''}`, 500),
             hit: data => this.ui.showMessage?.(`Hit ${data?.damage || ''}`, 500),
+            kill: data => this.ui.showMessage?.(`${String(data?.attacker || '').slice(0, 24)} ✖ ${String(data?.victim || '').slice(0, 24)}`, 900),
             renderSnapshot: snapshot => {
                 if (snapshot.ball) {
                     this.game.ball.active = true;
@@ -5059,6 +5093,17 @@ updateCSLobbyInfo();
         this._replaySpectatorGame = null;
         this.game?.ball?.deactivate();
         document.getElementById('replay-controls')?.classList.add('hidden');
+        if (this._replayReturn) {
+            // Play of the Game was watched from the report: go back to it.
+            const back = this._replayReturn;
+            this._replayReturn = null;
+            back.hidden.forEach(group => { group.visible = true; });
+            this.game.setState(STATES.GAME_OVER);
+            this.ui.hideHUD?.();
+            document.getElementById('post-game-screen')?.classList.remove('hidden');
+            this.player.unlock();
+            return;
+        }
         if (!showList || !this.game) return;
         this.game.setState(STATES.MENU);
         this.ui.renderReplays?.(Replay.loadAll());
@@ -10151,23 +10196,26 @@ updateCarousel() {
         if (this.game.state === STATES.PLAYING && Replay.recording) {
             if (Replay.isSnapshotDue()) Replay.recordSnapshot({
                 ball: this.game.ball.position,
+                // Feet height for everyone (players carry eye height; bots feet)
+                // so replay actors stand on the floor.
                 player: {
                     id: 'local',
                     name: this.game.playerName,
                     team: this.player.team,
                     alive: this.player.alive,
-                    position: this.player.getPosition(),
+                    position: { x: this.player.position.x, y: this.player.position.y - 1.7, z: this.player.position.z },
                     yaw: this.player.euler.y,
                     pitch: this.player.euler.x
                 },
                 players: [
                     ...this.game.bots.map(bot => ({
                         id: bot.name, name: bot.name, team: bot.team, alive: bot.alive,
-                        position: bot.position, yaw: bot.rotation?.y || 0
+                        position: bot.position, yaw: bot.group?.rotation?.y ?? bot.rotation?.y ?? 0
                     })),
                     ...[...this.game.remotePlayers.values()].map(player => ({
                         id: player.name, name: player.name, team: player.team, alive: player.alive,
-                        position: player.position, yaw: player.rotation?.y || 0
+                        position: { x: player.position.x, y: player.getFeetY?.() ?? player.position.y, z: player.position.z },
+                        yaw: player.group?.rotation?.y ?? 0
                     }))
                 ],
                 camera: {

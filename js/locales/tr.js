@@ -203,6 +203,16 @@ export default {
         lobbyAria: 'Özel haritayı koduyla oyna',
         play: 'Bu haritada oyna'
     },
+    potg: {
+        kill: 'Eleme',
+        double: 'Çift öldürme',
+        triple: 'Üçlü öldürme',
+        multi: '{count}x öldürme',
+        rally: '{count} rally',
+        perfect: 'Perfect',
+        headshot: 'Kafadan',
+        rallyOnly: 'En uzun rally'
+    },
     drops: {
         received: '{name} şunu kazandı:',
         youReceived: 'Sana düştü:',
@@ -994,6 +1004,8 @@ export default {
         matchDrop: 'MAÇ GANİMETİ',
         addedToCollection: 'Koleksiyonuna eklendi',
         dropLog: 'HERKESİN DROPLARI',
+        potg: 'MAÇIN ANI',
+        potgWatch: '▶ İzle',
         dropLogSub: 'Bu maçta kime ne düştü',
         matchDetails: 'Maç detayları',
         detailTabs: 'Genel Bakış · Zaman Çizelgesi · İstatistikler',

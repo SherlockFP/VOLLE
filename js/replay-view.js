@@ -1,7 +1,21 @@
 import * as THREE from 'three';
+import { createCharacterRig } from './character-rig.js';
 
 function material(color) {
     return new THREE.MeshLambertMaterial({ color });
+}
+
+// Replay actors wear the real team-colored character rig; the box figure below
+// is only the fallback if a rig cannot be built.
+function createRigActor(team) {
+    try {
+        const rig = createCharacterRig({ characterId: 'rally', team, castShadow: false });
+        const group = new THREE.Group();
+        group.add(rig.root);
+        return { group, rig };
+    } catch {
+        return null;
+    }
 }
 
 function createActor(team) {
@@ -35,7 +49,8 @@ export class ReplayView {
             if (!data?.id) continue;
             let actor = this.actors.get(data.id);
             if (!actor) {
-                const group = createActor(data.team);
+                const built = createRigActor(data.team);
+                const group = built?.group || createActor(data.team);
                 this.scene.add(group);
                 actor = {
                     id: data.id,
@@ -47,6 +62,7 @@ export class ReplayView {
                     pitch: 0,
                     eyeHeight: 1.7,
                     group,
+                    rig: built?.rig || null,
                     getPosition: () => group.position.clone()
                 };
                 this.actors.set(data.id, actor);
@@ -68,7 +84,8 @@ export class ReplayView {
 
     clear() {
         for (const actor of this.actors.values()) {
-            actor.group.traverse(child => {
+            if (actor.rig) actor.rig.dispose();
+            else actor.group.traverse(child => {
                 child.geometry?.dispose?.();
                 child.material?.dispose?.();
             });

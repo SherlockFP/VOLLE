@@ -150,6 +150,13 @@ export function createReplayHighlights(replay, limit = 3) {
                 label: event.data?.lethal ? 'Missed Deflect · Elimination' : 'Missed Deflect'
             }];
         }
+        if (event.type === 'kill' && event.data?.attacker) {
+            return [{
+                at: event.t,
+                score: 100 + Math.min(30, finite(event.data.rally)) * 8 + (event.data.perfect ? 60 : 0) + (event.data.headshot ? 40 : 0),
+                label: `${String(event.data.attacker).slice(0, 24)} · Elimination`
+            }];
+        }
         if (event.type === 'rocketJump') {
             return [{ at: event.t, score: 45 + finite(event.data?.strength) * 20, label: 'Rocket Jump' }];
         }

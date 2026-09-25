@@ -320,3 +320,34 @@ body.reduced-motion #post-game-screen .pg-bp-bar-fill,
     .drop-toast { animation: none; }
 }
 body.reduced-motion .drop-toast { animation: none; }
+
+/* ===== Play of the Game (js/play-of-game.js) */
+#post-game-screen .pg-potg {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 10px 0;
+    padding: 12px 14px;
+    border: 1px solid rgba(255, 196, 70, .5);
+    border-radius: 12px;
+    background: linear-gradient(120deg, rgba(255, 176, 32, .2), rgba(8, 12, 20, .88) 55%);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .04), 0 0 24px rgba(255, 176, 32, .12);
+    text-align: left;
+}
+#post-game-screen .pg-potg[hidden] { display: none; }
+#post-game-screen .pg-potg-copy { display: grid; gap: 3px; min-width: 0; }
+#post-game-screen .pg-potg-kicker { color: #ffc446; font-size: .68rem; font-weight: 900; letter-spacing: .16em; }
+#post-game-screen .pg-potg-name { overflow: hidden; color: #fff4dc; font-size: 1.2rem; text-overflow: ellipsis; white-space: nowrap; }
+#post-game-screen .pg-potg-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+#post-game-screen .pg-potg-tag {
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(255, 196, 70, .16);
+    color: #ffe3a3;
+    font-size: .7rem;
+    font-weight: 800;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+#post-game-screen .pg-potg .btn { flex: none; min-height: 40px; }

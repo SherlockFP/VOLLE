@@ -203,6 +203,16 @@ export default {
         lobbyAria: 'Play a custom map from its code',
         play: 'Play this map'
     },
+    potg: {
+        kill: 'Elimination',
+        double: 'Double kill',
+        triple: 'Triple kill',
+        multi: '{count}x kill',
+        rally: '{count} rally',
+        perfect: 'Perfect',
+        headshot: 'Headshot',
+        rallyOnly: 'Longest rally'
+    },
     drops: {
         received: '{name} has received:',
         youReceived: 'You received:',
@@ -1000,6 +1010,8 @@ export default {
         matchDrop: 'MATCH DROP',
         addedToCollection: 'Added to your collection',
         dropLog: 'EVERYONE\'S DROPS',
+        potg: 'PLAY OF THE GAME',
+        potgWatch: '▶ Watch',
         dropLogSub: 'Who got what this match',
         matchDetails: 'Match details',
         detailTabs: 'Overview · Timeline · Stats',

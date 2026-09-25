@@ -15,6 +15,7 @@ import { COSMETICS, COSMETIC_TYPES, cosmeticsByType } from './cosmetic-catalog.j
 import { accountRankLabel, accountRankShort, levelProgress, prestigeTitle } from './prestige.js';
 import { Store } from './store.js';
 import { filterChatText } from './chat-filter.js';
+import { playTags } from './play-of-game.js';
 import { matchesShopFilter, matchesShopQuery, compareShopItems, deriveShopCardState, SHOP_COLLECTIONS, shopCollectionForItem } from './shop-clarity.js';
 import { characterPortraitPath, shopNameFitTier, knifeTeamRestriction, isKnifeEquippedAny } from './shop-ux2.js';
 import { classifyDamageTier, nextPoolCursor, damageJitterFor, comboTier, OVERDRIVE_MAX_RATIO } from './combat-fx.js';
@@ -1337,6 +1338,33 @@ export class UI {
         }
         this._animateCount(totalEl, coinTotal, value => `+${value}`);
         this._lastMatchReward = null;
+    }
+
+    // Play of the Game card on the report: who, what (tags), and a Watch button
+    // when the replay can be played here (solo). null hides it.
+    setPlayOfTheGame(play, { canWatch = false } = {}) {
+        const card = document.getElementById('pg-potg');
+        if (!card) return false;
+        if (!play) {
+            card.hidden = true;
+            return false;
+        }
+        const name = document.getElementById('pg-potg-name');
+        const tags = document.getElementById('pg-potg-tags');
+        const watch = document.getElementById('btn-pg-potg-watch');
+        if (name) name.textContent = play.player || t('potg.rallyOnly');
+        if (tags) {
+            tags.replaceChildren();
+            for (const label of playTags(play, t)) {
+                const chip = document.createElement('span');
+                chip.className = 'pg-potg-tag';
+                chip.textContent = label;
+                tags.append(chip);
+            }
+        }
+        if (watch) watch.hidden = !canWatch;
+        card.hidden = false;
+        return true;
     }
 
     clearPostGameMatchDrops() {

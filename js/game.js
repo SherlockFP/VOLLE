@@ -4180,6 +4180,14 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
 
     _presentLethalImpact(hitPos, victimTeam, attackerName, victimName, rallyCount = 0, detail = null) {
         if (!this._claimKillPresentation(attackerName, victimName, rallyCount, detail)) return false;
+        // Every elimination (any player, bots too) feeds Play of the Game.
+        this.onReplayEvent?.({
+            type: 'kill',
+            data: {
+                attacker: String(attackerName || ''), victim: String(victimName || ''),
+                rally: Number(rallyCount) || 0, perfect: detail?.perfect === true, headshot: detail?.headshot === true
+            }
+        });
         this.killPillars?.spawn(hitPos, TEAM_COLORS[victimTeam] ?? 0xffe08a);
         this.juice.killBurst(hitPos);
         this.juice.hitStop(150);
