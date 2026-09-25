@@ -164,7 +164,7 @@ test('lobby: a stale late-join queue never turns a pick into "next round" (host,
 });
 
 test('lobby wiring: entering LOBBY settles teams; host applies lobby requests instantly; columns click-to-join', () => {
-    assert.match(extractGameMethod('setState'), /if \(\(s === STATES\.LOBBY \|\| s === STATES\.MENU\) && prev !== s\) this\._settleLobbyTeams\(\);/);
+    assert.match(extractGameMethod('setState'), /if \(\(s === STATES\.LOBBY \|\| s === STATES\.MENU\) && prev !== s\) this\._settleLobbyTeams\?\.\(\);/);
     assert.match(mainSource, /if \(p\?\.queuedForNextRound && this\.game\.state !== STATES\.LOBBY\) \{/);
     assert.match(mainSource, /col\.addEventListener\('click', e => \{[\s\S]*?this\.game\.switchTeam\(team\);/);
     assert.match(mainSource, /this\.network\?\.send\?\.\(\{ type: 'teamChange', name, team: targetTeam \}\);\s*this\.broadcastLobbyState\(\);/);

@@ -127,7 +127,7 @@ test('client welcome handler invokes the bridge before unchanged late-join handl
     const sharedStart = main.indexOf('    async _joinOnlineLobby(');
     const shared = main.slice(sharedStart, main.indexOf('\n    _joinErrorMessage(', sharedStart));
     assert.match(manual, /await this\._joinOnlineLobby\(code, name, password, \{ spectator \}\);/);
-    assert.match(quick, /await this\._joinOnlineLobby\(code, name, '', \{ spectator \}\)/);
+    assert.match(quick, /await this\._joinOnlineLobby\(code, name, '', \{ spectator[,} ]/);
     assert.match(shared, /await this\._confirmLobbyAdmission\(code\);[\s\S]*?this\.game\.playerName = name;[\s\S]*?this\.ui\.showScreen\('lobby'\);\s*this\._finalizeClientLobbyJoin\(code\);/);
     // A failed join never leaves a half-open transport (ghost player on the host).
     assert.match(shared, /catch \(error\) \{[\s\S]*?this\.network\.disconnect\(\);/);

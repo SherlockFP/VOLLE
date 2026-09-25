@@ -572,7 +572,7 @@ export class Game {
             if (this.player) this.player.nextRoundTeam = null;
             if (this.ui?.isTeamPopupOpen?.()) this.ui.hideTeamPopup?.();
         }
-        if ((s === STATES.LOBBY || s === STATES.MENU) && prev !== s) this._settleLobbyTeams();
+        if ((s === STATES.LOBBY || s === STATES.MENU) && prev !== s) this._settleLobbyTeams?.();
         if (s === STATES.ROUND_END && prev !== STATES.ROUND_END) {
             this.onRoundEnd?.();
             // Valorant-style round-end flourish keyed off the winning side's ball skin.
