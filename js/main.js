@@ -53,6 +53,7 @@ import { Replay, extractReplayHighlight } from './replay.js';
 import { ReplayView } from './replay-view.js';
 import { pickPlayOfTheGame } from './play-of-game.js';
 import { createPotgStage } from './potg-player.js';
+import { WEEKLY_EVENT_XP_BONUS, timeLeftParts, weeklyEvent, weeklyEventXpBonus } from './weekly-event.js';
 import { CAMERA_MODES, Spectator } from './spectator.js';
 import { JOINED_SPECTATOR_MODES } from './spectator.js';
 import { BALL_SKINS, ballShapeParts } from './ball.js';
@@ -1637,6 +1638,24 @@ class App {
             }
         }
 
+        // Weekly event (js/weekly-event.js): this week's featured mode, +XP, countdown.
+        const eventCard = document.getElementById('menu-event-card');
+        if (eventCard) {
+            const event = weeklyEvent();
+            const mode = GAME_MODES[event.modeId]?.name || event.modeId;
+            const left = timeLeftParts(event.endsAt);
+            const title = document.getElementById('menu-event-title');
+            const sub = document.getElementById('menu-event-sub');
+            const fill = document.getElementById('menu-event-fill');
+            if (title) title.textContent = t('event.title', { mode });
+            if (sub) sub.textContent = t('event.sub', { bonus: Math.round(WEEKLY_EVENT_XP_BONUS * 100), days: left.days, hours: left.hours });
+            if (fill) fill.style.width = `${Math.min(100, Math.max(0, 100 - ((event.endsAt - Date.now()) / (7 * 864e5)) * 100))}%`;
+            eventCard.hidden = false;
+            document.querySelectorAll('[data-mode]').forEach(button => {
+                button.classList.toggle('is-weekly-event', button.dataset.mode === event.modeId);
+            });
+        }
+
         const bpCard = document.getElementById('menu-bp-card');
         if (bpCard) {
             const bp = this.store.getBattlepassProgress();
@@ -1846,13 +1865,16 @@ class App {
         // Rally input is the best rally across the whole match: rallyCount resets
         // every round, so reading it here only ever saw the final round.
         const rally = this.game.getMatchBestRally();
-        const rawXp = matchXp({
+        const baseXp = matchXp({
             deflections: myStat.deflections,
             kills: myStat.score,
             rally,
             survived: (myStat.deaths || 0) === 0,
             won
         });
+        // Weekly event: matches in this week's featured mode earn extra XP.
+        const eventXp = Math.round(baseXp * weeklyEventXpBonus(this.game.mode?.id));
+        const rawXp = baseXp + eventXp;
         const xp = this.store.boostedXp(rawXp);
         const xpSources = [
             { label: 'Match played', value: MATCH_XP.base },
@@ -1861,6 +1883,7 @@ class App {
             { label: `Rally x${rally || 0}`, value: (rally || 0) * MATCH_XP.perRally },
             { label: (myStat.deaths || 0) === 0 ? 'Survival bonus' : 'Match result', value: (myStat.deaths || 0) === 0 ? MATCH_XP.survivalBonus : 0 },
             { label: won ? 'Victory bonus' : 'Match played bonus', value: won ? MATCH_XP.win : MATCH_XP.loss },
+            ...(eventXp > 0 ? [{ label: 'Weekly event bonus', value: eventXp }] : []),
             { label: 'Active XP boost', value: xp - rawXp }
         ];
         // Authenticated matches never add client-issued currency. XP remains
@@ -2138,6 +2161,19 @@ class App {
         this._potgStage = null;
         const stageEl = document.getElementById('pg-potg-stage');
         if (stageEl) stageEl.hidden = true;
+    }
+
+    // Menu "Weekly event" card: a bot match in this week's mode, via the normal
+    // solo path (same preset, same lobby), with the mode switched to the event.
+    _playWeeklyEvent() {
+        if (this.network?.connected || this.game.state !== STATES.MENU) return false;
+        const event = weeklyEvent();
+        document.getElementById('solo-paths-start')?.click();
+        if (this.game.state !== STATES.LOBBY) return false;
+        this.game.selectMode(event.modeId);
+        const mode = GAME_MODES[event.modeId]?.name || event.modeId;
+        this.ui.showMessage?.(t('event.selected', { mode, bonus: Math.round(WEEKLY_EVENT_XP_BONUS * 100) }), 2200);
+        return true;
     }
 
     _startDeferredMatchRewardRetry(matchId, context) {
@@ -2516,6 +2552,7 @@ class App {
             this.ui.renderBattlepass(this.store);
             this.ui.showScreen('battlepass');
         });
+        bind('menu-event-card', () => this._playWeeklyEvent());
         bind('menu-starter-card', () => {
             this.ui.showScreen('shop');
             this.ui.renderShop(this.store, 'cases');

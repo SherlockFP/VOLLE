@@ -203,6 +203,12 @@ export default {
         lobbyAria: 'Play a custom map from its code',
         play: 'Play this map'
     },
+    event: {
+        aria: 'Weekly event',
+        title: 'Weekly event: {mode}',
+        sub: '+{bonus}% XP · {days}d {hours}h left',
+        selected: 'Weekly event: {mode} (+{bonus}% XP)'
+    },
     potg: {
         kill: 'Elimination',
         double: 'Double kill',

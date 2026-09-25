@@ -203,6 +203,12 @@ export default {
         lobbyAria: 'Özel haritayı koduyla oyna',
         play: 'Bu haritada oyna'
     },
+    event: {
+        aria: 'Haftalık etkinlik',
+        title: 'Haftalık etkinlik: {mode}',
+        sub: '+%{bonus} XP · {days}g {hours}s kaldı',
+        selected: 'Haftalık etkinlik: {mode} (+%{bonus} XP)'
+    },
     potg: {
         kill: 'Eleme',
         double: 'Çift öldürme',
