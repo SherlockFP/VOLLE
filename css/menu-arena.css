@@ -1142,15 +1142,26 @@ body.is-new-player #main-menu :is(#btn-ranked, #btn-battlepass)::after {
 [data-mode].is-weekly-event::after { content: '★'; position: absolute; top: 2px; right: 5px; color: #ffc446; font-size: .72rem; line-height: 1; }
 
 /* Server clans (js/clan-client.js): my clan card, forms, top list, community summary. */
-.social-my-clan { display: grid; gap: 8px; margin: 6px 0 12px; color: #d8e8ec; }
+.social-my-clan { display: grid; gap: 8px; margin: 6px 0 12px; color: var(--arena-ink); }
 .social-clan-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-.social-clan-head strong { font-size: 1.1rem; color: #fff; }
-.social-clan-head span { color: #ffc446; font-weight: 800; }
+.social-clan-head strong { font-size: 1.1rem; color: var(--arena-ink); }
+.social-clan-head span { color: var(--arena-gold); font-weight: 800; }
 .social-clan-members { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.social-clan-members li { padding: 3px 8px; border-radius: 999px; background: rgba(255, 255, 255, .06); font-size: .8rem; }
-.social-clan-recent { margin: 0; color: #9fb4bc; font-size: .82rem; letter-spacing: .04em; }
+.social-clan-members li { padding: 3px 8px; border: 1px solid var(--arena-line); border-radius: 999px; font-size: .8rem; }
+.social-clan-recent { margin: 0; color: var(--arena-muted); font-size: .82rem; letter-spacing: .04em; }
 .social-tag-input { max-width: 90px; text-transform: uppercase; }
 .social-top-title { margin-top: 10px; }
-.social-top-clans { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; color: #d8e8ec; font-size: .86rem; }
-.social-top-clans li { padding: 6px 10px; border-radius: 8px; background: rgba(255, 255, 255, .04); }
-.community-clan-summary { margin: 6px 0 0; color: #d8e8ec; }
+.social-top-clans { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; color: var(--arena-ink); font-size: .86rem; }
+.social-top-clans li { padding: 6px 10px; border: 1px solid var(--arena-line); border-radius: 8px; }
+#social-top-clans .social-empty { min-height: 0; padding: 12px; border: 0; color: var(--arena-muted); }
+.community-clan-summary { margin: 6px 0 0; color: var(--arena-ink); }
+/* The Clans screen on the arena theme, like the Community cards: the old light
+   cards and log left the themed text white on white. */
+#social-screen :is(.social-clans, .social-chat) { color: var(--arena-ink); border-color: var(--arena-line); background: var(--arena-card); box-shadow: none; }
+#social-screen .social-chat-log { color: var(--arena-ink); border-color: var(--arena-line); background: var(--arena-base); }
+#social-screen :is(.social-chat-welcome, .social-empty) { color: var(--arena-muted); }
+#social-screen :is(.social-chat-welcome strong, .social-empty strong, .social-create > label) { color: var(--arena-ink); }
+#social-screen .social-chat-message { margin: 0; padding: 6px 12px; overflow-wrap: anywhere; }
+#social-screen .social-input-row input { color: var(--arena-ink); border-color: var(--arena-line); background: var(--arena-base); }
+#social-screen .social-input-row .btn { flex: 0 0 auto; width: auto; }
+#social-screen .social-section-title h3 { margin: 0; color: var(--arena-ink); font-size: 1.05rem; }
