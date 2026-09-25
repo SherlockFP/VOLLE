@@ -9,7 +9,9 @@
 - **Sohbet filtresi** EN/TR (varsayılan açık, Oynanış ayarından kapanır). **Global chat** ana menüde: host'un tek tık lobi daveti, Join/Copy, lobide kod kopyala/paylaş.
 - **Harita kodları:** editörde kodu kopyala/yükle, lobide kodu yapıştırıp o haritada oyna. Sunucuda saklanmıyor, kod doğrulanıyor.
 - **Görünürlük:** uzak top ≥12 px işaret, rakip başında takım renkli ok. **Akıcılık:** maç başı shader ön-derleme; maç ortası derleme donmaları 3 maçta 5 → 0 (en kötü 442 ms).
-- Doğrulama **2611/2611 test** (+1 skip), check 152 dosya OK. Dal main'e birleşmedi.
+- **CS:GO tarzı droplar:** zarlar oyuncu başına, maç başı %20 ekstra kart, kendi dropun sağda, başkalarınınki solda, maç sonunda "Herkesin dropları" listesi.
+- ⚠ `sfx/tf2_*.mp3` TF2'den alınmış görünüyor (lisans riski). Sahibin kararı bekleniyor.
+- Doğrulama **2616/2617 test** (+1 skip), check 153 dosya OK. Dal main'e birleşmedi.
 
 ## En yeni — Sınırlı döngü: mobil + ilk yükleme ([[sessions/2026-09-25-bounded-mobile-perf]])
 - Sözleşme önceden yazıldı (sabit hedef, kanıt, değişmezler, tur limiti, ayrı commit). main'in çevrimiçi oyun düzeltmesiyle birleştirildi.
