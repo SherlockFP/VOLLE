@@ -1986,10 +1986,30 @@ class App {
         if (replay && replay.events.length > 0) Replay.save(replay);
     }
 
-    // Casual online lobby: empty seats get bots before the match starts, and bots
-    // this added leave again when humans take their seats (js/bot-backfill.js).
-    _backfillLobbyBots({ quiet = false } = {}) {
-        if (!this.network?.connected || !this.network.isHost) return 0;
+    // Casual online lobby: empty seats get bots (tagged AUTO in the lobby list),
+    // bots this added leave again when humans take their seats, and a seat the
+    // host kicked a bot out of stays empty (js/bot-backfill.js). broadcastLobbyState
+    // runs this on every lobby change, so the host sees and can kick every bot
+    // before Start.
+    _backfillLobbyBots({ quiet = false, broadcast = true } = {}) {
+        if (!this.network?.connected || !this.network.isHost || this._backfillRunning) return 0;
+        this._backfillRunning = true;
+        try {
+            return this._applyBackfillPlan({ quiet, broadcast });
+        } finally {
+            this._backfillRunning = false;
+        }
+    }
+
+    // A kicked (or "- BOT") bot's seat stays empty; "+ Bot" and re-ticking the
+    // toggle hand seats back.
+    _noteBackfillSeat(team, delta) {
+        this._backfillSkips ||= { red: 0, blue: 0 };
+        if (!Object.hasOwn(this._backfillSkips, team)) return;
+        this._backfillSkips[team] = Math.max(0, this._backfillSkips[team] + delta);
+    }
+
+    _applyBackfillPlan({ quiet, broadcast }) {
         const teams = { red: 0, blue: 0 };
         const filled = { red: 0, blue: 0 };
         const tally = entity => {
@@ -2000,8 +2020,10 @@ class App {
         tally(this.player);
         this.game.bots.forEach(tally);
         this.game.remotePlayers.forEach(tally);
+        const skips = this._backfillSkips || { red: 0, blue: 0 };
         const plan = backfillPlan({
             red: teams.red, blue: teams.blue, backfillRed: filled.red, backfillBlue: filled.blue,
+            skipRed: skips.red, skipBlue: skips.blue,
             enabled: document.getElementById('lobby-fill-bots')?.checked !== false,
             ranked: this._rankedHosting === true,
             modeId: this.game.mode?.id || '',
@@ -2020,7 +2042,8 @@ class App {
                 if (bot) this.game.removeBotByName(bot.name);
             }
         }
-        if (plan.red || plan.blue) this.broadcastLobbyState();
+        if (added) this.game.updateLobbyUI?.(); // addBot drew the rows before the AUTO tag was set
+        if (broadcast && (plan.red || plan.blue)) this.broadcastLobbyState();
         if (added && !quiet) this.ui.showMessage?.(t('toast.botsFilled', { count: added }), 1800);
         return added;
     }
@@ -3134,6 +3157,7 @@ bind('btn-add-bot-red', () => {
         this.ui.showMessage?.(t('toast.hostOnlyBots'), 1400);
         return;
     }
+    this._noteBackfillSeat?.('red', -1);
     this.game.addBot('red');
             this.broadcastLobbyState();
         });
@@ -3143,6 +3167,7 @@ bind('btn-add-bot-blue', () => {
         this.ui.showMessage?.(t('toast.hostOnlyBots'), 1400);
         return;
     }
+    this._noteBackfillSeat?.('blue', -1);
     this.game.addBot('blue');
             this.broadcastLobbyState();
         });
@@ -3152,7 +3177,17 @@ bind('btn-remove-bot', () => {
         this.ui.showMessage?.(t('toast.hostOnlyBots'), 1400);
         return;
     }
+    const lastBot = this.game.bots[this.game.bots.length - 1];
+    if (lastBot) this._noteBackfillSeat?.(lastBot.team, +1);
     this.game.removeBot();
+            this.broadcastLobbyState();
+        });
+
+        // Fill-with-bots toggle: off removes the AUTO bots, on hands every kicked
+        // seat back and fills again.
+        document.getElementById('lobby-fill-bots')?.addEventListener('change', event => {
+            if (!this.isLobbyHost()) return;
+            if (event.target.checked) this._backfillSkips = { red: 0, blue: 0 };
             this.broadcastLobbyState();
         });
 
@@ -7147,6 +7182,8 @@ updateCarousel() {
             const name = btn.dataset.kickName;
             if (!name) return;
             if (btn.dataset.kickBot === '1') {
+                const bot = this.game.bots.find(entry => entry.name === name);
+                if (bot) this._noteBackfillSeat?.(bot.team, +1);
                 this.game.removeBotByName(name);
                 this.broadcastLobbyState();
             } else {
@@ -7329,6 +7366,7 @@ updateCarousel() {
 
     broadcastLobbyState() {
         if (!(this.network?.isHost)) return;
+        if (this.game.state === STATES.LOBBY) this._backfillLobbyBots?.({ broadcast: false });
         const players = this.game.getPlayerList();
         const name = document.getElementById('lobby-name-input')?.value || 'Lobby';
         this._lobbyName = name;
@@ -8735,6 +8773,10 @@ updateCarousel() {
             }, 12000);
             this._lobbyCode = code;
             this._syncLobbyShareRow();
+            // A fresh lobby: every seat is fillable again, and bots take the empty
+            // ones right away so the host sees (and can kick) them before Start.
+            this._backfillSkips = { red: 0, blue: 0 };
+            this.broadcastLobbyState?.();
             return true;
         } catch (e) {
             alert('Failed to create lobby: ' + e.message);

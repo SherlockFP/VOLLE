@@ -81,8 +81,31 @@ test('backfill in FFA fills to four players, split across the labels', () => {
 test('wiring: host start and rematch fill before the snapshot; the toggle defaults on', () => {
     assert.match(main, /this\._rollLobbyMapIfRandom\(\);\s+this\._backfillLobbyBots\?\.\(\);\s+const started = this\.game\.startGame\(\);/);
     assert.match(main, /this\._backfillLobbyBots\?\.\(\{ quiet: true \}\);\s+const started = this\.game\.startGame\(false, matchId\);/);
-    assert.match(main, /if \(!this\.network\?\.connected \|\| !this\.network\.isHost\) return 0;/, 'solo and clients never fill');
+    assert.match(main, /if \(!this\.network\?\.connected \|\| !this\.network\.isHost \|\| this\._backfillRunning\) return 0;/, 'solo and clients never fill');
     assert.match(main, /if \(bot\) bot\._backfill = true;/);
     assert.match(main, /find\(entry => entry\._backfill && entry\.team === team\)/, 'only backfill bots are removed');
     assert.match(html, /<input type="checkbox" id="lobby-fill-bots" checked>/);
+});
+
+test('a kicked seat stays empty: the host can play 2v1 on purpose', () => {
+    // 2 humans red, 1 human blue: blue would get a bot...
+    assert.deepEqual(backfillPlan({ red: 2, blue: 1 }), { red: 0, blue: 1 });
+    // ...the host kicks it (skipBlue 1): no refill, 2v1 it is.
+    assert.deepEqual(backfillPlan({ red: 2, blue: 1, skipBlue: 1 }), { red: 0, blue: 0 });
+    // A lone host kicks one AUTO bot on blue: red keeps its filler, blue has one.
+    assert.deepEqual(backfillPlan({ red: 2, blue: 2, backfillRed: 1, backfillBlue: 2, skipBlue: 1 }), { red: 0, blue: -1 });
+    // FFA: a kicked seat lowers the fill total too.
+    assert.deepEqual(backfillPlan({ red: 1, blue: 0, ffa: true, skipBlue: 1 }), { red: 1, blue: 1 });
+});
+
+test('wiring: every lobby change re-plans, kicks and "- BOT" empty a seat, "+ Bot" and the toggle hand it back', () => {
+    const ui = readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+    assert.match(main, /broadcastLobbyState\(\) \{\s+if \(!\(this\.network\?\.isHost\)\) return;\s+if \(this\.game\.state === STATES\.LOBBY\) this\._backfillLobbyBots\?\.\(\{ broadcast: false \}\);/);
+    assert.match(main, /if \(bot\) this\._noteBackfillSeat\?\.\(bot\.team, \+1\);\s+this\.game\.removeBotByName\(name\);/);
+    assert.match(main, /if \(lastBot\) this\._noteBackfillSeat\?\.\(lastBot\.team, \+1\);\s+this\.game\.removeBot\(\);/);
+    assert.equal((main.match(/this\._noteBackfillSeat\?\.\('(red|blue)', -1\);/g) || []).length, 2);
+    assert.match(main, /if \(event\.target\.checked\) this\._backfillSkips = \{ red: 0, blue: 0 \};/);
+    assert.match(main, /if \(!this\.network\?\.connected \|\| !this\.network\.isHost \|\| this\._backfillRunning\) return 0;/, 'no re-entry from the broadcast it triggers');
+    assert.match(game, /\.\.\.\(b\._backfill \? \{ autoFill: true \} : \{\}\)/);
+    assert.match(ui, /p\.autoFill \? 'BOT · AUTO' : 'BOT'/);
 });

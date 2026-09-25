@@ -996,6 +996,7 @@ addBot(team, { name: preferredName = null } = {}) {
             name: b.name,
             team: b.team,
             isBot: true,
+            autoFill: b._backfill === true,
             charId: b.charId,
             isYou: false,
             avatar: null
@@ -6126,7 +6127,7 @@ spawnPowerUp() {
             nextRoundTeam: isTeam(this.player.nextRoundTeam) ? this.player.nextRoundTeam : null,
             activateRound: this.player.activateRound || null
         }];
-        this.bots.forEach(b => list.push({ name: b.name, team: b.team, isBot: true, charId: b.charId }));
+        this.bots.forEach(b => list.push({ name: b.name, team: b.team, isBot: true, charId: b.charId, ...(b._backfill ? { autoFill: true } : {}) }));
         this.remotePlayers.forEach((p, playerId) => list.push({
             name: p.name,
             team: p.team,

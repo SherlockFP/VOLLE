@@ -2171,7 +2171,7 @@ export class UI {
                 ? `<button class="cs-btn-kick" type="button" data-kick-name="${this.escapeHTML(p.name)}" data-kick-peer="${this.escapeHTML(p.peerId || '')}" data-kick-bot="${p.isBot?1:0}" aria-label="Kick ${this.escapeHTML(p.name)}" title="Kick player">X</button>`
                 : '';
             const hostBadge = p.isHost ? '<span class="cs-badge cs-badge-host">HOST</span>' : '';
-            const botBadge = p.isBot ? '<span class="cs-badge cs-badge-bot">BOT</span>' : '';
+            const botBadge = p.isBot ? `<span class="cs-badge cs-badge-bot">${p.autoFill ? 'BOT · AUTO' : 'BOT'}</span>` : '';
             const pingHtml = p.ping != null ? `<span class="cs-badge-ping">${Math.round(p.ping)}ms</span>` : '';
             card.innerHTML = `
                 <div class="cs-player-avatar">${avatarHTML}</div>
