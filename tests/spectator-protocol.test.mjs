@@ -78,7 +78,7 @@ async function admitThroughHandshake(network, conn, token) {
 
 test('spectator whitelist excludes every gameplay packet', () => {
     assert.deepEqual([...SPECTATOR_ALLOWED_TYPES].sort(),
-        ['capabilities', 'chat', 'emote', 'join', 'ping', 'pong', 'spectatorSeat']);
+        ['capabilities', 'chat', 'emote', 'join', 'lobbyAdmissionRequest', 'ping', 'pong', 'spectatorSeat']);
     for (const type of ['position', 'attack', 'skillUse', 'teamChange', 'lateJoinTeam', 'powerUpPickup',
         'mapVote', 'partyReady', 'rematchReady', 'cosmeticLoadout', 'hostMigrationVote', 'ballState',
         'playerHit', 'scoreUpdate', 'gameStart', 'taunt', 'socialPresence', 'ready', 'kick']) {

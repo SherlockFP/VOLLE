@@ -88,6 +88,10 @@ const RATE_LIMITS = {
     // bucket, and _lobbyApi swallows the 429 — lobbies then vanished and could not be
     // re-created until the window rolled over.
     lobbyWrite: [120, 60000],
+    // Guest lobby identities are cheap and cached ~12 h client-side; its own
+    // bucket so a household behind one NAT (or a profile sync burst) cannot
+    // starve guests of an online session.
+    lobbyGuest: [30, 60000],
     account: [10, 60000],
     social: [60, 60000],
     directMessage: [30, 60000],
@@ -1125,7 +1129,7 @@ const server = http.createServer(async (req, res) => {
     }
     // Anonymous guest identity for online lobbies only (see requireLobbyAuth).
     if (urlPath === '/api/lobbies/guest-session' && req.method === 'POST') {
-        if (!allowRequest(req, res, 'session')) return;
+        if (!allowRequest(req, res, 'lobbyGuest')) return;
         if (!LOBBY_GUESTS_ENABLED) { sendJson(res, { error: 'guest online play disabled', code: 'sign_in_required' }, 403); return; }
         const b = await readBody(req, 512);
         sendJson(res, lobbyGuests.issue(b?.name));
