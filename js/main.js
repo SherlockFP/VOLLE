@@ -6899,9 +6899,20 @@ updateCarousel() {
                 const allPlayers = this.game.getPlayerList();
                 const player = allPlayers.find(p => p.name === name);
                 if (!player || player.team === targetTeam) return;
+                this._suppressColumnClickUntil = performance.now() + 300;
                 this.game.switchPlayerTeam(name, targetTeam);
-                // MP: tell peers about the move.
+                // MP: tell peers about the move, then publish the settled roster.
                 this.network?.send?.({ type: 'teamChange', name, team: targetTeam });
+                this.broadcastLobbyState();
+            });
+            // Clicking a team column (anywhere but a player's kick button) joins
+            // that team straight away — for host, clients and solo alike.
+            col.addEventListener('click', e => {
+                if (e.target.closest?.('.cs-btn-kick, button, a, input, select')) return;
+                if (performance.now() < (this._suppressColumnClickUntil || 0)) return;
+                const team = col.id === 'cs-team-red' ? 'red' : 'blue';
+                if (this.game.player?.team === team && !this.game.player?.queuedForNextRound) return;
+                this.game.switchTeam(team);
             });
         });
 
@@ -8456,7 +8467,8 @@ updateCarousel() {
             // Host: client kendi takımını değiştirmek isterse uygula, sonra broadcast et.
             this.network.onTeamChange = (pName, team, playerId) => {
                 const p = this.game.remotePlayers.get(playerId);
-                if (p?.queuedForNextRound) {
+                // Lobby picks are always instant; only a live match queues late joiners.
+                if (p?.queuedForNextRound && this.game.state !== STATES.LOBBY) {
                     if (this.game.selectQueuedRemoteTeam(playerId, team)) {
                         this.game.broadcastSystemMessage(`${p.name} will join ${team.toUpperCase()} next round.`);
                     }
