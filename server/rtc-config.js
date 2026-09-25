@@ -207,8 +207,16 @@ async function fetchProviderIceServers(env, { fetchImpl = globalThis.fetch, now 
 // GET /api/rtc-config (alias /api/ice-servers): static STUN/TURN from env plus,
 // when configured, fresh hosted-TURN credentials. Never throws; a provider
 // outage degrades to STUN (and the WebSocket relay covers the rest).
+// opts.includeTurn === false (anonymous caller): STUN only — no static TURN
+// credentials and no hosted-provider mint, so TURN can't be farmed anonymously.
 async function buildRtcConfigWithProviders(env = process.env, opts = {}) {
     const config = buildRtcConfig(env, opts);
+    if (opts.includeTurn === false) {
+        config.iceServers = config.iceServers.filter(server =>
+            !(Array.isArray(server.urls) ? server.urls : [server.urls]).some(url => /^turns?:/i.test(String(url))));
+        config.turn = false;
+        return config;
+    }
     const provided = await fetchProviderIceServers(env, opts).catch(() => []);
     if (provided.length) config.iceServers.push(...provided);
     config.turn = config.iceServers.some(server =>

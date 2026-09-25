@@ -564,12 +564,17 @@ export function sanitizeRtcConfig(data) {
 
 // A hung /api/rtc-config (cold server, captive proxy) must not stall hosting or
 // joining: fall back to public STUN after RTC_CONFIG_TIMEOUT_MS.
-export async function fetchRtcConfig(fetchImpl = globalThis.fetch, timeoutMs = RTC_CONFIG_TIMEOUT_MS) {
+// authToken (account or guest lobby session) unlocks TURN credentials; without it
+// the server only returns public STUN, so TURN can't be farmed anonymously.
+export async function fetchRtcConfig(fetchImpl = globalThis.fetch, timeoutMs = RTC_CONFIG_TIMEOUT_MS, authToken = '') {
     if (typeof fetchImpl !== 'function') return FALLBACK_RTC_CONFIG;
     const controller = typeof AbortController === 'function' ? new AbortController() : null;
     let timer = null;
     try {
-        const request = fetchImpl('/api/rtc-config', controller ? { signal: controller.signal } : undefined);
+        const init = {};
+        if (controller) init.signal = controller.signal;
+        if (authToken) init.headers = { Authorization: `Bearer ${authToken}` };
+        const request = fetchImpl('/api/rtc-config', Object.keys(init).length ? init : undefined);
         const timeout = new Promise(resolve => {
             timer = setTimeout(() => { controller?.abort(); resolve(null); }, timeoutMs);
         });
@@ -954,7 +959,18 @@ export class Network {
     }
 
     async initPeer() {
-        const rtcConfig = await fetchRtcConfig();
+        // Same lobby session the relay uses (bounded: a slow guest-session mint
+        // must not delay hosting/joining — STUN-only is the fallback).
+        let authToken = '';
+        try {
+            authToken = await Promise.race([
+                Promise.resolve(this.relayAuthProvider?.()),
+                new Promise(resolve => setTimeout(() => resolve(''), 3000))
+            ]) || '';
+        } catch (_) {
+            authToken = '';
+        }
+        const rtcConfig = await fetchRtcConfig(globalThis.fetch, RTC_CONFIG_TIMEOUT_MS, typeof authToken === 'string' ? authToken : '');
         this._serverRelayAvailable = rtcConfig.relay !== false;
         return new Promise((resolve, reject) => {
             this._peerOpened = false;

@@ -357,7 +357,12 @@ const server = http.createServer(async (req, res) => {
     // Env-driven only; zero env vars set => STUN-only, identical to prior behavior.
     if ((urlPath === '/api/rtc-config' || urlPath === '/api/ice-servers') && req.method === 'GET') {
         if (!allowRequest(req, res, 'rtcConfig')) return;
-        const config = await buildRtcConfigWithProviders(process.env, { userId: resolveLobbyToken(bearer(req))?.profile.id });
+        // TURN relays cost bandwidth: only signed-in or guest lobby sessions get them.
+        const lobbyAuth = resolveLobbyToken(bearer(req));
+        const config = await buildRtcConfigWithProviders(process.env, {
+            userId: lobbyAuth?.profile.id,
+            includeTurn: Boolean(lobbyAuth)
+        });
         res.setHeader('Cache-Control', 'no-store');
         sendJson(res, { ...config, relay: LOBBY_RELAY_ENABLED });
         return;

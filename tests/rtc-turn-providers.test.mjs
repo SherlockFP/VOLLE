@@ -98,3 +98,25 @@ test('client: /api/rtc-config that never answers falls back to public STUN quick
     assert.equal(sanitizeRtcConfig({ iceServers: [{ urls: 'stun:a' }], relay: false }).relay, false);
     assert.equal(sanitizeRtcConfig({ iceServers: [{ urls: 'stun:a' }] }).relay, true);
 });
+
+test('anonymous callers get STUN only: no static TURN and no hosted-provider mint', async () => {
+    resetProviderCacheForTests();
+    const env = { TURN_URLS: 'turn:turn.example.com:3478', TURN_USERNAME: 'u', TURN_CREDENTIAL: 'c', METERED_TURN_APP: 'app', METERED_TURN_API_KEY: 'k' };
+    const providerFetch = fakeFetch(() => [{ urls: 'turn:relay.metered.ca:80', username: 'x', credential: 'y' }]);
+    const anonymous = await buildRtcConfigWithProviders(env, { includeTurn: false, fetchImpl: providerFetch });
+    const urls = anonymous.iceServers.flatMap(server => [].concat(server.urls));
+    assert.ok(urls.length > 0, 'still returns STUN');
+    assert.ok(urls.every(url => !/^turns?:/i.test(url)), 'no TURN urls for anonymous callers');
+    assert.equal(anonymous.turn, false);
+    assert.equal(providerFetch.calls.length, 0, 'provider API never called for anonymous callers');
+    assert.ok(!JSON.stringify(anonymous).includes('"credential"'));
+});
+
+test('fetchRtcConfig sends the lobby session so the server can unlock TURN', async () => {
+    const calls = [];
+    const impl = async (url, options = {}) => { calls.push({ url, options }); return { ok: true, json: async () => ({ iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }] }) }; };
+    await fetchRtcConfig(impl, 1000, 'lg1.guest.token');
+    assert.equal(calls[0].options.headers.Authorization, 'Bearer lg1.guest.token');
+    await fetchRtcConfig(impl, 1000);
+    assert.equal(calls[1].options?.headers, undefined, 'no header without a session');
+});
