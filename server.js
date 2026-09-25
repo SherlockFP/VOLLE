@@ -23,7 +23,6 @@ const { MatchAuthority } = require('./server/match-authority');
 const { resolvePublicPath, resolveEntryHtml, isImmutableAsset } = require('./server/static-policy');
 const { CompressionCache } = require('./server/compress');
 const { GlobalChat } = require('./server/global-chat');
-const globalChat = new GlobalChat();
 const staticCompression = new CompressionCache();
 const { createLiveMarket, findLiveOffer } = require('./server/live-market');
 const {
@@ -43,6 +42,8 @@ if (process.env.RENDER && !process.env.DATA_DIR) {
     console.warn('[server] RENDER is set without DATA_DIR; account data will not survive deploys. Mount a persistent disk and set DATA_DIR to its mount path.');
 }
 const profiles = new ProfileStore(path.join(DATA_DIR, 'profiles.json'));
+// Main-menu chat keeps its last 100 messages (24 h) across restarts and deploys.
+const globalChat = new GlobalChat({ file: path.join(DATA_DIR, 'global-chat.json') });
 const accounts = new AccountStore(path.join(DATA_DIR, 'accounts.db'), profiles);
 const social = new SocialStore(path.join(DATA_DIR, 'accounts.db'));
 const presence = new PresenceStore();
@@ -1397,6 +1398,7 @@ function shutdown(signal) {
     if (shuttingDown) return;
     shuttingDown = true;
     console.log(`[server] ${signal}: closing connections and embedded stores`);
+    globalChat.flush();
     const forceExit = setTimeout(() => process.exit(1), 5000);
     forceExit.unref();
     server.close(() => {
@@ -1405,11 +1407,30 @@ function shutdown(signal) {
     });
 }
 
+// First visit after a deploy: compress the entry page, the bundle and the stylesheets
+// off the event loop right away, so no visitor waits on it (server/compress.js).
+function prewarmStaticCompression() {
+    const started = Date.now();
+    const files = [resolveEntryHtml(ROOT)];
+    for (const dir of ['dist/app', 'css']) {
+        try {
+            for (const name of fs.readdirSync(path.join(ROOT, dir))) files.push(path.join(ROOT, dir, name));
+        } catch { /* no bundle yet (dev) */ }
+    }
+    const entries = files.filter(file => /\.(?:js|css|html)$/.test(file)).map(file => {
+        try { return { data: fs.readFileSync(file), ext: path.extname(file).toLowerCase() }; } catch { return null; }
+    }).filter(Boolean);
+    staticCompression.prewarm(entries)
+        .then(count => console.log(`  compressed ${count} static variants in ${Date.now() - started} ms`))
+        .catch(() => {});
+}
+
 if (require.main === module) {
     process.once('SIGTERM', () => shutdown('SIGTERM'));
     process.once('SIGINT', () => shutdown('SIGINT'));
     server.listen(PORT, () => {
         console.log(`\n  WARRBALL running on port ${PORT}\n  Local: http://localhost:${PORT}\n`);
+        prewarmStaticCompression();
     });
 }
 

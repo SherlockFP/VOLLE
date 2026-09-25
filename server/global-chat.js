@@ -1,8 +1,11 @@
 'use strict';
-// Main-menu global chat: an in-memory ring of recent messages (no persistence).
-// Anyone reads; accounts and guest lobby sessions post. Text is stored as sent:
-// the slur/swear filter runs on each reader so the player's setting decides.
-// Lobby invites are only accepted from the lobby's own host.
+// Main-menu global chat: a ring of recent messages. With `file` it survives
+// restarts (debounced atomic JSON write; messages older than maxAgeMs are
+// dropped on load); rate-limit state stays in memory. Anyone reads; accounts
+// and guest lobby sessions post. Text is stored as sent: the slur/swear filter
+// runs on each reader so the player's setting decides. Lobby invites are only
+// accepted from the lobby's own host.
+const fs = require('node:fs');
 
 const DEFAULTS = Object.freeze({
     capacity: 100,
@@ -12,7 +15,9 @@ const DEFAULTS = Object.freeze({
     burstWindowMs: 20000,
     duplicateWindowMs: 15000,
     inviteCooldownMs: 30000,
-    pageSize: 50
+    pageSize: 50,
+    maxAgeMs: 24 * 60 * 60 * 1000,
+    persistDelayMs: 1000
 });
 
 // C0 controls, DEL, zero-width/bidi marks and line/paragraph separators.
@@ -40,13 +45,69 @@ function inviteSnapshot(lobby) {
     };
 }
 
+// A stored message must look exactly like one _push() makes, or it is dropped.
+function restoredMessage(message, now, maxAgeMs) {
+    if (!message || !Number.isSafeInteger(message.id) || message.id < 1) return null;
+    const at = Number(message.at);
+    if (!Number.isFinite(at) || now - at > maxAgeMs) return null;
+    const base = { id: message.id, at, author: cleanText(message.author, 24) || 'Player', guest: message.guest === true };
+    if (message.kind === 'text') {
+        const text = cleanText(message.text, 200);
+        return text ? { ...base, kind: 'text', text } : null;
+    }
+    if (message.kind === 'invite' && message.invite?.code) return { ...base, kind: 'invite', invite: inviteSnapshot(message.invite) };
+    return null;
+}
+
 class GlobalChat {
     constructor(options = {}) {
         this.options = { ...DEFAULTS, ...options };
         this.now = typeof options.now === 'function' ? options.now : () => Date.now();
+        this.file = typeof options.file === 'string' ? options.file : null;
         this.messages = [];
         this.nextId = 1;
         this.authors = new Map(); // authorId -> { last, recent: [], lastText, invites: Map(code -> at) }
+        this._persistTimer = null;
+        this._load();
+    }
+
+    _load() {
+        if (!this.file) return;
+        let stored;
+        try {
+            stored = JSON.parse(fs.readFileSync(this.file, 'utf8'));
+        } catch {
+            return; // first start, or an unreadable file: begin empty
+        }
+        const now = this.now();
+        const list = Array.isArray(stored?.messages) ? stored.messages : [];
+        this.messages = list.map(message => restoredMessage(message, now, this.options.maxAgeMs))
+            .filter(Boolean)
+            .sort((a, b) => a.id - b.id)
+            .slice(-this.options.capacity);
+        const highest = this.messages.at(-1)?.id || 0;
+        this.nextId = Math.max(highest + 1, Number.isSafeInteger(stored?.nextId) ? stored.nextId : 1);
+    }
+
+    _schedulePersist() {
+        if (!this.file || this._persistTimer) return;
+        this._persistTimer = setTimeout(() => this.flush(), this.options.persistDelayMs);
+        this._persistTimer.unref?.();
+    }
+
+    // Writes now (also used on shutdown). Atomic: temp file + rename.
+    flush() {
+        clearTimeout(this._persistTimer);
+        this._persistTimer = null;
+        if (!this.file) return false;
+        try {
+            const temp = `${this.file}.tmp`;
+            fs.writeFileSync(temp, JSON.stringify({ nextId: this.nextId, messages: this.messages }));
+            fs.renameSync(temp, this.file);
+            return true;
+        } catch {
+            return false;
+        }
     }
 
     _author(id) {
@@ -76,6 +137,7 @@ class GlobalChat {
         };
         this.messages.push(message);
         if (this.messages.length > this.options.capacity) this.messages.splice(0, this.messages.length - this.options.capacity);
+        this._schedulePersist();
         return message;
     }
 

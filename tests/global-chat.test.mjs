@@ -113,3 +113,39 @@ test('routes: anyone reads, guests and accounts post, invites are host-only', as
     const feed = await api(`/api/chat/global?after=${posted.body.message.id}`);
     assert.deepEqual(feed.body.messages.map(m => m.kind), ['invite']);
 });
+
+test('persistence: messages survive a restart, stale or forged records are dropped', async () => {
+    const fs = await import('node:fs');
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const { GlobalChat: Chat } = (await import('node:module')).createRequire(import.meta.url)('../server/global-chat.js');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'volle-gchat-'));
+    const file = path.join(dir, 'global-chat.json');
+    let now = 1_000_000;
+    const first = new Chat({ file, now: () => now });
+    first.post({ id: 'a', name: 'Kaan' }, { text: 'selam' });
+    now += 2000;
+    first.post({ id: 'b', name: 'Deniz' }, { text: 'naber' });
+    assert.equal(first.flush(), true);
+    const second = new Chat({ file, now: () => now + 1000 });
+    assert.deepEqual(second.since(0).messages.map(m => m.text), ['selam', 'naber']);
+    const posted = second.post({ id: 'c', name: 'Ada' }, { text: 'yeni' });
+    assert.equal(posted.message.id, 3, 'ids keep counting after a restart');
+    // Old and tampered entries never come back.
+    fs.writeFileSync(file, JSON.stringify({ nextId: 9, messages: [
+        { id: 1, at: now - 48 * 3600 * 1000, author: 'Old', kind: 'text', text: 'stale' },
+        { id: 2, at: now, author: '<b>x</b>', kind: 'script', text: 'evil' },
+        { id: 3, at: now, author: 'Ok', kind: 'text', text: 'kept‮' }
+    ] }));
+    const third = new Chat({ file, now: () => now });
+    assert.deepEqual(third.since(0).messages.map(m => m.text), ['kept']);
+    assert.equal(third.nextId, 9);
+    fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('the server keeps the chat in DATA_DIR and flushes it on shutdown', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+    assert.match(src, /new GlobalChat\(\{ file: path\.join\(DATA_DIR, 'global-chat\.json'\) \}\)/);
+    assert.match(src, /closing connections and embedded stores`\);\s+globalChat\.flush\(\);/);
+});
