@@ -63,12 +63,34 @@ test('wiring: kills are recorded, the report shows the card, solo watching retur
     const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
     assert.match(game, /if \(!this\._claimKillPresentation\(attackerName, victimName, rallyCount, detail\)\) return false;\s+\/\/[^\n]*\n\s+this\.onReplayEvent\?\.\(\{\s+type: 'kill',/);
     assert.match(main, /this\._presentPlayOfTheGame\?\.\(this\.game\.matchId\);\s+this\.awardMatchRewards\(\);/);
-    assert.match(main, /canWatch: !!play && !this\.network\?\.connected/);
-    assert.match(main, /if \(!entry \|\| entry\.matchId !== this\.game\.matchId \|\| this\.network\?\.connected \|\| this\.game\.state !== STATES\.GAME_OVER\) return false;/);
+    assert.match(main, /this\.ui\.setPlayOfTheGame\?\.\(play, \{ canWatch: !!play \}\);/);
+    assert.match(main, /if \(!entry \|\| entry\.matchId !== this\.game\.matchId \|\| this\.game\.state !== STATES\.GAME_OVER\) return false;/);
+    assert.match(main, /if \(this\.network\?\.connected\) return this\._watchPlayOfTheGameInline\(entry\);/, 'online plays inline, the report stays live');
+    assert.match(main, /this\._playOfTheGame = null;\s+this\._disposePotgStage\?\.\(\);/, 'the next match tears the stage down');
+    assert.match(main, /if \(this\.network\?\.connected && !this\.network\.isHost\) \{\s+Replay\.startRecording\(/, 'clients record their own replay');
     assert.match(main, /back\.hidden\.forEach\(group => \{ group\.visible = true; \}\);\s+this\.game\.setState\(STATES\.GAME_OVER\);/);
     assert.match(main, /position: \{ x: this\.player\.position\.x, y: this\.player\.position\.y - 1\.7, z: this\.player\.position\.z \}/, 'replays record feet height');
     assert.match(ui, /chip\.textContent = label;/);
     assert.match(view, /createCharacterRig\(\{ characterId: 'rally', team, castShadow: false \}\)/);
     assert.match(html, /<section class="pg-potg" id="pg-potg" hidden/);
     assert.match(html, /<button id="btn-pg-potg-watch"[^>]*hidden/);
+});
+
+test('inline stage: the camera chases the player from behind, and no WebGL is a quiet no-op', async () => {
+    const { registerHooks } = await import('node:module');
+    const THREE_URL = new URL('../vendor/three/three.module.js', import.meta.url).href;
+    registerHooks({ resolve(specifier, context, next) { return specifier === 'three' ? { url: THREE_URL, shortCircuit: true } : next(specifier, context); } });
+    const { potgCameraPose, createPotgStage } = await import('../js/potg-player.js');
+    // Facing -Z (yaw 0): the camera sits at +Z behind and looks ahead toward -Z.
+    const pose = potgCameraPose({ x: 0, y: 0, z: 0, yaw: 0 }, null);
+    assert.ok(pose.position.z > 0 && pose.position.y > 2);
+    assert.ok(pose.target.z < 0);
+    const turned = potgCameraPose({ x: 0, y: 0, z: 0, yaw: Math.PI / 2 }, null);
+    assert.ok(turned.position.x > 0 && turned.target.x < 0, 'facing -X after a quarter turn');
+    const overview = potgCameraPose(null, { x: 3, y: 1, z: -4 });
+    assert.equal(overview.target.x, 3);
+    assert.ok(overview.position.y > 20, 'no focus: overview over the ball');
+    const stage = createPotgStage(null);
+    assert.equal(stage.play({ events: [], duration: 0 }), false);
+    stage.dispose();
 });

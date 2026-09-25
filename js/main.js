@@ -52,6 +52,7 @@ import { getReward as getBattlepassRewardEntry } from './battlepass.js';
 import { Replay, extractReplayHighlight } from './replay.js';
 import { ReplayView } from './replay-view.js';
 import { pickPlayOfTheGame } from './play-of-game.js';
+import { createPotgStage } from './potg-player.js';
 import { CAMERA_MODES, Spectator } from './spectator.js';
 import { JOINED_SPECTATOR_MODES } from './spectator.js';
 import { BALL_SKINS, ballShapeParts } from './ball.js';
@@ -373,6 +374,17 @@ class App {
             this.ui.clearPostGameMatchDrops?.();
             this.ui.setPlayOfTheGame?.(null);
             this._playOfTheGame = null;
+            this._disposePotgStage?.();
+            // Clients record too (the host's Start/rematch paths start their own), so
+            // every player gets a Play of the Game and a replay of the match.
+            if (this.network?.connected && !this.network.isHost) {
+                Replay.startRecording({
+                    map: this.arena?.mapId,
+                    mode: this.game.mode?.id || 'classic',
+                    players: this.game.getPlayerList().map(player => player.name),
+                    matchId: this.game.matchId
+                });
+            }
             this.dropFeed?.bindLog?.(this.game.matchId);
             this.ui.clearToastQueue?.();
             this._analyticsMatchStartedAt = Date.now();
@@ -2075,14 +2087,17 @@ class App {
         const replay = { meta: Replay.meta || {}, events: Replay.events.slice(), duration: Math.max(0, performance.now() - Replay.startTs) };
         const play = pickPlayOfTheGame(replay);
         this._playOfTheGame = play ? { matchId, play, replay: extractReplayHighlight(replay, { label: 'Play of the Game', start: play.start, end: play.end }) } : null;
-        // Watching leaves the report; online a rematch may start meanwhile, so solo only.
-        this.ui.setPlayOfTheGame?.(play, { canWatch: !!play && !this.network?.connected });
+        // Solo watches in the arena; online it plays inline on the report (_watchPlayOfTheGame).
+        this.ui.setPlayOfTheGame?.(play, { canWatch: !!play });
         return play;
     }
 
     _watchPlayOfTheGame() {
         const entry = this._playOfTheGame;
-        if (!entry || entry.matchId !== this.game.matchId || this.network?.connected || this.game.state !== STATES.GAME_OVER) return false;
+        if (!entry || entry.matchId !== this.game.matchId || this.game.state !== STATES.GAME_OVER) return false;
+        // Online the report must stay live (rematch votes, a host starting the next
+        // match), so the clip plays inline in its own small stage instead.
+        if (this.network?.connected) return this._watchPlayOfTheGameInline(entry);
         // The match's own bodies would stand in the replay: hide them until we return.
         const hidden = [...this.game.bots, ...this.game.remotePlayers.values(), this.game.localCosmeticEntity]
             .map(entity => entity?.group)
@@ -2091,6 +2106,35 @@ class App {
         this._startReplay(entry.replay);
         this._replayReturn = { hidden };
         return true;
+    }
+
+    _watchPlayOfTheGameInline(entry) {
+        const stageEl = document.getElementById('pg-potg-stage');
+        if (!stageEl) return false;
+        stageEl.hidden = false;
+        const caption = document.getElementById('pg-potg-caption');
+        this._potgStage ||= createPotgStage(stageEl.querySelector('.pg-potg-canvas') || stageEl, {
+            onKill: data => {
+                if (caption) caption.textContent = `${String(data?.attacker || '').slice(0, 24)} ✖ ${String(data?.victim || '').slice(0, 24)}`;
+            }
+        });
+        if (caption) caption.textContent = '';
+        const spawn = this.arena?.getPlayerSpawn?.('red');
+        return this._potgStage.play(entry.replay, {
+            focus: entry.play.player,
+            court: {
+                courtWidth: this.arena?.courtWidth || 80,
+                courtLength: this.arena?.courtLength || 110,
+                redSide: spawn && spawn.z < 0 ? -1 : 1
+            }
+        });
+    }
+
+    _disposePotgStage() {
+        this._potgStage?.dispose();
+        this._potgStage = null;
+        const stageEl = document.getElementById('pg-potg-stage');
+        if (stageEl) stageEl.hidden = true;
     }
 
     _startDeferredMatchRewardRetry(matchId, context) {
