@@ -194,6 +194,15 @@ export default {
         findFriends: 'Birlikte oynayacak arkadaş bul',
         findFriendsCopy: 'Arkadaşlarını profil kodlarıyla ekle.'
     },
+    mapCode: {
+        copy: 'Harita kodunu kopyala',
+        placeholder: 'Harita kodunu yapıştır (VM1.…)',
+        aria: 'Harita kodu',
+        loadEditor: 'Kodu editöre yükle',
+        lobbyPlaceholder: 'Harita kodu (VM1.…)',
+        lobbyAria: 'Özel haritayı koduyla oyna',
+        play: 'Bu haritada oyna'
+    },
     gchat: {
         tab: 'Genel',
         title: 'Genel sohbet',
@@ -1295,6 +1304,10 @@ export default {
         gchatOffline: 'Genel sohbet şu an kullanılamıyor.',
         gchatShared: '🌐 Lobi genel sohbette paylaşıldı!',
         lobbyCodeCopied: 'Lobi kodu kopyalandı: {code}',
+        mapCodeCopied: 'Harita kodu kopyalandı — arkadaşlarına gönder, lobilerine yapıştırsınlar.',
+        mapCodeSelectCopy: 'Harita kodu aşağıda seçili — Ctrl+C ile kopyala.',
+        mapCodeInvalid: 'Bu harita kodu çalışmadı: {reason}',
+        mapCodeLoaded: '🗺️ Harita yüklendi: {name}',
         lobbyCodeCopyManual: 'Lobi kodunu kopyala:',
         lobbyLocalGuest: 'Online lobi için ücretsiz hesap gerekli — botlarla yerel lobi açıldı.',
         lobbyLocalFallback: 'Lobi servisine ulaşılamadı — botlarla yerel lobi açıldı.',

@@ -194,6 +194,15 @@ export default {
         findFriends: 'Find friends to team up',
         findFriendsCopy: 'Add friends using their profile code.'
     },
+    mapCode: {
+        copy: 'Copy map code',
+        placeholder: 'Paste a map code (VM1.…)',
+        aria: 'Map code',
+        loadEditor: 'Load code into editor',
+        lobbyPlaceholder: 'Map code (VM1.…)',
+        lobbyAria: 'Play a custom map from its code',
+        play: 'Play this map'
+    },
     gchat: {
         tab: 'Global',
         title: 'Global chat',
@@ -1306,6 +1315,10 @@ export default {
         gchatOffline: 'Global chat is unavailable right now.',
         gchatShared: '🌐 Lobby shared in global chat!',
         lobbyCodeCopied: 'Lobby code copied: {code}',
+        mapCodeCopied: 'Map code copied — send it to friends, they paste it in their lobby.',
+        mapCodeSelectCopy: 'Map code is selected below — copy it with Ctrl+C.',
+        mapCodeInvalid: 'That map code does not work: {reason}',
+        mapCodeLoaded: '🗺️ Map loaded: {name}',
         lobbyCodeCopyManual: 'Copy the lobby code:',
         lobbyLocalGuest: 'Online lobbies need a free account — opened a local lobby vs bots.',
         lobbyLocalFallback: 'Lobby service unavailable — opened a local lobby vs bots.',

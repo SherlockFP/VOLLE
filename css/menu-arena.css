@@ -1117,3 +1117,20 @@ body.is-new-player #main-menu :is(#btn-ranked, #btn-battlepass)::after {
 }
 #lobby-screen .cs-share-btn:hover { border-color: rgb(84 232 214 / .7); }
 #lobby-screen .cs-share-btn .ui-icon { width: 15px; height: 15px; }
+
+/* Map share codes: lobby "play from code" row and editor tools (js/map-code.js). */
+#lobby-screen .lobby-map-code { display: flex; gap: 6px; margin-top: 8px; }
+#lobby-screen .lobby-map-code input,
+#map-editor-screen .map-code-tools input,
+.map-code-tools input {
+    flex: 1;
+    min-width: 0;
+    min-height: 34px;
+    padding: 0 10px;
+    border: 1px solid rgb(255 255 255 / .18);
+    border-radius: 8px;
+    background: rgb(1 5 12 / .5);
+    color: #e7f6ff;
+    font: 500 .8rem/1 ui-monospace, monospace;
+}
+.map-code-tools { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }

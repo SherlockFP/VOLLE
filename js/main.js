@@ -41,6 +41,7 @@ import { applyEntityCosmetics, updateEntityCosmetics } from './cosmetic-models.j
 import { COSMETICS } from './cosmetic-catalog.js';
 import { MapEditorController } from './map-editor.js';
 import { normalizeMapConfig, validateMapConfig } from './map-config.js';
+import { decodeMapCode, encodeMapCode, isCodedMapId } from './map-code.js';
 import { checkAchievements } from './achievements.js';
 import { Daily, nearestDailyNudge } from './daily.js';
 import { firstSoloMatchConfig, CELEBRATION_SKIP_KEYS } from './run-it-back.js';
@@ -2683,6 +2684,48 @@ class App {
             }
             if (button) button.disabled = false;
         });
+
+        // Map share codes: the editor exports / imports them; nothing is uploaded.
+        const editorConfig = () => {
+            const config = this.mapEditor.getConfig();
+            config.name = document.getElementById('map-editor-name')?.value || config.name;
+            config.dimensions.width = Number(document.getElementById('map-editor-width')?.value) || config.dimensions.width;
+            config.dimensions.length = Number(document.getElementById('map-editor-length')?.value) || config.dimensions.length;
+            return normalizeMapConfig(config);
+        };
+        bind('btn-map-code-copy', async () => {
+            if (!this.mapEditor) return;
+            const code = encodeMapCode(editorConfig());
+            const input = document.getElementById('map-code-input');
+            if (input) input.value = code;
+            try {
+                await navigator.clipboard.writeText(code);
+                this.ui.showMessage?.(t('toast.mapCodeCopied'), 1800);
+            } catch {
+                input?.select();
+                this.ui.showMessage?.(t('toast.mapCodeSelectCopy'), 2200);
+            }
+        });
+        bind('btn-map-code-load', () => {
+            if (!this.mapEditor) return;
+            const decoded = decodeMapCode(document.getElementById('map-code-input')?.value);
+            if (!decoded.ok) {
+                this.ui.showMessage?.(t('toast.mapCodeInvalid', { reason: decoded.error }), 2600);
+                return;
+            }
+            this.mapEditor.setConfig(decoded.config);
+            const name = document.getElementById('map-editor-name');
+            const width = document.getElementById('map-editor-width');
+            const length = document.getElementById('map-editor-length');
+            if (name) name.value = decoded.config.name;
+            if (width) width.value = decoded.config.dimensions.width;
+            if (length) length.value = decoded.config.dimensions.length;
+            this.ui.showMessage?.(t('toast.mapCodeLoaded', { name: decoded.config.name }), 2000);
+        });
+        document.getElementById('lobby-map-code-form')?.addEventListener('submit', event => {
+            event.preventDefault();
+            this._playLobbyMapCode(document.getElementById('lobby-map-code')?.value);
+        }, { signal: this._mainAbort.signal });
 
         bind('btn-workshop-public', () => this.refreshWorkshop(false));
         bind('btn-workshop-mine', () => this.refreshWorkshop(true));
@@ -5685,7 +5728,9 @@ initCarousel() {
 
 updateCarousel() {
     const keys = this.game.getSelectableMaps();
-        const mapId = keys[this.carouselIndex];
+        // A map loaded from a share code is not in the carousel list: show it as is.
+        const coded = isCodedMapId(this.arena.mapId);
+        const mapId = coded ? this.arena.mapId : keys[this.carouselIndex];
         const config = Arena.MAPS[mapId];
         if (!config) return;
 
@@ -5698,7 +5743,7 @@ updateCarousel() {
         const nameEl = document.getElementById('carousel-name');
         if (nameEl) {
             // Strip emoji prefix
-            const cleanName = config.name.replace(/^[^\s]+\s/, '');
+            const cleanName = coded ? config.name : config.name.replace(/^[^\s]+\s/, '');
             nameEl.textContent = cleanName || config.name;
         }
 
@@ -6827,6 +6872,32 @@ updateCarousel() {
         clearTimeout(this._knifeTrialInspectTimer);
         this._knifeTrialInspectTimer = setTimeout(() => this.player.inspectKnife?.(), 700);
         this.ui.showMessage?.(t('toast.tryingKnife', { name: knife.name }), 4500);
+        return true;
+    }
+
+    // Host / solo: play a custom map from its share code. The code travels with the
+    // lobby's mapChange / game-start snapshot, so every client builds the same map.
+    _playLobbyMapCode(rawCode) {
+        if (!this.isLobbyHost()) {
+            this.ui.showMessage?.(t('toast.hostOnlyMap'), 1400);
+            return false;
+        }
+        const code = String(rawCode || '').trim();
+        const decoded = decodeMapCode(code);
+        const mapId = decoded.ok ? this.game.adoptMapCode(code) : null;
+        if (!mapId) {
+            this.ui.showMessage?.(t('toast.mapCodeInvalid', { reason: decoded.error || 'map is not valid' }), 2600);
+            return false;
+        }
+        // "Choose map" on, or the random roll at match start would replace it.
+        this.store.set('lobbyCustomMap', true);
+        const toggle = document.getElementById('lobby-custom-map');
+        if (toggle) toggle.checked = true;
+        this._syncMapChoiceUI();
+        this.game.selectMap(mapId);
+        this.updateCarousel();
+        this.broadcastLobbyState();
+        this.ui.showMessage?.(t('toast.mapCodeLoaded', { name: decoded.config.name }), 2200);
         return true;
     }
 

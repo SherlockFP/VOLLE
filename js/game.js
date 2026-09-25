@@ -6,7 +6,8 @@ import { Ball, chargeProfile, CHARGE_OVERCHARGE_SECONDS, ballHeatLevel, BALL_HEA
 import { Bot, BOT_FALL_GRAVITY } from './bot.js';
 import { Scoreboard } from './scoreboard.js';
 import { calcDamage, missRampDamage } from './characters.js';
-import { Arena, isFallDeathPosition } from './arena.js';
+import { Arena, isFallDeathPosition, registerCustomMap } from './arena.js';
+import { decodeMapCode, isCodedMapId, mapIdForCode } from './map-code.js';
 import { Juice } from './juice.js';
 import { KillMedal, KillStreakTracker } from './kill-medal.js';
 import { KillPillars } from './kill-pillars.js';
@@ -378,6 +379,7 @@ export class Game {
         this.killPillars = new KillPillars(this.renderer?.scene);
         this.killMedal = new KillMedal(globalThis.document);
         this._localKillStreak = new KillStreakTracker();
+        this._mapCodes = new Map(); // coded map id -> share code (js/map-code.js)
         this.emotes = new EmoteSystem(this.renderer.scene);
         // Spectating & social-in-match: joined spectators sit in the sideline stands,
         // never occupy a team slot and have no gameplay authority (host-enforced).
@@ -1550,9 +1552,28 @@ selectMap(mapId) {
         this.bots.forEach(b => b.respawn());
         this.ui.showMessage(t('match.arena', { name: this.arena.config.name }), 1400);
         if (this.network?.isHost) {
-        this.network.broadcast({ type: 'mapChange', mapId });
+        const mapCode = this.mapCodeFor?.(mapId);
+        this.network.broadcast({ type: 'mapChange', mapId, ...(mapCode ? { mapCode } : {}) });
     }
     this.onMapChange?.(mapId);
+    }
+
+    // Custom map share codes: decode + validate + register once per code. A client
+    // only accepts a code whose hash is the host's map id. Returns the id or null.
+    adoptMapCode(code, expectedMapId = null) {
+        if (!code) return null;
+        const mapId = mapIdForCode(code);
+        if (expectedMapId && expectedMapId !== mapId) return null;
+        if (!this._mapCodes.has(mapId)) {
+            const decoded = decodeMapCode(code);
+            if (!decoded.ok || !registerCustomMap(mapId, decoded.config)) return null;
+            this._mapCodes.set(mapId, String(code).replace(/\s+/g, ''));
+        }
+        return mapId;
+    }
+
+    mapCodeFor(mapId) {
+        return isCodedMapId(mapId) ? this._mapCodes.get(mapId) || null : null;
     }
 
     // Map banlama (LoL tarzı). Lobby'de her takım banlar.
@@ -6580,6 +6601,7 @@ spawnPowerUp() {
             const hostWeatherSeed = Number.isFinite(data.weatherSeed) ? data.weatherSeed : null;
             if (hostWeatherSeed !== null) this.arena.weatherSeed = hostWeatherSeed;
             let arenaRebuilt = false;
+            if (data.mapCode) this.adoptMapCode?.(data.mapCode, data.map);
             if (data.map && this.arena.mapId !== data.map) {
                 this.arena.rebuild(data.map, typeof data.props === 'boolean' ? { props: data.props } : {});
                 arenaRebuilt = true;
@@ -6700,6 +6722,7 @@ spawnPowerUp() {
         const hostWeatherSeed = Number.isFinite(data.weatherSeed) ? data.weatherSeed : null;
         if (hostWeatherSeed !== null) this.arena.weatherSeed = hostWeatherSeed;
         let arenaRebuilt = false;
+        if (data.mapCode) this.adoptMapCode?.(data.mapCode, data.map);
         if (data.map && this.arena.mapId !== data.map) {
             this.arena.rebuild(data.map, typeof data.props === 'boolean' ? { props: data.props } : {});
             arenaRebuilt = true;
@@ -7031,6 +7054,7 @@ spawnPowerUp() {
                 : 0,
             mode: this.mode?.id,
             map: this.arena?.mapId,
+            mapCode: this.mapCodeFor?.(this.arena?.mapId) || undefined,
             props: this.arena?.propsEnabled !== false,
             weatherSeed: Number.isFinite(this.arena?.weatherSeed) ? this.arena.weatherSeed : 0,
             maxRounds: this.scoreboard.maxRounds,
@@ -7899,6 +7923,7 @@ handleSkillEffect(data = {}) {
 
 applyMapChange(data) {
     if (!data?.mapId || this.network?.isHost) return;
+    if (data.mapCode) this.adoptMapCode?.(data.mapCode, data.mapId);
     const mapId = this._rallyDuel ? normalizeRallyDuelMap(data.mapId) : data.mapId;
     if (this.arena.mapId === mapId) return;
     this.arena.rebuild(mapId);
