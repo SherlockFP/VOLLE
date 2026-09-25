@@ -14,7 +14,8 @@
 - Doldurma botları lobide canlı ve atılabiliyor (2v1 mümkün). **Maçın Anı:** raporda en iyi an kartı var, soloda izlenebiliyor; tekrarlarda gerçek karakter modelleri kullanılıyor.
 - `sfx/tf2_*.mp3` TF2 kaynaklı; sahip bu sesleri tutmaya karar verdi.
 - Maçın Anı online'da da izlenebiliyor (rapor içinde küçük sahne); misafirler de kayıt tutuyor. Geç katılan AUTO botun koltuğunu alıyor. **Haftalık etkinlik** menüde, o modda +%50 XP.
-- Doğrulama **2637/2638 test** (+1 skip), check 157 dosya OK. Dal main'e birleşmedi.
+- Dokunmatikte JUMP atlıyor, ipuçları dokunmatik dilinde. Kodlu harita lobide geç katılana da görünüyor. Puan kartı ~6,3 → ~7,1 (ayrıntı oturum notunda).
+- Doğrulama **2641/2642 test** (+1 skip), check 157 dosya OK. Dal main'e birleşmedi.
 
 ## En yeni — Sınırlı döngü: mobil + ilk yükleme ([[sessions/2026-09-25-bounded-mobile-perf]])
 - Sözleşme önceden yazıldı (sabit hedef, kanıt, değişmezler, tur limiti, ayrı commit). main'in çevrimiçi oyun düzeltmesiyle birleştirildi.
