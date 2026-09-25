@@ -43,3 +43,14 @@ test('ttl cleanup releases a participant even when a multiplayer match never bec
     assert.equal(f.authority.isProfileActive(f.a.id), false);
     assert.equal(f.authority.start(f.a, { matchId: id('after-expiry'), mode: 'casual', lobbyCode: 'casual' }).httpStatus, 200);
 });
+test('an abandoned solo match is replaced by the next start; ranked and casual still block', t => {
+    const f = fixture(); t.after(() => fs.rmSync(f.dir, { recursive: true, force: true }));
+    assert.equal(f.authority.start(f.a, { matchId: id('solo-abandoned'), mode: 'solo' }).httpStatus, 200);
+    const next = id('solo-next');
+    assert.equal(f.authority.start(f.a, { matchId: next, mode: 'solo' }).httpStatus, 200, 'closed tab must not block rewards for ttlMs');
+    f.advance(100);
+    assert.equal(f.authority.complete(f.a, { matchId: next, mode: 'solo' }).httpStatus, 200);
+    assert.equal(f.authority.complete(f.a, { matchId: id('solo-abandoned'), mode: 'solo' }).httpStatus >= 400, true, 'the replaced match cannot be completed');
+    assert.equal(f.authority.start(f.b, { matchId: id('ranked-open'), mode: 'ranked', lobbyCode: 'ranked' }).httpStatus, 200);
+    assert.equal(f.authority.start(f.b, { matchId: id('solo-after-ranked'), mode: 'solo' }).httpStatus, 409);
+});

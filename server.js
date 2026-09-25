@@ -890,6 +890,7 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, result.error ? { error: result.error } : {
             day: result.day,
             reward: result.reward,
+            rewardCase: result.rewardCase || null,
             profile: result.profile
         }, result.status);
         return;

@@ -1405,6 +1405,15 @@ export class UI {
             item.append(copy, action);
             list.append(item);
         }
+        if (safeDrops.length) {
+            // The drop lands below Rematch; bring it into view with a short pop.
+            wrap.classList.remove('is-fresh');
+            void wrap.offsetWidth;
+            wrap.classList.add('is-fresh');
+            const reduce = document.body.classList.contains('reduced-motion')
+                || globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true;
+            wrap.scrollIntoView?.({ block: 'nearest', behavior: reduce ? 'auto' : 'smooth' });
+        }
         return safeDrops.length > 0;
     }
 

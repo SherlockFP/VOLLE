@@ -42,6 +42,7 @@ import {
 import { Daily, DAILY_CHALLENGE_XP, DAILY_ALL_COMPLETE_BONUS_XP, dailyXpAward } from './daily.js';
 import { applyAccountXp, xpForLevel } from './prestige.js';
 import { account } from './account.js';
+import { normalizeStarterTrack, starterTrackStatus, streakCaseForDay } from './reward-track.js';
 import {
     DEFAULT_CARD_COLLECTION,
     DEFAULT_CARD_LOADOUT,
@@ -188,6 +189,8 @@ const DEFAULTS = {
     dailyRewards: { lastLoginClaim: '', loginStreak: 0, lastFreeCase: '' },
     lastFirstMatchDay: '',
     dailyStreak: { count: 0, lastClaimDay: '' },
+    starterTrack: { matches: 0, granted: 0 }, // offline fallback; accounts read starterTrackRemote
+    starterTrackRemote: null,
     dailyChallenges: null,
     casePity: {},
     earnedCases: {},
@@ -318,6 +321,8 @@ class StoreClass {
                 casePity: parsed.casePity && typeof parsed.casePity === 'object' ? parsed.casePity : {},
                 earnedCases: parsed.earnedCases && typeof parsed.earnedCases === 'object' ? parsed.earnedCases : {},
                 caseDropDrought: Math.min(4, Math.max(0, Math.floor(Number(parsed.caseDropDrought) || 0))),
+                starterTrack: normalizeStarterTrack(parsed.starterTrack),
+                starterTrackRemote: parsed.starterTrackRemote && typeof parsed.starterTrackRemote === 'object' ? parsed.starterTrackRemote : null,
                 cardCollection: normalizeCardCollection(parsed.cardCollection),
                 equippedCards: normalizeCardLoadout(parsed.equippedCards, parsed.cardCollection),
                 arenaCache: {
@@ -428,6 +433,7 @@ class StoreClass {
             }
         }
         this.data.earnedCases = this.data.earnedCases && typeof this.data.earnedCases === 'object' ? this.data.earnedCases : {};
+        if (profile.starterTrack && typeof profile.starterTrack === 'object') this.data.starterTrackRemote = profile.starterTrack;
         if (profile.onboarding && typeof profile.onboarding === 'object' && !Array.isArray(profile.onboarding)) {
             for (const flag of ['ftueSeen', 'ftueCompleted', 'ftueMatchHintsSeen']) {
                 if (typeof profile.onboarding[flag] === 'boolean') this.data[flag] = profile.onboarding[flag];
@@ -647,7 +653,7 @@ class StoreClass {
         const completion = result?.completion || result || {};
         const rows = dailyRows || this._matchDailyRows(result?.profile?.dailyChallenges);
         if (!profileApplied && result?.profile) this._applyRemoteProfile(result.profile);
-        return { ok: true, pending: false, coins: completion.coins, base: completion.base, bonus: completion.bonus, firstOfDay: completion.firstOfDay, battlepassXp: completion.battlepassXp, battlepassBoostMultiplier: completion.battlepassBoostMultiplier, cardReward: completion.cardReward || null, earnedCase: completion.earnedCase || null, earnedCaseSource: completion.earnedCaseSource || null, dailyProgress: completion.dailyProgress || null, dailyRows: rows, replayed: result?.replayed === true, rankedState: completion.rankedState || result?.profile?.rankedState || null };
+        return { ok: true, pending: false, coins: completion.coins, base: completion.base, bonus: completion.bonus, firstOfDay: completion.firstOfDay, battlepassXp: completion.battlepassXp, battlepassBoostMultiplier: completion.battlepassBoostMultiplier, cardReward: completion.cardReward || null, earnedCase: completion.earnedCase || null, earnedCaseSource: completion.earnedCaseSource || null, starterCase: CASES[completion.starterCase] ? completion.starterCase : null, dailyProgress: completion.dailyProgress || null, dailyRows: rows, replayed: result?.replayed === true, rankedState: completion.rankedState || result?.profile?.rankedState || null };
     }
 
     // Read-only receipt retry used only after the original bounded completion
@@ -699,6 +705,17 @@ class StoreClass {
         return computeStreakState(this.data.dailyStreak, now);
     }
 
+    getStarterTrackStatus() {
+        if (this.remoteReady && this.data.starterTrackRemote) return this.data.starterTrackRemote;
+        return starterTrackStatus(this.data.starterTrack);
+    }
+
+    _grantLocalEarnedCase(caseId) {
+        if (!caseId || !CASES[caseId]) return null;
+        this.data.earnedCases = { ...(this.data.earnedCases || {}), [caseId]: Math.max(0, Math.floor(Number(this.data.earnedCases?.[caseId]) || 0)) + 1 };
+        return caseId;
+    }
+
     // Guest/local claim — coin-only grant (no XP), mirrors claimDailyLogin's
     // shape but UTC-keyed and uncapped (see computeStreakState above).
     _claimLoginStreakLocal(now = new Date()) {
@@ -706,8 +723,9 @@ class StoreClass {
         if (state.claimed) return { ok: false, error: 'already claimed today' };
         this.data.dailyStreak = { count: state.day, lastClaimDay: state.today };
         this.data.currency += state.reward;
+        const rewardCase = this._grantLocalEarnedCase(streakCaseForDay(state.day));
         this.save();
-        return { ok: true, day: state.day, reward: state.reward };
+        return { ok: true, day: state.day, reward: state.reward, rewardCase };
     }
 
     // Account players claim server-side (server owns lastClaimDay — never
@@ -731,7 +749,7 @@ class StoreClass {
                 return { ok: false, error: result.error || 'streak claim unavailable' };
             }
             this._applyRemoteProfile(result.profile);
-            return { ok: true, day: result.day, reward: result.reward };
+            return { ok: true, day: result.day, reward: result.reward, rewardCase: CASES[result.rewardCase] ? result.rewardCase : null };
         } catch {
             return { ok: false, error: 'network error' };
         }

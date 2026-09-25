@@ -32,6 +32,7 @@ const {
     publicDailyState
 } = require('./daily-challenge-service');
 const { GEM_PRICES } = require('./payment-ledger');
+const { advanceStarterTrack, normalizeStarterTrack, starterTrackStatus, streakCaseForDay } = require('./reward-track');
 const GEM_SPEND_REQUEST_ID_PATTERN = /^[A-Za-z0-9._:-]{8,96}$/;
 
 const CATALOG = {
@@ -295,6 +296,7 @@ class ProfileStore {
             ? Object.fromEntries(Object.keys(CASES).map(caseId => [caseId, Math.max(0, Math.floor(Number(normalized.earnedCases[caseId]) || 0))]))
             : {};
         normalized.caseDropDrought = Math.min(4, Math.max(0, Math.floor(Number(normalized.caseDropDrought) || 0)));
+        normalized.starterTrack = normalizeStarterTrack(record.starterTrack);
         normalized.cardCollection = normalizeCardCollection(record.cardCollection);
         normalized.equippedCards = normalizeCardLoadout(record.equippedCards, normalized.cardCollection);
         normalized.arenaCache = record.arenaCache && typeof record.arenaCache === 'object'
@@ -402,8 +404,15 @@ class ProfileStore {
             battlepassActiveBoost: activeBoost && activeBoost.expiresAt > now ? activeBoost : null,
             dailyChallenges: publicDailyState(record.dailyChallenges),
             adRewards: this._adRewardStatus(record, now),
-            dailyStreak: this._dailyStreakStatus(record, now)
+            dailyStreak: this._dailyStreakStatus(record, now),
+            starterTrack: starterTrackStatus(record.starterTrack)
         };
+    }
+
+    _grantEarnedCase(record, caseId) {
+        if (!CASES[caseId]) return null;
+        record.earnedCases = { ...(record.earnedCases || {}), [caseId]: Math.max(0, Number(record.earnedCases?.[caseId]) || 0) + 1 };
+        return caseId;
     }
 
     _ensureDailyChallenges(record, now = Date.now()) {
@@ -879,6 +888,7 @@ class ProfileStore {
                 cardReward: previousCardReward?.reward || null,
                 earnedCase: previousCardReward?.earnedCase || null,
                 earnedCaseSource: previousCardReward?.earnedCaseSource || null,
+                starterCase: previousCardReward?.starterCase || null,
                 profile: this._public(record)
             };
         }
@@ -918,9 +928,13 @@ class ProfileStore {
         const earnedCase = caseDropDrought >= 4 || hash % 3 === 0 ? 'kickoff' : null;
         const earnedCaseSource = earnedCase ? (caseDropDrought >= 4 ? 'drought_guarantee' : 'match_roll') : null;
         if (earnedCase) {
-            record.earnedCases = { ...(record.earnedCases || {}), [earnedCase]: Math.max(0, Number(record.earnedCases?.[earnedCase]) || 0) + 1 };
+            this._grantEarnedCase(record, earnedCase);
             record.caseDropDrought = 0;
         } else record.caseDropDrought = caseDropDrought + 1;
+        // Starter track: a guaranteed case every 3rd rewarded match, five times.
+        const starter = advanceStarterTrack(record.starterTrack);
+        record.starterTrack = starter.track;
+        const starterCase = starter.caseId ? this._grantEarnedCase(record, starter.caseId) : null;
         record.arenaCache = record.arenaCache && typeof record.arenaCache === 'object'
             ? record.arenaCache : { earned: 0, opened: 0, lastMatchId: '' };
         record.arenaCache.lastMatchId = matchId;
@@ -932,11 +946,11 @@ class ProfileStore {
             record.arenaCache.opened = Math.max(0, Math.floor(Number(record.arenaCache.opened) || 0)) + 1;
             cardReward = granted.reward;
         }
-        record.cardRewardReceipts.push({ matchId, reward: cardReward, earnedCase, earnedCaseSource });
+        record.cardRewardReceipts.push({ matchId, reward: cardReward, earnedCase, earnedCaseSource, starterCase });
         record.cardRewardReceipts = record.cardRewardReceipts.slice(-50);
         record.updatedAt = now;
         this._save();
-        return { status: 200, replayed: false, coins, base, bonus, firstOfDay: firstOfDayBonus, battlepassXp, battlepassBoostMultiplier, dailyProgress, cardReward, earnedCase, earnedCaseSource, profile: this._public(record, now) };
+        return { status: 200, replayed: false, coins, base, bonus, firstOfDay: firstOfDayBonus, battlepassXp, battlepassBoostMultiplier, dailyProgress, cardReward, earnedCase, earnedCaseSource, starterCase, profile: this._public(record, now) };
     }
 
     equipCard(record, cardId, slot) {
@@ -986,7 +1000,7 @@ class ProfileStore {
         record.dailyStreak.receipts = Array.isArray(record.dailyStreak.receipts) ? record.dailyStreak.receipts : [];
         const prior = receiptId ? record.dailyStreak.receipts.find(item => item.requestId === receiptId) : null;
         if (prior) {
-            return { status: 200, day: prior.day, reward: prior.reward, profile: this._public(record), replayed: true };
+            return { status: 200, day: prior.day, reward: prior.reward, rewardCase: prior.rewardCase || null, profile: this._public(record), replayed: true };
         }
         const today = utcDateKey(now);
         if (record.dailyStreak.lastClaimDay === today) {
@@ -997,16 +1011,17 @@ class ProfileStore {
         const day = record.dailyStreak.lastClaimDay === yesterday ? prevCount + 1 : 1;
         const reward = day > 0 && day % LOGIN_STREAK_CYCLE === 0 ? LOGIN_STREAK_DAY7_COINS : LOGIN_STREAK_DAILY_COINS;
         record.currency += reward;
+        const rewardCase = this._grantEarnedCase(record, streakCaseForDay(day));
         record.dailyStreak.count = day;
         record.dailyStreak.lastClaimDay = today;
         if (receiptId) {
-            record.dailyStreak.receipts.push({ requestId: receiptId, day, reward, createdAt: now });
+            record.dailyStreak.receipts.push({ requestId: receiptId, day, reward, rewardCase, createdAt: now });
             record.dailyStreak.receipts = record.dailyStreak.receipts.slice(-20);
         }
         record.economyRevision = Math.max(0, Number(record.economyRevision) || 0) + 1;
         record.updatedAt = now;
         this._save();
-        return { status: 200, day, reward, profile: this._public(record), replayed: false };
+        return { status: 200, day, reward, rewardCase, profile: this._public(record), replayed: false };
     }
 
     // House-promo watch & earn — bearer identity is the only trust boundary

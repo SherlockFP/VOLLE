@@ -135,7 +135,13 @@ export default {
         featuredKicker: 'In the shop',
         openInShop: '{name} — open in shop',
         streakDay: 'Day {day}',
-        streakClaim: 'Daily Streak: {day} — Claim +{reward}'
+        streakClaim: 'Daily Streak: {day} — Claim +{reward}',
+        streakClaimCase: 'Daily Streak: {day} — Claim +{reward} + FREE {name}',
+        starterAria: 'Free case progress',
+        starterGuestTitle: '{count} FREE cases waiting',
+        starterGuestSub: 'Create a free account — 1 case every 3 matches',
+        starterTitle: 'Free cases — {left} left',
+        starterSub: { one: '1 more match → {name}', other: '{count} more matches → {name}' }
     },
     social: {
         social: 'Social',
@@ -1166,6 +1172,10 @@ export default {
         levelUp: 'Level Up! {label}',
         mastery: '{name} Mastery Lv {level}!',
         matchDrop: 'MATCH DROP: Earned {name} — open it free in Cases.',
+        starterCase: '🎁 FREE CASE! {name} — open it now in Cases.',
+        streakReward: 'Daily Streak Day {day}: +{coins} coins',
+        streakRewardCase: 'Daily Streak Day {day}: +{coins} coins + FREE {name}! 🎁',
+        streakAlreadyClaimed: 'Daily login already claimed.',
         rewardsSummary: '+{coins} coins, +{xp} XP',
         soloFailed: 'Could not prepare this solo match.',
         volleyDev: 'Volleyball core rally is in development.',

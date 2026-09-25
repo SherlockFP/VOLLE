@@ -8020,6 +8020,18 @@ body:not(.practice-lab-active) .network-diagnostics {
     background: linear-gradient(135deg, rgba(97, 66, 177, .26), #0a1a2c);
     border-color: rgba(175, 131, 255, .48);
 }
+#post-game-screen .pg-match-drop.is-fresh {
+    scroll-margin: 12px 0 84px; /* clear the report's pinned Lobby / Main menu row */
+    box-shadow: 0 0 14px 2px rgba(175, 131, 255, .3);
+    animation: pg-drop-pop 900ms cubic-bezier(.2, .9, .3, 1.2) both;
+}
+@keyframes pg-drop-pop {
+    0% { transform: scale(.9); box-shadow: 0 0 0 0 rgba(175, 131, 255, 0); }
+    45% { transform: scale(1.03); box-shadow: 0 0 30px 8px rgba(175, 131, 255, .6); }
+    100% { transform: none; box-shadow: 0 0 14px 2px rgba(175, 131, 255, .3); }
+}
+@media (prefers-reduced-motion: reduce) { #post-game-screen .pg-match-drop.is-fresh { animation: none; } }
+body.reduced-motion #post-game-screen .pg-match-drop.is-fresh { animation: none; }
 
 #post-game-screen .pg-match-drop-head { color: #dcefff; }
 #post-game-screen .pg-match-drop-item { background: #091725; border-color: color-mix(in srgb, var(--screen-line) 22%, transparent); }

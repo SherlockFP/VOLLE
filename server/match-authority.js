@@ -31,7 +31,14 @@ class MatchAuthority {
         if (!profile || !this._valid(matchId, mode)) return { httpStatus: 400, error: 'invalid match lifecycle' };
         const key = this._key(profile, matchId, mode);
         const active = this.activeByProfile.get(profile.id);
-        if (active && active !== key) return { httpStatus: 409, error: 'profile already has an active match' };
+        if (active && active !== key) {
+            const previous = this.matches.get(active);
+            // An unfinished solo match (closed tab, crash) is nobody else's: a new
+            // start replaces it. Before, the profile earned nothing until ttlMs.
+            if (previous && !(previous.mode === 'solo' && !previous.finalized)) return { httpStatus: 409, error: 'profile already has an active match' };
+            if (previous) this.matches.delete(active);
+            this.activeByProfile.delete(profile.id);
+        }
         let match = this.matches.get(key);
         if (!match) {
             const snapshot = mode === 'solo' ? { members: new Set([profile.id]), expectedCount: 1 } : this._lobbySnapshot(profile, lobbyCode, mode);

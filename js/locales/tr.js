@@ -135,7 +135,13 @@ export default {
         featuredKicker: 'Mağazada',
         openInShop: '{name} — mağazada aç',
         streakDay: '{day}. gün',
-        streakClaim: 'Günlük seri: {day} — +{reward} al'
+        streakClaim: 'Günlük seri: {day} — +{reward} al',
+        streakClaimCase: 'Günlük seri: {day} — +{reward} + BEDAVA {name} al',
+        starterAria: 'Bedava kasa ilerlemesi',
+        starterGuestTitle: '{count} BEDAVA kasa seni bekliyor',
+        starterGuestSub: 'Ücretsiz hesap aç — her 3 maçta 1 kasa',
+        starterTitle: 'Bedava kasalar — {left} kaldı',
+        starterSub: '{count} maç daha → {name}'
     },
     social: {
         social: 'Sosyal',
@@ -1155,6 +1161,10 @@ export default {
         levelUp: 'Seviye atladın! {label}',
         mastery: '{name} ustalığı Sv {level}!',
         matchDrop: 'MAÇ GANİMETİ: {name} kazandın. Kasalar\'da ücretsiz aç.',
+        starterCase: '🎁 BEDAVA KASA! {name} — hemen Kasalar\'da aç.',
+        streakReward: 'Günlük seri {day}. gün: +{coins} coin',
+        streakRewardCase: 'Günlük seri {day}. gün: +{coins} coin + BEDAVA {name}! 🎁',
+        streakAlreadyClaimed: 'Günlük giriş ödülü zaten alındı.',
         rewardsSummary: '+{coins} kredi, +{xp} XP',
         soloFailed: 'Bu solo maç hazırlanamadı.',
         volleyDev: 'Voleybolun temel rallisi hâlâ geliştiriliyor.',

@@ -19,6 +19,7 @@ import { UI } from './ui.js';
 import { Network } from './network.js';
 import { VoiceChat } from './voice.js';
 import { Store, isNewPlayerProfile, shouldShowFtueWelcome } from './store.js';
+import { streakCaseForDay } from './reward-track.js';
 import { attachViewmodelFx, disposeViewmodelFx } from './viewmodel-fx.js';
 import { DEFAULT_LOADOUT } from './skills.js';
 import { ARENA_CARDS, CARD_RARITIES } from './cards.js';
@@ -182,7 +183,7 @@ const GUEST_GATED_SELECTOR = [
     '.bp-claim', '.bp-premium-buy', '.bp-boost-activate',
     // Shop > Gems real-money checkout + gem spend (js/gem-shop.js, docs/PAYMENTS.md).
     '.gem-pack-buy', '.gem-bp-buy',
-    '.daily-claim', '.daily-login-claim', '.daily-case-open', '.contract-claim', '#menu-streak-badge',
+    '.daily-claim', '.daily-login-claim', '.daily-case-open', '.contract-claim', '#menu-streak-badge', '#menu-starter-card',
     '.card-equip', '#btn-card-tradeup',
     '#btn-ranked', '#btn-ranked-play', '#btn-tournament',
     '#btn-menu-party-invite', '#btn-menu-squad-center', '#btn-social-center', '#btn-social-lobby',
@@ -1571,6 +1572,29 @@ class App {
             if (fill) fill.style.width = `${total ? (done / total) * 100 : 0}%`;
         }
 
+        const starterCard = document.getElementById('menu-starter-card');
+        if (starterCard) {
+            // Guests see the offer (the card is guest-gated: a click opens sign-up);
+            // accounts see their server-owned progress until all five are earned.
+            const track = this.store.getStarterTrackStatus?.();
+            const next = track && !track.done ? CASES[track.nextCase] : null;
+            const guest = this._guest === true;
+            starterCard.hidden = !guest && !next;
+            const title = document.getElementById('menu-starter-title');
+            const sub = document.getElementById('menu-starter-sub');
+            const fill = document.getElementById('menu-starter-fill');
+            if (guest) {
+                if (title) title.textContent = t('menu.starterGuestTitle', { count: track?.cap || 5 });
+                if (sub) sub.textContent = t('menu.starterGuestSub');
+                if (fill) fill.style.width = '0%';
+            } else if (next) {
+                const left = Math.max(1, track.every - track.progress);
+                if (sub) sub.textContent = t('menu.starterSub', { count: left, name: next.name });
+                if (title) title.textContent = t('menu.starterTitle', { left: track.cap - track.granted });
+                if (fill) fill.style.width = `${(track.progress / track.every) * 100}%`;
+            }
+        }
+
         const bpCard = document.getElementById('menu-bp-card');
         if (bpCard) {
             const bp = this.store.getBattlepassProgress();
@@ -1659,9 +1683,12 @@ class App {
         fire.textContent = state.claimed ? '✓' : '🔥';
         const label = document.createElement('span');
         label.className = 'ow-streak-label';
+        const dayCase = state.claimed ? null : CASES[streakCaseForDay(state.day)];
         label.textContent = state.claimed
             ? t('menu.streakDay', { day: state.day })
-            : t('menu.streakClaim', { day: state.day, reward: state.reward });
+            : dayCase
+                ? t('menu.streakClaimCase', { day: state.day, reward: state.reward, name: dayCase.name })
+                : t('menu.streakClaim', { day: state.day, reward: state.reward });
         badge.appendChild(fire);
         badge.appendChild(label);
     }
@@ -1677,9 +1704,12 @@ class App {
     async _claimStreakReward() {
         const requestId = `streak:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
         const result = await this.store.claimLoginStreak(requestId);
+        const streakCase = result?.ok && CASES[result.rewardCase] ? CASES[result.rewardCase] : null;
         this.ui.showMessage?.(result?.ok
-            ? `Daily Streak Day ${result.day}: +${result.reward} coins`
-            : 'Daily login already claimed.', 2500);
+            ? (streakCase
+                ? t('toast.streakRewardCase', { day: result.day, coins: result.reward, name: streakCase.name })
+                : t('toast.streakReward', { day: result.day, coins: result.reward }))
+            : t('toast.streakAlreadyClaimed'), streakCase ? 3200 : 2500);
         this._renderRetentionBadge();
         this.refreshMetaStats();
         return result;
@@ -1875,11 +1905,17 @@ class App {
             matchDrops.push({ type: 'card', id: card.id, name: card.name, rarity: card.rarity });
             this.ui.queueToast?.(`Arena Cache: ${card.name} (${CARD_RARITIES[card.rarity].label})`, 2400);
         }
-        if (freshAuthorityResult && synced?.earnedCase && CASES[synced.earnedCase]) {
-            const box = CASES[synced.earnedCase];
-            this.productAnalytics.track('earned_case_granted', { itemId: box.id, itemType: 'cosmetic_case', result: synced.earnedCaseSource || 'match_roll' });
+        // Server-owned case grants: the 1-in-3 match roll and the starter track
+        // (every 3rd rewarded match, five cases). Only an account's fresh settlement carries them.
+        const grantedCases = freshAuthorityResult && synced ? [
+            { id: synced.earnedCase, source: synced.earnedCaseSource || 'match_roll', toast: 'toast.matchDrop' },
+            { id: synced.starterCase, source: 'starter_track', toast: 'toast.starterCase' }
+        ].filter(grant => CASES[grant.id]) : [];
+        for (const grant of grantedCases) {
+            const box = CASES[grant.id];
+            this.productAnalytics.track('earned_case_granted', { itemId: box.id, itemType: 'cosmetic_case', result: grant.source });
             matchDrops.push({ type: 'case', id: box.id, name: box.name, rarity: 'earned' });
-            this.ui.queueToast?.(t('toast.matchDrop', { name: box.name }), 2400);
+            this.ui.queueToast?.(t(grant.toast, { name: box.name }), grant.source === 'starter_track' ? 2800 : 2400);
         }
         // The report receives a receipt only after this player's local or
         // authoritative settlement. A pending remote completion stays pending;
@@ -1930,13 +1966,13 @@ class App {
                 dailies: synced.dailyRows
             };
             const painted = this.ui.setPostGameRewardReceipt?.(matchId, receipt, this.store);
-            if (painted && synced.earnedCase && CASES[synced.earnedCase]) {
-                const box = CASES[synced.earnedCase];
-                this.ui.setPostGameMatchDrops?.(matchId, [{ type: 'case', id: box.id, name: box.name, rarity: 'earned' }]);
-            } else if (painted && synced.cardReward?.card) {
+            const drops = [synced.earnedCase, synced.starterCase].filter(id => CASES[id])
+                .map(id => ({ type: 'case', id, name: CASES[id].name, rarity: 'earned' }));
+            if (!drops.length && synced.cardReward?.card) {
                 const card = synced.cardReward.card;
-                this.ui.setPostGameMatchDrops?.(matchId, [{ type: 'card', id: card.id, name: card.name, rarity: card.rarity }]);
+                drops.push({ type: 'card', id: card.id, name: card.name, rarity: card.rarity });
             }
+            if (painted && drops.length) this.ui.setPostGameMatchDrops?.(matchId, drops);
             return painted;
         };
         let attempts = 0;
@@ -2282,6 +2318,11 @@ class App {
         bind('btn-battlepass', () => {
             this.ui.renderBattlepass(this.store);
             this.ui.showScreen('battlepass');
+        });
+        bind('menu-starter-card', () => {
+            this.ui.showScreen('shop');
+            this.ui.renderShop(this.store, 'cases');
+            this.shopShowcase?.start();
         });
         bind('menu-bp-card', () => {
             this.ui.renderBattlepass(this.store);
