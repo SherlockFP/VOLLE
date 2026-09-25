@@ -13,7 +13,8 @@
 - **Tempo:** raund arası 3 sn, soloda Boşluk ile atlanıyor. **Bot doldurma:** casual online lobide boş yerler botla doluyor (≥2v2), ranked'de asla.
 - Doldurma botları lobide canlı ve atılabiliyor (2v1 mümkün). **Maçın Anı:** raporda en iyi an kartı var, soloda izlenebiliyor; tekrarlarda gerçek karakter modelleri kullanılıyor.
 - `sfx/tf2_*.mp3` TF2 kaynaklı; sahip bu sesleri tutmaya karar verdi.
-- Doğrulama **2631/2632 test** (+1 skip), check 155 dosya OK. Dal main'e birleşmedi.
+- Maçın Anı online'da da izlenebiliyor (rapor içinde küçük sahne); misafirler de kayıt tutuyor. Geç katılan AUTO botun koltuğunu alıyor. **Haftalık etkinlik** menüde, o modda +%50 XP.
+- Doğrulama **2637/2638 test** (+1 skip), check 157 dosya OK. Dal main'e birleşmedi.
 
 ## En yeni — Sınırlı döngü: mobil + ilk yükleme ([[sessions/2026-09-25-bounded-mobile-perf]])
 - Sözleşme önceden yazıldı (sabit hedef, kanıt, değişmezler, tur limiti, ayrı commit). main'in çevrimiçi oyun düzeltmesiyle birleştirildi.
