@@ -769,7 +769,12 @@ export default {
         guestTail: ' to get ranked.',
         yourPosition: 'YOUR POSITION',
         unranked: 'Unranked',
-        finishPlacements: 'Finish placements to join the board'
+        finishPlacements: 'Finish placements to join the board',
+        event: 'Event',
+        points: 'Points',
+        matches: 'Matches',
+        eventHeader: 'Weekly event: {mode} · {days}d {hours}h left · win {win} pts, loss {loss} pt',
+        eventEmpty: 'No event matches yet this week. Play {mode} to be first on the board.'
     },
     practice: {
         kicker: 'PLAY AT YOUR PACE',

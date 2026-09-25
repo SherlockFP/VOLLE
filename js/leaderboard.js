@@ -27,6 +27,11 @@ class LeaderboardClass {
         this._inflight = new Map();
     }
 
+    // The signed-in account's bearer token ('' for guests), for boards read elsewhere.
+    token() {
+        return account.getToken?.() || '';
+    }
+
     // Fetches one board. Never throws — failures resolve with { ok: false }
     // so a render call can always show a loading/error/offline state.
     async fetchBoard(board = 'ranked', { limit = DEFAULT_LIMIT, around = true, force = false } = {}) {

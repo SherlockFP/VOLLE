@@ -551,7 +551,12 @@ class StoreClass {
             const response = await fetch('/api/matches/start', {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${this.sessionToken}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ matchId, mode: ['ranked', 'casual', 'solo'].includes(match.mode) ? match.mode : 'casual', lobbyCode: match.lobbyCode || '' })
+                body: JSON.stringify({
+                    matchId,
+                    mode: ['ranked', 'casual', 'solo'].includes(match.mode) ? match.mode : 'casual',
+                    lobbyCode: match.lobbyCode || '',
+                    ...(typeof match.gameMode === 'string' ? { gameMode: match.gameMode } : {})
+                })
             });
             const result = await response.json().catch(() => ({}));
             if (!response.ok) return false;

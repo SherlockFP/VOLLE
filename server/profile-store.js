@@ -14,6 +14,7 @@ const {
     shouldAwardBonusCard,
     tradeUpCards
 } = require('./card-catalog');
+const { applyWeeklyEventResult, weeklyEvent } = require('./weekly-event');
 const {
     MATCH_XP,
     PREMIUM_PASS_PRICE,
@@ -953,11 +954,15 @@ class ProfileStore {
         };
         if (shouldAwardArenaCache({ matchId: dropSeed, won: match.won === true, leveledUp })) cardReward = grantCard(dropSeed);
         const bonusCard = shouldAwardBonusCard(dropSeed) ? grantCard(`${dropSeed}:bonus`) : null;
+        // Weekly event ladder: settled matches in this week's featured mode.
+        const eventResult = applyWeeklyEventResult(record.weeklyEvent, { gameMode: match.gameMode, won: match.won === true, date: new Date(now) });
+        if (eventResult.counted) record.weeklyEvent = eventResult.state;
         record.cardRewardReceipts.push({ matchId, reward: cardReward, bonusCard, earnedCase, earnedCaseSource, starterCase });
         record.cardRewardReceipts = record.cardRewardReceipts.slice(-50);
         record.updatedAt = now;
         this._save();
-        return { status: 200, replayed: false, coins, base, bonus, firstOfDay: firstOfDayBonus, battlepassXp, battlepassBoostMultiplier, dailyProgress, cardReward, bonusCard, earnedCase, earnedCaseSource, starterCase, profile: this._public(record, now) };
+        const weeklyEventScore = eventResult.counted ? { points: eventResult.state.points, wins: eventResult.state.wins, matches: eventResult.state.matches } : null;
+        return { status: 200, replayed: false, coins, base, bonus, firstOfDay: firstOfDayBonus, battlepassXp, battlepassBoostMultiplier, dailyProgress, cardReward, bonusCard, earnedCase, earnedCaseSource, starterCase, weeklyEvent: weeklyEventScore, profile: this._public(record, now) };
     }
 
     equipCard(record, cardId, slot) {
@@ -1175,6 +1180,20 @@ class ProfileStore {
                 knifeId: flair.knifeId
             };
         });
+    }
+
+    // Weekly event ladder rows for one week (server.js sorts and caches them).
+    weeklyEventEntries(week = weeklyEvent().week) {
+        return Object.values(this.records)
+            .filter(record => record.weeklyEvent?.week === week && record.weeklyEvent.matches > 0)
+            .map(record => ({
+                profileId: record.id,
+                publicCode: this._leaderboardPublicCode(record.id),
+                displayName: String(record.playerName || 'Player').slice(0, 16),
+                points: Math.max(0, Math.floor(Number(record.weeklyEvent.points) || 0)),
+                wins: Math.max(0, Math.floor(Number(record.weeklyEvent.wins) || 0)),
+                matches: Math.max(0, Math.floor(Number(record.weeklyEvent.matches) || 0))
+            }));
     }
 
     _migrate(record, legacy) {

@@ -405,7 +405,7 @@ class App {
                 : (this._analyticsMatchEntry === 'rematch' && this._lastMatchAuthorityMode === 'ranked' ? 'ranked' : 'casual'));
             this._lastMatchAuthorityMode = this._activeMatchMode;
             this._matchAuthorityReady = this.store.remoteReady && !this.game._practiceMode && !this.game.localSpectator
-                ?this.store.beginMatchRemote({ matchId: this.game.matchId, mode: this._activeMatchMode, lobbyCode: this._lobbyCode || '' })
+                ?this.store.beginMatchRemote({ matchId: this.game.matchId, mode: this._activeMatchMode, lobbyCode: this._lobbyCode || '', gameMode: this.game.mode?.id })
                 : Promise.resolve(false);
             const networkRole = this.network.isHost ? 'host' : this.network.connected ? 'client' : 'solo';
             this._pendingMatchStartAnalytics = {

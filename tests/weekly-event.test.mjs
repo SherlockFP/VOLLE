@@ -52,3 +52,56 @@ test('wiring: menu card, one-click event match, XP row on the report', () => {
     assert.match(main, /const eventXp = Math\.round\(baseXp \* weeklyEventXpBonus\(this\.game\.mode\?\.id\)\);\s+const rawXp = baseXp \+ eventXp;/);
     assert.match(main, /\.\.\.\(eventXp > 0 \? \[\{ label: 'Weekly event bonus', value: eventXp \}\] : \[\]\),/);
 });
+
+test('server mirror agrees with the client and scores only this week\'s mode', async () => {
+    const { createRequire } = await import('node:module');
+    const server = createRequire(import.meta.url)('../server/weekly-event.js');
+    assert.deepEqual([...server.WEEKLY_EVENT_MODES], [...WEEKLY_EVENT_MODES]);
+    for (let i = 0; i < 20; i++) {
+        const date = new Date(Date.UTC(2026, 0, 1) + i * 5 * 864e5);
+        assert.deepEqual(server.weeklyEvent(date), weeklyEvent(date));
+    }
+    const date = new Date(Date.UTC(2026, 8, 25, 12));
+    const { modeId, week } = weeklyEvent(date);
+    let step = server.applyWeeklyEventResult(null, { gameMode: modeId, won: true, date });
+    assert.deepEqual(step, { counted: true, state: { week, modeId, points: 3, wins: 1, matches: 1 } });
+    step = server.applyWeeklyEventResult(step.state, { gameMode: modeId, won: false, date });
+    assert.deepEqual(step.state, { week, modeId, points: 4, wins: 1, matches: 2 });
+    assert.equal(server.applyWeeklyEventResult(step.state, { gameMode: 'classic', won: true, date }).counted, false);
+    assert.equal(server.applyWeeklyEventResult(step.state, { gameMode: '<x>', won: true, date }).counted, false);
+    const nextWeek = new Date(date.getTime() + 7 * 864e5);
+    const fresh = server.applyWeeklyEventResult(step.state, { gameMode: weeklyEvent(nextWeek).modeId, won: false, date: nextWeek });
+    assert.deepEqual(fresh.state, { week: week + 1, modeId: weeklyEvent(nextWeek).modeId, points: 1, wins: 0, matches: 1 }, 'a new week starts from zero');
+});
+
+test('settled matches feed the ladder through ProfileStore; the API ranks and hides profile ids', async () => {
+    const fs = await import('node:fs');
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const { createRequire } = await import('node:module');
+    const require = createRequire(import.meta.url);
+    const { ProfileStore } = require('../server/profile-store.js');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'volle-event-'));
+    const store = new ProfileStore(path.join(dir, 'profiles.json'));
+    const now = Date.UTC(2026, 8, 25, 12);
+    const { modeId, week } = weeklyEvent(new Date(now));
+    const a = store.authenticate(store.session('', 'Ada').token);
+    const b = store.authenticate(store.session('', 'Bora').token);
+    store.reward(a, { matchId: 'event-m1', won: true, gameMode: modeId }, now);
+    store.reward(a, { matchId: 'event-m2', won: true, gameMode: modeId }, now);
+    const r = store.reward(b, { matchId: 'event-m3', won: false, gameMode: modeId }, now);
+    assert.deepEqual(r.weeklyEvent, { points: 1, wins: 0, matches: 1 });
+    store.reward(b, { matchId: 'event-m4', won: true, gameMode: 'classic' }, now);
+    assert.equal(store.reward(a, { matchId: 'event-m1', won: true, gameMode: modeId }, now).replayed, true, 'a retry never scores twice');
+    const rows = store.weeklyEventEntries(week).sort((x, y) => y.points - x.points);
+    assert.deepEqual(rows.map(row => [row.displayName, row.points, row.wins, row.matches]), [['Ada', 6, 2, 2], ['Bora', 1, 0, 1]]);
+    assert.deepEqual(store.weeklyEventEntries(week + 1), []);
+    fs.rmSync(dir, { recursive: true, force: true });
+
+    const src = fs.readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+    assert.match(src, /if \(urlPath === '\/api\/events\/weekly' && req\.method === 'GET'\) \{/);
+    assert.match(src, /const strip = \(\{ profileId: _id, \.\.\.entry \}\) => entry;/);
+    assert.match(src, /matchAuthority\.start\(profile, \{ matchId: b\.matchId, mode: b\.mode, lobbyCode: b\.lobbyCode, gameMode: b\.gameMode \}\)/);
+    const authority = fs.readFileSync(new URL('../server/match-authority.js', import.meta.url), 'utf8');
+    assert.equal((authority.match(/gameMode: match\.gameMode \}/g) || []).length, 3, 'every settle path carries the mode');
+});

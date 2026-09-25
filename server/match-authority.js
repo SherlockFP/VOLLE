@@ -1,3 +1,4 @@
+const { normalizeGameMode } = require('./weekly-event');
 const MATCH_ID = /^[A-Za-z0-9_-]{22,128}$/;
 const MODES = new Set(['solo', 'casual', 'ranked']);
 
@@ -26,7 +27,7 @@ class MatchAuthority {
         if (mode === 'ranked' && expectedCount !== 2) return null;
         return { members: new Set(members), expectedCount };
     }
-    start(profile, { matchId, mode, lobbyCode }) {
+    start(profile, { matchId, mode, lobbyCode, gameMode }) {
         const now = this.now(); this._clean(now);
         if (!profile || !this._valid(matchId, mode)) return { httpStatus: 400, error: 'invalid match lifecycle' };
         const key = this._key(profile, matchId, mode);
@@ -48,6 +49,8 @@ class MatchAuthority {
             this.matches.set(key, match);
         }
         if (!match.allowed.has(profile.id)) return { httpStatus: 403, error: 'not admitted to lobby match' };
+        // The declared game mode (first starter wins) only feeds the weekly event ladder.
+        if (!match.gameMode) match.gameMode = normalizeGameMode(gameMode);
         if (match.readyAt && !match.required.has(profile.id)) return { httpStatus: 409, error: 'match participants already frozen' };
         match.started.add(profile.id); this.activeByProfile.set(profile.id, key);
         if (match.started.size === match.expectedCount && !match.readyAt) {
@@ -84,7 +87,7 @@ class MatchAuthority {
         if (match.started.size !== match.required.size || !match.readyAt || now - match.readyAt < this.minDurationMs) return { httpStatus: 409, error: 'match is not ready to complete' };
         if (mode === 'solo') {
             if (!this.profiles.hasRewardedMatch(profile, matchId) && !this.profiles.claimSoloReward(profile, matchId, now)) return { httpStatus: 429, error: 'daily solo reward limit reached' };
-            const reward = this.profiles.reward(profile, { matchId, won: false, score: 0, deflections: 0 }, now);
+            const reward = this.profiles.reward(profile, { matchId, won: false, score: 0, deflections: 0, gameMode: match.gameMode }, now);
             match.completions = new Map([[profile.id, reward]]); this._finish(match);
             return { ...this._public(match, profile), httpStatus: 200, replayed: reward.replayed === true };
         }
@@ -96,8 +99,8 @@ class MatchAuthority {
         const ids = [...match.required]; const completions = new Map();
         if (mode === 'ranked') {
             const [a, b] = ids; const ranked = this.profiles.finalizeRankedMatch(this.profiles.getById(a), this.profiles.getById(b), { matchId, firstResult: match.reports.get(a).result, secondResult: match.reports.get(b).result, playedAt: now });
-            for (const id of ids) { const record = this.profiles.getById(id); const reward = this.profiles.reward(record, { matchId, won: match.reports.get(id).result === 'win', score: 0, deflections: 0 }, now); completions.set(id, { ...reward, rankedState: ranked[id] }); }
-        } else for (const id of ids) { const record = this.profiles.getById(id); completions.set(id, this.profiles.reward(record, { matchId, won: match.reports.get(id).result === 'win', score: 0, deflections: 0 }, now)); }
+            for (const id of ids) { const record = this.profiles.getById(id); const reward = this.profiles.reward(record, { matchId, won: match.reports.get(id).result === 'win', score: 0, deflections: 0, gameMode: match.gameMode }, now); completions.set(id, { ...reward, rankedState: ranked[id] }); }
+        } else for (const id of ids) { const record = this.profiles.getById(id); completions.set(id, this.profiles.reward(record, { matchId, won: match.reports.get(id).result === 'win', score: 0, deflections: 0, gameMode: match.gameMode }, now)); }
         match.completions = completions; this._finish(match);
         return { ...this._public(match, profile), httpStatus: 200, replayed: false };
     }

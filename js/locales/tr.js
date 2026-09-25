@@ -766,7 +766,12 @@ export default {
         guestTail: '.',
         yourPosition: 'SIRALAMAN',
         unranked: 'Derecesiz',
-        finishPlacements: 'Listeye girmek için yerleştirme maçlarını bitir'
+        finishPlacements: 'Listeye girmek için yerleştirme maçlarını bitir',
+        event: 'Etkinlik',
+        points: 'Puan',
+        matches: 'Maç',
+        eventHeader: 'Haftalık etkinlik: {mode} · {days}g {hours}s kaldı · galibiyet {win} puan, mağlubiyet {loss} puan',
+        eventEmpty: 'Bu hafta henüz etkinlik maçı yok. {mode} oyna, tablonun ilki ol.'
     },
     practice: {
         kicker: 'KENDİ TEMPONDA OYNA',

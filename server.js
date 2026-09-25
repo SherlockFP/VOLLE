@@ -23,6 +23,7 @@ const { MatchAuthority } = require('./server/match-authority');
 const { resolvePublicPath, resolveEntryHtml, isImmutableAsset } = require('./server/static-policy');
 const { CompressionCache } = require('./server/compress');
 const { GlobalChat } = require('./server/global-chat');
+const { WEEKLY_EVENT_POINTS, weeklyEvent } = require('./server/weekly-event');
 const staticCompression = new CompressionCache();
 const { createLiveMarket, findLiveOffer } = require('./server/live-market');
 const {
@@ -123,6 +124,7 @@ const RATE_LIMITS = {
 // `around=me` locate the caller's row in O(1) instead of a linear scan.
 const LEADERBOARD_CACHE_TTL = 30000;
 let leaderboardCache = null;
+let weeklyEventCache = null;
 
 function stripProfileId({ profileId, placed, ...publicEntry }) {
     return publicEntry;
@@ -686,6 +688,32 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, response);
         return;
     }
+    // Weekly event ladder (server/weekly-event.js): this week's mode, the top 20 and
+    // the caller's own row. Cached like the leaderboard.
+    if (urlPath === '/api/events/weekly' && req.method === 'GET') {
+        if (!allowRequest(req, res, 'leaderboard')) return;
+        const now = Date.now();
+        const event = weeklyEvent(new Date(now));
+        if (!weeklyEventCache || weeklyEventCache.week !== event.week || now - weeklyEventCache.builtAt >= LEADERBOARD_CACHE_TTL) {
+            const sorted = profiles.weeklyEventEntries(event.week)
+                .sort((a, b) => b.points - a.points || b.wins - a.wins || a.matches - b.matches || a.profileId.localeCompare(b.profileId))
+                .map((entry, index) => ({ ...entry, rank: index + 1 }));
+            weeklyEventCache = { builtAt: now, week: event.week, sorted, index: new Map(sorted.map((entry, i) => [entry.profileId, i])) };
+        }
+        const profileId = resolveAuth(req)?.profile?.id;
+        const mine = profileId !== undefined ? weeklyEventCache.index.get(profileId) : undefined;
+        const strip = ({ profileId: _id, ...entry }) => entry;
+        sendJson(res, {
+            modeId: event.modeId,
+            week: event.week,
+            endsAt: event.endsAt,
+            points: WEEKLY_EVENT_POINTS,
+            total: weeklyEventCache.sorted.length,
+            entries: weeklyEventCache.sorted.slice(0, 20).map(strip),
+            me: mine === undefined ? null : strip(weeklyEventCache.sorted[mine])
+        });
+        return;
+    }
     if (urlPath === '/api/profile/onboarding' && req.method === 'POST') {
         if (!allowRequest(req, res, 'onboarding')) return;
         const body = await readBody(req, 512);
@@ -736,7 +764,7 @@ const server = http.createServer(async (req, res) => {
         const b = await readBody(req, 2048);
         const profile = requireAuth(req, res, b)?.profile;
         if (!profile) return;
-        const result = matchAuthority.start(profile, { matchId: b.matchId, mode: b.mode, lobbyCode: b.lobbyCode });
+        const result = matchAuthority.start(profile, { matchId: b.matchId, mode: b.mode, lobbyCode: b.lobbyCode, gameMode: b.gameMode });
         sendJson(res, result.error ? { error: result.error } : result, result.httpStatus);
         return;
     }

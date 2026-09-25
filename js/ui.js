@@ -10,6 +10,8 @@ import { ACHIEVEMENTS } from './achievements.js';
 import { MatchHistory } from './matchhistory.js';
 import { getRank, getRankProgress } from './ranked.js';
 import { Leaderboard } from './leaderboard.js';
+import { timeLeftParts } from './weekly-event.js';
+import { GAME_MODES } from './gamemodes.js';
 import { Arena } from './arena.js';
 import { COSMETICS, COSMETIC_TYPES, cosmeticsByType } from './cosmetic-catalog.js';
 import { accountRankLabel, accountRankShort, levelProgress, prestigeTitle } from './prestige.js';
@@ -4944,6 +4946,10 @@ export class UI {
         if (podium) { podium.innerHTML = ''; podium.classList.add('hidden'); }
         yourRank?.classList.add('hidden');
         showStatus(t('lb.loading'));
+        this._setLeaderboardColumns?.(board === 'event'
+            ? ['#', t('common.player'), t('lb.points'), t('lb.wins'), t('lb.matches')]
+            : ['#', t('common.player'), 'ELO', t('common.rank'), t('lb.record')]);
+        if (board === 'event') return this._renderEventLeaderboard?.({ requestId, tbody, podium, yourRank, showStatus, isGuest });
 
         const result = await Leaderboard.fetchBoard(board, { limit: 50, around: !isGuest });
         if (requestId !== this._leaderboardRequestId) return;
@@ -5017,6 +5023,73 @@ export class UI {
                 yourRank.innerHTML = `<span>${t('lb.yourPosition')}</span><strong>${t('lb.unranked')}</strong><b style="color:${rank.color}">${rank.emoji} ${rank.name}</b><em>${t('lb.finishPlacements')}</em>`;
                 yourRank.classList.remove('hidden');
             }
+        }
+    }
+
+    _setLeaderboardColumns(labels) {
+        const cells = document.querySelectorAll('#leaderboard-table thead th');
+        labels.forEach((label, index) => { if (cells[index]) cells[index].textContent = label; });
+    }
+
+    // Weekly event ladder (GET /api/events/weekly): points, wins, matches this week.
+    async _renderEventLeaderboard({ requestId, tbody, podium, yourRank, showStatus, isGuest }) {
+        let data = null;
+        try {
+            const headers = {};
+            const token = isGuest ? '' : Leaderboard.token?.() || '';
+            if (token) headers.Authorization = `Bearer ${token}`;
+            const response = await fetch('/api/events/weekly', { headers, cache: 'no-store' });
+            data = response.ok ? await response.json() : null;
+        } catch {
+            data = null;
+        }
+        if (requestId !== this._leaderboardRequestId) return;
+        if (!data) {
+            showStatus(t('lb.loadFailed'), 'error');
+            return;
+        }
+        const mode = GAME_MODES[data.modeId]?.name || data.modeId;
+        const left = timeLeftParts(data.endsAt);
+        const header = t('lb.eventHeader', { mode, days: left.days, hours: left.hours, win: data.points?.win ?? 3, loss: data.points?.loss ?? 1 });
+        const entries = Array.isArray(data.entries) ? data.entries : [];
+        showStatus(entries.length ? header : `${header} — ${t('lb.eventEmpty', { mode })}`);
+        if (podium && entries.length) {
+            entries.slice(0, 3).forEach(entry => {
+                const slot = document.createElement('div');
+                slot.className = `leaderboard-podium-slot place-${entry.rank}`;
+                const rankEl = document.createElement('span');
+                rankEl.className = 'leaderboard-podium-rank';
+                rankEl.textContent = `#${entry.rank}`;
+                const nameEl = document.createElement('strong');
+                nameEl.textContent = entry.displayName;
+                const pointsEl = document.createElement('em');
+                pointsEl.textContent = `${entry.points} ${t('lb.points')}`;
+                slot.append(rankEl, nameEl, pointsEl);
+                podium.appendChild(slot);
+            });
+            podium.classList.remove('hidden');
+        }
+        const mine = data.me?.publicCode || '';
+        entries.forEach(entry => {
+            const row = document.createElement('tr');
+            row.className = mine && entry.publicCode === mine ? 'is-you' : '';
+            [entry.rank, entry.displayName, entry.points, entry.wins, entry.matches].forEach(value => {
+                const cell = document.createElement('td');
+                cell.textContent = String(value);
+                row.appendChild(cell);
+            });
+            tbody.appendChild(row);
+        });
+        if (yourRank && data.me && !entries.some(entry => entry.publicCode === mine)) {
+            yourRank.replaceChildren();
+            const label = document.createElement('span');
+            label.textContent = t('lb.yourPosition');
+            const rank = document.createElement('strong');
+            rank.textContent = `#${data.me.rank}`;
+            const points = document.createElement('em');
+            points.textContent = `${data.me.points} ${t('lb.points')}`;
+            yourRank.append(label, rank, points);
+            yourRank.classList.remove('hidden');
         }
     }
 
