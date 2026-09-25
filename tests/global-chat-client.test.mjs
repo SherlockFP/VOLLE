@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import { GlobalChatClient, GLOBAL_CHAT_KEEP } from '../js/global-chat.js';
+import { readAppSource } from './app-source.mjs';
 
 function fakeFetch(routes) {
     const calls = [];
@@ -62,7 +63,7 @@ test('send and share post with the bearer identity and surface server codes', as
 });
 
 test('menu wiring: global tab, host-only share, password lobbies go through Join by Code', () => {
-    const main = readFileSync(new URL('../js/main.js', import.meta.url), 'utf8');
+    const main = readAppSource();
     const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
     assert.match(html, /data-fbar-tab="global"/);
     assert.match(html, /id="fbar-global" class="fbar-global" role="tabpanel"/);

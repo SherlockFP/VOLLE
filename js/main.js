@@ -20,10 +20,7 @@ import { Network } from './network.js';
 import { VoiceChat } from './voice.js';
 import { Store, isNewPlayerProfile, shouldShowFtueWelcome } from './store.js';
 import { streakCaseForDay } from './reward-track.js';
-import { filterChatText } from './chat-filter.js';
-import { GlobalChatClient } from './global-chat.js';
-import { DropFeed, packDrops } from './drop-feed.js';
-import { backfillPlan } from './bot-backfill.js';
+import { DropFeed } from './drop-feed.js';
 import { attachViewmodelFx, disposeViewmodelFx } from './viewmodel-fx.js';
 import { DEFAULT_LOADOUT } from './skills.js';
 import { ARENA_CARDS, CARD_RARITIES } from './cards.js';
@@ -51,9 +48,6 @@ import { TEAM_MENU_KEYS } from './team-switch.js';
 import { getReward as getBattlepassRewardEntry } from './battlepass.js';
 import { Replay, extractReplayHighlight } from './replay.js';
 import { ReplayView } from './replay-view.js';
-import { pickPlayOfTheGame, playTags } from './play-of-game.js';
-import { createPotgStage } from './potg-player.js';
-import { canEncodePotgCode, decodePotgCode, encodePotgCode } from './potg-code.js';
 import { WEEKLY_EVENT_XP_BONUS, timeLeftParts, weeklyEvent, weeklyEventXpBonus } from './weekly-event.js';
 import { CAMERA_MODES, Spectator } from './spectator.js';
 import { JOINED_SPECTATOR_MODES } from './spectator.js';
@@ -65,8 +59,12 @@ import { Friends } from './friends.js';
 import { MatchHistory } from './matchhistory.js';
 import { getRank } from './ranked.js';
 import { CHARACTERS } from './characters.js';
-import { ClanClient } from './clan-client.js';
-import { matchOutcomeFacts } from './balance-outcome.js';
+import { mixinMethods } from './app-mixins.js';
+import { ClanMethods } from './app-clans.js';
+import { GlobalChatMethods } from './app-global-chat.js';
+import { PlayOfTheGameMethods } from './app-play-of-game.js';
+import { LobbyBackfillMethods } from './app-lobby-backfill.js';
+import { MatchMetaMethods } from './app-match-meta.js';
 import { account } from './account.js';
 import { SOCIAL_HUB_MAPS, SOCIAL_HUB_MAP_ID, SocialLobby, getSocialLobbyMapState } from './social-lobby.js';
 import { applyUiPreferences, loadUiPreferences, normalizeTheme, normalizeUiScale } from './ui-theme.js';
@@ -1802,27 +1800,6 @@ class App {
         return result;
     }
 
-    // Balance facts for match_complete (js/balance-outcome.js ->
-    // scripts/balance-report.js). Practice, spectating and an already-claimed
-    // match report none. Clients see host bots without a difficulty ('none').
-    _matchBalanceFacts() {
-        if (!isTerminalRematchState(this.game.state) || this.game._rewardsClaimed) return null;
-        if (this.game.localSpectator || this.game._practiceMode) return null;
-        const scoreboard = this.game.scoreboard;
-        const me = scoreboard?.players?.get?.(this.game.playerName) || {};
-        const ffa = !!this.game._ffa;
-        const winner = ffa ? this.game._finalWinner : scoreboard?.getWinner?.();
-        const team = this.player.team;
-        const won = ffa ? winner === this.game.playerName : winner === String(team).toUpperCase();
-        return matchOutcomeFacts({
-            queue: this._activeMatchMode, mapId: this.arena?.mapId, result: winner === 'DRAW' ? 'draw' : won ? 'win' : 'loss',
-            team, ffa, character: this.store.get('selectedChar') || 'rally',
-            players: this.game.getPlayerList(), bots: this.game.bots,
-            redScore: scoreboard?.redScore, blueScore: scoreboard?.blueScore, roundHistory: scoreboard?.roundHistory,
-            kills: me.score, deaths: me.deaths, bestRally: this.game.getMatchBestRally?.()
-        });
-    }
-
     // Post-game personal strip: this player's match numbers against their stored
     // records. Runs once per match, under the same guards as the reward grant
     // (practice, spectating and an already-claimed match record nothing).
@@ -2065,190 +2042,6 @@ class App {
         // Replay kaydet
         const replay = Replay.stopRecording();
         if (replay && replay.events.length > 0) Replay.save(replay);
-    }
-
-    // Casual online lobby: empty seats get bots (tagged AUTO in the lobby list),
-    // bots this added leave again when humans take their seats, and a seat the
-    // host kicked a bot out of stays empty (js/bot-backfill.js). broadcastLobbyState
-    // runs this on every lobby change, so the host sees and can kick every bot
-    // before Start.
-    _backfillLobbyBots({ quiet = false, broadcast = true, removeOnly = false } = {}) {
-        if (!this.network?.connected || !this.network.isHost || this._backfillRunning) return 0;
-        this._backfillRunning = true;
-        try {
-            return this._applyBackfillPlan({ quiet, broadcast, removeOnly });
-        } finally {
-            this._backfillRunning = false;
-        }
-    }
-
-    // A kicked (or "- BOT") bot's seat stays empty; "+ Bot" and re-ticking the
-    // toggle hand seats back.
-    _noteBackfillSeat(team, delta) {
-        this._backfillSkips ||= { red: 0, blue: 0 };
-        if (!Object.hasOwn(this._backfillSkips, team)) return;
-        this._backfillSkips[team] = Math.max(0, this._backfillSkips[team] + delta);
-    }
-
-    _applyBackfillPlan({ quiet, broadcast, removeOnly = false }) {
-        const teams = { red: 0, blue: 0 };
-        const filled = { red: 0, blue: 0 };
-        const tally = entity => {
-            if (!entity || entity.isBotEntity || !Object.hasOwn(teams, entity.team)) return;
-            teams[entity.team]++;
-            if (entity._backfill) filled[entity.team]++;
-        };
-        tally(this.player);
-        this.game.bots.forEach(tally);
-        this.game.remotePlayers.forEach(tally);
-        const skips = this._backfillSkips || { red: 0, blue: 0 };
-        const plan = backfillPlan({
-            red: teams.red, blue: teams.blue, backfillRed: filled.red, backfillBlue: filled.blue,
-            skipRed: skips.red, skipBlue: skips.blue,
-            enabled: document.getElementById('lobby-fill-bots')?.checked !== false,
-            ranked: this._rankedHosting === true,
-            modeId: this.game.mode?.id || '',
-            ffa: this.game.mode?.ffa === true || this.game._ffa === true
-        });
-        let added = 0;
-        for (const team of ['red', 'blue']) {
-            for (let i = 0; i < (removeOnly ? 0 : plan[team]); i++) {
-                if (!this.game.addBot(team)) break;
-                const bot = this.game.bots[this.game.bots.length - 1];
-                if (bot) bot._backfill = true;
-                added++;
-            }
-            for (let i = 0; i < -plan[team]; i++) {
-                const bot = [...this.game.bots].reverse().find(entry => entry._backfill && entry.team === team);
-                if (bot) this.game.removeBotByName(bot.name);
-            }
-        }
-        if (added) this.game.updateLobbyUI?.(); // addBot drew the rows before the AUTO tag was set
-        if (broadcast && (plan.red || plan.blue)) this.broadcastLobbyState();
-        if (added && !quiet) this.ui.showMessage?.(t('toast.botsFilled', { count: added }), 1800);
-        return added;
-    }
-
-    // Shows this player's drops on the right and tells the lobby (the host relays
-    // them under the sender's real name), CS:GO style. Ids only on the wire.
-    _announceMatchDrops(matchId, drops) {
-        const wire = packDrops(drops);
-        if (!wire.length) return false;
-        const playerKey = this.network?.playerId || 'local';
-        this.dropFeed?.announce({ matchId, playerKey, name: this.game.playerName, self: true, drops: wire });
-        if (this.network?.connected) {
-            this.network.send({ type: 'matchDrops', matchId, playerId: playerKey, name: this.game.playerName, drops: wire });
-        }
-        return true;
-    }
-
-    // Play of the Game: the best moment of the match so far (js/play-of-game.js),
-    // cut from the live recording while the report opens.
-    _presentPlayOfTheGame(matchId) {
-        if (!Replay.recording || !Replay.events.length) {
-            this.ui.setPlayOfTheGame?.(null);
-            return null;
-        }
-        const replay = { meta: Replay.meta || {}, events: Replay.events.slice(), duration: Math.max(0, performance.now() - Replay.startTs) };
-        const play = pickPlayOfTheGame(replay);
-        this._playOfTheGame = play ? { matchId, play, replay: extractReplayHighlight(replay, { label: 'Play of the Game', start: play.start, end: play.end }) } : null;
-        // Solo watches in the arena; online it plays inline on the report (_watchPlayOfTheGame).
-        this.ui.setPlayOfTheGame?.(play, { canWatch: !!play, canShare: !!play && canEncodePotgCode() });
-        return play;
-    }
-
-    _watchPlayOfTheGame() {
-        const entry = this._playOfTheGame;
-        if (!entry || entry.matchId !== this.game.matchId || this.game.state !== STATES.GAME_OVER) return false;
-        // Online the report must stay live (rematch votes, a host starting the next
-        // match), so the clip plays inline in its own small stage instead.
-        if (this.network?.connected) return this._watchPlayOfTheGameInline(entry);
-        // The match's own bodies would stand in the replay: hide them until we return.
-        const hidden = [...this.game.bots, ...this.game.remotePlayers.values(), this.game.localCosmeticEntity]
-            .map(entity => entity?.group)
-            .filter(group => group?.visible);
-        hidden.forEach(group => { group.visible = false; });
-        this._startReplay(entry.replay);
-        this._replayReturn = { hidden };
-        return true;
-    }
-
-    // "Copy code": the clip as a VP1 code (js/potg-code.js) anyone can paste into
-    // the Replays screen. Nothing is uploaded.
-    async _sharePlayOfTheGame() {
-        const entry = this._playOfTheGame;
-        if (!entry) return false;
-        const code = await encodePotgCode(entry.replay, entry.play).catch(() => null);
-        if (!code) {
-            this.ui.showMessage?.(t('toast.potgCodeFailed'), 1800);
-            return false;
-        }
-        try {
-            await navigator.clipboard.writeText(code);
-            this.ui.showMessage?.(t('toast.potgCodeCopied', { size: Math.ceil(code.length / 1024) }), 2000);
-        } catch {
-            window.prompt(t('toast.lobbyCodeCopyManual'), code);
-        }
-        return true;
-    }
-
-    // Replays screen: paste a VP1 code and watch it (a map this device does not
-    // know plays on the current arena).
-    async _playPotgCode(code) {
-        if (this.game.state !== STATES.MENU) return false;
-        const decoded = await decodePotgCode(code);
-        if (!decoded.ok) {
-            this.ui.showMessage?.(t('toast.potgCodeBad', { reason: decoded.error }), 2200);
-            return false;
-        }
-        const clip = decoded.clip;
-        if (!Object.hasOwn(Arena.MAPS, clip.meta.map)) clip.meta.map = this.arena?.mapId;
-        this._startReplay(clip);
-        const tags = playTags(decoded.play, t).join(' · ');
-        this.ui.showMessage?.(`${t('pg.potg')}: ${decoded.play.player || t('potg.rallyOnly')}${tags ? ` — ${tags}` : ''}`, 2600);
-        return true;
-    }
-
-    _watchPlayOfTheGameInline(entry) {
-        const stageEl = document.getElementById('pg-potg-stage');
-        if (!stageEl) return false;
-        stageEl.hidden = false;
-        const caption = document.getElementById('pg-potg-caption');
-        this._potgStage ||= createPotgStage(stageEl.querySelector('.pg-potg-canvas') || stageEl, {
-            onKill: data => {
-                if (caption) caption.textContent = `${String(data?.attacker || '').slice(0, 24)} ✖ ${String(data?.victim || '').slice(0, 24)}`;
-            }
-        });
-        if (caption) caption.textContent = '';
-        const spawn = this.arena?.getPlayerSpawn?.('red');
-        return this._potgStage.play(entry.replay, {
-            focus: entry.play.player,
-            court: {
-                courtWidth: this.arena?.courtWidth || 80,
-                courtLength: this.arena?.courtLength || 110,
-                redSide: spawn && spawn.z < 0 ? -1 : 1
-            }
-        });
-    }
-
-    _disposePotgStage() {
-        this._potgStage?.dispose();
-        this._potgStage = null;
-        const stageEl = document.getElementById('pg-potg-stage');
-        if (stageEl) stageEl.hidden = true;
-    }
-
-    // Menu "Weekly event" card: a bot match in this week's mode, via the normal
-    // solo path (same preset, same lobby), with the mode switched to the event.
-    _playWeeklyEvent() {
-        if (this.network?.connected || this.game.state !== STATES.MENU) return false;
-        const event = weeklyEvent();
-        document.getElementById('solo-paths-start')?.click();
-        if (this.game.state !== STATES.LOBBY) return false;
-        this.game.selectMode(event.modeId);
-        const mode = GAME_MODES[event.modeId]?.name || event.modeId;
-        this.ui.showMessage?.(t('event.selected', { mode, bonus: Math.round(WEEKLY_EVENT_XP_BONUS * 100) }), 2200);
-        return true;
     }
 
     _startDeferredMatchRewardRetry(matchId, context) {
@@ -5085,11 +4878,6 @@ updateCSLobbyInfo();
         this._appendSocialLobbyChat(data.name, data.text);
     }
 
-    // Reader-side chat filter (Settings > Gameplay > Chat Filter, on by default).
-    _chatClean(text) {
-        return filterChatText(text, { enabled: this.store.get('settings')?.chatFilter !== false });
-    }
-
     _appendSocialLobbyChat(name, text, system = false) {
         const log = document.getElementById('social-lobby-chat-log');
         if (!log) return;
@@ -5123,133 +4911,6 @@ updateCSLobbyInfo();
             .replace(/^-+/, '')
             .slice(0, 48);
         return clean || 'player';
-    }
-
-    // Clans screen, server-backed (js/clan-client.js ↔ server/clan-store.js). Accounts
-    // own a clan; guests see the top list and a free-account prompt.
-    async _renderSocial() {
-        const client = this.clanClient ||= new ClanClient({ getToken: () => account.getToken?.() || '' });
-        const signedIn = !!account.getToken?.();
-        const status = document.getElementById('social-status-text');
-        if (status) status.textContent = t(signedIn ? 'clans.statusOnline' : 'clans.statusGuest');
-        const [mine, top] = await Promise.all([signedIn ? client.mine() : Promise.resolve(null), client.top()]);
-        const clan = mine?.ok ? mine.clan : null;
-        this._myClan = clan;
-        const box = document.getElementById('social-my-clan');
-        const forms = document.getElementById('social-clan-forms');
-        if (forms) forms.hidden = !signedIn || !!clan;
-        if (box) {
-            box.replaceChildren();
-            if (!signedIn) {
-                box.textContent = t('clans.needAccount');
-            } else if (!clan) {
-                box.textContent = t('clans.none');
-            } else {
-                const head = document.createElement('div');
-                head.className = 'social-clan-head';
-                const title = document.createElement('strong');
-                title.textContent = `[${clan.tag}] ${clan.name}`;
-                const record = document.createElement('span');
-                record.textContent = t('clans.record', { wins: clan.record.wins, losses: clan.record.losses });
-                head.append(title, record);
-                const members = document.createElement('ul');
-                members.className = 'social-clan-members';
-                for (const member of clan.members) {
-                    const row = document.createElement('li');
-                    row.textContent = `${member.name}${member.role === 'owner' ? ' ★' : ''}${member.you ? ` (${t('clans.you')})` : ''}`;
-                    members.append(row);
-                }
-                const recent = document.createElement('p');
-                recent.className = 'social-clan-recent';
-                recent.textContent = clan.recent.length
-                    ? clan.recent.slice(-5).reverse().map(entry => `${entry.won ? '✓' : '✗'} ${entry.vs}`).join('  ')
-                    : t('clans.noMatches');
-                const leave = document.createElement('button');
-                leave.type = 'button';
-                leave.className = 'btn btn-secondary btn-small';
-                leave.textContent = t('clans.leave');
-                leave.addEventListener('click', () => this._leaveClan(), { once: true });
-                box.append(head, members, recent, leave);
-            }
-        }
-        const list = document.getElementById('social-top-clans');
-        if (list) {
-            list.replaceChildren();
-            const clans = top?.ok ? top.clans : [];
-            if (!clans.length) {
-                const empty = document.createElement('li');
-                empty.className = 'social-empty';
-                empty.textContent = t('clans.topEmpty');
-                list.append(empty);
-            }
-            for (const entry of clans) {
-                const row = document.createElement('li');
-                row.textContent = `#${entry.rank} [${entry.tag}] ${entry.name} · ${t('clans.record', { wins: entry.wins, losses: entry.losses })}`;
-                list.append(row);
-            }
-        }
-        await this._renderClanChat();
-        const summary = document.getElementById('community-clan-summary');
-        if (summary) summary.textContent = clan ? `[${clan.tag}] ${clan.name} · ${t('clans.record', { wins: clan.record.wins, losses: clan.record.losses })}` : t(signedIn ? 'clans.none' : 'clans.needAccount');
-    }
-
-    async _renderClanChat() {
-        const chat = document.getElementById('social-chat-log');
-        if (!chat) return;
-        if (!this._myClan) {
-            chat.textContent = t('clans.chatLocked');
-            return;
-        }
-        const result = await this.clanClient.chat(0);
-        chat.replaceChildren();
-        const messages = result?.ok ? result.messages : [];
-        for (const message of messages) {
-            const row = document.createElement('p');
-            row.className = 'social-chat-message';
-            row.textContent = `${message.author}: ${this._chatClean(message.text)}`;
-            chat.appendChild(row);
-        }
-        if (!messages.length) chat.textContent = t('clans.chatEmpty');
-    }
-
-    _clanError(result) {
-        const key = { in_clan: 'clans.errInClan', bad_name: 'clans.errName', bad_tag: 'clans.errTag', tag_taken: 'clans.errTagTaken', name_taken: 'clans.errNameTaken', not_found: 'clans.errNotFound', full: 'clans.errFull', sign_in_required: 'clans.needAccount', rate_limited: 'toast.gchatRateLimited' }[result?.code];
-        this.ui.showMessage?.(key ? t(key) : (result?.error || t('clans.errGeneric')), 2000);
-    }
-
-    async _createClan() {
-        const name = document.getElementById('social-clan-name')?.value.trim();
-        const tag = document.getElementById('social-clan-tag')?.value.trim();
-        if (!name || !tag) return;
-        const result = await this.clanClient?.create(name, tag);
-        if (!result?.ok) return this._clanError(result);
-        this.ui.showMessage?.(t('clans.created', { tag: result.clan.tag }), 1800);
-        await this._renderSocial();
-    }
-
-    async _joinClan() {
-        const tag = document.getElementById('social-join-tag')?.value.trim();
-        if (!tag) return;
-        const result = await this.clanClient?.join(tag);
-        if (!result?.ok) return this._clanError(result);
-        this.ui.showMessage?.(t('clans.joined', { tag: result.clan.tag }), 1800);
-        await this._renderSocial();
-    }
-
-    async _leaveClan() {
-        const result = await this.clanClient?.leave();
-        if (!result?.ok) return this._clanError(result);
-        await this._renderSocial();
-    }
-
-    async _sendClanMessage() {
-        const input = document.getElementById('social-chat-input');
-        const text = input?.value;
-        if (!text || !this._myClan) return;
-        const result = await this.clanClient?.post(text);
-        if (!result?.ok) return this._clanError(result);
-        input.value = '';
-        await this._renderClanChat();
     }
 
     _queueRoundReplay() {
@@ -7260,32 +6921,6 @@ updateCarousel() {
         clearTimeout(this._knifeTrialInspectTimer);
         this._knifeTrialInspectTimer = setTimeout(() => this.player.inspectKnife?.(), 700);
         this.ui.showMessage?.(t('toast.tryingKnife', { name: knife.name }), 4500);
-        return true;
-    }
-
-    // Host / solo: play a custom map from its share code. The code travels with the
-    // lobby's mapChange / game-start snapshot, so every client builds the same map.
-    _playLobbyMapCode(rawCode) {
-        if (!this.isLobbyHost()) {
-            this.ui.showMessage?.(t('toast.hostOnlyMap'), 1400);
-            return false;
-        }
-        const code = String(rawCode || '').trim();
-        const decoded = decodeMapCode(code);
-        const mapId = decoded.ok ? this.game.adoptMapCode(code) : null;
-        if (!mapId) {
-            this.ui.showMessage?.(t('toast.mapCodeInvalid', { reason: decoded.error || 'map is not valid' }), 2600);
-            return false;
-        }
-        // "Choose map" on, or the random roll at match start would replace it.
-        this.store.set('lobbyCustomMap', true);
-        const toggle = document.getElementById('lobby-custom-map');
-        if (toggle) toggle.checked = true;
-        this._syncMapChoiceUI();
-        this.game.selectMap(mapId);
-        this.updateCarousel();
-        this.broadcastLobbyState();
-        this.ui.showMessage?.(t('toast.mapCodeLoaded', { name: decoded.config.name }), 2200);
         return true;
     }
 
@@ -9497,150 +9132,6 @@ updateCarousel() {
         } else this.refreshFriendsSidebar();
     }
 
-    // --- Global chat (main menu social rail) ------------------------------------
-    _initGlobalChat() {
-        if (this.globalChat) return;
-        this._globalChatUnread = 0;
-        this.globalChat = new GlobalChatClient({
-            getToken: () => this._lobbyAuthToken(),
-            onUpdate: (_all, fresh) => {
-                if (this._friendsRailTab !== 'global') this._globalChatUnread += fresh.length;
-                this._renderGlobalChat();
-            }
-        });
-        const syncPolling = screen => {
-            if (screen === 'mainMenu') this.globalChat.start();
-            else this.globalChat.stop();
-        };
-        window.addEventListener('warrball:screen', event => syncPolling(event.detail?.screen), { signal: this._mainAbort.signal });
-        syncPolling(document.body.dataset.screen);
-        document.getElementById('global-chat-form')?.addEventListener('submit', async event => {
-            event.preventDefault();
-            const input = document.getElementById('global-chat-input');
-            const text = input?.value.trim();
-            if (!text) return;
-            const result = await this.globalChat.send(text);
-            if (result.ok) { if (input) input.value = ''; return; }
-            this.ui.showMessage?.(t(this._globalChatErrorKey(result.code)), 2200);
-        }, { signal: this._mainAbort.signal });
-    }
-
-    _globalChatErrorKey(code) {
-        return {
-            rate_limited: 'toast.gchatSlowDown',
-            duplicate: 'toast.gchatDuplicate',
-            invite_cooldown: 'toast.gchatInviteCooldown',
-            not_host: 'toast.gchatHostOnly',
-            lobby_unavailable: 'toast.gchatLobbyUnlisted',
-            sign_in_required: 'toast.gchatNoIdentity'
-        }[code] || 'toast.gchatOffline';
-    }
-
-    _renderGlobalChat() {
-        const badge = document.getElementById('global-chat-unread');
-        if (badge) {
-            badge.hidden = !(this._globalChatUnread > 0);
-            badge.textContent = this._globalChatUnread > 99 ? '99+' : String(this._globalChatUnread || '');
-        }
-        const log = document.getElementById('global-chat-log');
-        if (!log || this._friendsRailTab !== 'global' || !this.globalChat) return;
-        const muted = new Set(this.store.get('mutedPlayers') || []);
-        const messages = this.globalChat.messages.filter(message => !muted.has(message.author));
-        const nearBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
-        if (!messages.length) {
-            const empty = document.createElement('li');
-            empty.className = 'global-chat-empty';
-            empty.textContent = t(this.globalChat.available ? 'gchat.empty' : 'gchat.unavailable');
-            log.replaceChildren(empty);
-            return;
-        }
-        log.replaceChildren(...messages.map(message => {
-            const item = document.createElement('li');
-            item.className = message.kind === 'invite' ? 'global-chat-msg global-chat-invite' : 'global-chat-msg';
-            const author = document.createElement('b');
-            author.textContent = this._chatClean(String(message.author || 'Player'));
-            if (message.guest) author.classList.add('is-guest');
-            if (message.kind !== 'invite' || !message.invite) {
-                item.append(author, document.createTextNode(` ${this._chatClean(String(message.text || ''))}`));
-                return item;
-            }
-            const invite = message.invite;
-            const title = document.createElement('span');
-            title.className = 'global-chat-invite-title';
-            title.append(author, document.createTextNode(` ${t('gchat.invites')}`));
-            const room = document.createElement('strong');
-            room.textContent = `${invite.locked ? '🔒 ' : ''}${this._chatClean(String(invite.name || 'Lobby'))}`;
-            const meta = document.createElement('small');
-            const count = invite.maxPlayers ? `${invite.players}/${invite.maxPlayers}` : String(invite.players || 1);
-            meta.textContent = [invite.mode, invite.map, t('gchat.players', { count })].filter(Boolean).join(' · ');
-            const actions = document.createElement('span');
-            actions.className = 'global-chat-invite-actions';
-            const join = document.createElement('button');
-            join.type = 'button';
-            join.className = 'btn btn-primary btn-small';
-            join.textContent = t('gchat.join');
-            join.addEventListener('click', () => this._joinFromGlobalInvite(invite));
-            const copy = document.createElement('button');
-            copy.type = 'button';
-            copy.className = 'btn btn-secondary btn-small';
-            copy.textContent = t('gchat.copy');
-            copy.addEventListener('click', () => this._copyLobbyCode(invite.code));
-            actions.append(join, copy);
-            item.append(title, room, meta, actions);
-            return item;
-        }));
-        if (nearBottom) log.scrollTop = log.scrollHeight;
-    }
-
-    // Online rooms only: copy for everyone, share for the host. Re-run once the
-    // room code exists (the lobby screen opens before hosting finishes).
-    _syncLobbyShareRow() {
-        const isHost = this.network?.isHost === true;
-        const online = !!this._lobbyCode && (isHost || this.network?.connected === true);
-        const row = document.querySelector('.cs-share-row');
-        if (row) row.hidden = !online;
-        const share = document.getElementById('btn-lobby-share-global');
-        if (share) share.hidden = !(online && isHost);
-    }
-
-    async _copyLobbyCode(code) {
-        const value = String(code || '').trim();
-        if (!value) return;
-        try {
-            await navigator.clipboard.writeText(value);
-            this.ui.showMessage?.(t('toast.lobbyCodeCopied', { code: value }), 1600);
-        } catch {
-            window.prompt(t('toast.lobbyCodeCopyManual'), value);
-        }
-    }
-
-    async _joinFromGlobalInvite(invite) {
-        const code = String(invite?.code || '').trim();
-        if (!code || this.game.state !== STATES.MENU) return;
-        // Password lobbies (and ranked) go through Join by Code so the player can
-        // type the password; open ones join straight away.
-        if (invite.locked || invite.ranked) {
-            const input = document.getElementById('join-code-input');
-            if (input) input.value = code;
-            this.ui.showScreen('joinMenu');
-            document.getElementById('join-pass-input')?.focus();
-            return;
-        }
-        const name = document.getElementById('player-name-input')?.value?.trim() || 'Player';
-        await this._joinOnlineLobby(code, name, '');
-    }
-
-    async _shareLobbyToGlobalChat() {
-        const code = this._lobbyCode;
-        if (!code || !this.network?.isHost) {
-            this.ui.showMessage?.(t('toast.gchatHostOnly'), 2200);
-            return;
-        }
-        this._initGlobalChat();
-        const result = await this.globalChat.shareLobby(code);
-        this.ui.showMessage?.(t(result.ok ? 'toast.gchatShared' : this._globalChatErrorKey(result.code)), 2400);
-    }
-
     _setMobileSocialRailOpen(open, { moveFocus = true } = {}) {
         const sidebar = document.getElementById('friends-sidebar');
         const body = document.getElementById('fbar-body');
@@ -10668,6 +10159,9 @@ updateCarousel() {
         }
     }
 }
+
+// Feature methods live in their own files (js/app-*.js) and are mixed in here.
+mixinMethods(App, ClanMethods, GlobalChatMethods, PlayOfTheGameMethods, LobbyBackfillMethods, MatchMetaMethods);
 
 // Menu particle background — canvas-based floating dots
 function initMenuParticles() {

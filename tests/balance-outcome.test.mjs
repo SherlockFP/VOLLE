@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { matchOutcomeFacts, maxRoundDeficit } from '../js/balance-outcome.js';
 import { normalizeProductEvent as normalizeClientEvent } from '../js/product-analytics.js';
+import { readAppSource } from './app-source.mjs';
+import { extractMethod } from './frame-contact-sim.mjs';
 
 const require = createRequire(import.meta.url);
 const { normalizeProductEvent: normalizeServerEvent } = require('../server/product-analytics.js');
@@ -91,12 +93,12 @@ test('the balance report groups outcomes and flags difficulties and characters o
 });
 
 test('main attaches the balance facts to match_complete before the reward grant runs', () => {
-    const main = readFileSync(new URL('../js/main.js', import.meta.url), 'utf8');
+    const main = readAppSource();
     const hook = main.slice(main.indexOf('this.game.onMatchComplete = () => {'), main.indexOf('this.game.onRoundEnd ='));
     assert.ok(hook.indexOf('const balance = this._matchBalanceFacts?.() || null;') < hook.indexOf('this.awardMatchRewards();'));
     assert.match(hook, /\.\.\.balance\?\.dimensions,/);
     assert.match(hook, /\.\.\.balance\?\.metrics\s*\}\);/);
-    const method = main.slice(main.indexOf('    _matchBalanceFacts() {'), main.indexOf('    _settlePersonalBests() {'));
+    const method = extractMethod(main, '_matchBalanceFacts');
     assert.match(method, /if \(this\.game\.localSpectator \|\| this\.game\._practiceMode\) return null;/);
     assert.match(method, /queue: this\._activeMatchMode/);
 });

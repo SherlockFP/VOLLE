@@ -8,9 +8,10 @@ import { readFileSync } from 'node:fs';
 import { extractMethod } from './frame-contact-sim.mjs';
 import { backfillPlan, BACKFILL_MIN_TEAM, BACKFILL_MAX_TEAM, BACKFILL_FFA_TOTAL } from '../js/bot-backfill.js';
 import { roundEndSkipAllowed, SOLO_ROUND_SKIP_FROM_SECONDS } from '../js/run-it-back.js';
+import { readAppSource } from './app-source.mjs';
 
 const game = readFileSync(new URL('../js/game.js', import.meta.url), 'utf8');
-const main = readFileSync(new URL('../js/main.js', import.meta.url), 'utf8');
+const main = readAppSource();
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 
 test('the round-end wait is 3 s: the whole 2.5 s killcam, then play', () => {

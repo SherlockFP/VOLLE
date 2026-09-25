@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 
 import { ClanClient } from '../js/clan-client.js';
+import { readAppSource } from './app-source.mjs';
 
 const require = createRequire(import.meta.url);
 const { ClanStore, CLAN_LIMITS } = require('../server/clan-store.js');
@@ -113,7 +114,7 @@ test('client: token-less calls stop early; wiring shows the clans screen from Co
     await open.top();
     await open.create('Name', 'TAG');
     assert.deepEqual(calls, [['/api/clans/top', 'GET', undefined], ['/api/clans/create', 'POST', 'Bearer tok']]);
-    const main = readFileSync(new URL('../js/main.js', import.meta.url), 'utf8');
+    const main = readAppSource();
     const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
     const server = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
     assert.match(html, /<button id="btn-open-clans"/);

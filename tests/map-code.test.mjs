@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 
 import { MAP_CODE_MAX_LENGTH, decodeMapCode, encodeMapCode, isCodedMapId, mapIdForCode } from '../js/map-code.js';
 import { MAX_MAP_PROPS, normalizeMapConfig } from '../js/map-config.js';
+import { readAppSource } from './app-source.mjs';
 
 function sampleMap(propCount = 12) {
     return normalizeMapConfig({
@@ -73,7 +74,7 @@ test('the map id comes from the code: same code, same id; fits registerCustomMap
 
 test('the lobby carries the code and clients only accept a code matching the host map id', () => {
     const game = readFileSync(new URL('../js/game.js', import.meta.url), 'utf8');
-    const main = readFileSync(new URL('../js/main.js', import.meta.url), 'utf8');
+    const main = readAppSource();
     assert.match(game, /if \(expectedMapId && expectedMapId !== mapId\) return null;/);
     assert.match(game, /this\.network\.broadcast\(\{ type: 'mapChange', mapId, \.\.\.\(mapCode \? \{ mapCode \} : \{\}\) \}\);/);
     assert.match(game, /mapCode: this\.mapCodeFor\?\.\(this\.arena\?\.mapId\) \|\| undefined,/);
@@ -85,7 +86,7 @@ test('the lobby carries the code and clients only accept a code matching the hos
 });
 
 test('a late joiner sees the coded map in the lobby: lobbyState carries the code, the client adopts it', async () => {
-    const main = readFileSync(new URL('../js/main.js', import.meta.url), 'utf8');
+    const main = readAppSource();
     assert.match(main, /map: this\.arena\?\.mapId,\s+mapCode: this\.game\.mapCodeFor\?\.\(this\.arena\?\.mapId\) \|\| undefined,/);
     const start = main.indexOf('    _applyClientLobbyStatePresentation(data) {');
     const end = main.indexOf('\n    _applyInitialLobbyWelcome(data)', start);

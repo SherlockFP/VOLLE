@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs';
 
 import { pickPlayOfTheGame, playTags, scorePlay, POTG_CHAIN_MS, POTG_LEAD_MS, POTG_TAIL_MS } from '../js/play-of-game.js';
 import { createReplayHighlights } from '../js/replay.js';
+import { readAppSource } from './app-source.mjs';
 
 const kill = (t, attacker, victim, extra = {}) => ({ t, type: 'kill', data: { attacker, victim, rally: 0, perfect: false, headshot: false, ...extra } });
 
@@ -57,7 +58,7 @@ test('the Replays screen highlights now include everyone\'s eliminations', () =>
 
 test('wiring: kills are recorded, the report shows the card, solo watching returns to the report', () => {
     const game = readFileSync(new URL('../js/game.js', import.meta.url), 'utf8');
-    const main = readFileSync(new URL('../js/main.js', import.meta.url), 'utf8');
+    const main = readAppSource();
     const ui = readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
     const view = readFileSync(new URL('../js/replay-view.js', import.meta.url), 'utf8');
     const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');

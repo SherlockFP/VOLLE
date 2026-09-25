@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs';
 import { registerHooks } from 'node:module';
 
 import { WEEKLY_EVENT_MODES, WEEKLY_EVENT_XP_BONUS, timeLeftParts, weekIndex, weeklyEvent, weeklyEventXpBonus } from '../js/weekly-event.js';
+import { readAppSource } from './app-source.mjs';
 
 const THREE_URL = new URL('../vendor/three/three.module.js', import.meta.url).href;
 registerHooks({ resolve(specifier, context, next) { return specifier === 'three' ? { url: THREE_URL, shortCircuit: true } : next(specifier, context); } });
@@ -44,7 +45,7 @@ test('only the event mode earns the bonus', () => {
 });
 
 test('wiring: menu card, one-click event match, XP row on the report', () => {
-    const main = readFileSync(new URL('../js/main.js', import.meta.url), 'utf8');
+    const main = readAppSource();
     const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
     assert.match(html, /<button type="button" id="menu-event-card" class="ow-retention-card ow-retention-event"/);
     assert.match(main, /bind\('menu-event-card', \(\) => this\._playWeeklyEvent\(\)\);/);

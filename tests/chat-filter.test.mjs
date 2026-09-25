@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import { filterChatText, isBlockedWord } from '../js/chat-filter.js';
+import { readAppSource } from './app-source.mjs';
 
 const read = path => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 
@@ -44,7 +45,7 @@ test('the filter can be switched off, and keeps the message length', () => {
 test('settings toggle defaults on and every chat surface reads it', () => {
     const html = read('index.html');
     assert.match(html, /<input type="checkbox" id="setting-chat-filter" checked>/);
-    const main = read('js/main.js');
+    const main = readAppSource();
     assert.match(main, /'setting-chat-filter': settings\.chatFilter !== false,/);
     assert.match(main, /s\.chatFilter = e\.target\.checked;/);
     assert.match(main, /_chatClean\(text\) \{\s+return filterChatText\(text, \{ enabled: this\.store\.get\('settings'\)\?\.chatFilter !== false \}\);/);

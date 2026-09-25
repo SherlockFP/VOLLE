@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import { POTG_CODE_PREFIX, POTG_CODE_MAX_LENGTH, canEncodePotgCode, decodePotgCode, encodePotgCode } from '../js/potg-code.js';
+import { readAppSource } from './app-source.mjs';
 
 function clip(frames = 48, bots = 5) {
     const events = [];
@@ -73,7 +74,7 @@ test('damaged, oversized or hostile codes are refused with a reason', async () =
 });
 
 test('wiring: Copy code on the report, paste-and-watch on the Replays screen', () => {
-    const main = readFileSync(new URL('../js/main.js', import.meta.url), 'utf8');
+    const main = readAppSource();
     const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
     assert.match(html, /<button id="btn-pg-potg-share"[^>]*hidden/);
     assert.match(html, /<form id="replay-code-form" class="replay-code-form"/);
