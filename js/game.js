@@ -1437,6 +1437,8 @@ startGame(skipPreGame = false, matchId = null) {
         });
         this.activateQueuedPlayers();
         if (!fromNetwork && (!this.network?.connected || this.network.isHost)) this._applyNextRoundTeams();
+        // Host: a late joiner who just took the court frees an AUTO bot's seat (main.js).
+        if (!fromNetwork && this.network?.isHost) this.onRoundStartRebalance?.();
         // Each bot rolls a fresh round tendency (aggressive/defensive/flanker) that
         // biases its existing decision parameters for the whole round — see bot.js
         // rollTendency/TENDENCY_PROFILES. Difficulty stats are untouched.
@@ -7808,6 +7810,12 @@ spawnPowerUp() {
     // Client: host'tan gelen bot pozisyon verilerini bot dummy'lerine uygula.
     applyBotSync(data) {
         if (!data?.bots || this.network?.isHost) return;
+        // botSync always carries the host's full bot list: a bot missing from it was
+        // removed (a late joiner took its seat), so its body leaves here too.
+        const listed = new Set(data.bots.map(bd => `bot:${bd.name}`));
+        for (const [peerId, entity] of [...this.remotePlayers]) {
+            if (entity?.isBotEntity && String(peerId).startsWith('bot:') && !listed.has(peerId)) this.removeRemotePlayer(peerId);
+        }
         for (const bd of data.bots) {
             const peerId = `bot:${bd.name}`;
             let p = this.remotePlayers.get(peerId);

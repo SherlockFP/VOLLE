@@ -368,6 +368,9 @@ class App {
             newProfile: isNewPlayerProfile(this.store.data)
         });
         this.game.onRoundEnd = () => this._queueRoundReplay();
+        // Mid-match only seats come back: a late joiner replaces an AUTO bot at the
+        // next round start; nobody new is spawned into a running match.
+        this.game.onRoundStartRebalance = () => this._backfillLobbyBots?.({ quiet: true, broadcast: false, removeOnly: true });
         this.game.onMatchStart = () => {
             clearTimeout(this._deferredRewardRetryTimer);
             this._deferredRewardRetryTimer = null;
@@ -2007,11 +2010,11 @@ class App {
     // host kicked a bot out of stays empty (js/bot-backfill.js). broadcastLobbyState
     // runs this on every lobby change, so the host sees and can kick every bot
     // before Start.
-    _backfillLobbyBots({ quiet = false, broadcast = true } = {}) {
+    _backfillLobbyBots({ quiet = false, broadcast = true, removeOnly = false } = {}) {
         if (!this.network?.connected || !this.network.isHost || this._backfillRunning) return 0;
         this._backfillRunning = true;
         try {
-            return this._applyBackfillPlan({ quiet, broadcast });
+            return this._applyBackfillPlan({ quiet, broadcast, removeOnly });
         } finally {
             this._backfillRunning = false;
         }
@@ -2025,7 +2028,7 @@ class App {
         this._backfillSkips[team] = Math.max(0, this._backfillSkips[team] + delta);
     }
 
-    _applyBackfillPlan({ quiet, broadcast }) {
+    _applyBackfillPlan({ quiet, broadcast, removeOnly = false }) {
         const teams = { red: 0, blue: 0 };
         const filled = { red: 0, blue: 0 };
         const tally = entity => {
@@ -2047,7 +2050,7 @@ class App {
         });
         let added = 0;
         for (const team of ['red', 'blue']) {
-            for (let i = 0; i < plan[team]; i++) {
+            for (let i = 0; i < (removeOnly ? 0 : plan[team]); i++) {
                 if (!this.game.addBot(team)) break;
                 const bot = this.game.bots[this.game.bots.length - 1];
                 if (bot) bot._backfill = true;

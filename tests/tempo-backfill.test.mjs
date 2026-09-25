@@ -109,3 +109,24 @@ test('wiring: every lobby change re-plans, kicks and "- BOT" empty a seat, "+ Bo
     assert.match(game, /\.\.\.\(b\._backfill \? \{ autoFill: true \} : \{\}\)/);
     assert.match(ui, /p\.autoFill \? 'BOT · AUTO' : 'BOT'/);
 });
+
+test('mid-match: a late joiner frees an AUTO seat at round start; clients drop the removed bot', () => {
+    assert.match(game, /if \(!fromNetwork && this\.network\?\.isHost\) this\.onRoundStartRebalance\?\.\(\);/);
+    assert.match(main, /this\.game\.onRoundStartRebalance = \(\) => this\._backfillLobbyBots\?\.\(\{ quiet: true, broadcast: false, removeOnly: true \}\);/);
+    assert.match(main, /for \(let i = 0; i < \(removeOnly \? 0 : plan\[team\]\); i\+\+\) \{/, 'nobody new spawns into a running match');
+
+    const applyBotSync = new Function(`return ({ ${extractMethod(game, 'applyBotSync')} }).applyBotSync;`)();
+    const removed = [];
+    const entity = name => ({ name, isBotEntity: true, group: { visible: true }, team: 'blue', _defenseIntent: 'none' });
+    const fake = {
+        network: { isHost: false },
+        remotePlayers: new Map([['bot:A', entity('A')], ['bot:B', entity('B')], ['p1', { name: 'Human', isBotEntity: false }]]),
+        _pushPosBuffer() {},
+        removeRemotePlayer(id) { removed.push(id); this.remotePlayers.delete(id); }
+    };
+    applyBotSync.call(fake, { bots: [{ name: 'A', team: 'blue', x: 0, y: 0, z: 0 }] });
+    assert.deepEqual(removed, ['bot:B']);
+    assert.ok(fake.remotePlayers.has('p1'), 'humans are never touched');
+    applyBotSync.call(fake, { bots: [{ name: 'A', team: 'blue', x: 0, y: 0, z: 0 }] });
+    assert.deepEqual(removed, ['bot:B']);
+});
