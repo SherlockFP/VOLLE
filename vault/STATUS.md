@@ -10,8 +10,9 @@
 - **Harita kodları:** editörde kodu kopyala/yükle, lobide kodu yapıştırıp o haritada oyna. Sunucuda saklanmıyor, kod doğrulanıyor.
 - **Görünürlük:** uzak top ≥12 px işaret, rakip başında takım renkli ok. **Akıcılık:** maç başı shader ön-derleme; maç ortası derleme donmaları 3 maçta 5 → 0 (en kötü 442 ms).
 - **CS:GO tarzı droplar:** zarlar oyuncu başına, maç başı %20 ekstra kart, kendi dropun sağda, başkalarınınki solda, maç sonunda "Herkesin dropları" listesi.
-- ⚠ `sfx/tf2_*.mp3` TF2'den alınmış görünüyor (lisans riski). Sahibin kararı bekleniyor.
-- Doğrulama **2616/2617 test** (+1 skip), check 153 dosya OK. Dal main'e birleşmedi.
+- **Tempo:** raund arası 3 sn, soloda Boşluk ile atlanıyor. **Bot doldurma:** casual online lobide boş yerler botla doluyor (≥2v2), ranked'de asla.
+- `sfx/tf2_*.mp3` TF2 kaynaklı; sahip bu sesleri tutmaya karar verdi.
+- Doğrulama **2624/2625 test** (+1 skip), check 154 dosya OK. Dal main'e birleşmedi.
 
 ## En yeni — Sınırlı döngü: mobil + ilk yükleme ([[sessions/2026-09-25-bounded-mobile-perf]])
 - Sözleşme önceden yazıldı (sabit hedef, kanıt, değişmezler, tur limiti, ayrı commit). main'in çevrimiçi oyun düzeltmesiyle birleştirildi.
