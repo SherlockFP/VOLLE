@@ -142,3 +142,34 @@ test('wiring: the host stamps the sender, clients trust only the host, main anno
     assert.match(main, /this\.dropFeed\?\.bindLog\?\.\(this\.game\.matchId\);/);
     assert.match(html, /<section id="pg-drop-log" class="pg-drop-log"[^>]*hidden/);
 });
+
+test('guest/offline cards: per-device seed, the extra card only through awardMatchCards', async () => {
+    const memory = new Map();
+    globalThis.localStorage = {
+        getItem: key => memory.get(key) ?? null,
+        setItem: (key, value) => memory.set(key, String(value)),
+        removeItem: key => memory.delete(key),
+        clear: () => memory.clear()
+    };
+    const { Store } = await import('../js/store.js');
+    // The legacy single-cache call never grants a second, unreported card.
+    for (let i = 0; i < 40; i++) {
+        Store.reset();
+        Store.awardArenaCache({ matchId: `legacy-${i}`, leveledUp: true });
+        assert.equal(Store.get('arenaCache').earned, 1);
+    }
+    Store.reset();
+    Store.data.dropSalt = 'device-a';
+    let bonusSeen = null;
+    for (let i = 0; i < 60 && !bonusSeen; i++) {
+        const result = Store.awardMatchCards({ matchId: `local-${i}`, won: true });
+        if (result?.bonusCard) bonusSeen = result.bonusCard;
+    }
+    assert.ok(bonusSeen?.card?.id, 'the extra card reaches offline players too');
+    Store.reset();
+    Store.data.dropSalt = 'device-a';
+    const a = Store.awardMatchCards({ matchId: 'same-match', leveledUp: true }).cardReward.card.id;
+    Store.reset();
+    Store.data.dropSalt = 'device-a';
+    assert.equal(Store.awardMatchCards({ matchId: 'same-match', leveledUp: true }).cardReward.card.id, a, 'deterministic per device');
+});

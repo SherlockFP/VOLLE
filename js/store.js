@@ -908,14 +908,15 @@ class StoreClass {
     // Arena Caches are an earn-only collection route. The match id makes the
     // post-match chance reproducible and prevents a duplicate callback from
     // minting a second cache locally.
+    // Legacy single-cache API: the Arena Cache roll only, never the extra card.
     awardArenaCache(match = {}) {
-        return this.awardMatchCards(match)?.cardReward || null;
+        return this.awardMatchCards({ ...match, bonus: false })?.cardReward || null;
     }
 
     // Local (offline/guest) mirror of the server's match cards: the Arena Cache
     // roll plus the independent extra-card roll. Seeded per device, so players
     // in the same match do not all roll the same drop.
-    awardMatchCards({ matchId, won = false, leveledUp = false } = {}) {
+    awardMatchCards({ matchId, won = false, leveledUp = false, bonus = true } = {}) {
         const safeMatchId = String(matchId || '').slice(0, 128);
         if (!safeMatchId || this.data.arenaCache?.lastMatchId === safeMatchId) return null;
         this.data.arenaCache = { ...DEFAULTS.arenaCache, ...(this.data.arenaCache || {}), lastMatchId: safeMatchId };
@@ -932,7 +933,7 @@ class StoreClass {
             return granted.reward;
         };
         const cardReward = shouldAwardArenaCache({ matchId: seed, won, leveledUp }) ? grant(seed) : null;
-        const bonusCard = shouldAwardBonusCard(seed) ? grant(`${seed}:bonus`) : null;
+        const bonusCard = bonus && shouldAwardBonusCard(seed) ? grant(`${seed}:bonus`) : null;
         this.save();
         return { cardReward, bonusCard };
     }
