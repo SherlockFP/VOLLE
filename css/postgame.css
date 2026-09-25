@@ -356,3 +356,37 @@ body.reduced-motion .drop-toast { animation: none; }
 #post-game-screen .pg-potg-stage[hidden] { display: none; }
 #post-game-screen .pg-potg-canvas, #post-game-screen .pg-potg-canvas canvas { display: block; width: 100%; height: 100%; }
 #post-game-screen .pg-potg-caption { position: absolute; left: 10px; bottom: 8px; color: #fff4dc; font-size: .8rem; font-weight: 800; text-shadow: 0 1px 4px rgba(0, 0, 0, .8); }
+
+/* ===== Report tabs: Summary / Rewards / Details (ui.js#setPostGameTab). The
+   header and the Rematch hero stay on every tab; other panes hide. */
+#post-game-screen .pg-tabs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px;
+    margin: 6px 0 10px;
+    padding: 4px;
+    border: 1px solid var(--shell-line, rgba(255, 255, 255, .12));
+    border-radius: 12px;
+    background: rgba(8, 12, 20, .6);
+}
+#post-game-screen .pg-tab {
+    position: relative;
+    min-height: 36px;
+    padding: 6px 10px;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: #b8cbd2;
+    font-weight: 800;
+    font-size: .78rem;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    cursor: pointer;
+}
+#post-game-screen .pg-tab[aria-selected="true"] { background: color-mix(in srgb, var(--screen-accent, #4fe5ea) 22%, transparent); color: #fff; }
+#post-game-screen .pg-tab:focus-visible { outline: 2px solid var(--screen-accent, #4fe5ea); outline-offset: 1px; }
+#post-game-screen .pg-tab-dot { position: absolute; top: 6px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: #ffae42; box-shadow: 0 0 8px #ffae42; }
+#post-game-screen .pg-tab-dot[hidden] { display: none; }
+#post-game-screen[data-pg-tab="summary"] [data-pg-pane]:not([data-pg-pane="summary"]),
+#post-game-screen[data-pg-tab="rewards"] [data-pg-pane]:not([data-pg-pane="rewards"]),
+#post-game-screen[data-pg-tab="details"] [data-pg-pane]:not([data-pg-pane="details"]) { display: none !important; }

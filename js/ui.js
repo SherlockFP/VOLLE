@@ -1087,6 +1087,7 @@ export class UI {
     showPostGame(won, xpGained, level, kills, deflects, audio, result = {}, store = Store) {
         const el = document.getElementById('post-game-screen');
         if (!el) return;
+        this.setPostGameTab?.('summary');
         this.hideHUD?.();
         this.hideMessage?.();
         el.classList.remove('hidden');
@@ -1340,6 +1341,42 @@ export class UI {
         this._lastMatchReward = null;
     }
 
+    // Report tabs: Summary (result, MVP, Play of the Game), Rewards (XP, battle
+    // pass, coins, drops) and Details (stats, rounds, chat). The header and the
+    // Rematch hero stay on every tab; CSS hides the other panes (data-pg-pane).
+    setPostGameTab(tab = 'summary') {
+        const screen = document.getElementById('post-game-screen');
+        if (!screen) return false;
+        const name = ['summary', 'rewards', 'details'].includes(tab) ? tab : 'summary';
+        if (!this._postGameTabsBound) {
+            this._postGameTabsBound = true;
+            screen.addEventListener('click', event => {
+                const button = event.target.closest?.('[data-pg-tab-btn]');
+                if (button) this.setPostGameTab(button.dataset.pgTabBtn);
+            });
+        }
+        screen.dataset.pgTab = name;
+        screen.querySelectorAll('[data-pg-tab-btn]').forEach(button => {
+            const selected = button.dataset.pgTabBtn === name;
+            button.setAttribute('aria-selected', String(selected));
+            button.tabIndex = selected ? 0 : -1;
+        });
+        if (name === 'rewards') this._markPostGameRewards?.(false);
+        if (name === 'details') {
+            const details = document.getElementById('pg-detail-disclosure');
+            if (details) details.open = true;
+        }
+        return true;
+    }
+
+    // A dot on the Rewards tab while something new landed there unseen.
+    _markPostGameRewards(fresh = true) {
+        const screen = document.getElementById('post-game-screen');
+        const dot = screen?.querySelector('[data-pg-tab-btn="rewards"] .pg-tab-dot');
+        if (!dot) return;
+        dot.hidden = !(fresh && screen.dataset.pgTab !== 'rewards');
+    }
+
     // Play of the Game card on the report: who, what (tags), and a Watch button
     // when the replay can be played here (solo). null hides it.
     setPlayOfTheGame(play, { canWatch = false } = {}) {
@@ -1368,6 +1405,7 @@ export class UI {
     }
 
     clearPostGameMatchDrops() {
+        this._markPostGameRewards?.(false);
         this._postGameDropMatchId = null;
         this._postGameRewardMatchId = null;
         this._postGameRewardSettledMatchId = null;
@@ -1435,6 +1473,7 @@ export class UI {
             list.append(item);
         }
         if (safeDrops.length) {
+            this._markPostGameRewards?.(true);
             // The drop lands below Rematch; bring it into view with a short pop.
             wrap.classList.remove('is-fresh');
             void wrap.offsetWidth;

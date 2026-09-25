@@ -472,7 +472,10 @@ class App {
         // CS:GO-style drop announcements: every player's match drops, relayed by the host.
         this.dropFeed = new DropFeed(document, {
             t,
-            onDrop: entry => this.game?.audio?.playCue?.(entry.self ? 'dinging' : 'chat')
+            onDrop: entry => {
+                this.game?.audio?.playCue?.(entry.self ? 'dinging' : 'chat');
+                this.ui._markPostGameRewards?.(true);
+            }
         });
         this.network.onMatchDrops = data => this.dropFeed.announce({
             matchId: data.matchId, playerKey: data.playerId, name: data.name, self: false, drops: data.drops
