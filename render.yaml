@@ -20,6 +20,22 @@ services:
         sync: false
       - key: PUBLIC_BASE_URL
         sync: false
+      # Online play across networks (docs/NETWORKING.md). Nothing here is
+      # required: the WebSocket relay at /api/relay works with zero setup.
+      # Signs anonymous guest lobby sessions (guests host / join online).
+      - key: LOBBY_GUEST_SECRET
+        generateValue: true
+      # Optional hosted TURN (fewer relayed games through this server).
+      # Cloudflare Realtime TURN: Dashboard > Realtime > TURN > Create key.
+      - key: CLOUDFLARE_TURN_KEY_ID
+        sync: false
+      - key: CLOUDFLARE_TURN_API_TOKEN
+        sync: false
+      # ...or Metered.ca: app subdomain (e.g. "volle") + API key.
+      - key: METERED_TURN_APP
+        sync: false
+      - key: METERED_TURN_API_KEY
+        sync: false
     disk:
       name: volle-data
       mountPath: /var/data

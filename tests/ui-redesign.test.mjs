@@ -54,7 +54,8 @@ test('hidden-tab simulation advances player lifecycle before host updates', () =
     const hiddenTick = main.slice(start, main.indexOf('\n    _bgProcessAttackQueue() {', start));
     assert.match(hiddenTick, /if \(document\.hidden\)[\s\S]*?this\.player\.update\(dt\)/);
     assert.ok(hiddenTick.indexOf('this.player.update(dt)') < hiddenTick.indexOf('this.game.update(dt)'));
-    assert.match(main, /You were kicked from the lobby\./);
+    // Kick reasons are localized now (js/locales joinError.*).
+    assert.match(main, /t\('joinError\.kicked'\)/);
 });
 
 test('lobby uses vertical rosters with host drag and compact kick control', () => {

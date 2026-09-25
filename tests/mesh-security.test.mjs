@@ -296,8 +296,21 @@ test('transport identity is sanitized, immutable, and resume-bound', async () =>
     });
     network._onIncomingConnection(takeover);
     takeover.emit('open');
-    assert.equal(takeover.sent[0]?.reason, 'duplicate_identity');
-    assert.equal(takeover.sent.some(packet => packet.type === 'resumeChallenge'), false);
+    // A second transport for a live identity is only challenged; until it proves
+    // the reserved token nothing changes for the owner.
+    assert.equal(takeover.sent.at(-1)?.type, 'resumeChallenge');
+    assert.equal(network.playerConnections.get('player-owner'), owner);
+    takeover.close();
+
+    // A live identity can be re-claimed only by answering the challenge with the
+    // RESERVED token (reload / dropped link); a wrong token never displaces it.
+    const liveWrong = fakeConn('peer-live-wrong', { name: 'Evil', playerId: 'player-owner' });
+    const liveWrongChallenge = startResumeHandshake(network, liveWrong);
+    assert.equal(await respondToResumeChallenge(network, liveWrong, liveWrongChallenge, 'resume-evil'), false);
+    await waitForClose(liveWrong);
+    assert.equal(liveWrong.sent.some(packet => packet?.reason === 'duplicate_identity'), true);
+    assert.equal(network.playerConnections.get('player-owner'), owner);
+    assert.equal(owner.closed, false);
 
     owner.close();
     const wrong = fakeConn('peer-wrong', {
@@ -673,9 +686,15 @@ test('votes traverse handlers into promotion without exposing resume tokens', as
     });
     promoted._onIncomingConnection(duplicate);
     duplicate.emit('open');
-    assert.equal(duplicate.sent[0]?.type, 'kick');
-    assert.equal(duplicate.sent[0]?.reason, 'duplicate_identity');
-    assert.equal(duplicate.sent.some(packet => packet.type === 'resumeChallenge'), false);
+    // Challenged only; the bound transport is untouched until a proof matches.
+    assert.equal(duplicate.sent.at(-1)?.type, 'resumeChallenge');
+    assert.equal(promoted.playerConnections.get('player-b'), toFollower);
+    duplicate.close();
+    const impostor = fakeConn('peer-impostor', { name: 'Evil', playerId: 'player-b' });
+    const impostorChallenge = startResumeHandshake(promoted, impostor);
+    assert.equal(await respondToResumeChallenge(promoted, impostor, impostorChallenge, 'resume-evil'), false);
+    await waitForClose(impostor);
+    assert.equal(impostor.sent.some(packet => packet?.reason === 'duplicate_identity'), true);
     assert.equal(promoted.playerConnections.get('player-b'), toFollower);
 
     toFollower.close();

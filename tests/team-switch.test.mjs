@@ -63,8 +63,16 @@ function fakeGame(state, extra = {}) {
         isTeam: team => team === 'red' || team === 'blue',
         teamSwitchMode, botRebalanceMoves
     };
+    globals.activateQueuedEntity = entity => {
+        if (!entity?.queuedForNextRound) return false;
+        entity.team = entity.pendingTeam === 'blue' || entity.pendingTeam === 'red' ? entity.pendingTeam : entity.team;
+        entity.queuedForNextRound = false;
+        entity.pendingTeam = null;
+        return true;
+    };
     for (const name of ['switchTeam', '_teamSwitchModeNow', '_setLocalTeam', '_moveScoreboardEntry', '_rebalanceBots',
-        '_syncLocalTeamChange', '_refreshTeamMenu', '_applyNextRoundTeams', '_placeRemoteAtSpawn']) {
+        '_syncLocalTeamChange', '_refreshTeamMenu', '_applyNextRoundTeams', '_placeRemoteAtSpawn',
+        '_inLobbyTeamState', '_settleLobbyTeams', 'switchPlayerTeam', 'selectQueuedLocalTeam']) {
         game[name] = compileGameMethod(name, globals);
     }
     return { game, calls, bot };
@@ -109,7 +117,57 @@ test('client sends its request; host rebroadcasts; lobby switch stays instant wi
     const lobby = fakeGame('LOBBY');
     assert.equal(lobby.game.switchTeam('blue'), 'instant');
     assert.equal(lobby.calls.respawn, 0);
-    assert.equal(lobby.bot.team, 'blue', 'lobby: bots stay where the host put them');
+    assert.equal(lobby.game.player.team, 'blue');
+    assert.equal(lobby.bot.team, 'red', 'lobby: the bot fills the side you left (no 2v0 waiting on Start)');
+    assert.equal(lobby.game.switchTeam('red'), 'instant', 'and straight back, instantly');
+    assert.equal(lobby.game.player.team, 'red');
+});
+
+test('lobby: a stale late-join queue never turns a pick into "next round" (host, client, solo)', () => {
+    // Local player who late-joined the last match and came back to the lobby.
+    const solo = fakeGame('LOBBY');
+    Object.assign(solo.game.player, { queuedForNextRound: true, pendingTeam: 'red' });
+    assert.equal(solo.game.switchTeam('blue'), 'instant');
+    assert.equal(solo.game.player.team, 'blue');
+    assert.equal(solo.game.player.queuedForNextRound, false);
+    assert.equal(solo.calls.messages.some(text => /teamNextRound/.test(text)), false);
+
+    // Client in the lobby (state MENU on clients): instant locally + request to host.
+    const sent = [];
+    const client = fakeGame('MENU', { network: { connected: true, isHost: false, send: msg => sent.push(msg) } });
+    Object.assign(client.game.player, { queuedForNextRound: true, pendingTeam: 'red' });
+    assert.equal(client.game.switchTeam('blue'), 'instant');
+    assert.equal(JSON.stringify(sent), JSON.stringify([{ type: 'teamChange', name: 'You', team: 'blue' }]));
+
+    // Host applying a client's request for a remote that is still flagged queued.
+    const host = fakeGame('LOBBY', { network: { connected: true, isHost: true, broadcast() {} } });
+    const remote = { name: 'Friend', team: 'red', queuedForNextRound: true, pendingTeam: 'red', peerId: 'p', setTeam(team) { this.team = team; } };
+    host.game.remotePlayers.set('friend', remote);
+    host.game.scoreboard.players.set('Friend', { team: 'red' });
+    host.game.getPlayerList = function () {
+        return [{ name: 'You', team: this.player.team }, { name: 'Friend', team: remote.team },
+            ...this.bots.map(b => ({ name: b.name, team: b.team, isBot: true }))];
+    };
+    host.game.switchPlayerTeam('Friend', 'blue');
+    assert.equal(remote.team, 'blue');
+    assert.equal(remote.queuedForNextRound, false);
+    assert.equal(host.game.scoreboard.players.get('Friend').team, 'blue');
+
+    // Entering the lobby settles every queued late joiner onto their picked side.
+    const settle = fakeGame('LOBBY', { network: { connected: true, isHost: true } });
+    const late = { name: 'Late', team: 'red', queuedForNextRound: true, pendingTeam: 'blue', nextRoundTeam: 'red' };
+    settle.game.remotePlayers.set('late', late);
+    settle.game.scoreboard.players.set('Late', { team: 'red', queuedForNextRound: true, pendingTeam: 'blue' });
+    settle.game._settleLobbyTeams();
+    assert.deepEqual([late.team, late.queuedForNextRound, late.nextRoundTeam], ['blue', false, null]);
+    assert.deepEqual(settle.game.scoreboard.players.get('Late'), { team: 'blue', queuedForNextRound: false, pendingTeam: null });
+});
+
+test('lobby wiring: entering LOBBY settles teams; host applies lobby requests instantly; columns click-to-join', () => {
+    assert.match(extractGameMethod('setState'), /if \(\(s === STATES\.LOBBY \|\| s === STATES\.MENU\) && prev !== s\) this\._settleLobbyTeams\?\.\(\);/);
+    assert.match(mainSource, /if \(p\?\.queuedForNextRound && this\.game\.state !== STATES\.LOBBY\) \{/);
+    assert.match(mainSource, /col\.addEventListener\('click', e => \{[\s\S]*?this\.game\.switchTeam\(team\);/);
+    assert.match(mainSource, /this\.network\?\.send\?\.\(\{ type: 'teamChange', name, team: targetTeam \}\);\s*this\.broadcastLobbyState\(\);/);
 });
 
 test('Game wiring: round start applies picks (host/solo), roster carries nextRoundTeam, menu closes after the match', () => {

@@ -1138,6 +1138,21 @@ export default {
             privacy: 'Privacy Policy (link coming soon)'
         }
     },
+    joinError: {
+        failed: 'Could not join: {reason}',
+        noProof: 'The host did not confirm your join in time. Check both connections and try again — if it keeps failing, the host should re-open the lobby.',
+        duplicate: 'You are already in this lobby from another tab or window.',
+        password: 'Wrong lobby password.',
+        spectatorsFull: 'Spectator seats are full.',
+        kicked: 'The host removed you from the lobby.',
+        lobbyFull: 'This lobby is full.',
+        notFound: 'Lobby not found — it may have closed already.',
+        staleLobby: 'The host re-created this lobby. Refresh the lobby list and join again.',
+        accountRequired: 'Ranked lobbies need a free account — sign in to join.',
+        signIn: 'Could not start an online session. Sign in, or reload the page and continue as a guest.',
+        service: 'Lobby service unreachable. Check your connection and try again.',
+        network: "Could not reach your friend's game — a network is blocking the connection. Try again, or switch networks (e.g. a phone hotspot)."
+    },
     toast: {
         poseArea: 'Pose area - open Community for photo mode.',
         ballSkin: '🎾 Ball: {name}',
@@ -1247,6 +1262,12 @@ export default {
         lobbyLocalGuest: 'Online lobbies need a free account — opened a local lobby vs bots.',
         lobbyLocalFallback: 'Lobby service unavailable — opened a local lobby vs bots.',
         lobbySessionExpired: 'Session expired — sign in again to host online. Local lobby opened.',
+        lobbySessionExpiredGuest: 'Your session expired — continuing online as a guest. Sign in again to earn rewards.',
+        rankedNeedsAccount: 'Ranked needs a free account — hosting a casual lobby instead. Sign in to play ranked.',
+        joinConnecting: 'Connecting to the host…',
+        joinRelay: 'Direct connection blocked — connecting through the game server…',
+        joinAdmitting: 'Connected — joining the lobby…',
+        joinedViaRelay: 'Joined through the game server relay (direct connection was blocked).',
         selectedTeam: 'Selected {team} team.',
         classOnce: 'You can change class once per round.',
         classChanged: 'Class changed to {name}.',

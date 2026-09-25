@@ -123,8 +123,14 @@ test('client welcome handler invokes the bridge before unchanged late-join handl
     const manual = main.slice(main.indexOf("bind('btn-join-connect'"), main.indexOf("bind('btn-join-back'"));
     const quickStart = main.indexOf('    async _quickJoin(code, quickPlay = null) {');
     const quick = main.slice(quickStart, main.indexOf('\n    // Host:', quickStart));
-    assert.match(manual, /await this\._confirmLobbyAdmission\(code\);[\s\S]*?this\.game\.playerName = name;[\s\S]*?this\.ui\.showScreen\('lobby'\);\s*this\._finalizeClientLobbyJoin\(code\);/);
-    assert.match(quick, /await this\._confirmLobbyAdmission\(code\);[\s\S]*?this\.game\.playerName = name;[\s\S]*?this\.ui\.showScreen\('lobby'\);\s*this\._finalizeClientLobbyJoin\(code\);/);
+    // Join by Code and the lobby browser / Quick Play share one join flow.
+    const sharedStart = main.indexOf('    async _joinOnlineLobby(');
+    const shared = main.slice(sharedStart, main.indexOf('\n    _joinErrorMessage(', sharedStart));
+    assert.match(manual, /await this\._joinOnlineLobby\(code, name, password, \{ spectator \}\);/);
+    assert.match(quick, /await this\._joinOnlineLobby\(code, name, '', \{ spectator[,} ]/);
+    assert.match(shared, /await this\._confirmLobbyAdmission\(code\);[\s\S]*?this\.game\.playerName = name;[\s\S]*?this\.ui\.showScreen\('lobby'\);\s*this\._finalizeClientLobbyJoin\(code\);/);
+    // A failed join never leaves a half-open transport (ghost player on the host).
+    assert.match(shared, /catch \(error\) \{[\s\S]*?this\.network\.disconnect\(\);/);
     const finalizer = main.slice(main.indexOf('    _finalizeClientLobbyJoin(code) {'), setupStart);
     assert.match(finalizer, /this\.network\?\.hostRoomCode \?\? code/);
     assert.doesNotMatch(finalizer, /\.broadcast\(|\.send\(/);

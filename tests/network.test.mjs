@@ -747,12 +747,18 @@ test('resume admission proof resolves even when full welcome construction throws
     assert.equal(await pending, admissionToken);
 });
 
-test('active connection rejects replacement and closed identity resumes with its token', async () => {
+test('owner re-claims a still-bound identity with its resume token; closed identity resumes too', async () => {
+    // Root cause of "Lobby admission proof was not received" on retry: the first
+    // (failed / dropped) transport stayed bound on the host, and every retry of the
+    // same tab was kicked as duplicate_identity. The owner now proves its reserved
+    // resume token and silently replaces the stale transport (no leave/join churn).
     const leaves = [];
+    const joins = [];
     const game = { getPlayerList: () => [], state: 'lobby', scoreboard: {} };
     const network = new Network(game);
     network.isHost = true;
     network.onPlayerLeave = (...args) => leaves.push(args);
+    network.onPlayerJoin = (...args) => joins.push(args);
     const oldConn = fakeConn('peer-old', { name: 'A', playerId: 'player-a', resumeToken: 'resume-a' });
     const newConn = fakeConn('peer-new', { name: 'A', playerId: 'player-a', resumeToken: 'resume-a' });
 
@@ -761,13 +767,24 @@ test('active connection rejects replacement and closed identity resumes with its
         name: 'A',
         playerId: 'player-a'
     });
-    network._onIncomingConnection(newConn);
-    newConn.emit('open');
-    assert.equal(network.playerConnections.get('player-a'), oldConn);
-    assert.equal(newConn.sent[0]?.reason, 'duplicate_identity');
-    assert.equal(newConn.sent.some(packet => packet.type === 'resumeChallenge'), false);
+    await completeIdentityAdmission(network, newConn, {
+        type: 'join',
+        name: 'A',
+        playerId: 'player-a'
+    });
+    assert.equal(network.playerConnections.get('player-a'), newConn);
+    assert.equal(network.connections.get('peer-new'), newConn);
+    assert.equal(network.connections.has('peer-old'), false);
+    assert.equal(newConn.sent.some(packet => packet?.reason === 'duplicate_identity'), false);
+    assert.equal(oldConn.sent.some(packet => packet?.type === 'kick' && packet.reason === 'replaced'), true);
+    await waitForClose(oldConn);
+    assert.deepEqual(leaves, [], 'replacing a stale transport is not a leave');
+    assert.equal(joins.length, 2);
+    assert.equal(network.playerConnections.get('player-a'), newConn);
 
+    leaves.length = 0;
     oldConn.close();
+    newConn.close();
     const resumed = fakeConn('peer-resumed', {
         name: 'A',
         playerId: 'player-a',
@@ -780,7 +797,7 @@ test('active connection rejects replacement and closed identity resumes with its
     });
 
     assert.equal(network.playerConnections.get('player-a'), resumed);
-    assert.deepEqual(leaves, [['player-a', 'peer-old']]);
+    assert.deepEqual(leaves, [['player-a', 'peer-new']]);
 });
 
 test('active identity cannot be replaced without its resume token', async () => {
@@ -798,15 +815,20 @@ test('active identity cannot be replaced without its resume token', async () => 
     });
 
     await completeIdentityAdmission(network, oldConn);
-    network._onIncomingConnection(attacker);
-    attacker.emit('open');
+    await completeIdentityAdmission(network, attacker);
 
     assert.equal(network.playerConnections.get('player-a'), oldConn);
-    assert.deepEqual(attacker.sent, [{
+    assert.equal(oldConn.closed, false);
+    assert.deepEqual(attacker.sent.filter(packet => packet.type !== 'resumeChallenge'), [{
         type: 'kick',
         name: 'Evil',
         reason: 'duplicate_identity'
     }]);
+
+    const forger = fakeConn('peer-forger', { name: 'Evil', playerId: 'player-a', resumeToken: 'resume-evil' });
+    await completeIdentityAdmission(network, forger);
+    assert.equal(network.playerConnections.get('player-a'), oldConn, 'a wrong token never displaces the owner');
+    assert.equal(forger.sent.some(packet => packet?.reason === 'duplicate_identity'), true);
 });
 
 test('disconnected identity still requires its original resume token', async () => {
