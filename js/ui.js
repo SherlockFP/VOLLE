@@ -1049,8 +1049,8 @@ export class UI {
         this._messagePriority = safePriority;
         this._messageUntil = now + safeDuration;
         el.textContent = text;
-        el.classList.remove('deflect-normal', 'deflect-great', 'deflect-perfect');
-        if (tone === 'deflect-normal' || tone === 'deflect-great' || tone === 'deflect-perfect') {
+        el.classList.remove('deflect-normal', 'deflect-great', 'deflect-perfect', 'kill-confirm');
+        if (tone === 'deflect-normal' || tone === 'deflect-great' || tone === 'deflect-perfect' || tone === 'kill-confirm') {
             el.classList.add(tone);
         }
         // Fixed position — no random placement
@@ -1061,7 +1061,7 @@ export class UI {
             if (token !== this._messageToken) return;
             el.classList.add('hidden');
             el.classList.remove('message-anim');
-            el.classList.remove('deflect-normal', 'deflect-great', 'deflect-perfect');
+            el.classList.remove('deflect-normal', 'deflect-great', 'deflect-perfect', 'kill-confirm');
             this._messagePriority = 0;
             this._messageUntil = 0;
             this._messageTimer = null;

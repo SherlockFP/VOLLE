@@ -22,7 +22,7 @@
     <link rel="stylesheet" href="css/shop-studio.css?v=2">
     <link rel="stylesheet" href="css/settings-workbench.css?v=4">
     <link rel="stylesheet" href="css/menu-depth.css?v=2">
-    <link rel="stylesheet" href="css/hud.css?v=4">
+    <link rel="stylesheet" href="css/hud.css?v=5">
     <link rel="stylesheet" href="css/spectator.css?v=1">
     <link rel="stylesheet" href="css/postgame.css?v=2">
     <link rel="stylesheet" href="css/touch.css?v=2">
@@ -1661,6 +1661,15 @@
 
     <!-- ===== HUD ===== -->
     <div id="hud" class="hidden">
+        <!-- Killer-side elimination medal (js/kill-medal.js); the message lane announces it. -->
+        <div id="kill-medal" class="kill-medal" aria-hidden="true" hidden>
+            <div class="kill-medal-badge"><svg class="ui-icon" aria-hidden="true"><use href="#i-skull"></use></svg></div>
+            <div class="kill-medal-copy">
+                <b class="kill-medal-title" data-kill-title>ELIMINATED</b>
+                <span class="kill-medal-victim" data-kill-victim></span>
+                <span class="kill-medal-tags" data-kill-tags></span>
+            </div>
+        </div>
         <!-- Crosshair -->
         <div class="crosshair"></div>
         <!-- G4 OVERDRIVE banner (once per rally) and persistent chip (ui.showOverdriveBanner / setOverdrive) -->

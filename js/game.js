@@ -8,6 +8,9 @@ import { Scoreboard } from './scoreboard.js';
 import { calcDamage, missRampDamage } from './characters.js';
 import { Arena, isFallDeathPosition } from './arena.js';
 import { Juice } from './juice.js';
+import { KillMedal, KillStreakTracker } from './kill-medal.js';
+import { KillPillars } from './kill-pillars.js';
+import { TEAM_COLORS } from './team-colors.js';
 import { applyMode, GAME_MODES } from './gamemodes.js';
 import { ChaosManager, CHAOS_MODES } from './chaos.js';
 import { EmoteSystem, getEmote, isEmoteId } from './emotes.js';
@@ -372,6 +375,9 @@ export class Game {
 
         // Game feel + modlar + emote
         this.juice = new Juice(this.player.camera, this.renderer);
+        this.killPillars = new KillPillars(this.renderer?.scene);
+        this.killMedal = new KillMedal(globalThis.document);
+        this._localKillStreak = new KillStreakTracker();
         this.emotes = new EmoteSystem(this.renderer.scene);
         // Spectating & social-in-match: joined spectators sit in the sideline stands,
         // never occupy a team slot and have no gameplay authority (host-enforced).
@@ -2440,6 +2446,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         // Knockout slide/shrink + flinch push on RAW dt for the same reason: the kill's
         // own hit-stop must not freeze the body it is presenting (G6).
         this._updateKnockouts(dt);
+        this.killPillars?.update(dt);
         // Juice: hit-stop/slow-mo/screen shake uygula, effective dt döndür
         const effectiveDt = this.juice.update(dt);
         if (effectiveDt === 0 && this.state !== STATES.CELEBRATION) return; // hit-stop: dünya donar (ama celebration'da değil)
@@ -4072,7 +4079,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         };
     }
 
-    _claimKillPresentation(attackerName, victimName, rallyCount = 0) {
+    _claimKillPresentation(attackerName, victimName, rallyCount = 0, detail = null) {
         const key = `${attackerName || 'Unknown'}\u0000${victimName || 'Unknown'}\u0000${rallyCount}`;
         if (this._killPresentationKeys.has(key)) return false;
         this._killPresentationKeys.add(key);
@@ -4083,6 +4090,14 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         // World effects and the match feed are shared, but personal confirmation is
         // not. A client who did not score or die should keep its match-status lane.
         if (!isLocalVictim && !isLocalKiller) return true;
+        // The medal is the killer's visual confirmation; the KO line below then
+        // stays in the live region for screen readers only (tone 'kill-confirm').
+        const medalShown = isLocalKiller && this.killMedal?.show({
+            victimName,
+            streak: this._localKillStreak?.note(performance.now()) || 1,
+            headshot: detail?.headshot === true,
+            perfect: detail?.perfect === true
+        }) === true;
 
         // Let the immediate impact/round-win layer land, then hold personal result
         // copy long enough to read. Competing match copy is deferred below.
@@ -4098,14 +4113,15 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 this.ui?.showMessage?.(knownAttacker ? `ELIMINATED BY ${attackerName}` : 'ELIMINATED', duration);
                 return;
             }
-            this.ui?.showMessage?.(`KO CONFIRMED - ${victimName || 'Opponent'}`, duration);
+            this.ui?.showMessage?.(`KO CONFIRMED - ${victimName || 'Opponent'}`, duration, medalShown ? { tone: 'kill-confirm' } : undefined);
             this.audio?.playCue?.('kill-confirm');
         }, delay);
         return true;
     }
 
-    _presentLethalImpact(hitPos, victimTeam, attackerName, victimName, rallyCount = 0) {
-        if (!this._claimKillPresentation(attackerName, victimName, rallyCount)) return false;
+    _presentLethalImpact(hitPos, victimTeam, attackerName, victimName, rallyCount = 0, detail = null) {
+        if (!this._claimKillPresentation(attackerName, victimName, rallyCount, detail)) return false;
+        this.killPillars?.spawn(hitPos, TEAM_COLORS[victimTeam] ?? 0xffe08a);
         this.juice.killBurst(hitPos);
         this.juice.hitStop(150);
         this.juice.flash(0.55);
@@ -4578,7 +4594,8 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         const missTag = hitTarget.consecutiveMisses >= 3 ? ' 💢CRITICAL' : hitTarget.consecutiveMisses >= 1 ? ` (x${hitTarget.consecutiveMisses+1} miss)` : '';
         const perfectTag = this.ball.lastPerfectBy === attacker ? ' ✨PERFECT' : '';
         const presentedLethal = isLethal && presentHit
-            ? this._presentLethalImpact(hitPos, hitTarget.team, scorerName, name, this.rallyCount)
+            ? this._presentLethalImpact(hitPos, hitTarget.team, scorerName, name, this.rallyCount,
+                { headshot: hitZone.zone === 'head', perfect: isPerfectHit })
             : false;
         if (presentedLethal) {
             this._pushKillFeedRow(scorerName, attacker?.team, name, hitTarget.team, dmg,
@@ -6747,7 +6764,8 @@ spawnPowerUp() {
                     data.victimTeam,
                     data.attackerName,
                     data.victimName,
-                    data.rallyCount || 0
+                    data.rallyCount || 0,
+                    { headshot: data.hitZoneId === 'head', perfect: !!data.perfectTag }
                 )
                 : false;
             if (!isLethal) {

@@ -516,3 +516,67 @@ body.reduced-motion.hit-flash::after,
 html.reduce-motion body.hit-flash::after { animation: killFlashFade 160ms linear forwards !important; }
 body.reduced-motion #hit-marker.kill.show,
 html.reduce-motion #hit-marker.kill.show { animation: hitMarkerKillFade 350ms linear !important; }
+
+/* Killer-side elimination medal (js/kill-medal.js): upper-middle, clear of the
+   crosshair and the lower-middle playfield; one pop per kill, gold for streaks. */
+.kill-medal {
+    position: fixed;
+    top: 25%;
+    left: 50%;
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 18px 8px 8px;
+    border: 1px solid rgba(255, 96, 86, .55);
+    border-radius: 999px;
+    background: linear-gradient(90deg, rgba(58, 8, 12, .86), rgba(20, 6, 10, .72));
+    box-shadow: 0 0 26px rgba(255, 70, 60, .35);
+    color: #fff;
+    pointer-events: none;
+    transform: translateX(-50%);
+}
+.kill-medal[hidden] { display: none; }
+.kill-medal-badge {
+    display: grid;
+    place-items: center;
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 50% 40%, #ff6a5c, #b3121f 70%);
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, .18), 0 0 18px rgba(255, 80, 70, .7);
+}
+.kill-medal-badge .ui-icon { width: 28px; height: 28px; color: #fff; }
+.kill-medal-copy { display: grid; gap: 1px; line-height: 1.05; }
+.kill-medal-title { font-size: 1.15rem; font-weight: 900; letter-spacing: .12em; }
+.kill-medal-victim { font-size: .78rem; color: #ffd2cc; letter-spacing: .04em; }
+.kill-medal-tags { display: flex; gap: 6px; }
+.kill-medal-tags:empty { display: none; }
+.kill-medal-tags span {
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: rgba(255, 214, 90, .92);
+    color: #3a2400;
+    font-size: .62rem;
+    font-weight: 900;
+    letter-spacing: .08em;
+}
+.kill-medal:not([data-tier="single"]) { border-color: rgba(255, 206, 84, .8); box-shadow: 0 0 34px rgba(255, 190, 60, .5); }
+.kill-medal:not([data-tier="single"]) .kill-medal-badge { background: radial-gradient(circle at 50% 40%, #ffe27a, #d98a00 70%); }
+.kill-medal:not([data-tier="single"]) .kill-medal-title { color: #ffe08a; font-size: 1.35rem; }
+.kill-medal.is-live { animation: kill-medal-pop 1400ms cubic-bezier(.2, .9, .25, 1.15) both; }
+@keyframes kill-medal-pop {
+    0% { opacity: 0; transform: translateX(-50%) scale(.55); }
+    14% { opacity: 1; transform: translateX(-50%) scale(1.12); }
+    26% { transform: translateX(-50%) scale(1); }
+    78% { opacity: 1; transform: translateX(-50%) scale(1); }
+    100% { opacity: 0; transform: translateX(-50%) translateY(-10px) scale(.96); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .kill-medal.is-live { animation: kill-medal-fade 1400ms linear both; }
+}
+body.reduced-motion .kill-medal.is-live { animation: kill-medal-fade 1400ms linear both; }
+@keyframes kill-medal-fade { 0%, 80% { opacity: 1; } 100% { opacity: 0; } }
+body.touch-controls-on .kill-medal { top: 30%; }
+/* The kill medal already shows this line; keep it for screen readers only. */
+#game-message.kill-confirm { opacity: 0 !important; }
