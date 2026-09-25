@@ -83,3 +83,35 @@ test('the lobby carries the code and clients only accept a code matching the hos
     assert.match(main, /this\.store\.set\('lobbyCustomMap', true\);[\s\S]{0,200}this\.game\.selectMap\(mapId\);/,
         'the random roll at match start must not replace a coded map');
 });
+
+test('a late joiner sees the coded map in the lobby: lobbyState carries the code, the client adopts it', async () => {
+    const main = readFileSync(new URL('../js/main.js', import.meta.url), 'utf8');
+    assert.match(main, /map: this\.arena\?\.mapId,\s+mapCode: this\.game\.mapCodeFor\?\.\(this\.arena\?\.mapId\) \|\| undefined,/);
+    const start = main.indexOf('    _applyClientLobbyStatePresentation(data) {');
+    const end = main.indexOf('\n    _applyInitialLobbyWelcome(data)', start);
+    const method = main.slice(start, end);
+    const body = method.slice(method.indexOf('{') + 1, method.lastIndexOf('}'));
+    const apply = new Function('GAME_MODES', `return function(data) {${body}}`)({ classic: {} });
+    const code = encodeMapCode(sampleMap(3));
+    const codedId = mapIdForCode(code);
+    const applied = [];
+    const self = {
+        game: {
+            mode: { id: 'classic' },
+            adoptMapCode: (c, expected) => (mapIdForCode(c) === expected ? expected : null),
+            getSelectableMaps: () => ['beach', 'harbor'],
+            applyModeChange() {},
+            applyMapChange: change => applied.push(change),
+            onModeChange() {}
+        }
+    };
+    apply.call(self, { map: codedId, mapCode: code });
+    assert.deepEqual(applied.at(-1), { mapId: codedId }, 'adopted first, then switched to');
+    applied.length = 0;
+    apply.call(self, { map: 'custom-code-zzzz', mapCode: code });
+    apply.call(self, { map: codedId });
+    assert.deepEqual(applied, [], 'a code for another map, or no code for a coded map, is ignored');
+    apply.call(self, { map: 'beach' });
+    assert.deepEqual(applied, [{ mapId: 'beach' }]);
+    assert.match(main, /const welcomeCode = data\.mapCode \?\? data\.snapshot\?\.mapCode;/);
+});

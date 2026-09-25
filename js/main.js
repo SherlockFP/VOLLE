@@ -7510,6 +7510,7 @@ updateCarousel() {
             lobbyName: name,
             mode: this.game.mode?.id,
             map: this.arena?.mapId,
+            mapCode: this.game.mapCodeFor?.(this.arena?.mapId) || undefined,
             settings: {
                 matchTime: parseInt(document.getElementById('setting-match-time')?.value || 300),
                 maxRounds: parseInt(document.getElementById('setting-max-rounds')?.value || 16),
@@ -7675,8 +7676,12 @@ updateCarousel() {
             this.game.applyModeChange({ modeId: lobbyMode });
         }
         const lobbyMap = data?.map;
-        if (typeof lobbyMap === 'string' && this.game.getSelectableMaps?.().includes(lobbyMap)) {
-            this.game.applyMapChange({ mapId: lobbyMap });
+        // A coded map (js/map-code.js) is not in the rotation list: it counts only
+        // once its code is adopted, and the code must hash to the host's map id.
+        const lobbyMapCode = typeof lobbyMap === 'string' && typeof data?.mapCode === 'string'
+            && this.game.adoptMapCode?.(data.mapCode, lobbyMap) === lobbyMap ? data.mapCode : null;
+        if (typeof lobbyMap === 'string' && (lobbyMapCode || this.game.getSelectableMaps?.().includes(lobbyMap))) {
+            this.game.applyMapChange({ mapId: lobbyMap }); // a coded map was adopted just above
         }
         this.game.onModeChange?.(this.game.mode?.id);
     }
@@ -7700,8 +7705,11 @@ updateCarousel() {
             this.game.applyModeChange({ modeId: welcomeMode });
         }
         const welcomeMap = data.map ?? data.snapshot?.map;
-        if (typeof welcomeMap === 'string' && this.game.getSelectableMaps?.().includes(welcomeMap)) {
-            this.game.applyMapChange({ mapId: welcomeMap });
+        const welcomeCode = data.mapCode ?? data.snapshot?.mapCode;
+        const welcomeMapCode = typeof welcomeMap === 'string' && typeof welcomeCode === 'string'
+            && this.game.adoptMapCode?.(welcomeCode, welcomeMap) === welcomeMap ? welcomeCode : null;
+        if (typeof welcomeMap === 'string' && (welcomeMapCode || this.game.getSelectableMaps?.().includes(welcomeMap))) {
+            this.game.applyMapChange({ mapId: welcomeMap }); // a coded map was adopted just above
         }
 
         // selectMode/selectMap notify when they change; this also refreshes the
