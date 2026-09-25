@@ -164,6 +164,33 @@ body.touch-controls-on #kill-feed { top: 56px; right: calc(120px + env(safe-area
 body.touch-controls-on .contract-tracker { top: calc(150px * var(--touch-scale, 1)); bottom: auto; left: 10px; width: 180px; }
 body.touch-controls-on #hud:not(.hidden) ~ #chat-log { width: 260px; max-height: 120px; bottom: auto; top: 46%; }
 
+/* Practice Lab / first-run guided drill: a one-strip readout under the score. The
+   desktop card sits on the right half, i.e. under Deflect/Stab/Skill/R/F. */
+body.touch-controls-on .practice-lab-hud {
+    /* Between the vitals (left, <=170px) and the R/F buttons (200px from the right edge). */
+    --pl-reserve-right: calc(214px * var(--touch-scale, 1) + env(safe-area-inset-right, 0px));
+    --pl-w: min(360px, 46vw, calc(100vw - 172px - var(--pl-reserve-right)));
+    top: calc(88px + env(safe-area-inset-top, 0px));
+    right: auto;
+    left: clamp(172px, calc(50% - var(--pl-w) / 2), calc(100vw - var(--pl-reserve-right) - var(--pl-w)));
+    transform: none;
+    width: var(--pl-w);
+    max-height: none;
+    padding: 5px 8px;
+    border-radius: 10px;
+}
+body.touch-controls-on .practice-lab-hud :is(header, .practice-lab-summary, .practice-lab-track) { display: none !important; }
+body.touch-controls-on .practice-lab-hud :is(.guided-drill-head, .guided-drill-metrics) { margin: 2px 0; gap: 4px !important; }
+body.touch-controls-on .practice-lab-hud .guided-drill-head b { padding: 3px 4px; }
+body.touch-controls-on .practice-lab-hud .guided-drill-metrics span { font-size: .64rem; white-space: nowrap; }
+body.touch-controls-on #practice-hint { margin-top: 2px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+body.touch-controls-on:not(.guided-deflect-active) #practice-hint { display: none; }
+
+/* First-run welcome: touch players get the touch control copy, not WASD/click. */
+.ftue-copy-touch { display: none; }
+body.touch-controls-on .ftue-copy-keys { display: none; }
+body.touch-controls-on .ftue-copy-touch { display: block; }
+
 /* Small landscape phones: shrink what is left. */
 @media (orientation: landscape) and (max-height: 500px) {
     body.touch-controls-on #vitals { width: 140px; }
@@ -171,7 +198,25 @@ body.touch-controls-on #hud:not(.hidden) ~ #chat-log { width: 260px; max-height:
     body.touch-controls-on .vital-label,
     body.touch-controls-on .vital-num { font-size: 0.72em; }
     body.touch-controls-on .contract-tracker { display: none; }
-    body.touch-controls-on #ultimate-hud { bottom: 8px; transform: translateX(-50%) scale(0.8); transform-origin: bottom center; }
+    body.touch-controls-on #ultimate-hud { left: 50%; right: auto; bottom: 8px; transform: translateX(-50%) scale(0.8); transform-origin: bottom center; }
+    body.touch-controls-on .practice-lab-hud .guided-drill-head { grid-template-columns: max-content 1fr 1fr; }
+    body.touch-controls-on .practice-lab-hud .guided-drill-head b { font-size: .6rem; white-space: nowrap; }
+    /* Speed/state pill: compact in the free lane between the stick zone and the buttons. */
+    body.touch-controls-on #movement-hud { bottom: 64px; min-width: 0; padding: 4px 10px; gap: 8px; font-size: .82em; }
     body.touch-controls-on .hud-speed-text { top: 8px; right: calc(12px + env(safe-area-inset-right, 0px)); min-width: 96px; padding: 5px 8px; font-size: 0.95em; }
     body.touch-controls-on #hud:not(.hidden) ~ #chat-log { width: 220px; font-size: 0.8em; }
+    /* Welcome card: keep Start + Skip on a ~340px-tall screen without scrolling. */
+    body.touch-controls-on .ftue-card { width: min(640px, 94vw); padding-top: 14px; padding-bottom: 12px; }
+    body.touch-controls-on .ftue-header { margin-bottom: 8px; }
+    body.touch-controls-on .ftue-header h2 { margin-bottom: 0; font-size: 1.3rem; }
+    body.touch-controls-on :is(.ftue-pitch, .ftue-tip-icon) { display: none; }
+    body.touch-controls-on .ftue-tips { grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
+    body.touch-controls-on .ftue-tip { padding: 8px; }
+    body.touch-controls-on .ftue-tip small { font-size: 0.68rem; }
+    body.touch-controls-on .ftue-practice-link { margin-top: 4px; }
+}
+
+/* Narrow landscape phones (iPhone SE class): no free lane for the speed pill. */
+@media (orientation: landscape) and (max-height: 500px) and (max-width: 699px) {
+    body.touch-controls-on #movement-hud { display: none; }
 }

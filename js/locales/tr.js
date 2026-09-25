@@ -197,6 +197,9 @@ export default {
         deflectCopy: 'Top yakınındayken sol tıka basılı tutarak sektir; yukarı savurursan aşırtma, aşağı savurursan smaç olur',
         melee: 'Yakın Dövüş',
         meleeCopy: 'Yakın mesafede bıçaklamak için sağ tık',
+        moveCopyTouch: 'Sol başparmak: sürükleyerek yürü (kenara it, koş); JUMP ve DASH tuşları',
+        deflectCopyTouch: 'Top gelirken DEFLECT’e dokun; sektirirken yukarı kaydırırsan aşırtma, aşağı kaydırırsan smaç',
+        meleeCopyTouch: 'Yakında STAB; nişan için ekranın sağ tarafını sürükle',
         start: 'Rehberli Antrenmanı Başlat',
         skip: 'Şimdilik geç'
     },

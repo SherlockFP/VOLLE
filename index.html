@@ -25,7 +25,7 @@
     <link rel="stylesheet" href="css/hud.css?v=4">
     <link rel="stylesheet" href="css/spectator.css?v=1">
     <link rel="stylesheet" href="css/postgame.css?v=2">
-    <link rel="stylesheet" href="css/touch.css?v=1">
+    <link rel="stylesheet" href="css/touch.css?v=2">
     <!-- Arena menu layer (docs/MENU_DESIGN.md): loaded last so it owns the menu/shell
          cascade without editing the older sheets. Uses the existing DM Sans + Nunito faces. -->
     <link rel="stylesheet" href="css/menu-arena.css?v=1">
@@ -420,17 +420,20 @@
                 <div class="ftue-tip">
                     <svg class="ui-icon ftue-tip-icon" aria-hidden="true"><use href="#i-arrow-right"></use></svg>
                     <b data-i18n="ftue.move">Move</b>
-                    <small data-i18n="ftue.moveCopy">WASD to move, Space to jump, Ctrl to dash</small>
+                    <small class="ftue-copy-keys" data-i18n="ftue.moveCopy">WASD to move, Space to jump, Ctrl to dash</small>
+                    <small class="ftue-copy-touch" data-i18n="ftue.moveCopyTouch">Left thumb: drag to move (push to the edge to sprint); JUMP and DASH buttons</small>
                 </div>
                 <div class="ftue-tip">
                     <svg class="ui-icon ftue-tip-icon" aria-hidden="true"><use href="#i-ball"></use></svg>
                     <b data-i18n="ftue.deflect">Deflect &amp; Throw</b>
-                    <small data-i18n="ftue.deflectCopy">Hold Left-Click near the ball to deflect it — flick up to lob, down to spike</small>
+                    <small class="ftue-copy-keys" data-i18n="ftue.deflectCopy">Hold Left-Click near the ball to deflect it — flick up to lob, down to spike</small>
+                    <small class="ftue-copy-touch" data-i18n="ftue.deflectCopyTouch">Tap DEFLECT as the ball arrives; swipe up while deflecting to lob, down to spike</small>
                 </div>
                 <div class="ftue-tip">
                     <svg class="ui-icon ftue-tip-icon" aria-hidden="true"><use href="#i-target"></use></svg>
                     <b data-i18n="ftue.melee">Melee</b>
-                    <small data-i18n="ftue.meleeCopy">Right-Click to stab up close</small>
+                    <small class="ftue-copy-keys" data-i18n="ftue.meleeCopy">Right-Click to stab up close</small>
+                    <small class="ftue-copy-touch" data-i18n="ftue.meleeCopyTouch">STAB up close; drag the right side of the screen to aim</small>
                 </div>
             </div>
             <button id="ftue-welcome-start" type="button" class="btn btn-primary ftue-start" data-i18n="ftue.start">Start Guided Drill</button>

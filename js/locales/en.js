@@ -197,6 +197,9 @@ export default {
         deflectCopy: 'Hold Left-Click near the ball to deflect it — flick up to lob, down to spike',
         melee: 'Melee',
         meleeCopy: 'Right-Click to stab up close',
+        moveCopyTouch: 'Left thumb: drag to move (push to the edge to sprint); JUMP and DASH buttons',
+        deflectCopyTouch: 'Tap DEFLECT as the ball arrives; swipe up while deflecting to lob, down to spike',
+        meleeCopyTouch: 'STAB up close; drag the right side of the screen to aim',
         start: 'Start Guided Drill',
         skip: 'Skip for now'
     },
