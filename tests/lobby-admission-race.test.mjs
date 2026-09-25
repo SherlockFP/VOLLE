@@ -49,11 +49,8 @@ function compileAppMethod(name, globals = {}) {
     return runInNewContext(`({ ${method} }).${name}`, globals);
 }
 
-const signedIn = { getToken: () => 'session-token' };
-const signedOut = { getToken: () => '' };
-
 test('delayed registration for an old room cannot overwrite the current host token', async () => {
-    const registerLobby = compileAppMethod('_registerLobby', { resolveSportRoute, account: signedIn });
+    const registerLobby = compileAppMethod('_registerLobby', { resolveSportRoute });
     let resolveRequest;
     const request = new Promise(resolve => { resolveRequest = resolve; });
     const installed = [];
@@ -75,49 +72,23 @@ test('delayed registration for an old room cannot overwrite the current host tok
     assert.deepEqual(installed, []);
 });
 
-test('guest hosts skip the registry instead of posting a doomed request', async () => {
-    const registerLobby = compileAppMethod('_registerLobby', { resolveSportRoute, account: signedOut });
-    let requests = 0;
-    const app = { game: { mode: { id: 'classic' } }, network: { isHost: true }, _lobbyApi: async () => { requests++; return {}; } };
-    assert.equal(await registerLobby.call(app, 'room', 'Lobby', 1, 'Arena', 'Classic'), false);
-    assert.equal(app._lastLobbyApiStatus, 401);
-    assert.equal(requests, 0);
-});
-
-test('missing admission proof never cancels a P2P join and posts nothing', async () => {
-    const confirmLobbyAdmission = compileAppMethod('_confirmLobbyAdmission', { account: signedIn });
+test('blank admission proof fails before any server join request', async () => {
+    const confirmLobbyAdmission = compileAppMethod('_confirmLobbyAdmission');
     let requests = 0;
     const app = {
-        _lobbyCode: 'room-code',
         network: { waitForLobbyAdmissionProof: async () => '' },
         _lobbyApi: async () => { requests++; return { ok: true }; }
     };
 
-    assert.equal(await confirmLobbyAdmission.call(app, 'room-code'), false);
+    await assert.rejects(
+        confirmLobbyAdmission.call(app, 'room-code'),
+        /proof was not received/
+    );
     assert.equal(requests, 0);
-    // A proof that arrives later (host listed the room afterwards) is still used.
-    assert.equal(typeof app.network.onLobbyAdmissionProof, 'function');
-});
-
-test('guest joiners skip server admission entirely', async () => {
-    const confirmLobbyAdmission = compileAppMethod('_confirmLobbyAdmission', { account: signedOut });
-    let waited = 0;
-    const app = { network: { waitForLobbyAdmissionProof: async () => { waited++; return 'C'.repeat(43); } }, _lobbyApi: async () => ({ ok: true }) };
-    assert.equal(await confirmLobbyAdmission.call(app, 'room'), false);
-    assert.equal(waited, 0);
-});
-
-test('a rejected server admission does not throw (rewards only, the room still works)', async () => {
-    const confirmLobbyAdmission = compileAppMethod('_confirmLobbyAdmission', { account: signedIn });
-    const app = {
-        network: { waitForLobbyAdmissionProof: async () => 'C'.repeat(43) },
-        _lobbyApi: async () => ({ __lobbyApiError: true, status: 403 })
-    };
-    assert.equal(await confirmLobbyAdmission.call(app, 'room'), false);
 });
 
 test('valid proof is posted once through the shared admission helper', async () => {
-    const confirmLobbyAdmission = compileAppMethod('_confirmLobbyAdmission', { account: signedIn });
+    const confirmLobbyAdmission = compileAppMethod('_confirmLobbyAdmission');
     const token = 'C'.repeat(43);
     const requests = [];
     const app = {
@@ -131,19 +102,67 @@ test('valid proof is posted once through the shared admission helper', async () 
     assert.deepEqual(JSON.parse(requests[0][1].body), { admissionToken: token });
 });
 
-test('host flow keeps the P2P room when the registry does not list it (guest, expired, offline)', () => {
+test('host flow awaits initial registration and falls back to a local lobby on failure', () => {
     const source = extractAppMethod('_doHostGame');
     const registration = source.indexOf('const registered = await this._registerLobby(');
     const success = source.indexOf("t('toast.lobbyCreated'");
     assert.match(en.toast.lobbyCreated, /Lobby created! Code:/);
     assert.ok(registration >= 0 && registration < success);
-    // Guests are no longer diverted to a local bot lobby before hostGame().
-    assert.ok(source.indexOf('this.network.hostGame(') >= 0);
-    assert.doesNotMatch(source, /_openLocalLobbyFallback|network\.disconnect\(\)/);
-    assert.match(source, /'toast\.lobbyPrivateGuest'/);
-    assert.match(source, /'toast\.lobbyPrivateSession' : 'toast\.lobbyPrivateOffline'/);
-    for (const key of ['lobbyPrivateGuest', 'lobbyPrivateSession', 'lobbyPrivateOffline']) {
-        assert.match(en.toast[key], /\{code\}/, `en toast.${key} shows the code`);
-    }
+    assert.match(source.slice(registration, success), /if \(!registered\) \{\s*this\._openLocalLobbyFallback\(this\._lastLobbyApiStatus === 401 \? 'toast\.lobbySessionExpired' : 'toast\.lobbyLocalFallback'\);\s*return true;/);
+    // Guests host online with a guest lobby session; only ranked is account-only.
+    assert.doesNotMatch(source, /toast\.lobbyLocalGuest/);
+    assert.match(source, /this\._isLobbyGuest\(\) && \(this\._rankedHosting === true/);
+    assert.ok(source.indexOf("t('toast.rankedNeedsAccount')") < source.indexOf('this.network.hostGame('));
+    const fallback = extractAppMethod('_openLocalLobbyFallback');
+    assert.match(fallback, /this\.network\.disconnect\(\);/);
+    assert.match(fallback, /this\.ui\.setRoomCode\('LOCAL'\);/);
     assert.doesNotMatch(source, /Lobby service registration failed/);
+});
+
+test('admission failures carry a precise code (kick reason, server status) instead of a generic retry', async () => {
+    const confirmLobbyAdmission = compileAppMethod('_confirmLobbyAdmission');
+    const kicked = {
+        network: { waitForLobbyAdmissionProof: async () => '', lobbyAdmissionFailure: 'kicked:duplicate_identity' },
+        _lobbyApi: async () => { throw new Error('must not post without a proof'); }
+    };
+    await assert.rejects(confirmLobbyAdmission.call(kicked, 'room'), { code: 'duplicate_identity' });
+    const timedOut = { network: { waitForLobbyAdmissionProof: async () => '', lobbyAdmissionFailure: 'timeout' }, _lobbyApi: async () => ({}) };
+    await assert.rejects(confirmLobbyAdmission.call(timedOut, 'room'), { code: 'no_proof' });
+    for (const [reply, code] of [
+        [{ __lobbyApiError: true, status: 409, code: 'lobby_full' }, 'lobby_full'],
+        [{ __lobbyApiError: true, status: 403, code: 'account_required' }, 'account_required'],
+        [{ __lobbyApiError: true, status: 403 }, 'invalid_proof'],
+        [{ __lobbyApiError: true, status: 404 }, 'lobby_unavailable'],
+        [{ __lobbyApiError: true, status: 401 }, 'sign_in_required'],
+        [{ __lobbyApiError: true, status: 0 }, 'service']
+    ]) {
+        const app = { network: { waitForLobbyAdmissionProof: async () => 'D'.repeat(43) }, _lobbyApi: async () => reply };
+        await assert.rejects(confirmLobbyAdmission.call(app, 'room'), { code });
+    }
+});
+
+test('lobby writes fall back from an expired account session to a guest lobby session once', async () => {
+    const calls = [];
+    let status = 401;
+    const globals = {
+        console: { warn() {} },
+        account: { getToken: () => 'expired-account-token' },
+        fetch: async (path, opts) => {
+            calls.push(opts.headers.Authorization);
+            const current = status;
+            status = 200;
+            return { ok: current === 200, status: current, json: async () => ({ ok: current === 200 }) };
+        }
+    };
+    const lobbyApi = compileAppMethod('_lobbyApi', globals);
+    const app = {
+        _lobbyAccountSessionExpired: false,
+        async _lobbyAuthToken() { return this._lobbyAccountSessionExpired ? 'lg1.guest.token' : 'expired-account-token'; },
+        _invalidateLobbyAuth: compileAppMethod('_invalidateLobbyAuth', { ...globals, t: key => key }),
+        _lobbyApi: lobbyApi
+    };
+    const result = await lobbyApi.call(app, '/api/lobbies', { method: 'POST', body: '{}' });
+    assert.equal(result.ok, true);
+    assert.deepEqual(calls, ['Bearer expired-account-token', 'Bearer lg1.guest.token']);
+    assert.equal(app._lobbyAccountSessionExpired, true);
 });

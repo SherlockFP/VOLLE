@@ -29,6 +29,7 @@ import {
 } from './net-codec.js';
 import { ClockSync } from './net-clock.js';
 import { TransitTracker } from './net-interp.js';
+import { RelayHostLink, connectRelayClient, isRelayPeerId } from './relay-transport.js';
 
 const COSMETIC_TYPE_IDS = Object.freeze(Object.keys(COSMETIC_TYPES));
 
@@ -93,7 +94,9 @@ export const MAX_LOBBY_SPECTATORS = 16;
 // attack, skillUse, teamChange, powerUpPickup, mapVote, ...) is gameplay authority
 // a spectator must never have — whitelist, so new gameplay packets are blocked by default.
 export const SPECTATOR_ALLOWED_TYPES = Object.freeze([
-    'join', 'capabilities', 'ping', 'pong', 'chat', 'emote', 'spectatorSeat'
+    'join', 'capabilities', 'ping', 'pong', 'chat', 'emote', 'spectatorSeat',
+    // Asks the host to re-send the (already earned) lobby admission proof.
+    'lobbyAdmissionRequest'
 ]);
 const SPECTATOR_ALLOWED_TYPE_SET = new Set(SPECTATOR_ALLOWED_TYPES);
 export function isSpectatorAllowedMessage(type) {
@@ -126,6 +129,17 @@ const SPECTATOR_BATCH_MS = 1000 / 30;         // one batched relay per ~30 Hz ti
 const CONGESTED_BUFFER_BYTES = 256 * 1024;    // skip superseded hot packets above this
 const PLAYER_ID_EVERY = 32;                   // POS_Q repeats playerId every Nth packet
 const PEER_OPEN_TIMEOUT_MS = 20000;           // signalling broker must answer within this
+// Joining: a direct/TURN WebRTC link normally opens in 1-4 s even between
+// countries; past this the client also tries the server WebSocket relay.
+export const P2P_JOIN_FALLBACK_MS = 8000;
+// Without a relay, give ICE its full budget before reporting a blocked network.
+export const P2P_JOIN_TIMEOUT_MS = 30000;
+// Admission proof: long enough for a relayed / lossy intercontinental link and a
+// host whose lobby registration is still in flight; the client re-asks the host
+// every LOBBY_PROOF_REQUEST_MS instead of failing on one lost/late packet.
+export const LOBBY_PROOF_WAIT_MS = 20000;
+export const LOBBY_PROOF_REQUEST_MS = 2500;
+const RELAY_HOST_RETRY_MS = Object.freeze([1000, 3000, 8000, 15000]);
 const PING_BURST = Object.freeze([60, 160, 300, 500, 800]);
 const NET_ID_MAX = 250;
 
@@ -420,6 +434,14 @@ function createResumeNonce() {
     }
 }
 
+// Join failures carry a stable `code` so main.js can show a precise, localized
+// reason instead of a generic "try again".
+function joinError(message, code) {
+    const error = new Error(message);
+    error.code = code;
+    return error;
+}
+
 function removeConnectionListener(conn, type, handler) {
     if (typeof conn?.off === 'function') conn.off(type, handler);
     else conn?.removeListener?.(type, handler);
@@ -515,10 +537,15 @@ export function reconnectDelay(attempt) {
 // (offline dev server, network hiccup, ancient browser) so local play never breaks.
 export const FALLBACK_RTC_CONFIG = Object.freeze({
     iceServers: Object.freeze([Object.freeze({
-        urls: Object.freeze(['stun:stun.l.google.com:19302'])
+        urls: Object.freeze([
+            'stun:stun.l.google.com:19302',
+            'stun:stun1.l.google.com:19302',
+            'stun:stun.cloudflare.com:3478'
+        ])
     })]),
     peer: Object.freeze({})
 });
+const RTC_CONFIG_TIMEOUT_MS = 4000;
 
 function isPlainObject(value) {
     return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -532,18 +559,33 @@ export function sanitizeRtcConfig(data) {
         isPlainObject(entry) && (typeof entry.urls === 'string' || Array.isArray(entry.urls)));
     if (!iceServers.length) return null;
     const peer = isPlainObject(data.peer) ? data.peer : {};
-    return { iceServers, peer };
+    return { iceServers, peer, relay: data.relay !== false };
 }
 
-export async function fetchRtcConfig(fetchImpl = globalThis.fetch) {
+// A hung /api/rtc-config (cold server, captive proxy) must not stall hosting or
+// joining: fall back to public STUN after RTC_CONFIG_TIMEOUT_MS.
+// authToken (account or guest lobby session) unlocks TURN credentials; without it
+// the server only returns public STUN, so TURN can't be farmed anonymously.
+export async function fetchRtcConfig(fetchImpl = globalThis.fetch, timeoutMs = RTC_CONFIG_TIMEOUT_MS, authToken = '') {
     if (typeof fetchImpl !== 'function') return FALLBACK_RTC_CONFIG;
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    let timer = null;
     try {
-        const res = await fetchImpl('/api/rtc-config');
+        const init = {};
+        if (controller) init.signal = controller.signal;
+        if (authToken) init.headers = { Authorization: `Bearer ${authToken}` };
+        const request = fetchImpl('/api/rtc-config', Object.keys(init).length ? init : undefined);
+        const timeout = new Promise(resolve => {
+            timer = setTimeout(() => { controller?.abort(); resolve(null); }, timeoutMs);
+        });
+        const res = await Promise.race([request, timeout]);
         if (!res || !res.ok) return FALLBACK_RTC_CONFIG;
-        const data = await res.json();
+        const data = await Promise.race([res.json(), timeout]);
         return sanitizeRtcConfig(data) || FALLBACK_RTC_CONFIG;
     } catch {
         return FALLBACK_RTC_CONFIG;
+    } finally {
+        clearTimeout(timer);
     }
 }
 
@@ -608,8 +650,19 @@ export class Network {
         this.lobbyAdmissionToken = '';
         this._lobbyAdmissionProof = '';
         this._lobbyAdmissionWaiters = [];
-        this._lobbyAdmissionUnlisted = false;
-        this.onLobbyAdmissionProof = null;
+        this._lastKickReason = '';
+        this.lobbyAdmissionFailure = '';
+        // WebSocket relay fallback (js/relay-transport.js). main.js supplies the
+        // lobby auth token (account or guest session); null disables the relay.
+        this.relayAuthProvider = null;
+        this.relayUrl = undefined;      // default: same origin /api/relay (tests override)
+        this._serverRelayAvailable = true;
+        this._relayHost = null;
+        this._relayHostConfig = null;
+        this._relayHostRetry = 0;
+        this._relayHostTimer = null;
+        this._hostTransport = 'p2p';
+        this.onJoinProgress = null;   // ('connecting' | 'relay' | 'admitting')
         this.joinPassword = '';
         this.onReconnectState = null;
         this.onRematchReady = null;
@@ -906,7 +959,19 @@ export class Network {
     }
 
     async initPeer() {
-        const rtcConfig = await fetchRtcConfig();
+        // Same lobby session the relay uses (bounded: a slow guest-session mint
+        // must not delay hosting/joining — STUN-only is the fallback).
+        let authToken = '';
+        try {
+            authToken = await Promise.race([
+                Promise.resolve(this.relayAuthProvider?.()),
+                new Promise(resolve => setTimeout(() => resolve(''), 3000))
+            ]) || '';
+        } catch (_) {
+            authToken = '';
+        }
+        const rtcConfig = await fetchRtcConfig(globalThis.fetch, RTC_CONFIG_TIMEOUT_MS, typeof authToken === 'string' ? authToken : '');
+        this._serverRelayAvailable = rtcConfig.relay !== false;
         return new Promise((resolve, reject) => {
             this._peerOpened = false;
             // P2P_HOST_FIXES.md: a broker that accepts the socket but never answers left
@@ -978,6 +1043,8 @@ export class Network {
     async hostGame(playerName) {
         this._cancelReconnect();
         this._resetLobbyAdmissionProof();
+        this.disableRelayHost();
+        this._hostTransport = 'p2p';
         this.playerName = playerName;
         this.isHost = true;
         this.spectatorMode = false;
@@ -1022,6 +1089,7 @@ export class Network {
     async _joinGame(roomCode, playerName, password = '') {
         this._cancelReconnect();
         this._resetLobbyAdmissionProof();
+        this.disableRelayHost();
         this.playerName = playerName;
         this.isHost = false;
         this.hostRoomCode = roomCode;
@@ -1029,50 +1097,137 @@ export class Network {
         this._manualDisconnect = false;
         this._reconnectAttempts = 0;
         this._migrationActive = false;
+        this._lastKickReason = '';
+        this._hostTransport = 'p2p';
         await this.initPeer();
         if (this.game?.player && this.peer) this.game.player.peerId = this.peer.id;
 
-        const conn = this.peer.connect(roomCode, {
-            metadata: {
-                name: playerName,
-                password,
-                playerId: this.playerId,
-                capabilities: PROTOCOL_CAPABILITIES,
-                ...(this.spectatorMode ? { spectator: true } : {})
+        const metadata = this._hostJoinMetadata(playerName, password);
+        const relayUsable = this._relayUsable();
+        this.onJoinProgress?.('connecting');
+        let conn;
+        try {
+            conn = await this._connectHostP2P(roomCode, metadata, relayUsable ? P2P_JOIN_FALLBACK_MS : P2P_JOIN_TIMEOUT_MS);
+        } catch (p2pError) {
+            if (!relayUsable || this._manualDisconnect || this.hostRoomCode !== roomCode) throw p2pError;
+            // WebRTC could not reach the host (NAT / firewall / host off the
+            // signalling broker): carry the same session over the server relay.
+            this.onJoinProgress?.('relay');
+            try {
+                conn = await this._connectHostRelay(roomCode, metadata);
+            } catch (relayError) {
+                const reason = relayError?.code || '';
+                if (reason === 'no_host' || reason === 'lobby_unavailable') {
+                    throw joinError('Lobby not found — it may have closed already.', 'lobby_not_found');
+                }
+                if (reason === 'account_required') throw joinError('Ranked lobbies need an account.', 'account_required');
+                if (reason === 'full') throw joinError('Lobby is full.', 'lobby_full');
+                throw p2pError;
             }
-        });
+            if (this._manualDisconnect || this.hostRoomCode !== roomCode) {
+                conn.close();
+                throw joinError('Join cancelled.', 'cancelled');
+            }
+        }
+        this._attachHostConnection(roomCode, conn);
+    }
 
+    _hostJoinMetadata(playerName = this.playerName, password = this.joinPassword) {
+        return {
+            name: playerName,
+            password,
+            playerId: this.playerId,
+            capabilities: PROTOCOL_CAPABILITIES,
+            ...(this.spectatorMode ? { spectator: true } : {})
+        };
+    }
+
+    _relayUsable() {
+        return typeof this.relayAuthProvider === 'function'
+            && this._serverRelayAvailable !== false
+            && typeof globalThis.WebSocket === 'function';
+    }
+
+    // Resolves with the OPEN PeerJS DataConnection to the host, or rejects with a
+    // coded Error: 'lobby_not_found' (host not on the broker), 'p2p_failed'
+    // (ICE / negotiation failed), 'p2p_timeout' (no path within timeoutMs).
+    _connectHostP2P(roomCode, metadata, timeoutMs) {
+        const peer = this.peer;
+        const conn = peer.connect(roomCode, { metadata });
         return new Promise((resolve, reject) => {
+            let settled = false;
+            let timer = null;
+            const settle = (error) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                removeConnectionListener(peer, 'error', onPeerError);
+                if (!error) {
+                    resolve(conn);
+                    return;
+                }
+                try { conn?.close?.(); } catch (_) {}
+                reject(error);
+            };
             // PeerJS reports an unreachable room code (host gone, lobby expired, typo) as a
             // `peer-unavailable` error on the Peer — never on the connection, whose 'open'
             // and 'error' both stay silent. Without this the join promise never settles and
             // the Join button hangs forever with no message, which reads as "can't join".
             const onPeerError = err => {
                 if (err?.type !== 'peer-unavailable') return;
-                removeConnectionListener(this.peer, 'error', onPeerError);
-                reject(new Error('Lobby not found — it may have closed already.'));
+                settle(joinError('Lobby not found — it may have closed already.', 'lobby_not_found'));
             };
-            this.peer.on('error', onPeerError);
-            conn.on('open', () => {
-                removeConnectionListener(this.peer, 'error', onPeerError);
-                this._reconnectAttempts = 0;
-                this.hostConn = conn;
-                this.connections.set(roomCode, conn);
-                this.setupDataHandlers(conn);
-                this._resetNetTimeline();
-                resolve();
-            });
-            // Host went away (closed game / left lobby) → kick us back to menu.
+            peer.on('error', onPeerError);
+            if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
+                timer = setTimeout(() => settle(joinError(
+                    'Could not reach the host. Your network or the host\'s may be blocking direct connections.',
+                    'p2p_timeout'
+                )), timeoutMs);
+            }
+            conn.on('open', () => settle(null));
             conn.on('close', () => {
+                if (!settled) {
+                    settle(joinError('The host closed the connection.', 'p2p_failed'));
+                    return;
+                }
+                // Host went away (closed game / left lobby) → reconnect / migrate.
                 if (this.connections.get(roomCode) === conn) this.connections.delete(roomCode);
                 if (this.hostConn === conn) this.hostConn = null;
                 this._scheduleReconnect();
             });
             conn.on('error', err => {
-                removeConnectionListener(this.peer, 'error', onPeerError);
-                reject(err);
+                if (settled) return;
+                const error = joinError(err?.message || 'Connection to the host failed.', 'p2p_failed');
+                error.cause = err;
+                settle(error);
             });
         });
+    }
+
+    async _connectHostRelay(roomCode, metadata) {
+        const token = await this.relayAuthProvider?.();
+        if (!token) throw joinError('Sign in or continue as guest to use the relay.', 'relay_unauthorized');
+        const conn = await connectRelayClient({ url: this.relayUrl, code: roomCode, token, metadata });
+        conn.on('close', () => {
+            if (this.connections.get(roomCode) === conn) this.connections.delete(roomCode);
+            if (this.hostConn === conn) this.hostConn = null;
+            this._scheduleReconnect();
+        });
+        return conn;
+    }
+
+    _attachHostConnection(roomCode, conn) {
+        this._reconnectAttempts = 0;
+        this._hostTransport = conn?._relay === true ? 'relay' : 'p2p';
+        this.hostConn = conn;
+        this.connections.set(roomCode, conn);
+        this.setupDataHandlers(conn);
+        this._resetNetTimeline();
+        this.onJoinProgress?.('admitting');
+    }
+
+    isRelayed() {
+        return this._hostTransport === 'relay';
     }
 
     // Route incoming connections: new player join (host) vs P2P mesh (non-host peers)
@@ -1091,9 +1246,43 @@ export class Network {
         }, reconnectDelay(attempt));
     }
 
+    // A session that joined through the relay reconnects through it too: the
+    // WebRTC path to that host already proved unreachable.
+    _reconnectViaRelay() {
+        const peer = this.peer;
+        const roomCode = this.hostRoomCode;
+        let cancelled = false;
+        const attempt = { cancel: () => { cancelled = true; } };
+        this._reconnectAttempt = attempt;
+        const sameSession = () => !cancelled && this.peer === peer && this.hostRoomCode === roomCode
+            && !this._manualDisconnect && !this.isHost && !this._migrationActive;
+        this._connectHostRelay(roomCode, this._hostJoinMetadata()).then(conn => {
+            if (this._reconnectAttempt === attempt) this._reconnectAttempt = null;
+            if (!sameSession()) { conn.close(); return; }
+            this._reconnectAttempts = 0;
+            this._hostTransport = 'relay';
+            this.hostConn = conn;
+            this.connections.set(roomCode, conn);
+            this.setupDataHandlers(conn);
+            this._resetNetTimeline();
+            if (this._spectatorFollow) {
+                this._spectatorFollow = null;
+                this._manualDisconnect = false;
+            }
+            this.onReconnectState?.('connected', 0);
+        }, () => {
+            if (this._reconnectAttempt === attempt) this._reconnectAttempt = null;
+            if (sameSession()) this._scheduleReconnect();
+        });
+    }
+
     _reconnectOnce() {
         if (this._manualDisconnect || this.isHost || this._migrationActive
             || this._reconnectAttempt || !this.peer || !this.hostRoomCode) return;
+        if (this._hostTransport === 'relay' && this._relayUsable()) {
+            this._reconnectViaRelay();
+            return;
+        }
         const peer = this.peer;
         const roomCode = this.hostRoomCode;
         let conn;
@@ -1197,8 +1386,13 @@ export class Network {
                     this._rejectIdentityConnection(conn, conn.metadata?.name, 'invalid_identity');
                     return;
                 }
-                if (this.playerConnections.has(playerId)
-                    || this.pendingIdentityAdmissions.has(playerId)) {
+                // An identity that is already bound may still be RE-CLAIMED by its
+                // owner (page reload, dropped link, retry after a failed join): the
+                // resume-token challenge below proves it, and _beginIdentityAdmission
+                // then retires the stale transport. Without a reserved proof there is
+                // nothing to prove against, so a live identity stays protected.
+                if (this.pendingIdentityAdmissions.has(playerId)
+                    || (this.playerConnections.has(playerId) && !this._canReclaimIdentity(playerId))) {
                     this._rejectIdentityConnection(conn, conn.metadata?.name);
                     return;
                 }
@@ -1302,6 +1496,33 @@ export class Network {
         return pending;
     }
 
+    _canReclaimIdentity(playerId) {
+        return this.isHost === true
+            && this.playerResumeProofs.has(playerId)
+            && isSafeResumeProof(this.playerResumeProofs.get(playerId));
+    }
+
+    // The same player proved its resume token on a new transport: drop the old
+    // one silently (no leave/join churn, the player keeps team, score and slot)
+    // and let the new transport be admitted in its place.
+    _retireReplacedConnection(oldConn, playerId) {
+        if (this.playerConnections.get(playerId) === oldConn) this.playerConnections.delete(playerId);
+        if (this.connections.get(oldConn.peer) === oldConn) {
+            this.connections.delete(oldConn.peer);
+            this.peerToPlayerId.delete(oldConn.peer);
+        }
+        this._lastPositionSeq.delete(playerId);
+        this.peerCapabilities.delete(oldConn.peer);
+        const entry = this.migrationRoster.get(playerId);
+        if (entry?.peerId === oldConn.peer) this.migrationRoster.delete(playerId);
+        try {
+            if (oldConn.open !== false && !oldConn.closed) {
+                oldConn.send({ type: 'kick', name: oldConn._playerName || 'Player', reason: 'replaced' });
+            }
+        } catch (_) {}
+        setTimeout(() => { try { oldConn.close(); } catch (_) {} }, 150);
+    }
+
     _rejectIdentityConnection(conn, name, reason = 'duplicate_identity') {
         if (conn.closed || conn.open === false) return;
         conn.send({ type: 'kick', name, reason });
@@ -1322,7 +1543,8 @@ export class Network {
             this.setupDataHandlers(conn);
             // Spectators stay out of the migration roster: they are not mesh peers,
             // never host candidates, and must not appear as players to anyone.
-            if (conn._spectator !== true) {
+            // Relay clients neither: their server-assigned id is no WebRTC endpoint.
+            if (conn._spectator !== true && conn._relay !== true) {
                 this._updateMigrationRoster([
                     ...this.migrationRoster.values(),
                     { playerId, peerId: conn.peer, name, team: 'red' }
@@ -1547,12 +1769,18 @@ export class Network {
                 this._rejectIdentityConnection(conn, name);
                 return false;
             }
-            if (this.playerConnections.has(playerId)) {
-                if (this.pendingIdentityAdmissions.get(playerId) === admission) {
-                    this.pendingIdentityAdmissions.delete(playerId);
+            const staleConnection = this.playerConnections.get(playerId);
+            if (staleConnection && staleConnection !== conn) {
+                // Only an owner who just proved the RESERVED resume token may take
+                // over a still-bound identity; everyone else is a duplicate.
+                if (expectedProof === null || !this._canReclaimIdentity(playerId)) {
+                    if (this.pendingIdentityAdmissions.get(playerId) === admission) {
+                        this.pendingIdentityAdmissions.delete(playerId);
+                    }
+                    this._rejectIdentityConnection(conn, name);
+                    return false;
                 }
-                this._rejectIdentityConnection(conn, name);
-                return false;
+                this._retireReplacedConnection(staleConnection, playerId);
             }
             if (!this._bindConnectionIdentity(conn, playerId, name)) {
                 if (this.pendingIdentityAdmissions.get(playerId) === admission) {
@@ -1633,18 +1861,23 @@ export class Network {
             && data.avatar.length <= PENDING_JOIN_AVATAR_MAX_LENGTH
             && isAvatarModel(data.avatarModel)
             && normalizeProtocolCapabilities(data.capabilities)
-            && (data.spectator === undefined || typeof data.spectator === 'boolean')
-            && (!this.lobbyPassword || data.password === this.lobbyPassword)
-            && (!this.lobbyPassword || conn.metadata?.password === this.lobbyPassword);
+            && (data.spectator === undefined || typeof data.spectator === 'boolean');
         if (!valid) {
             conn.close();
+            return false;
+        }
+        if (this.lobbyPassword && (data.password !== this.lobbyPassword
+            || conn.metadata?.password !== this.lobbyPassword)) {
+            // Tell the joiner why instead of a silent close (it used to surface as
+            // "Lobby admission proof was not received").
+            this._rejectIdentityConnection(conn, name, 'password');
             return false;
         }
         const previous = this.playerConnections.get(playerId);
         const proofReserved = this.playerResumeProofs.has(playerId);
         const expectedProof = this.playerResumeProofs.get(playerId);
         const pendingAdmission = this.pendingIdentityAdmissions.get(playerId);
-        if ((previous && previous !== conn)
+        if ((previous && previous !== conn && !this._canReclaimIdentity(playerId))
             || (pendingAdmission && pendingAdmission.conn !== conn)) {
             this._rejectIdentityConnection(conn, name);
             return;
@@ -1682,14 +1915,6 @@ export class Network {
             }
             return admitted;
         });
-    }
-
-    _rosterPlayerIdForPeer(peerId) {
-        if (!peerId || !(this.migrationRoster instanceof Map)) return '';
-        for (const entry of this.migrationRoster.values()) {
-            if (entry?.peerId === peerId) return entry.playerId;
-        }
-        return '';
     }
 
     _updateMigrationRoster(players = []) {
@@ -2298,6 +2523,8 @@ export class Network {
                 ? { windowMs: 4000, max: 3 }
             : type === 'spectatorSeat'
                 ? { windowMs: 1000, max: 6 }
+            : type === 'lobbyAdmissionRequest'
+                ? { windowMs: 5000, max: 4 }
                 : { windowMs: 1000, max: 30 };
         const key = `${peerId}:${type}`;
         let entry = this._socialRate.get(key);
@@ -3117,12 +3344,17 @@ export class Network {
                     this._acceptLobbyAdmissionProof(data.admissionToken);
                 }
                 break;
+            case 'lobbyAdmissionRequest':
+                // Only an admitted transport reaches here (gate above) and
+                // _sendLobbyAdmissionProof re-checks it; rate-limited per peer.
+                if (this.isHost && sourceConn && this._allowSocialPacket(peerId, 'lobbyAdmissionRequest')) {
+                    this._sendLobbyAdmissionProof(sourceConn);
+                }
+                break;
             case 'welcome':
                 if (this.isHost || peerId !== this.hostConn?.peer) break;
                 this._applyBallAppearance(data);
-                // A welcome without a token means the host's room is not listed
-                // (guest host / registry down): stop waiting, the room still works.
-                if (!this._acceptLobbyAdmissionProof(data.admissionToken)) this._settleLobbyAdmissionUnlisted();
+                this._acceptLobbyAdmissionProof(data.admissionToken);
                 if (Array.isArray(data.players)) {
                     this._updateMigrationRoster(
                         Array.isArray(data.migrationRoster)
@@ -3187,6 +3419,7 @@ export class Network {
                 if (!this.isHost
                     && peerId === this.hostConn?.peer
                     && data.name === this.playerName) {
+                    this._lastKickReason = typeof data.reason === 'string' ? data.reason.slice(0, 32) : 'kicked';
                     if (this.onKicked) this.onKicked(data.reason);
                     this.disconnect();
                 }
@@ -3312,12 +3545,15 @@ case 'modeChange':
         const transportPeerId = trustedRelay && data.peerId ? data.peerId : peerId;
         const boundPlayerId = this.peerToPlayerId.get(peerId);
         if (!trustedRelay && boundPlayerId && data.playerId && data.playerId !== boundPlayerId) return;
+        // POS_Q carries the playerId only every PLAYER_ID_EVERY packets: resolve the
+        // host's own id from the welcome roster (allowedMeshPeers) so its packets
+        // never spawn a phantom "P-xxxx" remote player in the lobby.
         const playerId = trustedRelay
-            ? (data.playerId || this.peerToPlayerId.get(transportPeerId) || this._rosterPlayerIdForPeer(transportPeerId))
+            ? (data.playerId || this.peerToPlayerId.get(transportPeerId)
+                || this.allowedMeshPeers.get(transportPeerId))
             : (boundPlayerId || data.playerId || peerId);
-        // POS_Q carries the playerId only on every Nth packet. A sample that arrives
-        // before the sender's id is known is dropped: keying it by the transport peer
-        // id spawned a phantom "P-xxxx" copy of a player already on the roster.
+        // Id still unknown (before the welcome roster): drop the sample rather than
+        // key it by the transport peer id, which spawned the phantom.
         if (!playerId) return;
         if (trustedRelay) this.peerToPlayerId.set(transportPeerId, playerId);
         if (data.seq !== undefined) {
@@ -3326,6 +3562,31 @@ case 'modeChange':
             this._lastPositionSeq.set(playerId, data.seq);
         }
         this.game.updateRemotePlayer(playerId, data, transportPeerId);
+        if (this.isHost) this._forwardPositionForRelay(data, playerId, peerId);
+    }
+
+    // Relay clients have no WebRTC mesh: the host forwards movement between them
+    // and everyone else (relay -> all, and all -> relay clients).
+    _forwardPositionForRelay(data, playerId, sourcePeerId) {
+        let hasRelay = false;
+        for (const conn of this.connections.values()) {
+            if (conn?._relay === true) { hasRelay = true; break; }
+        }
+        if (!hasRelay || !isSafeTargetId(playerId) || !isSafeTargetId(sourcePeerId)) return;
+        const sourceRelay = this.connections.get(sourcePeerId)?._relay === true;
+        let packet = null;
+        this.connections.forEach((conn, connPeerId) => {
+            if (connPeerId === sourcePeerId || !conn?.open || conn._admitted !== true || conn._spectator === true) return;
+            if (!sourceRelay && conn._relay !== true) return;
+            if (connectionCongested(conn)) return;
+            if (!packet) {
+                packet = { ...data, type: 'position', playerId, peerId: sourcePeerId };
+                delete packet.netId;
+                delete packet.t; // receivers stamp relayed samples on arrival
+                if (!isValidPositionPacket(packet)) return;
+            }
+            try { conn.send(packet); } catch (_) {}
+        });
     }
 
     // Host: drop a connection whose player metadata name matches.
@@ -3344,6 +3605,10 @@ case 'modeChange':
     // Establish a direct P2P mesh connection to another peer (non-host).
     async connectToPeer(peerId, playerId = peerId) {
         this.allowedMeshPeers.set(peerId, playerId);
+        // Relay peers (server-assigned ids) have no WebRTC endpoint, and a client
+        // that itself reached the host only through the relay cannot mesh: the
+        // host forwards movement for both (_forwardPositionForRelay).
+        if (isRelayPeerId(peerId) || this._hostTransport === 'relay') return undefined;
         const active = this.connections.get(peerId);
         const replaceIncoming = active?._meshDirection === 'incoming'
             && this._prefersOutgoingMesh(peerId);
@@ -3777,15 +4042,21 @@ case 'modeChange':
     _resetLobbyAdmissionProof() {
         this.lobbyAdmissionToken = '';
         this._lobbyAdmissionProof = '';
-        this._lobbyAdmissionUnlisted = false;
-        this.onLobbyAdmissionProof = null;
-        this._lobbyAdmissionWaiters.splice(0).forEach(resolve => resolve(''));
+        const waiters = this._lobbyAdmissionWaiters.splice(0);
+        if (waiters.length) {
+            this.lobbyAdmissionFailure = this._lastKickReason ? `kicked:${this._lastKickReason}` : 'disconnected';
+        }
+        waiters.forEach(resolve => resolve(''));
     }
 
-    _settleLobbyAdmissionUnlisted() {
-        if (this._lobbyAdmissionProof) return;
-        this._lobbyAdmissionUnlisted = true;
-        this._lobbyAdmissionWaiters.splice(0).forEach(resolve => resolve(''));
+    _requestLobbyAdmissionProof() {
+        if (this.isHost || this._lobbyAdmissionProof || !this.hostConn?.open) return false;
+        try {
+            this.hostConn.send({ type: 'lobbyAdmissionRequest' });
+            return true;
+        } catch (_) {
+            return false;
+        }
     }
 
     _sendLobbyAdmissionProof(conn) {
@@ -3810,37 +4081,113 @@ case 'modeChange':
         }
     }
 
-    _acceptLobbyAdmissionProof(token) {
-        if (!LOBBY_ADMISSION_TOKEN_PATTERN.test(String(token || ''))) return false;
-        const changed = String(token) !== this._lobbyAdmissionProof;
-        this._lobbyAdmissionProof = String(token);
-        this._lobbyAdmissionUnlisted = false;
-        const waiters = this._lobbyAdmissionWaiters.splice(0);
-        waiters.forEach(resolve => resolve(this._lobbyAdmissionProof));
-        // Nobody waiting: the join already went ahead unlisted and the host has
-        // listed the room since. Let the app admit this account late.
-        if (!waiters.length && changed) {
-            try { this.onLobbyAdmissionProof?.(this._lobbyAdmissionProof); } catch (_) {}
-        }
+    // Host: keep a server-relay link open for this lobby so a client whose WebRTC
+    // path fails (NAT / firewall) can still reach us. main.js calls this after
+    // every successful lobby registration; unchanged config is a no-op.
+    enableRelayHost({ code, token, admissionToken } = {}) {
+        if (!this.isHost || !code || !token || !LOBBY_ADMISSION_TOKEN_PATTERN.test(String(admissionToken || ''))
+            || this.hostRoomCode !== code || this._serverRelayAvailable === false
+            || typeof globalThis.WebSocket !== 'function') return false;
+        const previous = this._relayHostConfig;
+        this._relayHostConfig = { code, token, admissionToken };
+        const unchanged = previous && previous.code === code && previous.token === token
+            && previous.admissionToken === admissionToken;
+        if (unchanged && (this._relayHost || this._relayHostTimer)) return true;
+        this._relayHostRetry = 0;
+        this._openRelayHost();
         return true;
     }
 
-    waitForLobbyAdmissionProof(timeoutMs = 5000) {
+    disableRelayHost() {
+        clearTimeout(this._relayHostTimer);
+        this._relayHostTimer = null;
+        this._relayHostConfig = null;
+        const link = this._relayHost;
+        this._relayHost = null;
+        try { link?.close(); } catch (_) {}
+    }
+
+    _openRelayHost() {
+        clearTimeout(this._relayHostTimer);
+        this._relayHostTimer = null;
+        const config = this._relayHostConfig;
+        const previous = this._relayHost;
+        this._relayHost = null;
+        try { previous?.close(); } catch (_) {}
+        if (!config || !this.isHost || this.hostRoomCode !== config.code) return;
+        const link = new RelayHostLink({ ...config, url: this.relayUrl });
+        this._relayHost = link;
+        link.on('connection', conn => {
+            if (this._relayHost !== link || !this.isHost) {
+                conn.close();
+                return;
+            }
+            this._onIncomingConnection(conn);
+        });
+        link.on('closed', () => {
+            if (this._relayHost !== link) return;
+            this._relayHost = null;
+            this._scheduleRelayHostRetry();
+        });
+        link.connect().then(() => {
+            if (this._relayHost === link) this._relayHostRetry = 0;
+        }, () => {
+            if (this._relayHost !== link) return;
+            this._relayHost = null;
+            try { link.close(); } catch (_) {}
+            this._scheduleRelayHostRetry();
+        });
+    }
+
+    _scheduleRelayHostRetry() {
+        if (!this._relayHostConfig || !this.isHost || this._relayHostTimer) return;
+        const delay = RELAY_HOST_RETRY_MS[Math.min(this._relayHostRetry, RELAY_HOST_RETRY_MS.length - 1)];
+        this._relayHostRetry++;
+        this._relayHostTimer = setTimeout(() => {
+            this._relayHostTimer = null;
+            this._openRelayHost();
+        }, delay);
+    }
+
+    _acceptLobbyAdmissionProof(token) {
+        if (!LOBBY_ADMISSION_TOKEN_PATTERN.test(String(token || ''))) return false;
+        this._lobbyAdmissionProof = String(token);
+        this._lobbyAdmissionWaiters.splice(0).forEach(resolve => resolve(this._lobbyAdmissionProof));
+        return true;
+    }
+
+    // Resolves with the host-delivered lobby admission token, or '' with
+    // `lobbyAdmissionFailure` set to 'timeout' | 'disconnected' | 'kicked:<reason>'.
+    // While waiting, a client re-asks the host every LOBBY_PROOF_REQUEST_MS so one
+    // late / lost packet or a host whose registration was still in flight does
+    // not fail a legitimate join (the host only ever answers admitted transports).
+    waitForLobbyAdmissionProof(timeoutMs = LOBBY_PROOF_WAIT_MS) {
         if (this._lobbyAdmissionProof) return Promise.resolve(this._lobbyAdmissionProof);
-        if (this._lobbyAdmissionUnlisted) return Promise.resolve('');
+        this.lobbyAdmissionFailure = '';
         return new Promise(resolve => {
-            const finish = token => { clearTimeout(timer); resolve(token || ''); };
+            let requestTimer = null;
+            const finish = token => {
+                clearTimeout(timer);
+                clearInterval(requestTimer);
+                resolve(token || '');
+            };
             const timer = setTimeout(() => {
                 const index = this._lobbyAdmissionWaiters.indexOf(finish);
                 if (index >= 0) this._lobbyAdmissionWaiters.splice(index, 1);
+                if (!this.lobbyAdmissionFailure) this.lobbyAdmissionFailure = 'timeout';
                 finish('');
-            }, Math.max(250, Math.min(10000, Number(timeoutMs) || 5000)));
+            }, Math.max(250, Math.min(60000, Number(timeoutMs) || LOBBY_PROOF_WAIT_MS)));
             this._lobbyAdmissionWaiters.push(finish);
+            if (!this.isHost) {
+                requestTimer = setInterval(() => this._requestLobbyAdmissionProof(), LOBBY_PROOF_REQUEST_MS);
+            }
         });
     }
 
     disconnect() {
         this._resetLobbyAdmissionProof();
+        this.disableRelayHost();
+        this._hostTransport = 'p2p';
         this._ensureIdentityMaps();
         this._manualDisconnect = true;
         this.spectatorMode = false;

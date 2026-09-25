@@ -11,7 +11,10 @@ const { PartyStore } = require('./server/party-store');
 const { verifyMatchReceipt } = require('./server/match-receipt');
 const { CreatorMapStore } = require('./server/creator-map-store');
 const { RequestLimiter } = require('./server/request-limiter');
-const { buildRtcConfig } = require('./server/rtc-config');
+const { buildRtcConfigWithProviders } = require('./server/rtc-config');
+const { LobbyGuestSessions, isGuestToken } = require('./server/lobby-guest');
+const { LobbyRelay } = require('./server/lobby-relay');
+const { acceptUpgrade } = require('./server/ws');
 const { GEM_PRICES, PaymentLedger, publicPackCatalog, verifyPaymentEvent } = require('./server/payment-ledger');
 const { createCheckoutSession, paymentEventFromStripe, readRawBody, stripeConfig, verifyStripeSignature } = require('./server/stripe');
 const { TelemetryStore } = require('./server/telemetry');
@@ -85,6 +88,10 @@ const RATE_LIMITS = {
     // bucket, and _lobbyApi swallows the 429 — lobbies then vanished and could not be
     // re-created until the window rolled over.
     lobbyWrite: [120, 60000],
+    // Guest lobby identities are cheap and cached ~12 h client-side; its own
+    // bucket so a household behind one NAT (or a profile sync burst) cannot
+    // starve guests of an online session.
+    lobbyGuest: [30, 60000],
     account: [10, 60000],
     social: [60, 60000],
     directMessage: [30, 60000],
@@ -287,10 +294,38 @@ function requireAuth(req, res, body = null) {
     return auth;
 }
 
+// Online lobbies (host / join / leave / close / relay) also accept an anonymous
+// guest lobby session (server/lobby-guest.js). Guest tokens are accepted HERE
+// ONLY: every account, economy, reward and ranked endpoint keeps requireAuth.
+// LOBBY_GUEST_SESSIONS=0 turns guest online play off.
+const LOBBY_GUESTS_ENABLED = process.env.LOBBY_GUEST_SESSIONS !== '0';
+const lobbyGuests = new LobbyGuestSessions({
+    secret: process.env.LOBBY_GUEST_SECRET?.length >= 32 ? process.env.LOBBY_GUEST_SECRET : crypto.randomBytes(32)
+});
+
+function resolveLobbyToken(token) {
+    if (!token) return null;
+    if (isGuestToken(token)) return LOBBY_GUESTS_ENABLED ? lobbyGuests.resolve(token) : null;
+    return accounts.resolveSession(token);
+}
+
+function requireLobbyAuth(req, res, body = null) {
+    const auth = resolveLobbyToken(bearer(req) || String(body?.sessionToken || body?.token || ''));
+    if (!auth) sendJson(res, { error: 'unauthorized', code: 'sign_in_required' }, 401);
+    return auth;
+}
+
+function lobbyOccupancy(lobby) {
+    const members = lobby?.memberProfileIds instanceof Set ? lobby.memberProfileIds.size : 0;
+    const guests = lobby?.guestMemberIds instanceof Set ? lobby.guestMemberIds.size : 0;
+    return members + guests;
+}
+
 function publicLobby(record) {
     if (!record) return null;
     const { ownerAccountId, memberProfileIds, admissionToken, ...visible } = record;
     delete visible.spectatorProfileIds; // private, like memberProfileIds
+    delete visible.guestMemberIds;
     return visible;
 }
 
@@ -320,9 +355,16 @@ const server = http.createServer(async (req, res) => {
 
     // --- WebRTC ICE config (STUN/TURN + optional self-hosted PeerJS broker) ---
     // Env-driven only; zero env vars set => STUN-only, identical to prior behavior.
-    if (urlPath === '/api/rtc-config' && req.method === 'GET') {
+    if ((urlPath === '/api/rtc-config' || urlPath === '/api/ice-servers') && req.method === 'GET') {
         if (!allowRequest(req, res, 'rtcConfig')) return;
-        sendJson(res, buildRtcConfig(process.env, { userId: resolveAuth(req)?.profile.id }));
+        // TURN relays cost bandwidth: only signed-in or guest lobby sessions get them.
+        const lobbyAuth = resolveLobbyToken(bearer(req));
+        const config = await buildRtcConfigWithProviders(process.env, {
+            userId: lobbyAuth?.profile.id,
+            includeTurn: Boolean(lobbyAuth)
+        });
+        res.setHeader('Cache-Control', 'no-store');
+        sendJson(res, { ...config, relay: LOBBY_RELAY_ENABLED });
         return;
     }
 
@@ -453,7 +495,7 @@ const server = http.createServer(async (req, res) => {
         const admitted = !!lobby?.memberProfileIds?.has(auth.profile.id);
         const ownsLobby = lobby?.ownerAccountId === auth.account.id;
         const partySize = party?.memberAccountIds?.length || 0;
-        const occupied = lobby?.memberProfileIds instanceof Set ? lobby.memberProfileIds.size : 0;
+        const occupied = lobbyOccupancy(lobby);
         if (!party || party.leaderAccountId !== auth.account.id || !lobby || lobby.ranked === true
             || (!ownsLobby && !admitted)
             || occupied + Math.max(0, partySize - 1) > lobby.maxPlayers) {
@@ -1090,12 +1132,24 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, [...lobbies.values()].map(publicLobby));
         return;
     }
+    // Anonymous guest identity for online lobbies only (see requireLobbyAuth).
+    if (urlPath === '/api/lobbies/guest-session' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'lobbyGuest')) return;
+        if (!LOBBY_GUESTS_ENABLED) { sendJson(res, { error: 'guest online play disabled', code: 'sign_in_required' }, 403); return; }
+        const b = await readBody(req, 512);
+        sendJson(res, lobbyGuests.issue(b?.name));
+        return;
+    }
     if (urlPath === '/api/lobbies' && req.method === 'POST') {
         if (!allowRequest(req, res, 'lobbyWrite')) return;
         const b = await readBody(req);
-        const auth = requireAuth(req, res, b);
+        const auth = requireLobbyAuth(req, res, b);
         if (!auth) return;
         if (!b.code) { sendJson(res, { error: 'code required' }, 400); return; }
+        if (auth.guest === true && b.ranked === true) {
+            sendJson(res, { error: 'ranked lobbies need an account', code: 'account_required' }, 403);
+            return;
+        }
         const prior = lobbies.get(b.code);
         if (prior && prior.ownerAccountId !== auth.account.id) { sendJson(res, { error: 'lobby unavailable' }, 404); return; }
         const sportRoute = normalizeLobbySportPayload(b);
@@ -1108,8 +1162,12 @@ const server = http.createServer(async (req, res) => {
             sendJson(res, { error: 'lobby sport is locked' }, 409);
             return;
         }
+        // Account members feed match authority (rewards); guests are counted for
+        // capacity only and never become reward-eligible match members.
         const memberProfileIds = prior?.memberProfileIds instanceof Set ? new Set(prior.memberProfileIds) : new Set();
-        memberProfileIds.add(auth.profile.id);
+        const guestMemberIds = prior?.guestMemberIds instanceof Set ? new Set(prior.guestMemberIds) : new Set();
+        if (auth.guest === true) guestMemberIds.add(auth.profile.id);
+        else memberProfileIds.add(auth.profile.id);
         const admissionToken = typeof prior?.admissionToken === 'string' ? prior.admissionToken : crypto.randomBytes(32).toString('base64url');
         lobbies.set(b.code, normalizeLobbyRecord({
             code: b.code,
@@ -1117,6 +1175,8 @@ const server = http.createServer(async (req, res) => {
             hostName: auth.account.username,
             ownerAccountId: auth.account.id,
             memberProfileIds,
+            guestMemberIds,
+            guestHost: auth.guest === true,
             admissionToken,
             players: b.players || 1,
             spectators: Math.max(0, Math.min(MAX_LOBBY_SPECTATORS, Math.floor(Number(b.spectators) || 0))),
@@ -1137,24 +1197,27 @@ const server = http.createServer(async (req, res) => {
     if (urlPath.startsWith('/api/lobbies/') && urlPath.endsWith('/join') && req.method === 'POST') {
         if (!allowRequest(req, res, 'lobbyWrite')) return;
         const b = await readBody(req, 1024);
-        const auth = requireAuth(req, res, b);
+        const auth = requireLobbyAuth(req, res, b);
         if (!auth) return;
         const code = decodeURIComponent(urlPath.slice('/api/lobbies/'.length, -'/join'.length));
         const lobby = lobbies.get(code);
-        if (!lobby) { sendJson(res, { error: 'lobby unavailable' }, 404); return; }
+        if (!lobby) { sendJson(res, { error: 'lobby unavailable', code: 'lobby_unavailable' }, 404); return; }
         const proof = Buffer.from(String(b.admissionToken || ''));
         const expected = Buffer.from(String(lobby.admissionToken || ''));
-        if (!expected.length || expected.length !== proof.length || !crypto.timingSafeEqual(expected, proof)) { sendJson(res, { error: 'invalid lobby admission proof' }, 403); return; }
+        if (!expected.length || expected.length !== proof.length || !crypto.timingSafeEqual(expected, proof)) { sendJson(res, { error: 'invalid lobby admission proof', code: 'invalid_proof' }, 403); return; }
+        if (auth.guest === true && lobby.ranked === true) { sendJson(res, { error: 'ranked lobbies need an account', code: 'account_required' }, 403); return; }
         lobby.memberProfileIds = lobby.memberProfileIds instanceof Set ? lobby.memberProfileIds : new Set([lobby.ownerProfileId].filter(Boolean));
+        lobby.guestMemberIds = lobby.guestMemberIds instanceof Set ? lobby.guestMemberIds : new Set();
         if (b.spectator === true) {
             // Spectators never take a player slot (and are not match members); they
             // have their own small cap so a full lobby can still be watched.
             lobby.spectatorProfileIds = lobby.spectatorProfileIds instanceof Set ? lobby.spectatorProfileIds : new Set();
-            if (!lobby.spectatorProfileIds.has(auth.profile.id) && lobby.spectatorProfileIds.size >= MAX_LOBBY_SPECTATORS) { sendJson(res, { error: 'spectator seats full' }, 409); return; }
+            if (!lobby.spectatorProfileIds.has(auth.profile.id) && lobby.spectatorProfileIds.size >= MAX_LOBBY_SPECTATORS) { sendJson(res, { error: 'spectator seats full', code: 'spectators_full' }, 409); return; }
             lobby.spectatorProfileIds.add(auth.profile.id);
         } else {
-            if (!lobby.memberProfileIds.has(auth.profile.id) && lobby.memberProfileIds.size >= lobby.maxPlayers) { sendJson(res, { error: 'lobby full' }, 409); return; }
-            lobby.memberProfileIds.add(auth.profile.id);
+            const memberSet = auth.guest === true ? lobby.guestMemberIds : lobby.memberProfileIds;
+            if (!memberSet.has(auth.profile.id) && lobbyOccupancy(lobby) >= lobby.maxPlayers) { sendJson(res, { error: 'lobby full', code: 'lobby_full' }, 409); return; }
+            memberSet.add(auth.profile.id);
         }
         lobby.lastSeen = Date.now();
         sendJson(res, {
@@ -1167,22 +1230,23 @@ const server = http.createServer(async (req, res) => {
     }
     if (urlPath.startsWith('/api/lobbies/') && urlPath.endsWith('/leave') && req.method === 'POST') {
         if (!allowRequest(req, res, 'lobbyWrite')) return;
-        const b = await readBody(req, 1024); const auth = requireAuth(req, res, b); if (!auth) return;
+        const b = await readBody(req, 1024); const auth = requireLobbyAuth(req, res, b); if (!auth) return;
         const code = decodeURIComponent(urlPath.slice('/api/lobbies/'.length, -'/leave'.length)); const lobby = lobbies.get(code);
         if (!lobby) { sendJson(res, { error: 'lobby unavailable' }, 404); return; }
         if (lobby.ownerAccountId === auth.account.id) { sendJson(res, { error: 'host must close lobby' }, 403); return; }
-        lobby.memberProfileIds?.delete(auth.profile.id); lobby.spectatorProfileIds?.delete(auth.profile.id); lobby.lastSeen = Date.now(); sendJson(res, { ok: true }); return;
+        lobby.memberProfileIds?.delete(auth.profile.id); lobby.guestMemberIds?.delete(auth.profile.id); lobby.spectatorProfileIds?.delete(auth.profile.id); lobby.lastSeen = Date.now(); sendJson(res, { ok: true }); return;
     }
     if (urlPath.startsWith('/api/lobbies/') && (req.method === 'DELETE' || req.method === 'POST')) {
         if (!allowRequest(req, res, 'lobbyWrite')) return;
         const b = req.method === 'POST' ? await readBody(req, 1024) : null;
-        const auth = requireAuth(req, res, b);
+        const auth = requireLobbyAuth(req, res, b);
         if (!auth) return;
         const code = urlPath === '/api/lobbies/close' ? String(b?.code || '') : decodeURIComponent(urlPath.split('/').pop());
         const lobby = lobbies.get(code);
         if (!lobby || lobby.ownerAccountId !== auth.account.id) { sendJson(res, { error: 'lobby unavailable' }, 404); return; }
         lobbies.delete(code);
         partyStore.clearLobbyTargetByCode(code);
+        lobbyRelay?.sweep();
         sendJson(res, { ok: true });
         return;
     }
@@ -1267,10 +1331,33 @@ const server = http.createServer(async (req, res) => {
     });
 });
 
+// --- WebSocket lobby relay (fallback when WebRTC cannot connect) ---
+// Same origin and port as the page (Render supports WebSocket upgrades), so it
+// works wherever the site itself loads. LOBBY_RELAY=0 turns it off.
+const LOBBY_RELAY_ENABLED = process.env.LOBBY_RELAY !== '0';
+const lobbyRelay = LOBBY_RELAY_ENABLED ? new LobbyRelay({
+    resolveAuth: resolveLobbyToken,
+    getLobby: code => {
+        pruneLobbies();
+        return lobbies.get(code) || null;
+    }
+}) : null;
+server.on('upgrade', (req, socket, head) => {
+    const urlPath = String(req.url || '').split('?')[0];
+    if (urlPath !== '/api/relay' || !lobbyRelay) {
+        try { socket.end('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n'); } catch {}
+        return;
+    }
+    socket.on('error', () => {});
+    const ws = acceptUpgrade(req, socket, head, { maxMessageBytes: 1024 * 1024 });
+    if (ws) lobbyRelay.handle(ws, requestIdentity(req));
+});
+
 let storesClosed = false;
 server.on('close', () => {
     if (storesClosed) return;
     storesClosed = true;
+    try { lobbyRelay?.close(); } catch {}
     try { social.close(); } catch {}
     try { accounts.close(); } catch {}
 });
@@ -1296,4 +1383,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { normalizeLobbyRecord, normalizeLobbySportPayload, pruneLobbies, lobbies, LOBBY_TTL, server, accounts, social, presence, partyStore, matchAuthority, __resetLeaderboardCacheForTests };
+module.exports = { normalizeLobbyRecord, normalizeLobbySportPayload, pruneLobbies, lobbies, LOBBY_TTL, server, accounts, social, presence, partyStore, matchAuthority, lobbyRelay, lobbyGuests, __resetLeaderboardCacheForTests };

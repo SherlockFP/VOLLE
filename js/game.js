@@ -572,6 +572,7 @@ export class Game {
             if (this.player) this.player.nextRoundTeam = null;
             if (this.ui?.isTeamPopupOpen?.()) this.ui.hideTeamPopup?.();
         }
+        if ((s === STATES.LOBBY || s === STATES.MENU) && prev !== s) this._settleLobbyTeams?.();
         if (s === STATES.ROUND_END && prev !== STATES.ROUND_END) {
             this.onRoundEnd?.();
             // Valorant-style round-end flourish keyed off the winning side's ball skin.
@@ -760,13 +761,20 @@ addBot(team, { name: preferredName = null } = {}) {
             target.nextRoundTeam = team === target.team ? null : team;
             return;
         }
+        if (remote && !bot && this._inLobbyTeamState() && remote.queuedForNextRound) {
+            remote.queuedForNextRound = false;
+            remote.pendingTeam = null;
+        }
         if (target.team === team) return;
         target.setTeam?.(team);
         if (remote && !remote.setTeam) target.team = team;
         // Keep the player's match stats — only the team moves.
         this._moveScoreboardEntry(name, team, { isBot: !!bot, peerId: remote?.peerId });
-        if (this.state === STATES.LOBBY) this.updateLobbyUI();
-        else if (mode === 'instant' && this.state !== STATES.MENU) {
+        if (this.state === STATES.LOBBY) {
+            // Lobby: a human switch rebalances bots too; a dragged bot stays put.
+            if (!bot) this._rebalanceBots();
+            this.updateLobbyUI();
+        } else if (mode === 'instant' && this.state !== STATES.MENU) {
             if (remote && !bot) this._placeRemoteAtSpawn(remote);
             this._rebalanceBots();
         }
@@ -4954,10 +4962,32 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         return teamSwitchMode(this.state, { ffa: this._ffa === true || this._rallyDuel === true });
     }
 
+    // Back in the lobby there is no "next round": late joiners queued during the
+    // last match take their picked side now and pending next-round picks are
+    // dropped, so every lobby switch is instant (host / solo decide; clients get
+    // the settled roster from the host's lobbyState).
+    _settleLobbyTeams() {
+        const authoritative = !this.network?.connected || this.network.isHost;
+        this.remotePlayers?.forEach?.(p => {
+            p.nextRoundTeam = null;
+            if (!authoritative || !activateQueuedEntity(p)) return;
+            const stats = this.scoreboard?.players?.get?.(p.name);
+            if (stats) Object.assign(stats, { team: p.team, queuedForNextRound: false, pendingTeam: null });
+        });
+        if (authoritative && this.player && activateQueuedEntity(this.player)) {
+            const stats = this.scoreboard?.players?.get?.(this.playerName);
+            if (stats) Object.assign(stats, { team: this.player.team, queuedForNextRound: false, pendingTeam: null });
+        }
+    }
+
+    _inLobbyTeamState() {
+        return this.state === STATES.LOBBY || this.state === STATES.MENU;
+    }
+
     // Returns 'instant' | 'nextRound' | 'cancelled' | 'queued' | false.
     switchTeam(forcedTeam) {
         const newTeam = isTeam(forcedTeam) ? forcedTeam : (this.player.team === 'red' ? 'blue' : 'red');
-        if (this.player.queuedForNextRound) {
+        if (this.player.queuedForNextRound && !this._inLobbyTeamState()) {
             this.selectQueuedLocalTeam(newTeam);
             this._refreshTeamMenu();
             return 'queued';
@@ -4978,11 +5008,18 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             return pending ? 'nextRound' : 'cancelled';
         }
         this.player.nextRoundTeam = null;
+        if (this.player.queuedForNextRound && this._inLobbyTeamState()) {
+            // A stale late-join queue flag must never turn a lobby pick into "next round".
+            this.player.queuedForNextRound = false;
+            this.player.pendingTeam = null;
+        }
         if (this.player.team === newTeam) return false;
         this._setLocalTeam(newTeam);
         this.ui?.showMessage?.(t('toast.switchedTeam', { team: label }), 1500);
+        // Bots fill in for humans in the lobby too (host / solo), so a switch
+        // never leaves 3v0 waiting on the start button.
+        if (this.state !== STATES.MENU) this._rebalanceBots();
         if (this.state === STATES.LOBBY) this.updateLobbyUI();
-        else if (this.state !== STATES.MENU) this._rebalanceBots();
         this._syncLocalTeamChange(newTeam);
         this._refreshTeamMenu();
         return 'instant';

@@ -1,5 +1,7 @@
 # 2026-09-24 — Arkadaşla oynama (P2P katılım) + takım değiştirme
 
+> **2026-09-25 notu:** Aynı gün başka oturum aynı sorunu main'de daha kapsamlı çözdü (misafir lobi oturumu, relay, TURN; `docs/NETWORKING.md`). Birleştirmede main'in admission/host akışı alındı; aşağıdaki "best-effort admission", "listesiz oda" ve `toast.lobbyPrivate*` artık kodda yok. Kalanlar: hayalet paket düşürme, host takım otoritesi, `playerId` ile takım eşleşmesi, profil adı, M menüsü.
+
 Önceki: [[2026-09-23-playtest-pass]]. Bu oturumdan önce main'e giren ama STATUS'a yazılmamış işler:
 takım renk paleti + M menüsü kuralları (`dc39743`), menü "de-AI" geçişi (`399b9bf`), Locker yenilemesi (`dbb7c3d`).
 

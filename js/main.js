@@ -2242,31 +2242,14 @@ class App {
             // "Spectate" reuses this exact join flow with the spectator role armed.
             const spectator = this._joinAsSpectator === true;
             this._joinAsSpectator = false;
-            try {
-                const code = document.getElementById('join-code-input')?.value;
-                // An empty join name falls back to your profile/guest name, never a
-                // shared "Player" (team switches and the roster are keyed by name).
-                const name = document.getElementById('join-name-input')?.value?.trim()
-                    || document.getElementById('player-name-input')?.value?.trim() || 'Player';
-                const password = document.getElementById('join-pass-input')?.value || '';
-                if (!code) return;
-                this._setupClientNetHandlers();
-                this._beginSpectatorSession(spectator);
-                await this.network.joinGame(code, name, password, { spectator });
-                this._lobbyCode = code;
-                await this._confirmLobbyAdmission(code);
-                this.game.playerName = name;
-                // Same client bootstrap _quickJoin does — without the bg loop this join
-                // path stops interpolating and stops sending positions whenever the tab
-                // is hidden, so the joiner freezes for everyone else.
-                this._startBgLoop();
-                this.ui.showScreen('lobby');
-                this._finalizeClientLobbyJoin(code);
-                this._renderSpectatorRoster();
-            } catch (e) {
-                if (spectator) this._resetSpectatorSession();
-                alert('Failed to join: ' + e.message);
-            }
+            const code = String(document.getElementById('join-code-input')?.value || '').trim();
+            // Empty join name -> your profile/guest name, never a shared "Player".
+            const name = document.getElementById('join-name-input')?.value?.trim()
+                || document.getElementById('player-name-input')?.value?.trim() || 'Player';
+            const password = document.getElementById('join-pass-input')?.value || '';
+            if (!code) return;
+            // Same shared flow as the lobby browser / Quick Play (_joinOnlineLobby).
+            await this._joinOnlineLobby(code, name, password, { spectator });
         });
         bind('btn-join-spectate', () => {
             this._joinAsSpectator = true;
@@ -3013,7 +2996,7 @@ bind('btn-remove-bot', () => {
                     fetch(url, {
                         method: 'DELETE',
                         keepalive: true,
-                        headers: { Authorization: `Bearer ${account.getToken()}` }
+                        headers: { Authorization: `Bearer ${this._isLobbyGuest() ? (this._guestLobbySession?.guestToken || '') : account.getToken()}` }
                     });
                 } catch (e) {}
             }
@@ -6918,9 +6901,20 @@ updateCarousel() {
                 const allPlayers = this.game.getPlayerList();
                 const player = allPlayers.find(p => p.name === name);
                 if (!player || player.team === targetTeam) return;
+                this._suppressColumnClickUntil = performance.now() + 300;
                 this.game.switchPlayerTeam(name, targetTeam);
-                // MP: tell peers about the move.
+                // MP: tell peers about the move, then publish the settled roster.
                 this.network?.send?.({ type: 'teamChange', name, team: targetTeam });
+                this.broadcastLobbyState();
+            });
+            // Clicking a team column (anywhere but a player's kick button) joins
+            // that team straight away — for host, clients and solo alike.
+            col.addEventListener('click', e => {
+                if (e.target.closest?.('.cs-btn-kick, button, a, input, select')) return;
+                if (performance.now() < (this._suppressColumnClickUntil || 0)) return;
+                const team = col.id === 'cs-team-red' ? 'red' : 'blue';
+                if (this.game.player?.team === team && !this.game.player?.queuedForNextRound) return;
+                this.game.switchTeam(team);
             });
         });
 
@@ -7341,7 +7335,11 @@ updateCarousel() {
         this._setupReconnectUI();
         this.network.onEmote = (playerId, emote) => this.game.showNetworkEmote(playerId, emote);
         this.network.onKicked = (reason) => {
-            this._exitToMenu(reason === 'password' ? 'Wrong lobby password.' : 'You were kicked from the lobby.');
+            // While joining, _joinOnlineLobby reports the (localized) reason itself.
+            if (this._joiningLobby) return;
+            this._exitToMenu(reason === 'password' ? t('joinError.password')
+                : reason === 'duplicate_identity' || reason === 'replaced' ? t('joinError.duplicate')
+                : t('joinError.kicked'));
         };
         this.network.onTeamChange = (pName, team, playerId) => {
             this.game.switchPlayerTeam?.(pName, team, playerId);
@@ -7937,27 +7935,85 @@ updateCarousel() {
     // identical to "server has zero lobbies" — nothing in the console, no way to tell
     // the two apart. Surface a console.warn and a distinct marker so _refreshLobbyList
     // can show "Lobby service unreachable" instead of the misleading empty-lobby state.
-    _lobbyApi(path, opts = {}) {
+    // Writes (host / join / leave / close) authenticate with the account session,
+    // or — for guests and expired sessions — an anonymous guest lobby session
+    // (server/lobby-guest.js). A 401 re-issues the identity once and retries.
+    async _lobbyApi(path, opts = {}, retried = false) {
         const headers = { ...(opts.headers || {}) };
-        if (account.getToken()) headers.Authorization = `Bearer ${account.getToken()}`;
+        const write = String(opts.method || 'GET').toUpperCase() !== 'GET';
+        const token = write && this?._lobbyAuthToken ? await this._lobbyAuthToken() : account.getToken();
+        if (token) headers.Authorization = `Bearer ${token}`;
         let status = 0;
-        return fetch(path, { ...opts, headers }).then(r => {
+        let body = null;
+        try {
+            const r = await fetch(path, { ...opts, headers });
             status = r.status;
-            if (!r.ok) throw new Error(`HTTP ${r.status}`);
-            return r.json();
-        }).catch(err => {
+            if (r.ok) return await r.json();
+            body = await r.json().catch(() => null);
+        } catch (err) {
             console.warn('[lobby] API request failed:', path, err?.message || err);
             return { __lobbyApiError: true, status };
+        }
+        if (status === 401 && write && !retried && this?._invalidateLobbyAuth?.(token)) {
+            return this._lobbyApi(path, opts, true);
+        }
+        console.warn('[lobby] API request failed:', path, `HTTP ${status}`);
+        return {
+            __lobbyApiError: true,
+            status,
+            ...(typeof body?.code === 'string' && body.code ? { code: body.code } : {})
+        };
+    }
+
+    // Token for the online-lobby endpoints and the WebSocket relay.
+    async _lobbyAuthToken() {
+        if (account.getToken() && !this._lobbyAccountSessionExpired) return account.getToken();
+        return this._ensureGuestLobbySession();
+    }
+
+    _isLobbyGuest() {
+        return !account.getToken() || this._lobbyAccountSessionExpired === true;
+    }
+
+    _ensureGuestLobbySession() {
+        const session = this._guestLobbySession;
+        if (session?.guestToken && session.expiresAt - Date.now() > 60000) return Promise.resolve(session.guestToken);
+        if (this._guestLobbySessionPromise) return this._guestLobbySessionPromise;
+        const name = this.store?.get?.('guestName') || '';
+        const pending = fetch('/api/lobbies/guest-session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+        }).then(r => (r.ok ? r.json() : null)).then(data => {
+            if (typeof data?.guestToken !== 'string' || !data.guestToken) return '';
+            this._guestLobbySession = { guestToken: data.guestToken, expiresAt: Number(data.expiresAt) || Date.now() + 3600000 };
+            return data.guestToken;
+        }).catch(() => '').finally(() => {
+            if (this._guestLobbySessionPromise === pending) this._guestLobbySessionPromise = null;
         });
+        this._guestLobbySessionPromise = pending;
+        return pending;
+    }
+
+    // A rejected lobby identity: drop a stale guest session, or fall back from an
+    // expired account session to guest (online play keeps working; rewards need
+    // signing in again). Returns true when a retry can succeed.
+    _invalidateLobbyAuth(token) {
+        if (!token) return false;
+        if (token === account.getToken()) {
+            if (this._lobbyAccountSessionExpired) return false;
+            this._lobbyAccountSessionExpired = true;
+            this.ui?.showMessage?.(t('toast.lobbySessionExpiredGuest'), 4200);
+            return true;
+        }
+        if (this._guestLobbySession?.guestToken === token) {
+            this._guestLobbySession = null;
+            return true;
+        }
+        return false;
     }
 
     async _registerLobby(code, name, players, map, mode) {
-        // The public registry only lists signed-in hosts. A guest (or a session the
-        // server no longer knows) still hosts a real P2P room joinable by code.
-        if (!account.getToken()) {
-            this._lastLobbyApiStatus = 401;
-            return false;
-        }
         const ranked = this.game.mode?.id === 'competitive' || this._rankedHosting === true;
         const sportRoute = resolveSportRoute({
             sportId: this._selectedSportId,
@@ -7983,23 +8039,25 @@ updateCarousel() {
         if (result?.__lobbyApiError || !result?.admissionToken) return false;
         if (!this.network?.isHost || this.network.hostRoomCode !== code) return false;
         this.network.setLobbyAdmissionToken(result.admissionToken);
+        // Keep the server relay attached for friends whose WebRTC cannot connect.
+        if (this._lobbyAuthToken && this.network.enableRelayHost) {
+            const token = await this._lobbyAuthToken();
+            if (this.network.isHost && this.network.hostRoomCode === code) {
+                this.network.enableRelayHost({ code, token, admissionToken: result.admissionToken });
+            }
+        }
         return true;
     }
 
-    // Registry admission only records this account as a member of the host's listed
-    // lobby so the server can credit the match. The P2P room works without it: a
-    // guest joiner, a guest/unlisted host or a registry hiccup must never cancel a
-    // join whose connection is already open. Returns whether the server admitted us.
     async _confirmLobbyAdmission(code) {
-        if (!account.getToken()) return false;
         const proof = await this.network.waitForLobbyAdmissionProof();
         if (!proof) {
-            // The host may list the room a moment later; its proof then arrives late.
-            if (this.network) this.network.onLobbyAdmissionProof = () => {
-                this.network.onLobbyAdmissionProof = null;
-                if (this._lobbyCode === code) this._confirmLobbyAdmission(code);
-            };
-            return false;
+            // Kick reason (duplicate identity, password, spectators full) or a
+            // host that never confirmed us within the connection-aware wait.
+            const failure = String(this.network?.lobbyAdmissionFailure || '');
+            const error = new Error('Lobby admission proof was not received. Please try again.');
+            error.code = failure.startsWith('kicked:') ? failure.slice('kicked:'.length) : 'no_proof';
+            throw error;
         }
         // Spectators do not take one of the registry's player slots.
         const spectator = this.network?.spectatorMode === true;
@@ -8008,7 +8066,16 @@ updateCarousel() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ admissionToken: proof, ...(spectator ? { spectator: true } : {}) })
         });
-        if (!admitted?.ok) return false;
+        if (!admitted?.ok) {
+            const error = new Error('Lobby admission failed. Please try again.');
+            const status = Number(admitted?.status) || 0;
+            error.code = admitted?.code || (status === 401 ? 'sign_in_required'
+                : status === 404 ? 'lobby_unavailable'
+                : status === 403 ? 'invalid_proof'
+                : status === 409 ? 'lobby_full'
+                : 'service');
+            throw error;
+        }
         this._adoptTrustedLobbySport?.(admitted);
         return true;
     }
@@ -8131,6 +8198,11 @@ updateCarousel() {
             return;
         }
         const queue = document.getElementById('quick-play-queue')?.value || 'casual';
+        if (queue === 'ranked' && this._isLobbyGuest()) {
+            // Casual Quick Play works for guests; ranked stays account-only.
+            this.ui.showMessage?.(t('toast.rankedNeedsAccount'), 3200);
+            return;
+        }
         const modeId = document.getElementById('quick-play-mode')?.value || 'all';
         const mapId = document.getElementById('quick-play-map')?.value || 'all';
         const mode = modeId === 'all' ? 'all' : GAME_MODES[modeId]?.name || modeId;
@@ -8153,14 +8225,22 @@ updateCarousel() {
         }
         try {
             const lobbies = await this._lobbyApi('/api/lobbies', { method: 'GET' });
-            const routedLobbies = filterLobbies(lobbies, { sportId: this._selectedSportId, openOnly: false });
-            const match = partyQuickPlay
-                ? pickQuickLobby(routedLobbies, { queue, mode, map, openOnly: true, minOpenSlots: partySize })
-                : pickQuickLobby(routedLobbies, { queue, mode, map, openOnly: true });
-            if (match) {
-                const joined = await this._quickJoin(match.code, { ...quickDimensions, quickPlayStartedAt });
-                if (partyQuickPlay && joined) await this._publishPartyLobbyTarget(match.code, party);
-                return;
+            let routedLobbies = filterLobbies(lobbies, { sportId: this._selectedSportId, openOnly: false });
+            // A listed room can already be gone (host closed the tab; the registry
+            // keeps it until its TTL): try the next match before hosting.
+            for (let attempt = 0; attempt < 3; attempt++) {
+                const match = partyQuickPlay
+                    ? pickQuickLobby(routedLobbies, { queue, mode, map, openOnly: true, minOpenSlots: partySize })
+                    : pickQuickLobby(routedLobbies, { queue, mode, map, openOnly: true });
+                if (!match) break;
+                const joined = await this._quickJoin(match.code, { ...quickDimensions, quickPlayStartedAt, quietStale: attempt < 2 });
+                if (joined) {
+                    if (partyQuickPlay) await this._publishPartyLobbyTarget(match.code, party);
+                    return;
+                }
+                const stale = ['lobby_not_found', 'lobby_unavailable', 'invalid_proof', 'lobby_full', 'full'].includes(this._lastJoinErrorCode);
+                if (!stale || attempt >= 2) return;
+                routedLobbies = routedLobbies.filter(lobby => lobby.code !== match.code);
             }
             const hostedMode = queue === 'ranked' ? 'competitive' : modeId;
             if (hostedMode !== 'all' && GAME_MODES[hostedMode]) this.game.selectMode(hostedMode);
@@ -8200,22 +8280,92 @@ updateCarousel() {
         return this._quickJoin(code);
     }
 
+    // One join flow for Join by Code, the lobby browser, Quick Play and party
+    // follow. Resolves true once the host admitted us AND the server accepted the
+    // host-delivered admission proof. Any failure tears the half-open transport
+    // down: a leftover connection stayed bound on the host as a ghost player and
+    // got every retry from this tab kicked as a duplicate identity — which the
+    // player saw as "Lobby admission proof was not received".
+    async _joinOnlineLobby(code, name, password = '', { spectator = false, quietStale = false } = {}) {
+        code = String(code ?? '').trim();
+        if (!code) return false;
+        this._joiningLobby = true;
+        this._lastJoinErrorCode = '';
+        this.network.relayAuthProvider = () => this._lobbyAuthToken();
+        this.network.onJoinProgress = stage => {
+            const key = { connecting: 'toast.joinConnecting', relay: 'toast.joinRelay', admitting: 'toast.joinAdmitting' }[stage];
+            if (key && this._joiningLobby) this.ui.showMessage?.(t(key), stage === 'relay' ? 6000 : 4000);
+        };
+        try {
+            this._setupClientNetHandlers();
+            this._beginSpectatorSession(spectator);
+            await this.network.joinGame(code, name, password, { spectator });
+            this._lobbyCode = code;
+            await this._confirmLobbyAdmission(code);
+            this.game.playerName = name;
+            // ponytail: bg loop runs client-side interpolation + state handling throughout
+            // the game — without it the joiner stops interpolating and sending positions
+            // whenever the tab is hidden, so they freeze for everyone else.
+            this._startBgLoop();
+            this.ui.showScreen('lobby');
+            this._finalizeClientLobbyJoin(code);
+            this._renderSpectatorRoster();
+            if (this.network.isRelayed?.()) this.ui.showMessage?.(t('toast.joinedViaRelay'), 3200);
+            return true;
+        } catch (error) {
+            this._lobbyCode = null;
+            try { this.network.disconnect(); } catch (_) {}
+            if (spectator) this._resetSpectatorSession();
+            this._lastJoinErrorCode = String(error?.code || '');
+            // Quick Play moves on to the next listed room when this one is gone.
+            const stale = ['lobby_not_found', 'lobby_unavailable', 'invalid_proof', 'lobby_full', 'full'].includes(this._lastJoinErrorCode);
+            if (!(quietStale && stale)) alert(t('joinError.failed', { reason: this._joinErrorMessage(error) }));
+            return false;
+        } finally {
+            this._joiningLobby = false;
+        }
+    }
+
+    // Stable error codes (js/network.js joinError, _confirmLobbyAdmission, kick
+    // reasons, server `code`) -> one clear, localized sentence.
+    _joinErrorMessage(error) {
+        const code = String(error?.code || '');
+        const key = {
+            duplicate_identity: 'joinError.duplicate',
+            replaced: 'joinError.duplicate',
+            password: 'joinError.password',
+            spectators_full: 'joinError.spectatorsFull',
+            kicked: 'joinError.kicked',
+            no_proof: 'joinError.noProof',
+            timeout: 'joinError.noProof',
+            disconnected: 'joinError.noProof',
+            lobby_full: 'joinError.lobbyFull',
+            full: 'joinError.lobbyFull',
+            lobby_unavailable: 'joinError.notFound',
+            lobby_not_found: 'joinError.notFound',
+            invalid_proof: 'joinError.staleLobby',
+            account_required: 'joinError.accountRequired',
+            sign_in_required: 'joinError.signIn',
+            relay_unauthorized: 'joinError.signIn',
+            service: 'joinError.service',
+            p2p_timeout: 'joinError.network',
+            p2p_failed: 'joinError.network',
+            relay_timeout: 'joinError.network',
+            relay_closed: 'joinError.network',
+            relay_unavailable: 'joinError.network'
+        }[code];
+        if (key) return t(key);
+        return String(error?.message || t('joinError.noProof'));
+    }
+
     async _quickJoin(code, quickPlay = null) {
         const name = document.getElementById('player-name-input')?.value || 'Player';
         const spectator = this._pendingSpectateJoin === true;
         this._pendingSpectateJoin = false;
         try {
-            this._setupClientNetHandlers();
-            this._beginSpectatorSession(spectator);
-            await this.network.joinGame(code, name, '', { spectator });
-            this._lobbyCode = code;
-            await this._confirmLobbyAdmission(code);
-            this.game.playerName = name;
-            // ponytail: bg loop runs client-side interpolation + state handling throughout the game
-            this._startBgLoop();
-            this.ui.showScreen('lobby');
-            this._finalizeClientLobbyJoin(code);
-            this._renderSpectatorRoster();
+            if (!await this._joinOnlineLobby(code, name, '', { spectator, quietStale: quickPlay?.quietStale === true })) {
+                throw Object.assign(new Error('join failed'), { reported: true });
+            }
             this.ui.showMessage?.(t(spectator ? 'toast.joinedSpectator' : 'toast.joinedLobby'), 2000);
             this.productAnalytics.track('lobby_join', { networkRole: 'client' });
             this.productAnalytics.track('network_role', { networkRole: 'client' });
@@ -8234,8 +8384,10 @@ updateCarousel() {
             if (quickPlay?.quickPlayStartedAt) this.productAnalytics.track('quick_play_failure', {
                 queue: quickPlay.queue, mode: quickPlay.mode, map: quickPlay.map, result: 'join_error'
             });
-            if (spectator) this._resetSpectatorSession();
-            alert('Failed to join: ' + e.message);
+            if (!e?.reported) {
+                if (spectator) this._resetSpectatorSession();
+                alert(t('joinError.failed', { reason: this._joinErrorMessage(e) }));
+            }
             return false;
         }
     }
@@ -8246,6 +8398,14 @@ updateCarousel() {
             this.ui.showMessage?.(t('toast.volleyDev'), 2200);
             return false;
         }
+        // Guests host online too (anonymous guest lobby session); only ranked needs
+        // an account, so a guest's ranked request hosts a casual lobby instead.
+        if (this._isLobbyGuest() && (this._rankedHosting === true || this.game.mode?.id === 'competitive')) {
+            this._rankedHosting = false;
+            if (this.game.mode?.id === 'competitive') this.game.selectMode('classic');
+            this.ui.showMessage?.(t('toast.rankedNeedsAccount'), 3200);
+        }
+        this.network.relayAuthProvider = () => this._lobbyAuthToken();
         try {
             clearInterval(this._lobbyKeepAlive); // önceki varsa durdur
             if (this._lobbyCode) await this._unregisterLobby(this._lobbyCode); // eski varsa sil
@@ -8309,7 +8469,8 @@ updateCarousel() {
             // Host: client kendi takımını değiştirmek isterse uygula, sonra broadcast et.
             this.network.onTeamChange = (pName, team, playerId) => {
                 const p = this.game.remotePlayers.get(playerId);
-                if (p?.queuedForNextRound) {
+                // Lobby picks are always instant; only a live match queues late joiners.
+                if (p?.queuedForNextRound && this.game.state !== STATES.LOBBY) {
                     if (this.game.selectQueuedRemoteTeam(playerId, team)) {
                         this.game.broadcastSystemMessage(`${p.name} will join ${team.toUpperCase()} next round.`);
                     }
@@ -8337,15 +8498,11 @@ updateCarousel() {
                 this.arena?.config?.name || 'Unknown',
                 this.game.mode?.name || 'Classic'
             );
-            // Not listed (guest, expired session, registry down): the P2P room is still
-            // live and friends join with the code; the keep-alive keeps trying to list it.
-            if (registered) {
-                this.ui.showMessage?.(t('toast.lobbyCreated', { code }), 3000);
-            } else {
-                const reason = !account.getToken() ? 'toast.lobbyPrivateGuest'
-                    : this._lastLobbyApiStatus === 401 ? 'toast.lobbyPrivateSession' : 'toast.lobbyPrivateOffline';
-                this.ui.showMessage?.(t(reason, { code }), 5200);
+            if (!registered) {
+                this._openLocalLobbyFallback(this._lastLobbyApiStatus === 401 ? 'toast.lobbySessionExpired' : 'toast.lobbyLocalFallback');
+                return true;
             }
+            this.ui.showMessage?.(t('toast.lobbyCreated', { code }), 3000);
             // Auto-re-register every 12s to keep lobby alive
             this._lobbyKeepAlive = setInterval(() => {
                 if (this.network.connected && this.network.isHost) {
@@ -8358,6 +8515,23 @@ updateCarousel() {
             alert('Failed to create lobby: ' + e.message);
             return false;
         }
+    }
+
+    // Hosting could not be registered online: drop any half-open P2P room and land
+    // in the same local bot lobby as "Solo vs Bots", with a toast saying why.
+    _openLocalLobbyFallback(reasonKey) {
+        clearInterval(this._lobbyKeepAlive);
+        this._lobbyKeepAlive = null;
+        this._lobbyCode = null;
+        if (this.network?.connected || this.network?.isHost) {
+            this._stopHostCheckpointLifecycle();
+            this._stopBgLoop();
+            this.network.disconnect();
+        }
+        this.game.startSolo();
+        this.ui.setRoomCode('LOCAL');
+        this.ui.showScreen('lobby');
+        this.ui.showMessage?.(t(reasonKey), 4200);
     }
 
     // Open/close the M team menu. Releases pointer lock while open so you can

@@ -13,10 +13,10 @@ test('party casual quick play is leader-only and reserves every squad slot witho
     assert.match(quick, /t\('toast\.partyLeaderQuick'\)/);
     assert.match(en.toast.partyLeaderQuick, /Only the party leader can start Casual Quick Play/);
     assert.match(quick, /await this\._beginPartyCasualQueue\(party\)/);
-    assert.match(quick, /const routedLobbies = filterLobbies\(lobbies, \{ sportId: this\._selectedSportId, openOnly: false \}\)/);
+    assert.match(quick, /(?:const|let) routedLobbies = filterLobbies\(lobbies, \{ sportId: this\._selectedSportId, openOnly: false \}\)/);
     assert.match(quick, /minOpenSlots: partySize/);
     assert.match(quick, /: pickQuickLobby\(routedLobbies, \{ queue, mode, map, openOnly: true \}\)/);
-    assert.match(quick, /if \(partyQuickPlay && joined\) await this\._publishPartyLobbyTarget\(match\.code, party\)/);
+    assert.match(quick, /if \(joined\) \{\s*if \(partyQuickPlay\) await this\._publishPartyLobbyTarget\(match\.code, party\);/);
     assert.match(quick, /if \(partyQuickPlay\) await this\._publishPartyLobbyTarget\(this\._lobbyCode, party\)/);
 });
 

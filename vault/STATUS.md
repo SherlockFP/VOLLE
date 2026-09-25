@@ -2,11 +2,9 @@
 
 > Güncel çalışma: [[sessions/2026-09-24-p2p-guest-join]]. Önceki: [[sessions/2026-09-23-playtest-pass]], plan `docs/AAA_ROADMAP.md`.
 
-## En yeni — Arkadaşla oynama düzeltmesi ([[sessions/2026-09-24-p2p-guest-join]])
-- Misafir artık gerçek P2P oda açıyor (kodla katılım); kayıt/oturum sorunu odayı yerel lobiye düşürmüyor. Katılımda "admission proof" hatası katılımı iptal etmiyor (sadece sunucu ödülü atlanır).
-- Hayalet "P-xxxx" host kopyası, host'un paket takımına güvenmesi, isimle takım eşleşmesi ve "Player" varsayılan adı düzeltildi. M menüsü: diğer takım seçili açılır, 1/2 tek tuşla geçirir.
-- Doğrulama: 2545/2545 (+1 skip), gerçek iki tarayıcı (misafir/hesap kombinasyonları). Açık: TURN sunucusu yok, Render kalıcı disk kontrolü.
-- Bu oturumdan önce main'e girip burada yazılmamış olanlar: takım renk paleti + M menü kuralları, menü "de-AI" (Arena Lobby), Locker 3D vitrin/envanter.
+## En yeni — Arkadaşla oynama ([[sessions/2026-09-24-p2p-guest-join]])
+- main'deki çevrimiçi oyun düzeltmesi (misafir lobi oturumu, WebSocket relay, TURN, admission yeniden deneme; `docs/NETWORKING.md`) esas alındı. Bu dalın "admission'ı atla / listesiz oda" yaklaşımı birleştirmede bırakıldı.
+- Bu daldan kalanlar: kimliği bilinmeyen konum paketi atılır (hayalet "P-xxxx" yok), host istemcinin paketteki takımına güvenmez, takım isteği `playerId` ile eşleşir (aynı isimli oyuncular), kodla katılımda boş isim → profil adı, M menüsünde 1/2 tek tuşla geçiş.
 
 ## En yeni — Playtest geçişi ([[sessions/2026-09-23-playtest-pass]])
 - Harbor gece gökyüzü beyaz lekeleri (bulut shader'ı), menü social rail çakışması, lobi buton yerleşimi, maç sonu görseli, Esc ile geri, maç sonu harita değişiminde lobi senkronu, lobi EN/TR.

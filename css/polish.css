@@ -8237,3 +8237,6 @@ body.reduced-motion #post-game-screen .pg-detail-disclosure > summary i,
 }
 body.reduced-motion .juice-flash,
 .reduce-motion .juice-flash { transition: none; }
+
+/* Lobby: clicking a team column joins that team (js/main.js _setupLobbyDragDrop). */
+#lobby-screen .cs-team-players { cursor: pointer; }
