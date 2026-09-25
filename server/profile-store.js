@@ -11,6 +11,7 @@ const {
     normalizeCardCollection,
     normalizeCardLoadout,
     shouldAwardArenaCache,
+    shouldAwardBonusCard,
     tradeUpCards
 } = require('./card-catalog');
 const {
@@ -886,6 +887,7 @@ class ProfileStore {
                 battlepassBoostMultiplier: 1,
                 dailyProgress: null,
                 cardReward: previousCardReward?.reward || null,
+                bonusCard: previousCardReward?.bonusCard || null,
                 earnedCase: previousCardReward?.earnedCase || null,
                 earnedCaseSource: previousCardReward?.earnedCaseSource || null,
                 starterCase: previousCardReward?.starterCase || null,
@@ -921,10 +923,13 @@ class ProfileStore {
         record.rewardedMatches = record.rewardedMatches.slice(-50);
         const leveledUp = match?.leveledUp === true;
         let cardReward = null;
+        // Rolls are seeded per player: everyone in a match rolls independently
+        // (a bare matchId seed gave the whole lobby the same drop or none).
+        const dropSeed = `${matchId}:${record.id}`;
         // Deterministic 1-in-3 cadence with a five-match drought guarantee.
         // This is a reward for completing games, not a paid/competitive lever.
         const caseDropDrought = Math.min(4, Math.max(0, Number(record.caseDropDrought) || 0));
-        const hash = crypto.createHash('sha256').update(matchId).digest()[0];
+        const hash = crypto.createHash('sha256').update(dropSeed).digest()[0];
         const earnedCase = caseDropDrought >= 4 || hash % 3 === 0 ? 'kickoff' : null;
         const earnedCaseSource = earnedCase ? (caseDropDrought >= 4 ? 'drought_guarantee' : 'match_roll') : null;
         if (earnedCase) {
@@ -938,19 +943,21 @@ class ProfileStore {
         record.arenaCache = record.arenaCache && typeof record.arenaCache === 'object'
             ? record.arenaCache : { earned: 0, opened: 0, lastMatchId: '' };
         record.arenaCache.lastMatchId = matchId;
-        if (shouldAwardArenaCache({ matchId, won: match.won === true, leveledUp })) {
-            const granted = grantArenaCache(record.cardCollection, matchId);
+        const grantCard = seed => {
+            const granted = grantArenaCache(record.cardCollection, seed);
             record.cardCollection = granted.collection;
             record.equippedCards = normalizeCardLoadout(record.equippedCards, granted.collection);
             record.arenaCache.earned = Math.max(0, Math.floor(Number(record.arenaCache.earned) || 0)) + 1;
             record.arenaCache.opened = Math.max(0, Math.floor(Number(record.arenaCache.opened) || 0)) + 1;
-            cardReward = granted.reward;
-        }
-        record.cardRewardReceipts.push({ matchId, reward: cardReward, earnedCase, earnedCaseSource, starterCase });
+            return granted.reward;
+        };
+        if (shouldAwardArenaCache({ matchId: dropSeed, won: match.won === true, leveledUp })) cardReward = grantCard(dropSeed);
+        const bonusCard = shouldAwardBonusCard(dropSeed) ? grantCard(`${dropSeed}:bonus`) : null;
+        record.cardRewardReceipts.push({ matchId, reward: cardReward, bonusCard, earnedCase, earnedCaseSource, starterCase });
         record.cardRewardReceipts = record.cardRewardReceipts.slice(-50);
         record.updatedAt = now;
         this._save();
-        return { status: 200, replayed: false, coins, base, bonus, firstOfDay: firstOfDayBonus, battlepassXp, battlepassBoostMultiplier, dailyProgress, cardReward, earnedCase, earnedCaseSource, starterCase, profile: this._public(record, now) };
+        return { status: 200, replayed: false, coins, base, bonus, firstOfDay: firstOfDayBonus, battlepassXp, battlepassBoostMultiplier, dailyProgress, cardReward, bonusCard, earnedCase, earnedCaseSource, starterCase, profile: this._public(record, now) };
     }
 
     equipCard(record, cardId, slot) {

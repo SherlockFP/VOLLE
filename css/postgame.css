@@ -238,3 +238,85 @@ body.reduced-motion #post-game-screen .pg-bp-bar-fill,
     #post-game-screen .pg-personal-label { font-size: .54rem; letter-spacing: .02em; }
     #post-game-screen .pg-personal-best { font-size: .52rem; }
 }
+
+/* ===== CS:GO-style drop feed (js/drop-feed.js). Your drops slide in on the
+   right, everyone else's on the left; the post-game log lists who got what. */
+.drop-feed {
+    position: fixed;
+    bottom: 22vh;
+    z-index: 9600;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: min(320px, 44vw);
+    pointer-events: none;
+}
+.drop-feed-left { left: 16px; align-items: flex-start; }
+.drop-feed-right { right: 16px; align-items: flex-end; }
+
+.drop-toast {
+    --drop-color: #b0c3d9;
+    display: grid;
+    gap: 2px;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 12px 9px 14px;
+    border-left: 4px solid var(--drop-color);
+    border-radius: 6px;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--drop-color) 22%, rgba(8, 12, 20, .92)), rgba(8, 12, 20, .86));
+    box-shadow: 0 6px 18px rgba(0, 0, 0, .45), inset 0 0 0 1px rgba(255, 255, 255, .06);
+    color: #e9f3f6;
+    font-size: .78rem;
+    animation: drop-in-left .38s cubic-bezier(.2, .9, .3, 1.2) both;
+}
+.drop-feed-right .drop-toast { border-left: 0; border-right: 4px solid var(--drop-color); text-align: right; animation-name: drop-in-right; }
+.drop-toast.is-self { font-size: .86rem; box-shadow: 0 0 22px color-mix(in srgb, var(--drop-color) 45%, transparent), 0 6px 18px rgba(0, 0, 0, .45); }
+.drop-toast.is-leaving { opacity: 0; transform: translateY(6px); transition: opacity .4s ease, transform .4s ease; }
+.drop-toast-who { color: #b8cbd2; }
+
+.drop-item { display: grid; gap: 1px; min-width: 0; }
+.drop-item strong { overflow: hidden; color: var(--drop-color, #e9f3f6); font-size: 1.08em; text-overflow: ellipsis; white-space: nowrap; }
+.drop-item small { color: #9fb4bc; font-size: .72em; letter-spacing: .06em; text-transform: uppercase; }
+
+.drop-toast.rarity-common, .drop-item.rarity-common { --drop-color: #b0c3d9; }
+.drop-toast.rarity-rare, .drop-item.rarity-rare { --drop-color: #4b8bff; }
+.drop-toast.rarity-epic, .drop-item.rarity-epic { --drop-color: #b77dff; }
+.drop-toast.rarity-legendary, .drop-item.rarity-legendary { --drop-color: #ffd36b; }
+.drop-toast.rarity-case, .drop-item.rarity-case { --drop-color: #ffae42; }
+
+@keyframes drop-in-left { from { opacity: 0; transform: translateX(-40px); } to { opacity: 1; transform: none; } }
+@keyframes drop-in-right { from { opacity: 0; transform: translateX(40px); } to { opacity: 1; transform: none; } }
+
+.pg-drop-log {
+    display: grid;
+    gap: var(--ui-space-2, 8px);
+    margin: var(--ui-space-3, 12px) 0;
+    padding: var(--ui-space-3, 12px);
+    border: 1px solid var(--shell-line, rgba(255, 255, 255, .14));
+    border-radius: var(--ui-radius-md, 10px);
+    background: var(--shell-ink, rgba(8, 12, 20, .9));
+    text-align: left;
+}
+.pg-drop-log[hidden] { display: none; }
+.pg-drop-log-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.pg-drop-row {
+    display: grid;
+    grid-template-columns: minmax(80px, 30%) minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, .04);
+}
+.pg-drop-row.is-self { background: color-mix(in srgb, var(--screen-accent, #4fe5ea) 14%, transparent); }
+.pg-drop-name { overflow: hidden; color: #e9f3f6; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+.pg-drop-items { display: flex; flex-wrap: wrap; gap: 6px 14px; min-width: 0; }
+.pg-drop-items .drop-item { padding-left: 8px; border-left: 3px solid var(--drop-color); }
+
+@media (max-width: 699px) {
+    .drop-feed { bottom: auto; top: 64px; width: min(240px, 46vw); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .drop-toast { animation: none; }
+}
+body.reduced-motion .drop-toast { animation: none; }

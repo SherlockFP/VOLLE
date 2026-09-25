@@ -52,6 +52,7 @@ import {
     normalizeCardLoadout,
     resolveCardEffects,
     shouldAwardArenaCache,
+    shouldAwardBonusCard,
     tradeUpCards
 } from './cards.js';
 
@@ -653,7 +654,7 @@ class StoreClass {
         const completion = result?.completion || result || {};
         const rows = dailyRows || this._matchDailyRows(result?.profile?.dailyChallenges);
         if (!profileApplied && result?.profile) this._applyRemoteProfile(result.profile);
-        return { ok: true, pending: false, coins: completion.coins, base: completion.base, bonus: completion.bonus, firstOfDay: completion.firstOfDay, battlepassXp: completion.battlepassXp, battlepassBoostMultiplier: completion.battlepassBoostMultiplier, cardReward: completion.cardReward || null, earnedCase: completion.earnedCase || null, earnedCaseSource: completion.earnedCaseSource || null, starterCase: CASES[completion.starterCase] ? completion.starterCase : null, dailyProgress: completion.dailyProgress || null, dailyRows: rows, replayed: result?.replayed === true, rankedState: completion.rankedState || result?.profile?.rankedState || null };
+        return { ok: true, pending: false, coins: completion.coins, base: completion.base, bonus: completion.bonus, firstOfDay: completion.firstOfDay, battlepassXp: completion.battlepassXp, battlepassBoostMultiplier: completion.battlepassBoostMultiplier, cardReward: completion.cardReward || null, bonusCard: completion.bonusCard || null, earnedCase: completion.earnedCase || null, earnedCaseSource: completion.earnedCaseSource || null, starterCase: CASES[completion.starterCase] ? completion.starterCase : null, dailyProgress: completion.dailyProgress || null, dailyRows: rows, replayed: result?.replayed === true, rankedState: completion.rankedState || result?.profile?.rankedState || null };
     }
 
     // Read-only receipt retry used only after the original bounded completion
@@ -907,21 +908,33 @@ class StoreClass {
     // Arena Caches are an earn-only collection route. The match id makes the
     // post-match chance reproducible and prevents a duplicate callback from
     // minting a second cache locally.
-    awardArenaCache({ matchId, won = false, leveledUp = false } = {}) {
+    awardArenaCache(match = {}) {
+        return this.awardMatchCards(match)?.cardReward || null;
+    }
+
+    // Local (offline/guest) mirror of the server's match cards: the Arena Cache
+    // roll plus the independent extra-card roll. Seeded per device, so players
+    // in the same match do not all roll the same drop.
+    awardMatchCards({ matchId, won = false, leveledUp = false } = {}) {
         const safeMatchId = String(matchId || '').slice(0, 128);
         if (!safeMatchId || this.data.arenaCache?.lastMatchId === safeMatchId) return null;
         this.data.arenaCache = { ...DEFAULTS.arenaCache, ...(this.data.arenaCache || {}), lastMatchId: safeMatchId };
-        if (!shouldAwardArenaCache({ matchId: safeMatchId, won, leveledUp })) {
-            this.save();
-            return null;
+        if (typeof this.data.dropSalt !== 'string' || !this.data.dropSalt) {
+            this.data.dropSalt = globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2);
         }
-        const granted = grantArenaCache(this.data.cardCollection, safeMatchId);
-        this.data.cardCollection = granted.collection;
-        this.data.equippedCards = normalizeCardLoadout(this.data.equippedCards, granted.collection);
-        this.data.arenaCache.earned = Math.max(0, Number(this.data.arenaCache.earned) || 0) + 1;
-        this.data.arenaCache.opened = Math.max(0, Number(this.data.arenaCache.opened) || 0) + 1;
+        const seed = `${safeMatchId}:${this.data.dropSalt}`;
+        const grant = cardSeed => {
+            const granted = grantArenaCache(this.data.cardCollection, cardSeed);
+            this.data.cardCollection = granted.collection;
+            this.data.equippedCards = normalizeCardLoadout(this.data.equippedCards, granted.collection);
+            this.data.arenaCache.earned = Math.max(0, Number(this.data.arenaCache.earned) || 0) + 1;
+            this.data.arenaCache.opened = Math.max(0, Number(this.data.arenaCache.opened) || 0) + 1;
+            return granted.reward;
+        };
+        const cardReward = shouldAwardArenaCache({ matchId: seed, won, leveledUp }) ? grant(seed) : null;
+        const bonusCard = shouldAwardBonusCard(seed) ? grant(`${seed}:bonus`) : null;
         this.save();
-        return granted.reward;
+        return { cardReward, bonusCard };
     }
 
     getCardCollection() {

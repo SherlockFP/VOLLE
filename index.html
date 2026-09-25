@@ -24,7 +24,7 @@
     <link rel="stylesheet" href="css/menu-depth.css?v=2">
     <link rel="stylesheet" href="css/hud.css?v=5">
     <link rel="stylesheet" href="css/spectator.css?v=1">
-    <link rel="stylesheet" href="css/postgame.css?v=2">
+    <link rel="stylesheet" href="css/postgame.css?v=3">
     <link rel="stylesheet" href="css/touch.css?v=2">
     <!-- Arena menu layer (docs/MENU_DESIGN.md): loaded last so it owns the menu/shell
          cascade without editing the older sheets. Uses the existing DM Sans + Nunito faces. -->
@@ -2268,6 +2268,11 @@
                 <section id="pg-match-drop" class="pg-match-drop" aria-label="Match drops" hidden data-i18n-attr="aria-label:pg.matchDrops">
                     <div class="pg-match-drop-head"><span class="shell-kicker" data-i18n="pg.matchDrop">MATCH DROP</span><span data-i18n="pg.addedToCollection">Added to your collection</span></div>
                     <div id="pg-match-drop-list" class="pg-match-drop-list"></div>
+                </section>
+                <!-- CS:GO-style drop log: every player's drops this match (js/drop-feed.js). -->
+                <section id="pg-drop-log" class="pg-drop-log" aria-label="Everyone's drops" hidden data-i18n-attr="aria-label:pg.dropLog">
+                    <div class="pg-match-drop-head"><span class="shell-kicker" data-i18n="pg.dropLog">EVERYONE'S DROPS</span><span data-i18n="pg.dropLogSub">Who got what this match</span></div>
+                    <ol id="pg-drop-log-list" class="pg-drop-log-list"></ol>
                 </section>
                 <details id="pg-detail-disclosure" class="pg-detail-disclosure">
                 <summary><span><b data-i18n="pg.matchDetails">Match details</b><small data-i18n="pg.detailTabs">Overview &middot; Timeline &middot; Stats</small></span><i aria-hidden="true"></i></summary>

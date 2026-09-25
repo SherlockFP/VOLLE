@@ -109,6 +109,13 @@ export function shouldAwardArenaCache({ matchId, won = false, leveledUp = false 
     return cardSeedUnit(matchId, 'earn') < (won ? 0.35 : 0.18);
 }
 
+// Extra drop: an independent second card roll on every finished match.
+export const BONUS_CARD_CHANCE = 0.2;
+
+export function shouldAwardBonusCard(seed) {
+    return cardSeedUnit(seed, 'bonus') < BONUS_CARD_CHANCE;
+}
+
 export function rollArenaCache(seed = 'arena-cache') {
     const roll = cardSeedUnit(seed, 'rarity') * 100;
     let total = 0;

@@ -22,6 +22,7 @@ import { Store, isNewPlayerProfile, shouldShowFtueWelcome } from './store.js';
 import { streakCaseForDay } from './reward-track.js';
 import { filterChatText } from './chat-filter.js';
 import { GlobalChatClient } from './global-chat.js';
+import { DropFeed, packDrops } from './drop-feed.js';
 import { attachViewmodelFx, disposeViewmodelFx } from './viewmodel-fx.js';
 import { DEFAULT_LOADOUT } from './skills.js';
 import { ARENA_CARDS, CARD_RARITIES } from './cards.js';
@@ -367,6 +368,7 @@ class App {
             clearTimeout(this._deferredRewardRetryTimer);
             this._deferredRewardRetryTimer = null;
             this.ui.clearPostGameMatchDrops?.();
+            this.dropFeed?.bindLog?.(this.game.matchId);
             this.ui.clearToastQueue?.();
             this._analyticsMatchStartedAt = Date.now();
             this._analyticsGameplayEndedAt = null;
@@ -441,6 +443,14 @@ class App {
         this._socialRemoteSeen = new Map();
         this.network.onSocialPresence = data => this._receiveSocialPresence(data);
         this.network.onSocialChat = data => this._receiveSocialChat(data);
+        // CS:GO-style drop announcements: every player's match drops, relayed by the host.
+        this.dropFeed = new DropFeed(document, {
+            t,
+            onDrop: entry => this.game?.audio?.playCue?.(entry.self ? 'dinging' : 'chat')
+        });
+        this.network.onMatchDrops = data => this.dropFeed.announce({
+            matchId: data.matchId, playerKey: data.playerId, name: data.name, self: false, drops: data.drops
+        });
         this.network.onPartyReady = data => {
             this.party = setPartyReady(this.party, data.name, data.ready);
             this._saveSocialProfile();
@@ -1835,7 +1845,12 @@ class App {
         // idempotent match-reward record. Local fallback remains for legacy
         // offline development profiles.
         let cardReward = null;
-        if (!this.store.remoteReady) cardReward = this.store.awardArenaCache({ matchId, won, leveledUp: result.leveledUp });
+        let bonusCard = null;
+        if (!this.store.remoteReady) {
+            const localCards = this.store.awardMatchCards({ matchId, won, leveledUp: result.leveledUp });
+            cardReward = localCards?.cardReward || null;
+            bonusCard = localCards?.bonusCard || null;
+        }
         this.ui._lastMatchReward = { ...rewardCalc, kills: myStat.score || 0, deflects: myStat.deflections || 0 };
         const started = await this._matchAuthorityReady;
         const synced = started && await this.store.grantMatchRemote({
@@ -1849,6 +1864,7 @@ class App {
         });
         if (synced) {
             cardReward = synced.cardReward || null;
+            bonusCard = synced.bonusCard || null;
             if (!synced.replayed && Array.isArray(synced.dailyProgress?.completed)) {
                 for (const challengeId of synced.dailyProgress.completed) {
                     this.productAnalytics.track('daily_challenge_completed', { itemId: challengeId, source: 'match_authority' });
@@ -1902,14 +1918,20 @@ class App {
         // result settles. A replay is a historical receipt, never a fresh drop.
         const freshAuthorityResult = !synced || synced.replayed !== true;
         const matchDrops = [];
-        if (freshAuthorityResult && cardReward?.card) {
-            const card = cardReward.card;
-            const dropResult = cardReward.duplicate ? 'duplicate' : 'new';
-            this.productAnalytics.track('arena_cache_earned', { itemId: card.id, itemType: card.rarity, result: synced ? 'match_drop' : result.leveledUp ? 'level_up' : 'match_drop' });
-            this.productAnalytics.track('arena_cache_opened', { itemId: card.id, itemType: card.rarity, result: dropResult });
-            this.productAnalytics.track('card_earned', { itemId: card.id, itemType: card.rarity, result: dropResult });
-            matchDrops.push({ type: 'card', id: card.id, name: card.name, rarity: card.rarity });
-            this.ui.queueToast?.(`Arena Cache: ${card.name} (${CARD_RARITIES[card.rarity].label})`, 2400);
+        // The Arena Cache card, then the independent extra-card roll.
+        const earnedCards = freshAuthorityResult
+            ? [{ reward: cardReward, bonus: false }, { reward: bonusCard, bonus: true }].filter(entry => entry.reward?.card)
+            : [];
+        for (const { reward: cardEntry, bonus } of earnedCards) {
+            const card = cardEntry.card;
+            const dropResult = cardEntry.duplicate ? 'duplicate' : 'new';
+            if (!bonus) {
+                this.productAnalytics.track('arena_cache_earned', { itemId: card.id, itemType: card.rarity, result: synced ? 'match_drop' : result.leveledUp ? 'level_up' : 'match_drop' });
+                this.productAnalytics.track('arena_cache_opened', { itemId: card.id, itemType: card.rarity, result: dropResult });
+            }
+            this.productAnalytics.track('card_earned', { itemId: card.id, itemType: card.rarity, result: bonus ? `bonus_${dropResult}` : dropResult });
+            matchDrops.push({ type: 'card', id: card.id, name: card.name, rarity: card.rarity, ...(bonus ? { bonus: true } : {}) });
+            if (!bonus) this.ui.queueToast?.(`Arena Cache: ${card.name} (${CARD_RARITIES[card.rarity].label})`, 2400);
         }
         // Server-owned case grants: the 1-in-3 match roll and the starter track
         // (every 3rd rewarded match, five cases). Only an account's fresh settlement carries them.
@@ -1940,6 +1962,7 @@ class App {
         };
         // An async remote result may arrive after the post-game overlay rendered.
         // Never let that receipt paint onto a new rematch or a non-terminal game.
+        this._announceMatchDrops?.(matchId, matchDrops);
         if (this.game.matchId === matchId && isTerminalRematchState(this.game.state)) {
             if (settledReceipt && synced?.replayed !== true) this.ui.setPostGameRewardReceipt?.(matchId, settledReceipt, this.store);
             this.ui.setPostGameMatchDrops?.(matchId, matchDrops);
@@ -1954,6 +1977,19 @@ class App {
         // Replay kaydet
         const replay = Replay.stopRecording();
         if (replay && replay.events.length > 0) Replay.save(replay);
+    }
+
+    // Shows this player's drops on the right and tells the lobby (the host relays
+    // them under the sender's real name), CS:GO style. Ids only on the wire.
+    _announceMatchDrops(matchId, drops) {
+        const wire = packDrops(drops);
+        if (!wire.length) return false;
+        const playerKey = this.network?.playerId || 'local';
+        this.dropFeed?.announce({ matchId, playerKey, name: this.game.playerName, self: true, drops: wire });
+        if (this.network?.connected) {
+            this.network.send({ type: 'matchDrops', matchId, playerId: playerKey, name: this.game.playerName, drops: wire });
+        }
+        return true;
     }
 
     _startDeferredMatchRewardRetry(matchId, context) {
@@ -1978,6 +2014,12 @@ class App {
                 const card = synced.cardReward.card;
                 drops.push({ type: 'card', id: card.id, name: card.name, rarity: card.rarity });
             }
+            const announced = [...drops];
+            if (synced.bonusCard?.card) {
+                const card = synced.bonusCard.card;
+                announced.push({ type: 'card', id: card.id, name: card.name, rarity: card.rarity, bonus: true });
+            }
+            if (painted) this._announceMatchDrops?.(matchId, announced);
             if (painted && drops.length) this.ui.setPostGameMatchDrops?.(matchId, drops);
             return painted;
         };

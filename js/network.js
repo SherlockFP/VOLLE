@@ -14,6 +14,7 @@ import {
     validateHostMigrationProposal
 } from './host-migration.js';
 import { isSafeMatchId } from './rematch.js';
+import { packDrops, MAX_DROPS_PER_PLAYER } from './drop-feed.js';
 import { COSMETIC_TYPES, normalizeWearableLoadout } from './cosmetic-catalog.js';
 import {
     NET_BIN,
@@ -2893,6 +2894,10 @@ export class Network {
                         && (id === null || (typeof id === 'string' && id.length <= 32)));
             case 'chat':
                 return typeof data.text === 'string' && data.text.length <= 500;
+            case 'matchDrops':
+                return isSafeMatchId(data.matchId)
+                    && Array.isArray(data.drops)
+                    && data.drops.length <= MAX_DROPS_PER_PLAYER;
             case 'socialPresence':
                 return typeof data.playerId === 'string'
                     && data.playerId.length <= 128
@@ -3166,6 +3171,29 @@ export class Network {
                     this.game.addChatMessage('SERVER', data.text);
                 }
                 break;
+            case 'matchDrops': {
+                // CS:GO-style drop feed. Only catalog ids travel; the host stamps the
+                // sender's real name and id before relaying, so nobody can announce
+                // a drop for someone else.
+                const drops = packDrops(data.drops);
+                if (!drops.length || !isSafeMatchId(data.matchId)) break;
+                if (this.isHost) {
+                    const playerId = this.peerToPlayerId.get(peerId);
+                    const player = this.game.remotePlayers.get(playerId);
+                    if (!player || data.matchId !== this.game.matchId) break;
+                    const trusted = { type: 'matchDrops', matchId: data.matchId, playerId, name: player.name, drops };
+                    this.onMatchDrops?.(trusted);
+                    this.broadcast(trusted);
+                } else if (peerId === this.hostConn?.peer && data.playerId !== this.playerId) {
+                    this.onMatchDrops?.({
+                        matchId: data.matchId,
+                        playerId: String(data.playerId || 'host').slice(0, 128),
+                        name: String(data.name || 'Player').slice(0, 24),
+                        drops
+                    });
+                }
+                break;
+            }
             case 'partyReady':
                 if (this.isHost) {
                     const playerId = this.peerToPlayerId.get(peerId);

@@ -203,6 +203,13 @@ export default {
         lobbyAria: 'Özel haritayı koduyla oyna',
         play: 'Bu haritada oyna'
     },
+    drops: {
+        received: '{name} şunu kazandı:',
+        youReceived: 'Sana düştü:',
+        card: 'Arena kartı',
+        case: 'Kasa',
+        extra: 'Ekstra drop'
+    },
     gchat: {
         tab: 'Genel',
         title: 'Genel sohbet',
@@ -984,6 +991,8 @@ export default {
         totalEarned: 'Toplam kazanç',
         matchDrop: 'MAÇ GANİMETİ',
         addedToCollection: 'Koleksiyonuna eklendi',
+        dropLog: 'HERKESİN DROPLARI',
+        dropLogSub: 'Bu maçta kime ne düştü',
         matchDetails: 'Maç detayları',
         detailTabs: 'Genel Bakış · Zaman Çizelgesi · İstatistikler',
         overview: 'Genel Bakış',

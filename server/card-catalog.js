@@ -76,6 +76,13 @@ function shouldAwardArenaCache({ matchId, won = false, leveledUp = false } = {})
     return cardSeedUnit(matchId, 'earn') < (won ? 0.35 : 0.18);
 }
 
+// Extra drop: an independent second card roll on every finished match.
+const BONUS_CARD_CHANCE = 0.2;
+
+function shouldAwardBonusCard(seed) {
+    return cardSeedUnit(seed, 'bonus') < BONUS_CARD_CHANCE;
+}
+
 function rollArenaCache(seed = 'arena-cache') {
     const roll = cardSeedUnit(seed, 'rarity') * 100;
     let total = 0;
@@ -114,7 +121,7 @@ function tradeUpCards(collection, cardIds, seed = crypto.randomUUID()) {
 }
 
 module.exports = {
-    ARENA_CARDS, CARD_RARITIES, DEFAULT_CARD_COLLECTION, DEFAULT_CARD_LOADOUT,
+    ARENA_CARDS, BONUS_CARD_CHANCE, CARD_RARITIES, DEFAULT_CARD_COLLECTION, DEFAULT_CARD_LOADOUT,
     grantArenaCache, normalizeCardCollection, normalizeCardLoadout,
-    shouldAwardArenaCache, tradeUpCards
+    shouldAwardArenaCache, shouldAwardBonusCard, tradeUpCards
 };
