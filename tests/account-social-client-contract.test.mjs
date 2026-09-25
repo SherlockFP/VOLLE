@@ -31,7 +31,7 @@ test('social facade uses authenticated server endpoints and safe message DOM nod
     assert.match(friendsSource, /\/api\/social\/me/);
     assert.match(friendsSource, /\/api\/social\/conversations\//);
     assert.match(friendsSource, /\/api\/social\/lobby-invites/);
-    assert.match(mainSource, /body\.textContent = String\(message\.body \|\| ''\)/);
+    assert.match(mainSource, /body\.textContent = (?:this\._chatClean\()?String\(message\.body \|\| ''\)/);
     assert.match(mainSource, /Friends\.createLobbyInvite\(this\._lobbyCode, friend\.id\)/);
     assert.match(mainSource, /request\.status === 'pending'/);
     assert.match(mainSource, /invite\.status === 'pending'/);
