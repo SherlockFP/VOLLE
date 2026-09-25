@@ -273,6 +273,6 @@ test('round-end copy distinguishes terminal matches without changing timing cons
     assert.equal(status.call(fixture({ red: 3, blue: 2, max: true, overtime: 1 }), 4), 'Match complete');
 
     const game = readFileSync(new URL('../js/game.js', import.meta.url), 'utf8');
-    assert.match(game, /this\.roundRestartDelay = 4\.0;/);
+    assert.match(game, /this\.roundRestartDelay = 3\.0;/);
     assert.match(game, /CELEBRATION_DURATION_SECONDS = 8;/);
 });

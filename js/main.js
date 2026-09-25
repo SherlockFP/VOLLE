@@ -23,6 +23,7 @@ import { streakCaseForDay } from './reward-track.js';
 import { filterChatText } from './chat-filter.js';
 import { GlobalChatClient } from './global-chat.js';
 import { DropFeed, packDrops } from './drop-feed.js';
+import { backfillPlan } from './bot-backfill.js';
 import { attachViewmodelFx, disposeViewmodelFx } from './viewmodel-fx.js';
 import { DEFAULT_LOADOUT } from './skills.js';
 import { ARENA_CARDS, CARD_RARITIES } from './cards.js';
@@ -589,6 +590,12 @@ class App {
             if (this._handlePostGameRematchKey(e)) return;
             // Space / E over the lap: solo skips to the report from 1 s, a
             // multiplayer player opens their own report from 2 s.
+            if (this.game.state === STATES.ROUND_END && CELEBRATION_SKIP_KEYS.includes(e.code)
+                && !e.repeat && this.game.skipRoundEnd?.()) {
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
             if (this.game.state === STATES.CELEBRATION && CELEBRATION_SKIP_KEYS.includes(e.code)
                 && !e.repeat && this.game.skipCelebration?.()) {
                 e.preventDefault();
@@ -1979,6 +1986,45 @@ class App {
         if (replay && replay.events.length > 0) Replay.save(replay);
     }
 
+    // Casual online lobby: empty seats get bots before the match starts, and bots
+    // this added leave again when humans take their seats (js/bot-backfill.js).
+    _backfillLobbyBots({ quiet = false } = {}) {
+        if (!this.network?.connected || !this.network.isHost) return 0;
+        const teams = { red: 0, blue: 0 };
+        const filled = { red: 0, blue: 0 };
+        const tally = entity => {
+            if (!entity || entity.isBotEntity || !Object.hasOwn(teams, entity.team)) return;
+            teams[entity.team]++;
+            if (entity._backfill) filled[entity.team]++;
+        };
+        tally(this.player);
+        this.game.bots.forEach(tally);
+        this.game.remotePlayers.forEach(tally);
+        const plan = backfillPlan({
+            red: teams.red, blue: teams.blue, backfillRed: filled.red, backfillBlue: filled.blue,
+            enabled: document.getElementById('lobby-fill-bots')?.checked !== false,
+            ranked: this._rankedHosting === true,
+            modeId: this.game.mode?.id || '',
+            ffa: this.game.mode?.ffa === true || this.game._ffa === true
+        });
+        let added = 0;
+        for (const team of ['red', 'blue']) {
+            for (let i = 0; i < plan[team]; i++) {
+                if (!this.game.addBot(team)) break;
+                const bot = this.game.bots[this.game.bots.length - 1];
+                if (bot) bot._backfill = true;
+                added++;
+            }
+            for (let i = 0; i < -plan[team]; i++) {
+                const bot = [...this.game.bots].reverse().find(entry => entry._backfill && entry.team === team);
+                if (bot) this.game.removeBotByName(bot.name);
+            }
+        }
+        if (plan.red || plan.blue) this.broadcastLobbyState();
+        if (added && !quiet) this.ui.showMessage?.(t('toast.botsFilled', { count: added }), 1800);
+        return added;
+    }
+
     // Shows this player's drops on the right and tells the lobby (the host relays
     // them under the sender's real name), CS:GO style. Ids only on the wire.
     _announceMatchDrops(matchId, drops) {
@@ -2905,6 +2951,7 @@ class App {
                 matchLoadElapsedMs: 0,
                 setupStartedAt: startedAt
             };
+            this._backfillLobbyBots?.({ quiet: true });
             const started = this.game.startGame(false, matchId);
             if (started === false) {
                 this._matchLaunchTiming = null;
@@ -3032,6 +3079,7 @@ class App {
             this._matchLaunchTiming.matchLoadElapsedMs = matchLoadElapsedMs;
             this._matchLaunchTiming.setupStartedAt = performance.now();
             this._rollLobbyMapIfRandom();
+            this._backfillLobbyBots?.();
             const started = this.game.startGame();
             if (started === false) {
                 this._matchLaunchTiming = null;

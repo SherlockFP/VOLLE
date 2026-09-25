@@ -5,11 +5,12 @@
 // js/game.js, js/ui.js and js/main.js own the wiring, these only answer questions.
 //
 // Multiplayer timing is intentionally absent here. The host keeps its
-// 4 s round-end and 8 s celebration (CELEBRATION_DURATION_SECONDS in game.js)
-// bit-identical; a multiplayer player can only open their own report early.
+// 3 s round-end (it covers the 2.5 s killcam) and 8 s celebration
+// (CELEBRATION_DURATION_SECONDS in game.js); a multiplayer player can only open
+// their own report early.
 
 // Solo: the deciding round's ROUND_END hands off to CELEBRATION after this.
-// Non-final rounds keep Game.roundRestartDelay (4 s).
+// Non-final rounds keep Game.roundRestartDelay (3 s); solo may skip it (below).
 export const FINAL_ROUND_END_SECONDS = 1.5;
 // Solo: the celebration opens the post-game report on its own after this.
 export const SOLO_CELEBRATION_SECONDS = 4.0;
@@ -58,8 +59,16 @@ export function roundEndOutcome({
     return 'next';
 }
 
+// Solo: Space / E skip the rest of a non-final round-end from this point, once
+// the kill and the score line have had a beat.
+export const SOLO_ROUND_SKIP_FROM_SECONDS = 1.0;
+
+export function roundEndSkipAllowed({ solo = false, elapsed = 0, outcome = 'next' } = {}) {
+    return solo === true && outcome === 'next' && finiteNonNegative(elapsed) >= SOLO_ROUND_SKIP_FROM_SECONDS;
+}
+
 // Solo only: the deciding round hands off early. Multiplayer returns false so
-// the host's 4 s round-end stays exactly as it was.
+// the host's round-end timer is the only clock for connected players.
 export function shouldEndFinalRoundEarly({ solo = false, elapsed = 0, outcome = 'next' } = {}) {
     return solo === true && outcome === 'end' && finiteNonNegative(elapsed) >= FINAL_ROUND_END_SECONDS;
 }

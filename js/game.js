@@ -72,6 +72,7 @@ import { shouldSpawnMatchTrophy, resolveTrophySpot, trophyTeardownPlan } from '.
 import {
     SOLO_CELEBRATION_SECONDS,
     celebrationSkipAction,
+    roundEndSkipAllowed,
     roundEndOutcome,
     shouldEndFinalRoundEarly
 } from './run-it-back.js';
@@ -264,7 +265,7 @@ export class Game {
         // Player name → remote-Avatar Sprite cache, böylece aynı oyuncu için sprite bir kez oluşur.
         this._avatarCache = new Map();
 
-        this.roundRestartDelay = 4.0;
+        this.roundRestartDelay = 3.0; // covers the 2.5 s killcam; solo can skip (skipRoundEnd)
         this.roundRestartTimer = 0;
         this.preGameDuration = 3;        // saniye, host console'dan degistirebilir
         this.preGameTimer = 0;
@@ -2586,7 +2587,8 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             );
             if (curSec !== this._lastRoundEndSec && performance.now() >= copyBlockedUntil) {
                 this._lastRoundEndSec = curSec;
-                this.ui.showMessage?.(this._roundEndStatusText(curSec), 500);
+                const skippable = !this.network?.connected && this._roundEndOutcome() === 'next';
+                this.ui.showMessage?.(`${this._roundEndStatusText(curSec)}${skippable ? ' · Space ⏭' : ''}`, 500);
             }
             const isClient = this.network?.connected && !this.network?.isHost;
             // Solo only: the deciding round hands off after 1.5 s wall-clock instead
@@ -5751,6 +5753,15 @@ spawnPowerUp() {
             prevAccount: completion?.prevAccount || null,
             personal: completion?.personal || null
         });
+    }
+
+    // Solo: Space / E during a non-final round-end start the next round now
+    // (the ROUND_END branch in update() runs its normal next-round path).
+    skipRoundEnd() {
+        if (this.state !== STATES.ROUND_END || this.network?.connected) return false;
+        if (!roundEndSkipAllowed({ solo: true, elapsed: this._roundEndElapsed, outcome: this._roundEndOutcome() })) return false;
+        this.roundRestartTimer = 0;
+        return true;
     }
 
     // Space / click / E over the lap. Solo: from 1 s the lap ends now and the
