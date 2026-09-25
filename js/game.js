@@ -11,6 +11,7 @@ import { decodeMapCode, isCodedMapId, mapIdForCode } from './map-code.js';
 import { Juice } from './juice.js';
 import { KillMedal, KillStreakTracker } from './kill-medal.js';
 import { KillPillars } from './kill-pillars.js';
+import { VisibilityAids } from './visibility-aids.js';
 import { TEAM_COLORS } from './team-colors.js';
 import { applyMode, GAME_MODES } from './gamemodes.js';
 import { ChaosManager, CHAOS_MODES } from './chaos.js';
@@ -378,6 +379,8 @@ export class Game {
         this.juice = new Juice(this.player.camera, this.renderer);
         this.killPillars = new KillPillars(this.renderer?.scene);
         this.killMedal = new KillMedal(globalThis.document);
+        this.visibilityAids = new VisibilityAids(this.renderer?.scene);
+        this._visibilityEnemies = [];
         this._localKillStreak = new KillStreakTracker();
         this._mapCodes = new Map(); // coded map id -> share code (js/map-code.js)
         this.emotes = new EmoteSystem(this.renderer.scene);
@@ -1131,6 +1134,9 @@ startGame(skipPreGame = false, matchId = null) {
         this.audio.init();
         this.audio.preloadSfx('sfx/');
         this.initMinimap();
+        // Compile the match's shaders (hidden effects included) under the intro,
+        // not on the frame an effect first appears mid-round.
+        this._prewarmMatchShaders?.();
 
         // Late-join: 10 saniyelik pre-game countdown'u atla, anında round'a gir. Host oyun sırasındayken
         // gelen client bu sayede top ve event'leri render eder.
@@ -2400,6 +2406,35 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 ? enemy
                 : closest;
         }, null);
+    }
+
+    _prewarmMatchShaders() {
+        this.killPillars?.prewarm?.();
+        this.visibilityAids?.prewarm?.();
+        return this.renderer?.prewarm?.(this.player?.camera);
+    }
+
+    // Far-court readability (js/visibility-aids.js). main.js calls this right
+    // before drawing, with the camera being drawn, so the beacon and markers sit
+    // on this frame's final positions. Opponents only; sprites and list are reused.
+    updateVisibilityAids(camera, viewportPx) {
+        const aids = this.visibilityAids;
+        if (!aids) return;
+        const live = this.state === STATES.PLAYING || this.state === STATES.COUNTDOWN || this.state === STATES.ROUND_END;
+        if (!live || !camera || this._practiceMode) {
+            aids.hide();
+            return;
+        }
+        aids.updateBall(this.ball, camera, viewportPx);
+        const enemies = this._visibilityEnemies;
+        enemies.length = 0;
+        const localTeam = this.player?.team;
+        const consider = entity => {
+            if (entity && entity !== this.player && (this._ffa || entity.team !== localTeam)) enemies.push(entity);
+        };
+        for (let i = 0; i < this.bots.length; i++) consider(this.bots[i]);
+        this.remotePlayers.forEach(consider);
+        aids.updateEnemies(enemies, camera, viewportPx, { ffa: this._ffa === true });
     }
 
     _grantKillConfirm(playerName) {
@@ -6670,6 +6705,7 @@ spawnPowerUp() {
             this.audio.init();
             this.audio.preloadSfx('sfx/');
             this.initMinimap();
+            this._prewarmMatchShaders?.();
             this._skipPreGame = true;
             // ponytail: apply host ball state immediately so late joiner starts synced.
             // welcome only carries `ball` inside `snapshot` (from snapshotState()) — the

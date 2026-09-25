@@ -10221,6 +10221,7 @@ updateCarousel() {
             const z = Math.sin(t * 0.2) * dist;
             this.camera.position.set(x, y, z);
             this.camera.lookAt(0, 4, 0);
+            this.game.updateVisibilityAids?.(this.camera, this.renderer._viewport?.height);
             this.renderer.render(this.camera);
         } else {
             // Spectate dead — teammate first-person or mouse-orbit TPS
@@ -10256,6 +10257,7 @@ updateCarousel() {
                 this._deadSpectateView = null;
                 if (!Spectator.active) renderSpectatorHUD('', { active: false });
             }
+            this.game.updateVisibilityAids?.(this.camera, this.renderer._viewport?.height);
             this.renderer.render(this.camera);
         }
     }

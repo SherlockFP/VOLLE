@@ -39,6 +39,14 @@ export class KillPillars {
         return slot;
     }
 
+    // One hidden slot in the scene before the match, so Renderer.prewarm compiles the
+    // pillar's shaders up front instead of on the frame of the first kill.
+    prewarm() {
+        if (!this.scene) return;
+        if (!this.slots.length) this._createSlot();
+        for (const slot of this.slots) if (slot.group.parent !== this.scene) this.scene.add(slot.group);
+    }
+
     spawn(pos, color = 0xffffff) {
         if (!pos || !this.scene) return false;
         let slot = this.slots.find(s => s.life <= 0);

@@ -1566,7 +1566,9 @@ export class Arena {
             ceilingHeight: this.ceilingHeight,
             allowDecorLight: this.renderer.shouldLightDecor ? this.renderer.shouldLightDecor() : true
         };
-        loadArenaDecor(this.scene, this.config, arenaSize).then(group => {
+        // A model that lands mid-match compiles here, not on the frame it is first seen.
+        const onModel = holder => this.renderer?.prewarm?.(this.renderer._camera, holder);
+        loadArenaDecor(this.scene, this.config, arenaSize, { onModel }).then(group => {
             if (token !== this._decorToken) { disposeArenaDecor(group); return; }
             this.decorGroup = group;
         });

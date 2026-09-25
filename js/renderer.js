@@ -83,6 +83,32 @@ export class Renderer {
         this.setQuality(this._quality);
     }
 
+    // Compiles every material now in the scene, hidden ones included, so an effect's
+    // first appearance mid-round does not stall that frame on a shader compile.
+    // Programs are keyed on the render target (tone mapping, output color space), so
+    // this compiles against the composer buffer the scene really draws into.
+    // compileAsync lets browsers with parallel shader compilation do it off-thread.
+    // `root` narrows it to one subtree that just joined the scene (lit by the scene).
+    prewarm(camera, root = this.scene) {
+        if (!camera || !root || !this.renderer?.compile) return Promise.resolve(false);
+        const previous = this.renderer.getRenderTarget();
+        try {
+            this._initComposer(camera);
+            this.renderer.setRenderTarget(this._composer.readBuffer);
+            const target = root === this.scene ? null : this.scene;
+            const jobs = [this.renderer.compileAsync
+                ? this.renderer.compileAsync(root, camera, target)
+                : Promise.resolve(this.renderer.compile(root, camera, target))];
+            const viewmodel = this._viewmodel;
+            if (!target && viewmodel?.scene && viewmodel.camera) jobs.push(Promise.resolve(this.renderer.compile(viewmodel.scene, viewmodel.camera)));
+            return Promise.all(jobs).then(() => true, () => false);
+        } catch {
+            return Promise.resolve(false);
+        } finally {
+            this.renderer.setRenderTarget(previous);
+        }
+    }
+
     // Public so main.js can call composer.setSize on window resize
     updateSize(w, h) {
         this._viewport.width = Math.max(1, w);

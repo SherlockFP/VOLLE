@@ -128,7 +128,8 @@ function normalizeAndGround(root, targetHeight) {
 // places one instance per computed placement slot, and returns the group holding
 // them all (already added to `scene`). Returns null when the map has no decor,
 // or when disposeArenaDecor() tears the group down again before loads settle.
-export async function loadArenaDecor(scene, mapDef, arenaSize) {
+// `onModel(holder)` runs as each model lands (Renderer.prewarm compiles it there).
+export async function loadArenaDecor(scene, mapDef, arenaSize, { onModel = null } = {}) {
     const kinds = resolveDecorKinds(mapDef?.decor);
     if (!kinds.length) return null;
 
@@ -180,6 +181,7 @@ export async function loadArenaDecor(scene, mapDef, arenaSize) {
                 holder.position.z += shift.z;
             }
             group.add(holder);
+            onModel?.(holder);
         });
     });
 
