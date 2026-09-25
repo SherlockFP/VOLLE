@@ -43,6 +43,9 @@ export default {
         tip4: 'Dash (Ctrl) through a tight angle instead of trying to out-run the ball.',
         tip5: 'Right-click stabs up close. Rare knives glow in your hand.',
         tip6: 'Listen: the ball whooshes louder on the side it is coming from.',
+        tip2Touch: 'Drag the view up while deflecting to lob, down to spike.',
+        tip4Touch: 'Tap DASH through a tight angle instead of trying to out-run the ball.',
+        tip5Touch: 'STAB hits up close. Rare knives glow in your hand.',
         socialAssets: 'Loading social assets {loaded}/{total}'
     },
     auth: {
@@ -1045,6 +1048,8 @@ export default {
     postgame: {
         skipHint: 'Space · Skip',
         peekHint: 'Space · Results',
+        skipHintTouch: '{button} · Skip',
+        peekHintTouch: '{button} · Results',
         rematchAfterLap: 'Rematch opens when the victory lap ends.',
         nextMap: 'Next map',
         yourMatch: 'Your match',

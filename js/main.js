@@ -280,7 +280,12 @@ class App {
         });
         this.player = new Player(this.renderer, this.camera, this.arena);
         // Touch hook 1/4: mobile joystick/look/buttons overlay (js/touch-controls.js) feeding player input state.
-        this.touchControls = new TouchControls(this.player, { store: this.store });
+        this.touchControls = new TouchControls(this.player, {
+            store: this.store,
+            // Touch has no Space: JUMP skips a solo round end / the victory lap.
+            onSkip: () => (this.game.state === STATES.ROUND_END ? this.game.skipRoundEnd?.() === true
+                : this.game.state === STATES.CELEBRATION ? this.game.skipCelebration?.() === true : false)
+        });
         // Players must see the knife they own; `sv_hand 0` persists an opt-out.
         this.player.setHandVisible(this.store.get('showViewmodel') !== false);
         if (this.store.get('viewmodel')) this.player.setViewmodelOptions(this.store.get('viewmodel'));

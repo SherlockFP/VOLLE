@@ -275,6 +275,8 @@ test('the pre-bundle loading-screen tips mirror the locale tables in both langua
     for (const [lang, table] of Object.entries({ en, tr })) {
         assert.deepEqual(tips[lang], [1, 2, 3, 4, 5, 6].map(i => table.loading[`tip${i}`]), `${lang} tips`);
         assert.equal(status[lang], table.loading.status);
+        const touchTips = JSON.parse(html.match(/var TOUCH_TIPS = (\{[\s\S]*?\});/)[1]);
+        assert.deepEqual(touchTips[lang], [1, 2, 3, 4, 5, 6].map(i => table.loading[`tip${i}Touch`] ?? null), `${lang} touch tips`);
     }
     assert.match(html, /localStorage\.getItem\('volle_language'\)/);
     assert.equal(LANGUAGE_STORAGE_KEY, 'volle_language');

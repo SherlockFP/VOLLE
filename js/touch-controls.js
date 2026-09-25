@@ -137,11 +137,14 @@ export class TouchInputModel {
         layout = TOUCH_LAYOUT,
         emitKey = () => {},
         haptic = () => {},
-        onButtonVisual = () => {}
+        onButtonVisual = () => {},
+        onSkip = () => false
     } = {}) {
         this.player = player;
         this.layout = layout;
         this.emitKey = emitKey;
+        // JUMP is the touch Space: it also skips a round end or the victory lap.
+        this.onSkip = onSkip;
         this.haptic = haptic;
         this.onButtonVisual = onButtonVisual;
         this.scale = 1;
@@ -292,7 +295,7 @@ export class TouchInputModel {
         switch (name) {
             case 'deflect': player.pressPrimary?.(); break;
             case 'stab': player.pressSecondary?.(); break;
-            case 'jump': player.keys.Space = true; break;
+            case 'jump': this.onSkip(); player.keys.Space = true; break;
             case 'dash': player.keys.ControlLeft = true; break;
             case 'skill': player.handleActionKey?.(ACTION_SKILL); break;
             case 'inspect': player.handleActionKey?.(ACTION_INSPECT); break;
@@ -372,7 +375,7 @@ function defaultEmitKey(code, type) {
 
 // DOM layer: owns the overlay markup in index.html (#touch-controls, #touch-rotate).
 export class TouchControls {
-    constructor(player, { store = null, doc = document, win = window, layout = TOUCH_LAYOUT } = {}) {
+    constructor(player, { store = null, doc = document, win = window, layout = TOUCH_LAYOUT, onSkip = () => false } = {}) {
         this.player = player;
         this.doc = doc;
         this.win = win;
@@ -401,7 +404,8 @@ export class TouchControls {
                 if (!this.haptics) return;
                 try { win.navigator?.vibrate?.(ms); } catch (_) {}
             },
-            onButtonVisual: (name, down) => this.buttonEls[name]?.classList.toggle('is-pressed', down)
+            onButtonVisual: (name, down) => this.buttonEls[name]?.classList.toggle('is-pressed', down),
+            onSkip
         });
         this.setSensitivity(store?.get?.('touchSensitivity') ?? layout.look.defaultSensitivity);
         this._bind();

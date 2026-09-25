@@ -2560,7 +2560,9 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             if (Math.floor(this._celebrationTimer) !== this._lastCelebSec && !this._postGameOpenedEarly) {
                 this._lastCelebSec = Math.floor(this._celebrationTimer);
                 const skip = celebrationSkipAction({ solo: soloLap, elapsed: this._celebrationElapsed });
-                const hint = skip ? ` · ${t(skip === 'skip' ? 'postgame.skipHint' : 'postgame.peekHint')}` : '';
+                const touch = globalThis.document?.body?.classList?.contains('touch-controls-on');
+                const hintKey = skip === 'skip' ? 'postgame.skipHint' : 'postgame.peekHint';
+                const hint = skip ? ` · ${touch ? t(`${hintKey}Touch`, { button: t('touch.jump') }) : t(hintKey)}` : '';
                 this.ui.showMessage?.(`🎉 ${Math.ceil(this._celebrationTimer)}s${hint}`, 900);
             }
 
@@ -2591,7 +2593,8 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             if (curSec !== this._lastRoundEndSec && performance.now() >= copyBlockedUntil) {
                 this._lastRoundEndSec = curSec;
                 const skippable = !this.network?.connected && this._roundEndOutcome() === 'next';
-                this.ui.showMessage?.(`${this._roundEndStatusText(curSec)}${skippable ? ' · Space ⏭' : ''}`, 500);
+                const skipKey = globalThis.document?.body?.classList?.contains('touch-controls-on') ? t('touch.jump') : 'Space';
+                this.ui.showMessage?.(`${this._roundEndStatusText(curSec)}${skippable ? ` · ${skipKey} ⏭` : ''}`, 500);
             }
             const isClient = this.network?.connected && !this.network?.isHost;
             // Solo only: the deciding round hands off after 1.5 s wall-clock instead

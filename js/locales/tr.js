@@ -43,6 +43,9 @@ export default {
         tip4: 'Toptan koşarak kaçmaya çalışma; dar açılarda Ctrl ile atıl.',
         tip5: 'Sağ tık yakın mesafede bıçaklar. Nadir bıçaklar elinde parlar.',
         tip6: 'Kulak ver: top hangi taraftan geliyorsa uğultusu o tarafta daha güçlü duyulur.',
+        tip2Touch: 'Sektirirken ekranı yukarı sürüklersen aşırtma, aşağı sürüklersen smaç atarsın.',
+        tip4Touch: 'Toptan koşarak kaçmaya çalışma; dar açılarda DASH\'e bas.',
+        tip5Touch: 'STAB yakın mesafede bıçaklar. Nadir bıçaklar elinde parlar.',
         socialAssets: 'Sosyal alan yükleniyor {loaded}/{total}'
     },
     auth: {
@@ -1037,6 +1040,8 @@ export default {
     postgame: {
         skipHint: 'Boşluk · Geç',
         peekHint: 'Boşluk · Sonuçlar',
+        skipHintTouch: '{button} · Geç',
+        peekHintTouch: '{button} · Sonuçlar',
         rematchAfterLap: 'Rövanş, zafer turu bitince açılır.',
         nextMap: 'Sonraki harita',
         yourMatch: 'Senin maçın',

@@ -120,6 +120,8 @@
                 "Kulak ver: top hangi taraftan geliyorsa uğultusu o tarafta daha güçlü duyulur."
             ]
         };
+        // Touch-only devices get the touch wording of the control tips (loading.tip*Touch).
+        var TOUCH_TIPS = {"en": [null, "Drag the view up while deflecting to lob, down to spike.", null, "Tap DASH through a tight angle instead of trying to out-run the ball.", "STAB hits up close. Rare knives glow in your hand.", null], "tr": [null, "Sektirirken ekranı yukarı sürüklersen aşırtma, aşağı sürüklersen smaç atarsın.", null, "Toptan koşarak kaçmaya çalışma; dar açılarda DASH'e bas.", "STAB yakın mesafede bıçaklar. Nadir bıçaklar elinde parlar.", null]};
         var STATUS = {"en":"Warming up the arena…","tr":"Arena ısınıyor…"};
         var lang = '';
         try { lang = localStorage.getItem('volle_language') || ''; } catch (e) { lang = ''; }
@@ -128,7 +130,9 @@
             lang = String(nav).toLowerCase().indexOf('tr') === 0 ? 'tr' : 'en';
         }
         document.documentElement.lang = lang;
-        var tips = TIPS[lang];
+        var touchOnly = false;
+        try { touchOnly = matchMedia('(pointer: coarse)').matches && !matchMedia('(any-pointer: fine)').matches; } catch (e) { touchOnly = false; }
+        var tips = TIPS[lang].map(function (tip, i) { return (touchOnly && TOUCH_TIPS[lang][i]) || tip; });
         var el = document.getElementById('loading-tip');
         var screen = document.getElementById('loading-screen');
         var status = screen && screen.querySelector('.loading-status');
