@@ -141,7 +141,7 @@
 .locker-stage-mount > canvas:active { cursor: grabbing; }
 .locker-stage-mount > canvas:focus-visible { outline: 2px solid var(--mm-accent, #5ee7f7); outline-offset: -4px; }
 /* No live renderer (no WebGL): the hero slot portrait stands in. */
-.locker-stage:not(.is-live) .locker-stage-mount { background: url('../assets/generated/volle-logo-512.png') center 40% / 34% no-repeat; opacity: .35; }
+.locker-stage:not(.is-live) .locker-stage-mount { background: url('../assets/generated/volle-logo-384.webp') center 40% / 34% no-repeat; opacity: .35; }
 
 .locker-stage-caption {
     position: absolute;

@@ -1053,6 +1053,7 @@ startGame(skipPreGame = false, matchId = null) {
         this._resetPersonalMatch();
         this._postGameOpenedEarly = false;
     this.onMatchStart?.();
+    if (!this._practiceMode) this.arena?.preloadMatchDecor?.();
     this.applyMatchModifier();
     if (this.competitiveRules) applyCompetitiveRules(this, this.competitiveRules);
     // Every match rolls its in-court props (host/solo); the snapshot carries it.

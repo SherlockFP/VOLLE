@@ -1293,7 +1293,12 @@ export class Arena {
         this.build();
         // ponytail: apply initial map theme
         this._applyTheme(this.mapId);
-        preloadTrophyTemplate();
+    }
+
+    // The match-end trophy (~440 KB) loads when a match starts (Game.startGame),
+    // not with the menu arena at boot.
+    preloadMatchDecor() {
+        return preloadTrophyTemplate();
     }
 
     _ballSpawnHeight() {

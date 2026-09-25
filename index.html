@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VOLLE — Enter the Arena</title>
     <meta name="description" content="VOLLE is a fast, competitive first-person ball combat game. Master movement, classes, and the arena.">
-    <link rel="icon" type="image/png" href="assets/generated/volle-logo-512.png">
+    <link rel="icon" type="image/png" href="assets/generated/volle-logo-64.png">
     <link rel="manifest" href="manifest.webmanifest">
     <meta name="theme-color" content="#06151b">
     <link rel="apple-touch-icon" href="assets/generated/volle-logo-512.png">
@@ -89,7 +89,7 @@
     <!-- Loading Screen -->
     <div id="loading-screen">
         <div class="loading-content">
-            <img class="brand-mark brand-mark-loading" src="assets/generated/volle-logo-512.png" alt="">
+            <img class="brand-mark brand-mark-loading" src="assets/generated/volle-logo-384.webp" alt="">
             <div class="loading-logo">VOLLE</div>
             <div class="loading-bar-track"><div class="loading-bar-fill"></div></div>
             <div class="loading-status" aria-live="polite" data-i18n="loading.status">Warming up the arena…</div>
@@ -150,7 +150,7 @@
                 <span></span><i></i><b></b>
             </div>
             <div class="match-loading-copy">
-                <img class="brand-mark brand-mark-match" src="assets/generated/volle-logo-512.png" alt="">
+                <img class="brand-mark brand-mark-match" src="assets/generated/volle-logo-384.webp" alt="">
                 <span id="match-loading-mode">CLASSIC</span>
                 <h2 id="match-loading-map">BEACH OPEN</h2>
                 <p id="match-loading-tip">Tip: move after every throw.</p>
@@ -270,7 +270,7 @@
                 </div>
                 <div class="ow-splash">
                     <span class="ow-kicker" data-i18n="menu.welcomeKicker">WELCOME TO THE ARENA</span>
-                    <img class="brand-mark brand-mark-menu" src="assets/generated/volle-logo-512.png" alt="VOLLE emblem" data-i18n-attr="alt:menu.emblem">
+                    <img class="brand-mark brand-mark-menu" src="assets/generated/volle-logo-384.webp" alt="VOLLE emblem" data-i18n-attr="alt:menu.emblem">
                     <div class="ow-logo">VOLLE</div>
                     <div class="ow-tagline" data-i18n="menu.tagline">FIRST PERSON DODGEBALL</div>
                     <div class="ow-mode-chip" id="menu-mode-status"><span data-i18n="menu.quickPlayCaps">QUICK PLAY</span><b data-i18n="menu.createOrJoin">Create or join a lobby</b></div>
@@ -630,7 +630,7 @@
     <div id="lobby-screen" class="screen hidden">
         <!-- Top bar -->
         <div class="cs-topbar">
-            <div class="cs-roomcode" data-i18n="lobby.room"><img class="brand-mark brand-mark-room" src="assets/generated/volle-logo-512.png" alt=""> Room: <span id="room-code">LOCAL</span></div>
+            <div class="cs-roomcode" data-i18n="lobby.room"><img class="brand-mark brand-mark-room" src="assets/generated/volle-logo-384.webp" alt=""> Room: <span id="room-code">LOCAL</span></div>
             <div class="cs-lobby-name">
                 <input id="lobby-name-input" class="cs-lobby-name-input" type="text" maxlength="32" placeholder="Lobby Name" value="Lobby" spellcheck="false" data-i18n-attr="placeholder:lobby.namePlaceholder">
             </div>
@@ -1186,7 +1186,7 @@
             <main class="shop-showcase-layout">
                 <section class="shop-showcase" aria-labelledby="shop-selected-name">
                     <div id="shop-showcase-stage" class="shop-showcase-stage" data-skin-id="default">
-                        <img class="shop-roster-art" src="assets/generated/volle-shop-roster.webp" alt="" aria-hidden="true" decoding="async">
+                        <img class="shop-roster-art" src="assets/generated/volle-shop-roster.webp" alt="" aria-hidden="true" loading="lazy" decoding="async">
                         <canvas id="shop-showcase-canvas" role="img" aria-label="Live 3D character skin preview" data-i18n-attr="aria-label:shop.canvasLabel"></canvas>
                         <div id="shop-selected-product-visual" class="shop-selected-product-visual" aria-hidden="true"></div>
                         <div class="shop-showcase-fallback" aria-hidden="true"><i></i><b></b><span></span></div>
@@ -1894,7 +1894,7 @@
     <div id="case-inspector" class="case-inspector hidden" role="dialog" aria-modal="true" aria-labelledby="case-inspector-title">
         <div class="case-inspector-card">
             <button id="case-inspector-close" class="case-inspector-close" type="button" aria-label="Close case preview" data-i18n-attr="aria-label:case.closePreview"><svg class="ui-icon" aria-hidden="true"><use href="#i-close"></use></svg></button>
-            <div class="case-inspector-visual"><img id="case-inspector-art" src="assets/generated/cases/kickoff-case.webp" alt=""></div>
+            <div class="case-inspector-visual"><img id="case-inspector-art" src="assets/generated/cases/kickoff-case.webp" alt="" loading="lazy"></div>
             <div class="case-inspector-copy">
                 <span class="shell-kicker" data-i18n="case.simulator">CASE SIMULATOR</span>
                 <h2 id="case-inspector-title">Kickoff Case</h2>
@@ -2147,7 +2147,7 @@
             <div class="pg-panel" role="dialog" aria-modal="true" aria-labelledby="pg-result">
                 <div class="pg-broadcast-stage">
                 <figure class="pg-key-art" aria-label="Arena broadcast highlight" data-i18n-attr="aria-label:pg.broadcastLabel">
-                    <img src="assets/generated/postgame/victory-arena-broadcast-v1.webp" width="1600" height="900" alt="" decoding="async">
+                    <img src="assets/generated/postgame/victory-arena-broadcast-v1.webp" width="1600" height="900" alt="" decoding="async" loading="lazy">
                     <figcaption><span data-i18n="pg.broadcast">ARENA BROADCAST</span><b data-i18n="pg.aftershow">AFTERSHOW</b></figcaption>
                 </figure>
                 <div class="pg-summary">
