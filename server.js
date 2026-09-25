@@ -22,6 +22,8 @@ const { ProductAnalyticsStore } = require('./server/product-analytics');
 const { MatchAuthority } = require('./server/match-authority');
 const { resolvePublicPath, resolveEntryHtml, isImmutableAsset } = require('./server/static-policy');
 const { CompressionCache } = require('./server/compress');
+const { GlobalChat } = require('./server/global-chat');
+const globalChat = new GlobalChat();
 const staticCompression = new CompressionCache();
 const { createLiveMarket, findLiveOffer } = require('./server/live-market');
 const {
@@ -96,6 +98,10 @@ const RATE_LIMITS = {
     social: [60, 60000],
     directMessage: [30, 60000],
     lobbyInvite: [20, 60000],
+    // Global chat: menu clients poll every 3 s (20/min each); per-IP, so a
+    // household behind one NAT shares it. Posting is also limited per identity.
+    chatRead: [240, 60000],
+    chatWrite: [40, 60000],
     party: [30, 60000],
     paymentWebhook: [40, 60000],
     // Stripe delivers from a small pool of IPs and retries on 429, so this is a
@@ -1128,6 +1134,29 @@ const server = http.createServer(async (req, res) => {
     }
 
     // --- Lobby API ---
+    if (urlPath === '/api/chat/global' && req.method === 'GET') {
+        if (!allowRequest(req, res, 'chatRead')) return;
+        const after = new URLSearchParams(String(req.url || '').split('?')[1] || '').get('after');
+        res.setHeader('Cache-Control', 'no-store');
+        sendJson(res, globalChat.since(after));
+        return;
+    }
+    if (urlPath === '/api/chat/global' && req.method === 'POST') {
+        if (!allowRequest(req, res, 'chatWrite')) return;
+        const b = await readBody(req, 1024);
+        const auth = requireLobbyAuth(req, res, b);
+        if (!auth) return;
+        const author = { id: auth.account.id, name: auth.account.username, guest: auth.guest === true };
+        let result;
+        if (typeof b.inviteCode === 'string') {
+            pruneLobbies();
+            result = globalChat.postInvite(author, lobbies.get(b.inviteCode) || null);
+        } else {
+            result = globalChat.post(author, { text: b.text });
+        }
+        sendJson(res, result.message ? { message: result.message } : { error: result.error, code: result.code }, result.status);
+        return;
+    }
     if (urlPath === '/api/lobbies' && req.method === 'GET') {
         pruneLobbies();
         sendJson(res, [...lobbies.values()].map(publicLobby));

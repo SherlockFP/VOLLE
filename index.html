@@ -28,7 +28,7 @@
     <link rel="stylesheet" href="css/touch.css?v=2">
     <!-- Arena menu layer (docs/MENU_DESIGN.md): loaded last so it owns the menu/shell
          cascade without editing the older sheets. Uses the existing DM Sans + Nunito faces. -->
-    <link rel="stylesheet" href="css/menu-arena.css?v=1">
+    <link rel="stylesheet" href="css/menu-arena.css?v=2">
     <link rel="stylesheet" href="css/locker.css?v=1">
     <script type="importmap">
     {
@@ -365,9 +365,19 @@
                         <button type="button" role="tab" aria-selected="true" data-fbar-tab="friends" data-i18n="social.friends">Friends</button>
                         <button type="button" role="tab" aria-selected="false" data-fbar-tab="online" data-i18n="social.online">Online</button>
                         <button type="button" role="tab" aria-selected="false" data-fbar-tab="nearby" data-i18n="social.nearby">Nearby</button>
+                        <button type="button" role="tab" aria-selected="false" data-fbar-tab="global"><span data-i18n="gchat.tab">Global</span><b id="global-chat-unread" class="global-chat-unread" hidden></b></button>
                     </div>
                     <div class="fbar-directory-heading"><span id="fbar-directory-title">Friends</span><output id="fbar-sync-state" role="status" aria-live="polite">Live</output></div>
                     <div id="fbar-directory" class="fbar-directory" role="tabpanel" aria-labelledby="fbar-directory-title" aria-live="polite" aria-busy="false"></div>
+                    <!-- Global chat (js/global-chat.js): everyone in the menu, lobby invites from their hosts. -->
+                    <section id="fbar-global" class="fbar-global" role="tabpanel" aria-label="Global chat" hidden data-i18n-attr="aria-label:gchat.title">
+                        <ol id="global-chat-log" class="global-chat-log" aria-live="polite"></ol>
+                        <form id="global-chat-form" class="global-chat-form" autocomplete="off">
+                            <input id="global-chat-input" type="text" maxlength="200" placeholder="Say hi to everyone…" aria-label="Global chat message" data-i18n-attr="placeholder:gchat.placeholder;aria-label:gchat.inputAria">
+                            <button type="submit" class="btn btn-primary btn-small" data-i18n="gchat.send">Send</button>
+                        </form>
+                        <p class="global-chat-tip" data-i18n="gchat.tip">Hosting? Press “Share to global chat” in your lobby so players can join with one click.</p>
+                    </section>
                     <div class="fbar-presence-controls">
                         <label data-i18n="social.discoverable"><input id="fbar-discoverable" type="checkbox" checked> Discoverable worldwide</label>
                         <span class="fbar-worldwide" data-i18n="social.worldwideP2p"><svg class="ui-icon" aria-hidden="true"><use href="#i-globe"></use></svg>Worldwide P2P</span>
@@ -639,6 +649,10 @@
         <!-- Top bar -->
         <div class="cs-topbar">
             <div class="cs-roomcode" data-i18n="lobby.room"><img class="brand-mark brand-mark-room" src="assets/generated/volle-logo-384.webp" alt=""> Room: <span id="room-code">LOCAL</span></div>
+            <div class="cs-share-row">
+                <button id="btn-lobby-copy-code" type="button" class="cs-share-btn"><svg class="ui-icon" aria-hidden="true"><use href="#i-copy"></use></svg><span data-i18n="lobby.copyCode">Copy code</span></button>
+                <button id="btn-lobby-share-global" type="button" class="cs-share-btn"><svg class="ui-icon" aria-hidden="true"><use href="#i-globe"></use></svg><span data-i18n="lobby.shareGlobal">Share to global chat</span></button>
+            </div>
             <div class="cs-lobby-name">
                 <input id="lobby-name-input" class="cs-lobby-name-input" type="text" maxlength="32" placeholder="Lobby Name" value="Lobby" spellcheck="false" data-i18n-attr="placeholder:lobby.namePlaceholder">
             </div>

@@ -21,6 +21,7 @@ import { VoiceChat } from './voice.js';
 import { Store, isNewPlayerProfile, shouldShowFtueWelcome } from './store.js';
 import { streakCaseForDay } from './reward-track.js';
 import { filterChatText } from './chat-filter.js';
+import { GlobalChatClient } from './global-chat.js';
 import { attachViewmodelFx, disposeViewmodelFx } from './viewmodel-fx.js';
 import { DEFAULT_LOADOUT } from './skills.js';
 import { ARENA_CARDS, CARD_RARITIES } from './cards.js';
@@ -922,6 +923,8 @@ class App {
     _setGuest(guest) {
         this._guest = guest === true;
         if (typeof document === 'undefined') return;
+        // Guests have no friends list yet: open the social rail on global chat.
+        if (this._guest && this._friendsRailTab === 'friends') this._setFriendsRailTab('global');
         document.body.classList.toggle('is-guest', this._guest);
         // From a gated action the guest CTA means "back to the game", not "start".
         const cta = document.getElementById('auth-guest');
@@ -2548,6 +2551,11 @@ class App {
         bind('btn-lobby-settings', () => {
             this.openSettingsModal();
         });
+        bind('btn-lobby-copy-code', () => this._copyLobbyCode(this._lobbyCode));
+        bind('btn-lobby-share-global', () => this._shareLobbyToGlobalChat());
+        window.addEventListener('warrball:screen', event => {
+            if (event.detail?.screen === 'lobby') this._syncLobbyShareRow();
+        }, { signal: this._mainAbort.signal });
 
         // Pause menu
         bind('pause-resume', () => {
@@ -7323,6 +7331,7 @@ updateCarousel() {
         if (trustedRoomCode && trustedRoomCode.length <= 128) {
             this._lobbyCode = trustedRoomCode;
             this.ui.setRoomCode(trustedRoomCode);
+            this._syncLobbyShareRow?.();
         }
         this.game.onModeChange?.(this.game.mode?.id);
     }
@@ -7374,6 +7383,7 @@ updateCarousel() {
         if (trustedRoomCode && trustedRoomCode.length <= 128) {
             this._lobbyCode = trustedRoomCode;
             this.ui.setRoomCode(trustedRoomCode);
+            this._syncLobbyShareRow?.();
         }
 
         const pendingWelcome = this._pendingInitialLobbyWelcome;
@@ -8563,6 +8573,7 @@ updateCarousel() {
                 }
             }, 12000);
             this._lobbyCode = code;
+            this._syncLobbyShareRow();
             return true;
         } catch (e) {
             alert('Failed to create lobby: ' + e.message);
@@ -8768,6 +8779,7 @@ updateCarousel() {
             this._setFriendsRailTab(socialTabs[next]?.dataset.fbarTab);
         });
         this._setFriendsRailTab(this._friendsRailTab);
+        this._initGlobalChat();
         const savePresence = () => {
             const next = this._saveSocialDiscoveryPreferences(discoverable?.checked !== false, 'global');
             this._presenceHeartbeatNow?.();
@@ -8992,13 +9004,167 @@ updateCarousel() {
     }
 
     _setFriendsRailTab(tab) {
-        this._friendsRailTab = ['friends', 'online', 'nearby'].includes(tab) ? tab : 'friends';
+        this._friendsRailTab = ['friends', 'online', 'nearby', 'global'].includes(tab) ? tab : 'friends';
         document.querySelectorAll('[data-fbar-tab]').forEach(button => {
             const selected = button.dataset.fbarTab === this._friendsRailTab;
             button.setAttribute('aria-selected', String(selected));
             button.tabIndex = selected ? 0 : -1;
         });
-        this.refreshFriendsSidebar();
+        const global = this._friendsRailTab === 'global';
+        const globalPanel = document.getElementById('fbar-global');
+        if (globalPanel) globalPanel.hidden = !global;
+        for (const selector of ['#fbar-directory', '.fbar-directory-heading', '.fbar-presence-controls', '.fbar-profile-code', '.friends-sidebar-add']) {
+            const element = document.querySelector(selector);
+            if (element) element.hidden = global;
+        }
+        if (global) {
+            this._globalChatUnread = 0;
+            this._renderGlobalChat();
+        } else this.refreshFriendsSidebar();
+    }
+
+    // --- Global chat (main menu social rail) ------------------------------------
+    _initGlobalChat() {
+        if (this.globalChat) return;
+        this._globalChatUnread = 0;
+        this.globalChat = new GlobalChatClient({
+            getToken: () => this._lobbyAuthToken(),
+            onUpdate: (_all, fresh) => {
+                if (this._friendsRailTab !== 'global') this._globalChatUnread += fresh.length;
+                this._renderGlobalChat();
+            }
+        });
+        const syncPolling = screen => {
+            if (screen === 'mainMenu') this.globalChat.start();
+            else this.globalChat.stop();
+        };
+        window.addEventListener('warrball:screen', event => syncPolling(event.detail?.screen), { signal: this._mainAbort.signal });
+        syncPolling(document.body.dataset.screen);
+        document.getElementById('global-chat-form')?.addEventListener('submit', async event => {
+            event.preventDefault();
+            const input = document.getElementById('global-chat-input');
+            const text = input?.value.trim();
+            if (!text) return;
+            const result = await this.globalChat.send(text);
+            if (result.ok) { if (input) input.value = ''; return; }
+            this.ui.showMessage?.(t(this._globalChatErrorKey(result.code)), 2200);
+        }, { signal: this._mainAbort.signal });
+    }
+
+    _globalChatErrorKey(code) {
+        return {
+            rate_limited: 'toast.gchatSlowDown',
+            duplicate: 'toast.gchatDuplicate',
+            invite_cooldown: 'toast.gchatInviteCooldown',
+            not_host: 'toast.gchatHostOnly',
+            lobby_unavailable: 'toast.gchatLobbyUnlisted',
+            sign_in_required: 'toast.gchatNoIdentity'
+        }[code] || 'toast.gchatOffline';
+    }
+
+    _renderGlobalChat() {
+        const badge = document.getElementById('global-chat-unread');
+        if (badge) {
+            badge.hidden = !(this._globalChatUnread > 0);
+            badge.textContent = this._globalChatUnread > 99 ? '99+' : String(this._globalChatUnread || '');
+        }
+        const log = document.getElementById('global-chat-log');
+        if (!log || this._friendsRailTab !== 'global' || !this.globalChat) return;
+        const muted = new Set(this.store.get('mutedPlayers') || []);
+        const messages = this.globalChat.messages.filter(message => !muted.has(message.author));
+        const nearBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+        if (!messages.length) {
+            const empty = document.createElement('li');
+            empty.className = 'global-chat-empty';
+            empty.textContent = t(this.globalChat.available ? 'gchat.empty' : 'gchat.unavailable');
+            log.replaceChildren(empty);
+            return;
+        }
+        log.replaceChildren(...messages.map(message => {
+            const item = document.createElement('li');
+            item.className = message.kind === 'invite' ? 'global-chat-msg global-chat-invite' : 'global-chat-msg';
+            const author = document.createElement('b');
+            author.textContent = this._chatClean(String(message.author || 'Player'));
+            if (message.guest) author.classList.add('is-guest');
+            if (message.kind !== 'invite' || !message.invite) {
+                item.append(author, document.createTextNode(` ${this._chatClean(String(message.text || ''))}`));
+                return item;
+            }
+            const invite = message.invite;
+            const title = document.createElement('span');
+            title.className = 'global-chat-invite-title';
+            title.append(author, document.createTextNode(` ${t('gchat.invites')}`));
+            const room = document.createElement('strong');
+            room.textContent = `${invite.locked ? '🔒 ' : ''}${this._chatClean(String(invite.name || 'Lobby'))}`;
+            const meta = document.createElement('small');
+            const count = invite.maxPlayers ? `${invite.players}/${invite.maxPlayers}` : String(invite.players || 1);
+            meta.textContent = [invite.mode, invite.map, t('gchat.players', { count })].filter(Boolean).join(' · ');
+            const actions = document.createElement('span');
+            actions.className = 'global-chat-invite-actions';
+            const join = document.createElement('button');
+            join.type = 'button';
+            join.className = 'btn btn-primary btn-small';
+            join.textContent = t('gchat.join');
+            join.addEventListener('click', () => this._joinFromGlobalInvite(invite));
+            const copy = document.createElement('button');
+            copy.type = 'button';
+            copy.className = 'btn btn-secondary btn-small';
+            copy.textContent = t('gchat.copy');
+            copy.addEventListener('click', () => this._copyLobbyCode(invite.code));
+            actions.append(join, copy);
+            item.append(title, room, meta, actions);
+            return item;
+        }));
+        if (nearBottom) log.scrollTop = log.scrollHeight;
+    }
+
+    // Online rooms only: copy for everyone, share for the host. Re-run once the
+    // room code exists (the lobby screen opens before hosting finishes).
+    _syncLobbyShareRow() {
+        const isHost = this.network?.isHost === true;
+        const online = !!this._lobbyCode && (isHost || this.network?.connected === true);
+        const row = document.querySelector('.cs-share-row');
+        if (row) row.hidden = !online;
+        const share = document.getElementById('btn-lobby-share-global');
+        if (share) share.hidden = !(online && isHost);
+    }
+
+    async _copyLobbyCode(code) {
+        const value = String(code || '').trim();
+        if (!value) return;
+        try {
+            await navigator.clipboard.writeText(value);
+            this.ui.showMessage?.(t('toast.lobbyCodeCopied', { code: value }), 1600);
+        } catch {
+            window.prompt(t('toast.lobbyCodeCopyManual'), value);
+        }
+    }
+
+    async _joinFromGlobalInvite(invite) {
+        const code = String(invite?.code || '').trim();
+        if (!code || this.game.state !== STATES.MENU) return;
+        // Password lobbies (and ranked) go through Join by Code so the player can
+        // type the password; open ones join straight away.
+        if (invite.locked || invite.ranked) {
+            const input = document.getElementById('join-code-input');
+            if (input) input.value = code;
+            this.ui.showScreen('joinMenu');
+            document.getElementById('join-pass-input')?.focus();
+            return;
+        }
+        const name = document.getElementById('player-name-input')?.value?.trim() || 'Player';
+        await this._joinOnlineLobby(code, name, '');
+    }
+
+    async _shareLobbyToGlobalChat() {
+        const code = this._lobbyCode;
+        if (!code || !this.network?.isHost) {
+            this.ui.showMessage?.(t('toast.gchatHostOnly'), 2200);
+            return;
+        }
+        this._initGlobalChat();
+        const result = await this.globalChat.shareLobby(code);
+        this.ui.showMessage?.(t(result.ok ? 'toast.gchatShared' : this._globalChatErrorKey(result.code)), 2400);
     }
 
     _setMobileSocialRailOpen(open, { moveFocus = true } = {}) {
