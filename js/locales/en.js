@@ -745,7 +745,10 @@ export default {
     },
     replays: {
         kicker: 'MATCH VAULT',
-        copy: 'Review, copy, or remove your latest 10 local matches.'
+        copy: 'Review, copy, or remove your latest 10 local matches.',
+        codePlaceholder: 'Paste a Play of the Game code (VP1.…)',
+        codeAria: 'Play of the Game code',
+        codeWatch: '▶ Watch'
     },
     profile: {
         title: 'Player Profile',
@@ -1025,6 +1028,7 @@ export default {
         tabRewards: 'Rewards',
         tabDetails: 'Details',
         potgWatch: '▶ Watch',
+        potgShare: 'Copy code',
         dropLogSub: 'Who got what this match',
         matchDetails: 'Match details',
         detailTabs: 'Overview · Timeline · Stats',
@@ -1258,6 +1262,9 @@ export default {
         loadoutSaved: 'Loadout saved!',
         hostOnlyStart: 'Only host can start',
         hostOnlyBots: 'Only the lobby host can manage bots.',
+        potgCodeCopied: 'Play of the Game code copied ({size} KB) — paste it in Replays',
+        potgCodeFailed: 'This browser cannot make a code',
+        potgCodeBad: 'That code does not work: {reason}',
         botsFilled: 'Empty seats filled with bots: {count}',
         hostOnlyMap: 'Only the lobby host can change the map.',
         unsupportedRes: '⚠️ Unsupported resolution: {value}',

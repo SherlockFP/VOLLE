@@ -51,8 +51,9 @@ import { TEAM_MENU_KEYS } from './team-switch.js';
 import { getReward as getBattlepassRewardEntry } from './battlepass.js';
 import { Replay, extractReplayHighlight } from './replay.js';
 import { ReplayView } from './replay-view.js';
-import { pickPlayOfTheGame } from './play-of-game.js';
+import { pickPlayOfTheGame, playTags } from './play-of-game.js';
 import { createPotgStage } from './potg-player.js';
+import { canEncodePotgCode, decodePotgCode, encodePotgCode } from './potg-code.js';
 import { WEEKLY_EVENT_XP_BONUS, timeLeftParts, weeklyEvent, weeklyEventXpBonus } from './weekly-event.js';
 import { CAMERA_MODES, Spectator } from './spectator.js';
 import { JOINED_SPECTATOR_MODES } from './spectator.js';
@@ -2122,7 +2123,7 @@ class App {
         const play = pickPlayOfTheGame(replay);
         this._playOfTheGame = play ? { matchId, play, replay: extractReplayHighlight(replay, { label: 'Play of the Game', start: play.start, end: play.end }) } : null;
         // Solo watches in the arena; online it plays inline on the report (_watchPlayOfTheGame).
-        this.ui.setPlayOfTheGame?.(play, { canWatch: !!play });
+        this.ui.setPlayOfTheGame?.(play, { canWatch: !!play, canShare: !!play && canEncodePotgCode() });
         return play;
     }
 
@@ -2139,6 +2140,42 @@ class App {
         hidden.forEach(group => { group.visible = false; });
         this._startReplay(entry.replay);
         this._replayReturn = { hidden };
+        return true;
+    }
+
+    // "Copy code": the clip as a VP1 code (js/potg-code.js) anyone can paste into
+    // the Replays screen. Nothing is uploaded.
+    async _sharePlayOfTheGame() {
+        const entry = this._playOfTheGame;
+        if (!entry) return false;
+        const code = await encodePotgCode(entry.replay, entry.play).catch(() => null);
+        if (!code) {
+            this.ui.showMessage?.(t('toast.potgCodeFailed'), 1800);
+            return false;
+        }
+        try {
+            await navigator.clipboard.writeText(code);
+            this.ui.showMessage?.(t('toast.potgCodeCopied', { size: Math.ceil(code.length / 1024) }), 2000);
+        } catch {
+            window.prompt(t('toast.lobbyCodeCopyManual'), code);
+        }
+        return true;
+    }
+
+    // Replays screen: paste a VP1 code and watch it (a map this device does not
+    // know plays on the current arena).
+    async _playPotgCode(code) {
+        if (this.game.state !== STATES.MENU) return false;
+        const decoded = await decodePotgCode(code);
+        if (!decoded.ok) {
+            this.ui.showMessage?.(t('toast.potgCodeBad', { reason: decoded.error }), 2200);
+            return false;
+        }
+        const clip = decoded.clip;
+        if (!Object.hasOwn(Arena.MAPS, clip.meta.map)) clip.meta.map = this.arena?.mapId;
+        this._startReplay(clip);
+        const tags = playTags(decoded.play, t).join(' · ');
+        this.ui.showMessage?.(`${t('pg.potg')}: ${decoded.play.player || t('potg.rallyOnly')}${tags ? ` — ${tags}` : ''}`, 2600);
         return true;
     }
 
@@ -2498,6 +2535,11 @@ class App {
         bind('replay-next', () => Spectator.nextTarget());
         bind('replay-exit', () => this._exitReplay());
         bind('btn-pg-potg-watch', () => this._watchPlayOfTheGame());
+        bind('btn-pg-potg-share', () => this._sharePlayOfTheGame());
+        document.getElementById('replay-code-form')?.addEventListener('submit', event => {
+            event.preventDefault();
+            void this._playPotgCode(document.getElementById('replay-code-input')?.value || '');
+        });
         document.getElementById('replay-seek')?.addEventListener('input', event => {
             const state = Replay.getPlaybackState();
             Replay.seek((Number(event.target.value) / 1000) * state.duration);

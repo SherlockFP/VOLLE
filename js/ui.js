@@ -1379,7 +1379,7 @@ export class UI {
 
     // Play of the Game card on the report: who, what (tags), and a Watch button
     // when the replay can be played here (solo). null hides it.
-    setPlayOfTheGame(play, { canWatch = false } = {}) {
+    setPlayOfTheGame(play, { canWatch = false, canShare = false } = {}) {
         const card = document.getElementById('pg-potg');
         if (!card) return false;
         if (!play) {
@@ -1400,6 +1400,8 @@ export class UI {
             }
         }
         if (watch) watch.hidden = !canWatch;
+        const share = document.getElementById('btn-pg-potg-share');
+        if (share) share.hidden = !canShare;
         card.hidden = false;
         return true;
     }

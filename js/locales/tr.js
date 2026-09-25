@@ -742,7 +742,10 @@ export default {
     },
     replays: {
         kicker: 'MAÇ ARŞİVİ',
-        copy: 'Son 10 yerel maçını izle, kopyala veya sil.'
+        copy: 'Son 10 yerel maçını izle, kopyala veya sil.',
+        codePlaceholder: 'Maçın Anı kodunu yapıştır (VP1.…)',
+        codeAria: 'Maçın Anı kodu',
+        codeWatch: '▶ İzle'
     },
     profile: {
         title: 'Oyuncu Profili',
@@ -1019,6 +1022,7 @@ export default {
         tabRewards: 'Ödüller',
         tabDetails: 'Detay',
         potgWatch: '▶ İzle',
+        potgShare: 'Kodu kopyala',
         dropLogSub: 'Bu maçta kime ne düştü',
         matchDetails: 'Maç detayları',
         detailTabs: 'Genel Bakış · Zaman Çizelgesi · İstatistikler',
@@ -1247,6 +1251,9 @@ export default {
         loadoutSaved: 'Teçhizat kaydedildi!',
         hostOnlyStart: 'Yalnızca kurucu başlatabilir',
         hostOnlyBots: 'Botları yalnızca lobi kurucusu yönetebilir.',
+        potgCodeCopied: 'Maçın Anı kodu kopyalandı ({size} KB), Tekrarlar\'a yapıştır',
+        potgCodeFailed: 'Bu tarayıcı kod oluşturamıyor',
+        potgCodeBad: 'Bu kod çalışmıyor: {reason}',
         botsFilled: 'Boş yerlere giren bot: {count}',
         hostOnlyMap: 'Haritayı yalnızca lobi kurucusu değiştirebilir.',
         unsupportedRes: '⚠️ Desteklenmeyen çözünürlük: {value}',

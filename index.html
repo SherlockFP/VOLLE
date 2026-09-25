@@ -24,7 +24,7 @@
     <link rel="stylesheet" href="css/menu-depth.css?v=2">
     <link rel="stylesheet" href="css/hud.css?v=5">
     <link rel="stylesheet" href="css/spectator.css?v=1">
-    <link rel="stylesheet" href="css/postgame.css?v=6">
+    <link rel="stylesheet" href="css/postgame.css?v=7">
     <link rel="stylesheet" href="css/touch.css?v=2">
     <!-- Arena menu layer (docs/MENU_DESIGN.md): loaded last so it owns the menu/shell
          cascade without editing the older sheets. Uses the existing DM Sans + Nunito faces. -->
@@ -1530,6 +1530,11 @@
             <header class="shell-header">
                 <div class="shell-title"><span class="shell-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-replay"></use></svg></span><div><span class="shell-kicker" data-i18n="replays.kicker">MATCH VAULT</span><h1 data-i18n="menu.replays">Replays</h1><p data-i18n="replays.copy">Review, copy, or remove your latest 10 local matches.</p></div></div>
             </header>
+            <!-- Play of the Game codes (js/potg-code.js): paste one to watch it here. -->
+            <form id="replay-code-form" class="replay-code-form" autocomplete="off">
+                <input id="replay-code-input" type="text" maxlength="120000" spellcheck="false" placeholder="Paste a Play of the Game code (VP1.…)" aria-label="Play of the Game code" data-i18n-attr="placeholder:replays.codePlaceholder;aria-label:replays.codeAria">
+                <button type="submit" class="btn btn-secondary" data-i18n="replays.codeWatch">▶ Watch</button>
+            </form>
             <div id="replay-list" class="replay-list"></div>
             <button id="btn-replays-back" class="btn btn-secondary shell-back" data-i18n="common.backToMenu"><svg class="ui-icon" aria-hidden="true"><use href="#i-arrow-left"></use></svg>Back to menu</button>
         </div>
@@ -2244,6 +2249,7 @@
                         <div class="pg-potg-tags" id="pg-potg-tags"></div>
                     </div>
                     <button id="btn-pg-potg-watch" class="btn btn-secondary btn-small" type="button" hidden data-i18n="pg.potgWatch">▶ Watch</button>
+                    <button id="btn-pg-potg-share" class="btn btn-secondary btn-small" type="button" hidden data-i18n="pg.potgShare">Copy code</button>
                     <!-- Online: the clip plays here (js/potg-player.js), the report stays live. -->
                     <div id="pg-potg-stage" class="pg-potg-stage" hidden>
                         <div class="pg-potg-canvas"></div>

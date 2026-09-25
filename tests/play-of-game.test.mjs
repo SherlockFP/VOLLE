@@ -63,7 +63,7 @@ test('wiring: kills are recorded, the report shows the card, solo watching retur
     const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
     assert.match(game, /if \(!this\._claimKillPresentation\(attackerName, victimName, rallyCount, detail\)\) return false;\s+\/\/[^\n]*\n\s+this\.onReplayEvent\?\.\(\{\s+type: 'kill',/);
     assert.match(main, /this\._presentPlayOfTheGame\?\.\(this\.game\.matchId\);\s+this\.awardMatchRewards\(\);/);
-    assert.match(main, /this\.ui\.setPlayOfTheGame\?\.\(play, \{ canWatch: !!play \}\);/);
+    assert.match(main, /this\.ui\.setPlayOfTheGame\?\.\(play, \{ canWatch: !!play, canShare: !!play && canEncodePotgCode\(\) \}\);/);
     assert.match(main, /if \(!entry \|\| entry\.matchId !== this\.game\.matchId \|\| this\.game\.state !== STATES\.GAME_OVER\) return false;/);
     assert.match(main, /if \(this\.network\?\.connected\) return this\._watchPlayOfTheGameInline\(entry\);/, 'online plays inline, the report stays live');
     assert.match(main, /this\._playOfTheGame = null;\s+this\._disposePotgStage\?\.\(\);/, 'the next match tears the stage down');
