@@ -1,8 +1,31 @@
 # MIMO.md — 2BALL Project Current State
 
-> **Last updated:** 2026-09-20
+> **Last updated:** 2026-09-25
 > **Status:** Active Gauntlet development. Canonical cycle order and exit gates live in `docs/GAUNTLET_CYCLES.md`.
 > **Tech Stack:** Three.js + PeerJS + vanilla JS (ES modules), browser-based 3D dodgeball.
+
+## 2026-09-25 Fun pass: feature files, clans, balance data
+
+- `js/main.js` keeps some features in their own files: `js/app-clans.js`,
+  `js/app-global-chat.js`, `js/app-play-of-game.js`, `js/app-lobby-backfill.js`
+  and `js/app-match-meta.js` each export a plain class whose methods
+  `js/app-mixins.js` copies onto `App.prototype` at load (a duplicate name
+  throws). Source-shape tests read them together via `tests/app-source.mjs`.
+  New App features belong in such a file, not in main.js.
+- Server clans (`server/clan-store.js`, `DATA_DIR/clans.json`, `/api/clans/*`):
+  create, join by tag, leave, clan chat, top list. A settled lobby match whose
+  winners are all in one clan and losers all in another counts as a clan match
+  (`server/match-authority.js`).
+- Balance data: `match_complete` carries `js/balance-outcome.js` facts (queue,
+  map, result, bot difficulty, character, team size, rounds, deficit, kills,
+  rally). `npm run balance` (`scripts/balance-report.js`) reports win rates and
+  flags difficulties/characters off their bands.
+- Also this pass: CS:GO-style drops (`js/drop-feed.js`), bot backfill
+  (`js/bot-backfill.js`), Play of the Game + share codes (`js/play-of-game.js`,
+  `js/potg-player.js`, `js/potg-code.js`), weekly event + ladder
+  (`js/weekly-event.js`, `server/weekly-event.js`), report tabs, static
+  compression prewarm (`server/compress.js`), persisted global chat. Details:
+  `vault/sessions/2026-09-25-fun-pass.md`.
 
 ## 2026-09-20 Bot fairness and Arcade gameplay access
 
@@ -683,7 +706,8 @@ dodgb/
 │   ├── style.css           — All styles
 │   ├── auth.css            — Auth modal (register/login)
 ├── js/
-│   ├── main.js             — Bootstrap
+│   ├── main.js             — Bootstrap (App class)
+│   ├── app-*.js            — App feature methods mixed into App (app-mixins.js)
 │   ├── game.js             — Game loop, states, combat (~3200 lines)
 │   ├── player.js           — FPS controller + stats (~586 lines)
 │   ├── bot.js              — AI
@@ -722,6 +746,7 @@ dodgb/
 │   ├── creator-map-store.js — User-created map storage
 │   ├── payment-ledger.js    — In-app purchase ledger
 │   ├── telemetry.js         — Analytics storage
+│   ├── clan-store.js        — Server clans + clan-vs-clan records
 │   └── [other server modules]
 ├── models/                 — 3D models
 ├── music/                  — Background music

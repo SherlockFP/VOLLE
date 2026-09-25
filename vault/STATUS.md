@@ -15,7 +15,12 @@
 - `sfx/tf2_*.mp3` TF2 kaynaklı; sahip bu sesleri tutmaya karar verdi.
 - Maçın Anı online'da da izlenebiliyor (rapor içinde küçük sahne); misafirler de kayıt tutuyor. Geç katılan AUTO botun koltuğunu alıyor. **Haftalık etkinlik** menüde, o modda +%50 XP.
 - Dokunmatikte JUMP atlıyor, ipuçları dokunmatik dilinde. Kodlu harita lobide geç katılana da görünüyor. Puan kartı ~6,3 → ~7,1 (ayrıntı oturum notunda).
-- Doğrulama **2641/2642 test** (+1 skip), check 157 dosya OK. Dal main'e birleşmedi.
+- **Tur 4 (takas hariç hepsi):** maç sonu raporunda Özet/Ödüller/Detay sekmeleri, sunucu sıkıştırması olay döngüsü dışında, global chat kalıcı. Maçın Anı kod olarak paylaşılıyor (Tekrarlar'a yapıştır). Haftalık etkinlik sıralaması var (lider tablosunda Etkinlik sekmesi).
+- **Sunucu klanları:** kur, etiketle katıl, sohbet, en iyi klanlar. Klan-klan lobi maçı iki klanın kaydına yazılıyor. Klanlar ekranı tema yüzünden okunmuyordu, düzeltildi.
+- **Denge verisi:** `match_complete` olayı zorluk, harita, karakter, takım boyutu ve raund bilgisini taşıyor; `npm run balance` rapor çıkarıyor.
+- **main.js bölündü:** 10,7k → 10,2k satır. Bu turun özellikleri `js/app-*.js` (mixin) dosyalarında; yeni App özellikleri oraya yazılmalı.
+- Puan kartı ~7,1 → ~7,3.
+- Doğrulama **2666/2667 test** (+1 skip), check 166 dosya OK. Bir zamanlama testi (mesh-security) yük altında bir kez kırıldı; ayrıntı oturum notunda. Dal main'e birleşmedi.
 
 ## En yeni — Sınırlı döngü: mobil + ilk yükleme ([[sessions/2026-09-25-bounded-mobile-perf]])
 - Sözleşme önceden yazıldı (sabit hedef, kanıt, değişmezler, tur limiti, ayrı commit). main'in çevrimiçi oyun düzeltmesiyle birleştirildi.
