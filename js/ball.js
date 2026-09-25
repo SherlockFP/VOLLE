@@ -436,7 +436,7 @@ export const SHAPE_SPIN = Object.freeze({ shuriken: 9, orb: 1.1 });
 
 const shapeGeoCache = new Map();
 
-function buildShapeParts(shape, r, THREE) {
+function buildShapeParts(shape, r) {
     if (shape === 'shuriken') {
         const star = new THREE.Shape();
         for (let i = 0; i < 8; i++) {
@@ -493,12 +493,13 @@ function buildShapeParts(shape, r, THREE) {
 }
 
 // Shared, lazily built geometry for one shape. Never disposed — a handful of small
-// buffers reused by every ball for the whole session.
-export function ballShapeParts(shape, radius, THREE) {
+// buffers reused by every ball for the whole session. Never pass the THREE namespace
+// around as a value: that makes the bundler keep all of three.js (~200 KB more).
+export function ballShapeParts(shape, radius) {
     const key = `${shape}:${radius}`;
     let parts = shapeGeoCache.get(key);
     if (!parts) {
-        parts = buildShapeParts(shape, radius, THREE);
+        parts = buildShapeParts(shape, radius);
         shapeGeoCache.set(key, parts);
     }
     return parts;
@@ -844,7 +845,7 @@ export class Ball {
         let group = this._shapeGroups.get(next);
         if (!group) {
             group = new THREE.Group();
-            for (const part of ballShapeParts(next, this.visualRadius, THREE)) {
+            for (const part of ballShapeParts(next, this.visualRadius)) {
                 const material = part.tint === 'accent' ? this.starMat : this._shapeMat;
                 const mesh = new THREE.Mesh(part.geo, material);
                 if (part.outline) mesh.add(this.renderer.createOutlineMesh(part.geo, part.outline));

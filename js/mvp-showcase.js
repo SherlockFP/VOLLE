@@ -45,7 +45,7 @@ function buildBallModel(ballSkinId) {
     const accent = new THREE.MeshStandardMaterial({ color: skin.glow, roughness: .3, metalness: .5, emissive: skin.glow, emissiveIntensity: .34 });
     const radius = 0.34;
     const parts = skin.shape
-        ? ballShapeParts(skin.shape, radius, THREE)
+        ? ballShapeParts(skin.shape, radius)
         : [{ geo: new THREE.SphereGeometry(radius, 22, 16), tint: 'body', owned: true }];
     for (const part of parts) {
         group.add(new THREE.Mesh(part.owned ? part.geo : part.geo.clone(), part.tint === 'accent' ? accent : body));

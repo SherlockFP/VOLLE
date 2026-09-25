@@ -4,8 +4,9 @@
 // red back line, the Hangar behind the blue one, the Radome on the east
 // ridge; Lab 2 lines the west flank, pines fill the east. Ambient life:
 // blowing spindrift, snowfall (weather), flags, blinking beacons, ravens.
+import * as THREE from 'three';
 import {
-    THREE, GeoBatch, instanced, animate, canvasTexture, courtDecal,
+    GeoBatch, instanced, animate, canvasTexture, courtDecal,
     signAtlas, paintSign
 } from './kit.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';

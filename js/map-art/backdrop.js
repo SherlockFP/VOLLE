@@ -19,7 +19,8 @@
 // splice): near the court it follows the scene fog, far away it fades to the
 // sky's horizon colour, so the ranges read at any fog setting and dim with
 // the weather (arena._backdropHaze.applyWeather).
-import { THREE, GeoBatch, instanced, canvasTexture, facadeBox, hashString, mulberry32 } from './kit.js';
+import * as THREE from 'three';
+import { GeoBatch, instanced, canvasTexture, facadeBox, hashString, mulberry32 } from './kit.js';
 import { MAP_BACKDROPS, WEATHER_LOOK } from '../arena.js';
 
 export const BACKDROP_DRAW_CALL_BUDGET = 8;

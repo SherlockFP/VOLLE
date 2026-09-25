@@ -5,8 +5,9 @@
 // the blue one, the moored Ship and a city skyline across the bay.
 // Wet ground = low-roughness MeshStandard + a painted night environment map
 // (scene.environment, cleared by Arena.clearMap). Rain is the map's weather.
+import * as THREE from 'three';
 import {
-    THREE, GeoBatch, instanced, animate, canvasTexture, courtDecal,
+    GeoBatch, instanced, animate, canvasTexture, courtDecal,
     signAtlas, paintSign, facadeBox, paintedEnvironment, glowTexture
 } from './kit.js';
 

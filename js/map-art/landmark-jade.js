@@ -5,8 +5,9 @@
 // Gate in the east wall; the Koi Pond + Red Bridge on the west flank and a
 // Bamboo grove to the east. Ambient life: falling petals (particles), koi
 // and lily pads, swaying lanterns and banners, cranes circling.
+import * as THREE from 'three';
 import {
-    THREE, GeoBatch, instanced, animate, canvasTexture, courtDecal,
+    GeoBatch, instanced, animate, canvasTexture, courtDecal,
     signAtlas, paintSign, wallWithOpening
 } from './kit.js';
 

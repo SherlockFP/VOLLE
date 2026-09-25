@@ -97,7 +97,7 @@ test('selected ball drives the persistent live showcase with real model geometry
     assert.match(ui, /type: 'ball', id: item\.id, ball: item, source: 'shop'/);
     assert.match(main, /detail\?\.type === 'ball' && BALL_SKINS\[detail\.id\]/);
     assert.match(main, /_renderCosmeticPreview\(visual, skin, \(\) => this\._buildBallPreviewModel\(skin\), false\)/);
-    assert.match(main, /skin\.shape\s*\? ballShapeParts\(skin\.shape, \.45, THREE\)/);
+    assert.match(main, /skin\.shape\s*\? ballShapeParts\(skin\.shape, \.45\)/);
     assert.match(main, /skin\.shape === 'shuriken'\)[\s\S]{0,80}content\.rotation\.x = Math\.PI \/ 2/,
         'gameplay shuriken lies edge-on to the showcase camera unless its inner model is faced forward');
     assert.match(main, /group\.userData\.previewSpinAxis = 'z'/,

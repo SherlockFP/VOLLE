@@ -5,8 +5,9 @@
 // Callouts are painted on the gates, house walls and the court itself.
 // Cover + colliders live in js/arena.js GAMEPLAY_LAYOUTS (stalls, crates,
 // carts, wells); everything here stays outside the court and never collides.
+import * as THREE from 'three';
 import {
-    THREE, GeoBatch, instanced, animate, canvasTexture, courtDecal, addBunting,
+    GeoBatch, instanced, animate, canvasTexture, courtDecal, addBunting,
     signAtlas, paintSign, facadeBox, wallWithOpening
 } from './kit.js';
 

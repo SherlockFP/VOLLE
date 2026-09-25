@@ -220,7 +220,7 @@ test('knife subjects carry the viewmodel rarity rim; dispose frees it and the kn
 test('ball model skins never dispose the shared ball.js shape geometry', async () => {
     const { ballShapeParts } = await import('../js/ball.js');
     const desc = describeThumbnailItem({ id: 'shuriken' }, 'ball');
-    const shared = ballShapeParts('shuriken', 0.43, THREE).map(part => part.geo);
+    const shared = ballShapeParts('shuriken', 0.43).map(part => part.geo);
     let sharedDisposed = 0;
     for (const geo of shared) geo.addEventListener('dispose', () => sharedDisposed++);
     const subject = buildThumbnailSubject(desc);

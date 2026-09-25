@@ -452,5 +452,3 @@ export function paintedEnvironment(ctx, draw) {
     if (texture) texture.mapping = THREE.EquirectangularReflectionMapping;
     return texture;
 }
-
-export { THREE };

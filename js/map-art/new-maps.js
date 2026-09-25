@@ -6,8 +6,9 @@
 // synchronously and deterministically on every client. This file only dresses
 // the space OUTSIDE the court lines, so nothing here can collide or block.
 // Budget: every family of props is one merged mesh or one InstancedMesh.
+import * as THREE from 'three';
 import {
-    THREE, GeoBatch, instanced, animate, canvasTexture, courtDecal
+    GeoBatch, instanced, animate, canvasTexture, courtDecal
 } from './kit.js';
 
 // ---------------------------------------------------------------------------

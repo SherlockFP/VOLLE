@@ -558,36 +558,20 @@ export class SpectatorClass {
     async _handleContextMenu(event) {
         if (!this.freeCam || !this.camera || !this.game?.arena) return
         event.preventDefault()
-        const THREE = await import('three')
+        const { groundPointFromClick } = await import('./spectator-ping.js')
         if (!this.active || !this.freeCam || !this.game?.arena) return
-        const raycaster = new THREE.Raycaster()
-        const mouse = new THREE.Vector2(
-            (event.clientX / window.innerWidth) * 2 - 1,
-            -(event.clientY / window.innerHeight) * 2 + 1
-        )
-        raycaster.setFromCamera(mouse, this.camera)
-        const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
-        const hit = new THREE.Vector3()
-        const denominator = raycaster.ray.direction.dot(plane.normal)
-        if (Math.abs(denominator) <= 1e-6) return
-        const distance = -(raycaster.ray.origin.dot(plane.normal) + plane.constant) / denominator
-        if (distance <= 0) return
-        hit.copy(raycaster.ray.origin).add(raycaster.ray.direction.clone().multiplyScalar(distance))
+        const hit = groundPointFromClick(event.clientX, event.clientY, this.camera)
+        if (!hit) return
         const bounds = this.game.arena.bounds
         if (hit.x > bounds.minX && hit.x < bounds.maxX && hit.z > bounds.minZ && hit.z < bounds.maxZ) {
-            await this._spawnPing(hit, THREE)
+            await this._spawnPing(hit)
         }
     }
 
-    async _spawnPing(position, THREE) {
+    async _spawnPing(position) {
         if (!this.game?.arena) return
-        THREE ||= await import('three')
-        const ring = new THREE.Mesh(
-            new THREE.RingGeometry(0.5, 1, 24),
-            new THREE.MeshBasicMaterial({ color: 0x00ff88, transparent: true, opacity: 0.7, side: THREE.DoubleSide })
-        )
-        ring.position.set(position.x, 0.05, position.z)
-        ring.rotation.x = -Math.PI / 2
+        const { createPingMesh } = await import('./spectator-ping.js')
+        const ring = createPingMesh(position)
         this.game.arena.add(ring)
         this._pings.push({ mesh: ring, timer: 4 })
     }

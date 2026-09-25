@@ -3,7 +3,8 @@
 // a subtle court decal (one plane), 1-3 merged/instanced ambient prop
 // families and GPU-side ambient animation. Nothing here collides, and the
 // whole layer is skipped on Low quality (see Arena._loadMapArt).
-import { THREE, GeoBatch, instanced, animate, canvasTexture, courtDecal, addBunting } from './kit.js';
+import * as THREE from 'three';
+import { GeoBatch, instanced, animate, canvasTexture, courtDecal, addBunting } from './kit.js';
 import { drawNeonSign } from './new-maps.js';
 
 const TEAM_TEXT = 'rgba(255,255,255,0.14)';

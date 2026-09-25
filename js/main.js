@@ -5477,7 +5477,7 @@ updateCSLobbyInfo();
         const body = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: .38, metalness: .42, emissive: skin.glow, emissiveIntensity: .1 });
         const accent = new THREE.MeshStandardMaterial({ color: skin.glow, roughness: .3, metalness: .5, emissive: skin.glow, emissiveIntensity: .34 });
         const parts = skin.shape
-            ? ballShapeParts(skin.shape, .45, THREE)
+            ? ballShapeParts(skin.shape, .45)
             : [{ geo: new THREE.SphereGeometry(.45, 24, 18), tint: 'body', owned: true }];
         for (const part of parts) {
             content.add(new THREE.Mesh(part.owned ? part.geo : part.geo.clone(), part.tint === 'accent' ? accent : body));

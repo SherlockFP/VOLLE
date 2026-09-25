@@ -275,7 +275,7 @@ function buildBallSubject(desc) {
             group.add(star);
         }
     } else {
-        for (const part of ballShapeParts(shape, radius, THREE)) {
+        for (const part of ballShapeParts(shape, radius)) {
             const mesh = new THREE.Mesh(part.geo, part.tint === 'accent' ? accent : body);
             mesh.userData.sharedGeometry = true; // ball.js caches these for every ball
             group.add(mesh);
