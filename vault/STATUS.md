@@ -1,6 +1,15 @@
 # STATUS — 2026-09-25
 
-> Güncel çalışma: [[sessions/2026-09-25-bounded-mobile-perf]]. Önceki: [[sessions/2026-09-24-p2p-guest-join]], plan `docs/AAA_ROADMAP.md`.
+> Güncel çalışma: [[sessions/2026-09-25-fun-pass]]. Önceki: [[sessions/2026-09-25-bounded-mobile-perf]], plan `docs/AAA_ROADMAP.md`.
+
+## En yeni — "Oyun sıkıcı" geçişi ([[sessions/2026-09-25-fun-pass]])
+- Tanı: kısa ısınma, kolay botlar servisi kaçırıp ölüyordu. Botlar artık açılış servisini karşılıyor.
+- **Bedava kasalar:** her 3 maçta 1 kasa (5 kez), seri 3/5/7. günlerde ek kasa. Sunucu otoritesinde, menüde ilerleme kartı var. Misafire hesap istemi çıkıyor.
+- **Kill efektleri:** öldürene seri madalyası (double → rampage, kafa, perfect) ve öldürme noktasında uzaktan okunan ışık sütunu.
+- **Sohbet filtresi** EN/TR (varsayılan açık, Oynanış ayarından kapanır). **Global chat** ana menüde: host'un tek tık lobi daveti, Join/Copy, lobide kod kopyala/paylaş.
+- **Harita kodları:** editörde kodu kopyala/yükle, lobide kodu yapıştırıp o haritada oyna. Sunucuda saklanmıyor, kod doğrulanıyor.
+- **Görünürlük:** uzak top ≥12 px işaret, rakip başında takım renkli ok. **Akıcılık:** maç başı shader ön-derleme; maç ortası derleme donmaları 3 maçta 5 → 0 (en kötü 442 ms).
+- Doğrulama **2611/2611 test** (+1 skip), check 152 dosya OK. Dal main'e birleşmedi.
 
 ## En yeni — Sınırlı döngü: mobil + ilk yükleme ([[sessions/2026-09-25-bounded-mobile-perf]])
 - Sözleşme önceden yazıldı (sabit hedef, kanıt, değişmezler, tur limiti, ayrı commit). main'in çevrimiçi oyun düzeltmesiyle birleştirildi.
