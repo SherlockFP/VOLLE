@@ -87,7 +87,10 @@ export class Renderer {
     // first appearance mid-round does not stall that frame on a shader compile.
     // Programs are keyed on the render target (tone mapping, output color space), so
     // this compiles against the composer buffer the scene really draws into.
-    // compileAsync lets browsers with parallel shader compilation do it off-thread.
+    // Plain compile(), not compileAsync(): three r170's compileAsync polls
+    // `currentProgram.isReady()` from a timer, and a material disposed meanwhile (a
+    // map switch, a replay closing) throws there, where nothing can catch it. compile()
+    // only issues the compiles/links (still parallel where the browser supports it).
     // `root` narrows it to one subtree that just joined the scene (lit by the scene).
     prewarm(camera, root = this.scene) {
         if (!camera || !root || !this.renderer?.compile) return Promise.resolve(false);
@@ -96,12 +99,10 @@ export class Renderer {
             this._initComposer(camera);
             this.renderer.setRenderTarget(this._composer.readBuffer);
             const target = root === this.scene ? null : this.scene;
-            const jobs = [this.renderer.compileAsync
-                ? this.renderer.compileAsync(root, camera, target)
-                : Promise.resolve(this.renderer.compile(root, camera, target))];
+            this.renderer.compile(root, camera, target);
             const viewmodel = this._viewmodel;
-            if (!target && viewmodel?.scene && viewmodel.camera) jobs.push(Promise.resolve(this.renderer.compile(viewmodel.scene, viewmodel.camera)));
-            return Promise.all(jobs).then(() => true, () => false);
+            if (!target && viewmodel?.scene && viewmodel.camera) this.renderer.compile(viewmodel.scene, viewmodel.camera);
+            return Promise.resolve(true);
         } catch {
             return Promise.resolve(false);
         } finally {

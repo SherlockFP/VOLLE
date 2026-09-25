@@ -157,8 +157,8 @@ test('match start compiles hidden effects against the composer target', async ()
         _composer: { readBuffer },
         _initComposer: () => calls.push('init'),
         renderer: {
-            compile: () => {},
-            compileAsync: (root, cam, targetScene) => { calls.push({ root: root.id, target, targetScene: targetScene?.id ?? null }); return Promise.resolve(); },
+            compile: (root, cam, targetScene) => { calls.push({ root: root.id, target, targetScene: targetScene?.id ?? null }); },
+            compileAsync: () => { throw new Error('compileAsync polls disposed materials; prewarm must not use it'); },
             getRenderTarget: () => target,
             setRenderTarget: value => { target = value; }
         }
