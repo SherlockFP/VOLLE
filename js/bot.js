@@ -1253,7 +1253,14 @@ export class Bot {
             }
             const rolledWillDeflect = rng() < chance && reachable;
             const guard = this._firstSoloDeflectGuard;
-            if (guard?.forceNextOpportunity) {
+            // Nobody has touched the ball yet: this is the round's opening serve.
+            // A bot that failed it lost the round before anyone played (an easy
+            // bot 65% of the time, logged as an 'Environment' kill), so bots
+            // always return a reachable serve; the rally rolls start after it.
+            const openingServe = !!this._gameRef && !this._gameRef.lastDeflector;
+            if (openingServe && reachable) {
+                this._willDeflect = true;
+            } else if (guard?.forceNextOpportunity) {
                 this._willDeflect = true;
                 this._firstSoloDeflectGuard = null;
             } else {
