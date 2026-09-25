@@ -16,10 +16,12 @@ main'e başka oturumdan gelen çevrimiçi oyun düzeltmesi (misafir lobi oturumu
 
 **B — kısmi, plato** (`1582fbc`). three.js ağaç sallaması bozuktu (`map-art/kit.js` THREE'yi yeniden dışa veriyordu, `ball.js` argüman geçiyordu, `spectator.js` `import('three')`): three 688 → 550 KB; ilk JS 2407 → 2286 KB ham, **618 → 590 KiB brotli (−%4,5)**. Hedef %20'ye güvenli yoldan ulaşılamadı: kalan her kalem `main.js`'te çok sayıda statik import'u dinamiğe çevirmek (geniş kapsam/risk). Koruma testi: `tests/three-tree-shaking.test.mjs`.
 
-**Bulgu (hedef değişikliği önerisi, onay bekliyor):** gerçek tarayıcıda ilk açılış toplam **2046 KiB**, JS'in payı yalnız 652 KiB (%32). En büyük kalemler açılışta gereksiz: `trophy-gold.glb` 443 KiB (yalnız maç sonu), `volle-logo-512.png` 297 KiB, maç sonu görseli 134 KiB, mağaza görseli 125 KiB. Doğru metrik "ilk açılış toplam bayt"; bu kalemleri ertelemek JS çalışmasından çok daha fazla kazandırır.
+**Hedef değişikliği (sahip onayladı):** gerçek tarayıcıda ilk açılış toplam 2046 KiB, JS'in payı yalnız 652 KiB (%32). Yeni hedef **B′: ilk açılış toplam bayt ≥ %20 azalsın** (≤ 1637 KiB), aynı kanıt yöntemiyle.
+
+**B′ — geçti** (`5f5902d`). **2046 → 1034 KiB (−%49,5)**, 1 tur. Kupa GLB (443 KiB) menü arenasında değil, antrenman dışı maç başlayınca (`Game.startGame`, host ve istemci) yükleniyor; sayfadaki logolar 384 px WebP (31 KiB), favicon 64 px PNG (7 KiB) — ikisi de orijinal PNG'den Chromium canvas ile türetildi; manifest/apple-touch 512 PNG'de kaldı. Mağaza, kasa ve maç sonu görselleri `loading="lazy"`. Doğrulama: açılışta hiçbiri inmiyor; mağaza/maç sonu görselleri ekran açılınca yükleniyor; kupa şablonu maç sırasında hazır. Koruma testi: `tests/first-load-budget.test.mjs`.
 
 ## Açık / sonraki
-- B'nin hedefini "ilk açılış toplam bayt ≥ %20" olarak değiştirmek için sahibin onayı.
+- Kalan ilk yük: JS 653 KiB (three.js ~%40), menü arka planı 170 KiB, CSS 144 KiB (`polish.css` tek başına 63 KiB sıkıştırılmış).
 - Dokunmatikte maç sonu "Space · Skip" ipucu yanlış (dokunmatik katman fare olayını engelliyor; solo tur 4 sn'de kendisi bitiyor).
 - Yükleme ipuçları 4/5 (Ctrl, sağ tık) dokunmatikte de klavye anlatıyor.
 - SE emülasyonunda bir kez: oyuncu orta çizgiye koşarken ekran karardı + sarı şekil (büyük ihtimalle yakın mesafe top isabeti efekti). Kasıtlı yeniden üretilmedi, düşük güven.

@@ -5,8 +5,8 @@
 ## En yeni — Sınırlı döngü: mobil + ilk yükleme ([[sessions/2026-09-25-bounded-mobile-perf]])
 - Sözleşme önceden yazıldı (sabit hedef, kanıt, değişmezler, tur limiti, ayrı commit). main'in çevrimiçi oyun düzeltmesiyle birleştirildi.
 - **Mobil geçti:** 4 cihazda dokunmatik E2E (yürüme/bakış/deflect, hata yok, HUD tuşların üstünde değil). Hoş geldin kartı dokunmatik metin + kısa ekrana sığıyor; drill paneli, ultimate halkası, hız hapı tuşlardan çekildi.
-- **Performans kısmi:** three.js ağaç sallaması düzeltildi, ilk JS 618 → 590 KiB brotli (−%4,5; hedef %20'ye güvenli yoldan ulaşılamadı). Asıl yük JS değil: ilk açılış 2046 KiB, 443 KiB kupa modeli + 297 KiB logo PNG açılışta gereksiz → hedef değişikliği sahibin onayını bekliyor.
-- Doğrulama: **2573/2573 test** (+1 skip), `npm run check` 145 dosya OK.
+- **Performans:** JS hedefi platoda kaldı (three.js ağaç sallaması, 618 → 590 KiB brotli). Ölçüm asıl yükün JS olmadığını gösterdi; sahibin onayıyla hedef "ilk açılış toplam bayt" oldu: **2046 → 1034 KiB (−%49,5)** — kupa maçla yükleniyor, küçük logo, gizli ekran görselleri lazy.
+- Doğrulama: **2575/2575 test** (+1 skip), `npm run check` 145 dosya OK.
 
 ## En yeni — Arkadaşla oynama ([[sessions/2026-09-24-p2p-guest-join]])
 - main'deki çevrimiçi oyun düzeltmesi (misafir lobi oturumu, WebSocket relay, TURN, admission yeniden deneme; `docs/NETWORKING.md`) esas alındı. Bu dalın "admission'ı atla / listesiz oda" yaklaşımı birleştirmede bırakıldı.
