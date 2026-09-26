@@ -2078,7 +2078,7 @@
             <button type="button" class="solo-path-card" data-solo-preset="rally_duel" aria-pressed="false"><span class="solo-path-icon" aria-hidden="true">↔</span><strong data-i18n="solo.rallyDuel">Rally Duel</strong><small data-i18n="solo.rallyDuelCopy">Equal stats. No powers. Win with timing, direction and movement.</small><span class="solo-path-tag" data-i18n="solo.rallyDuelTag">MEDIUM · 1 VS 1</span></button>
             <button type="button" class="solo-path-card" data-solo-preset="pressure" aria-pressed="false"><span class="solo-path-icon" aria-hidden="true">ϟ</span><strong data-i18n="solo.pressure">Under Pressure</strong><small data-i18n="solo.pressureCopy">One hit ends the round. Stay calm as the ball gets faster.</small><span class="solo-path-tag" data-i18n="solo.pressureTag">HARD · INSTAGIB</span></button>
         </div>
-        <footer><p id="solo-paths-detail" role="status">Your selected rules will appear in the lobby before you start.</p><button type="button" id="solo-paths-start" class="solo-start">Prepare match ↗</button></footer>
+        <footer><p id="solo-paths-detail" role="status" data-i18n="solo.detailDefault">Your selected rules will appear in the lobby before you start.</p><button type="button" id="solo-paths-start" class="solo-start" data-i18n="solo.prepare">Prepare match ↗</button></footer>
     </dialog>
 
     <aside id="volleyball-practice-hud" class="volleyball-practice-hud hidden" role="region" aria-label="Local Volleyball practice status" aria-hidden="true">
@@ -2115,11 +2115,11 @@
     </aside>
 
     <aside id="practice-lab-hud" class="practice-lab-hud hidden" aria-live="polite">
-        <header><span>PRACTICE LAB</span><b id="practice-lab-mode">DEFLECT</b></header>
+        <header><span data-i18n="practice.labTitle">PRACTICE LAB</span><b id="practice-lab-mode">DEFLECT</b></header>
         <div class="guided-drill-head"><b id="drill-stage">FREE LAB</b><b id="drill-timer">--:--</b><b id="drill-speed">--</b></div>
-        <div class="practice-lab-summary"><span>Accuracy <b id="practice-accuracy">0%</b></span><span>Perfect <b id="practice-perfects">0</b></span><span>Best Timing <b id="practice-best">--</b></span></div>
+        <div class="practice-lab-summary"><span><span data-i18n="practice.accuracy">Accuracy</span> <b id="practice-accuracy">0%</b></span><span><span data-i18n="practice.perfectLabel">Perfect</span> <b id="practice-perfects">0</b></span><span><span data-i18n="practice.bestTiming">Best Timing</span> <b id="practice-best">--</b></span></div>
         <div class="practice-lab-track practice-lab-summary-track"><i id="practice-lab-progress"></i></div>
-        <div class="guided-drill-metrics"><span>Hits <b id="drill-hits">0</b></span><span>Directed <b id="drill-directed">0</b></span><span>Perfect <b id="drill-perfect">0</b></span></div>
+        <div class="guided-drill-metrics"><span><span data-i18n="practice.hits">Hits</span> <b id="drill-hits">0</b></span><span><span data-i18n="practice.directed">Directed</span> <b id="drill-directed">0</b></span><span><span data-i18n="practice.perfectLabel">Perfect</span> <b id="drill-perfect">0</b></span></div>
         <div class="practice-lab-track drill-stage-track"><i id="drill-stage-progress"></i></div>
         <small id="practice-hint">R spawn / F reposition / T reset metrics</small>
     </aside>
@@ -2285,7 +2285,7 @@
                 </div>
                 <div class="pg-bp-progress" id="pg-bp-progress" data-pg-pane="rewards">
                     <div class="pg-bp-head">
-                        <span class="pg-bp-tier-label">Battlepass &middot; Tier <b id="pg-bp-tier">0</b>/50</span>
+                        <span class="pg-bp-tier-label"><span data-i18n="pg.bpTier">Battlepass &middot; Tier</span> <b id="pg-bp-tier">0</b>/50</span>
                         <span class="pg-bp-next" id="pg-bp-next"></span>
                     </div>
                     <div class="pg-bp-bar-wrap">

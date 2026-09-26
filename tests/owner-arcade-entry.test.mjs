@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import en from '../js/locales/en.js';
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const main = readFileSync(new URL('../js/main.js', import.meta.url), 'utf8');
@@ -26,6 +27,9 @@ test('Volleyball is explicitly a local feeder drill and the solo clock is a matc
     assert.match(arcade, /LOCAL ONLY \/ GUIDED CONTACTS/);
     assert.match(arcade, /Not a multiplayer match/);
     const selection = main.slice(main.indexOf('const selectSoloPreset ='), main.indexOf("bind('btn-menu-bots'"));
-    assert.match(selection, /minute match limit/);
-    assert.doesNotMatch(selection, /minute round limit/);
+    // The rules line is localised: the source names the key, the table holds the copy.
+    assert.match(selection, /setText\(detail, 'solo\.detail', \{ rounds: preset\.maxRounds, minutes: preset\.timeLimit \/ 60, opponent \}\)/);
+    assert.doesNotMatch(selection, /minute (match|round) limit|Review your court|adaptive opponent/);
+    assert.match(en.solo.detail, /minute match limit/);
+    assert.doesNotMatch(en.solo.detail, /minute round limit/);
 });

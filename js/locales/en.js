@@ -845,7 +845,13 @@ export default {
         freeCopy: 'Manual spawn, reposition, and open-ended reps.',
         volleyTag: 'LOCAL ONLY / GUIDED CONTACTS',
         volley: 'Volleyball Drill',
-        volleyCopy: 'Serve, receive, set, spike, and block with an automated feeder. Not a multiplayer match.'
+        volleyCopy: 'Serve, receive, set, spike, and block with an automated feeder. Not a multiplayer match.',
+        labTitle: 'PRACTICE LAB',
+        accuracy: 'Accuracy',
+        perfectLabel: 'Perfect',
+        bestTiming: 'Best Timing',
+        hits: 'Hits',
+        directed: 'Directed'
     },
     solo: {
         kicker: 'YOUR NEXT MATCH',
@@ -866,7 +872,16 @@ export default {
         pressureCopy: 'One hit ends the round. Stay calm as the ball gets faster.',
         pressureTag: 'HARD · INSTAGIB',
         close: 'Close solo match chooser',
-        presets: 'Solo match presets'
+        presets: 'Solo match presets',
+        detail: '{rounds} rounds · {minutes} minute match limit · {opponent}. Review your court in the lobby.',
+        detailDefault: 'Your selected rules will appear in the lobby before you start.',
+        adaptiveOpponent: 'adaptive opponent (level {level}%)',
+        opponent: {
+            easy: 'easy opponent',
+            medium: 'medium opponent',
+            hard: 'hard opponent'
+        },
+        prepare: 'Prepare match ↗'
     },
     hud: {
         red: 'RED',
@@ -1054,7 +1069,31 @@ export default {
         perfect: '{count} perfect',
         pass: 'PASS',
         retryCaps: 'RETRY',
-        practiceAgain: 'Practice Again'
+        practiceAgain: 'Practice Again',
+        // Guided-drill HUD. Stage copy is keyed by the stage id in
+        // js/guided-deflect-drill.js; label is the title-case result row name.
+        ready: 'READY',
+        stageOf: 'STAGE {n}/{total}',
+        nextOf: 'NEXT {n}/{total}',
+        getReady: 'Get ready. First serve incoming.',
+        nextHint: 'Next: {instruction}',
+        stages: {
+            control: {
+                name: 'CONTROL',
+                label: 'Control',
+                instruction: 'Read the serve and make clean contact.'
+            },
+            direction: {
+                name: 'DIRECTION',
+                label: 'Direction',
+                instruction: 'Aim the return through the marked gate.'
+            },
+            timing: {
+                name: 'TIMING',
+                label: 'Timing',
+                instruction: 'Contact inside the perfect timing window.'
+            }
+        }
     },
     gameOver: {
         kicker: 'MATCH COMPLETE',
@@ -1075,6 +1114,7 @@ export default {
         damage: 'DAMAGE'
     },
     pg: {
+        bpTier: 'Battlepass · Tier',
         broadcast: 'ARENA BROADCAST',
         aftershow: 'AFTERSHOW',
         matchReport: 'MATCH REPORT',

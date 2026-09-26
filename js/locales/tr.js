@@ -842,7 +842,13 @@ export default {
         freeCopy: 'Topu elle çağır, yer değiştir, istediğin kadar tekrar et.',
         volleyTag: 'SADECE YEREL / REHBERLİ TEMASLAR',
         volley: 'Voleybol Antrenmanı',
-        volleyCopy: 'Otomatik besleyiciyle servis, karşılama, pas, smaç ve blok çalış. Çok oyunculu maç değildir.'
+        volleyCopy: 'Otomatik besleyiciyle servis, karşılama, pas, smaç ve blok çalış. Çok oyunculu maç değildir.',
+        labTitle: 'ANTRENMAN LAB',
+        accuracy: 'İsabet',
+        perfectLabel: 'Kusursuz',
+        bestTiming: 'En iyi zamanlama',
+        hits: 'Temas',
+        directed: 'Hedefte'
     },
     solo: {
         kicker: 'SIRADAKİ MAÇIN',
@@ -863,7 +869,16 @@ export default {
         pressureCopy: 'Tek isabet raundu bitirir. Top hızlandıkça soğukkanlı kal.',
         pressureTag: 'ZOR · INSTAGIB',
         close: 'Solo maç seçiciyi kapat',
-        presets: 'Solo maç ön ayarları'
+        presets: 'Solo maç ön ayarları',
+        detail: '{rounds} raunt · {minutes} dakikalık maç sınırı · {opponent}. Sahanı lobide gözden geçir.',
+        detailDefault: 'Seçtiğin kurallar, başlamadan önce lobide görünecek.',
+        adaptiveOpponent: 'sana uyum sağlayan rakip (seviye %{level})',
+        opponent: {
+            easy: 'kolay rakip',
+            medium: 'orta seviye rakip',
+            hard: 'zor rakip'
+        },
+        prepare: 'Maçı hazırla ↗'
     },
     hud: {
         red: 'KIRMIZI',
@@ -1048,7 +1063,31 @@ export default {
         perfect: '{count} kusursuz',
         pass: 'GEÇTİ',
         retryCaps: 'TEKRAR',
-        practiceAgain: 'Tekrar Çalış'
+        practiceAgain: 'Tekrar Çalış',
+        // Guided-drill HUD. Stage copy is keyed by the stage id in
+        // js/guided-deflect-drill.js; label is the title-case result row name.
+        ready: 'HAZIR',
+        stageOf: 'AŞAMA {n}/{total}',
+        nextOf: 'SONRAKİ {n}/{total}',
+        getReady: 'Hazır ol. İlk servis geliyor.',
+        nextHint: 'Sonraki: {instruction}',
+        stages: {
+            control: {
+                name: 'KONTROL',
+                label: 'Kontrol',
+                instruction: 'Servisi oku ve topu temiz karşıla.'
+            },
+            direction: {
+                name: 'YÖN',
+                label: 'Yön',
+                instruction: 'Topu işaretli kapıdan geçirecek şekilde geri gönder.'
+            },
+            timing: {
+                name: 'ZAMANLAMA',
+                label: 'Zamanlama',
+                instruction: 'Topa kusursuz zamanlama aralığında dokun.'
+            }
+        }
     },
     gameOver: {
         kicker: 'MAÇ BİTTİ',
@@ -1069,6 +1108,7 @@ export default {
         damage: 'HASAR'
     },
     pg: {
+        bpTier: 'Battle Pass · Kademe',
         broadcast: 'ARENA YAYINI',
         aftershow: 'MAÇ SONRASI',
         matchReport: 'MAÇ RAPORU',

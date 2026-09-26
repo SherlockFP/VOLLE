@@ -2264,9 +2264,9 @@ class App {
             soloDialog?.querySelectorAll('[data-solo-preset]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.soloPreset === id)));
             const detail = document.getElementById('solo-paths-detail');
             const opponent = preset.botDifficulty === 'auto'
-                ? `adaptive opponent (level ${this._adaptiveSkillPercent?.() ?? 35}%)`
-                : `${preset.botDifficulty} opponent`;
-            if (detail) detail.textContent = `${preset.maxRounds} rounds · ${preset.timeLimit / 60} minute match limit · ${opponent}. Review your court in the lobby.`;
+                ? t('solo.adaptiveOpponent', { level: this._adaptiveSkillPercent?.() ?? 35 })
+                : t(`solo.opponent.${preset.botDifficulty}`);
+            setText(detail, 'solo.detail', { rounds: preset.maxRounds, minutes: preset.timeLimit / 60, opponent });
         };
         soloDialog?.querySelectorAll('[data-solo-preset]').forEach(button => button.addEventListener('click', () => {
             this._soloPresetPicked = true;
@@ -5761,13 +5761,13 @@ updateCSLobbyInfo();
         const mapId = match.map || this.arena?.mapId;
         const config = Arena.MAPS[mapId] || this.arena?.config || {};
         const mode = match.mode || this.game?.mode?.id || 'classic';
-        const modeName = match.modeName || GAME_MODES[mode]?.name || this.game?.mode?.name || mode;
+        const modeName = match.modeName || localizedName('modeNames', mode, GAME_MODES[mode]?.name || this.game?.mode?.name || mode);
         const tips = ['matchTips.tip1', 'matchTips.tip2', 'matchTips.tip3', 'matchTips.tip4'].map(key => t(key));
         const mapEl = document.getElementById('match-loading-map');
         const modeEl = document.getElementById('match-loading-mode');
         const tipEl = document.getElementById('match-loading-tip');
         if (mapEl) mapEl.textContent = match.name || config.name || String(mapId || 'Arena');
-        if (modeEl) modeEl.textContent = String(modeName).toUpperCase();
+        if (modeEl) modeEl.textContent = String(modeName).toLocaleUpperCase(getLanguage());
         if (tipEl) tipEl.textContent = tips[Math.floor(Math.random() * tips.length)];
         const progress = document.getElementById('match-loading-progress');
         const percent = document.getElementById('match-loading-percent');
@@ -7149,25 +7149,27 @@ updateCarousel() {
         const displayStage = snapshot.phase === 'transition'
             ? snapshot.nextStage || stage
             : stage;
+        // Stage copy comes from drill.stages.<id>; an unknown id keeps the drill's English field.
+        const stageText = (item, field) => localizedName('drill.stages', `${item.id}.${field}`, item[field] || '');
         const stats = snapshot.stats || {};
         const seconds = Math.ceil((snapshot.phaseRemainingMs || 0) / 1000);
         const values = {
-            'practice-lab-mode': displayStage.name || 'GUIDED',
+            'practice-lab-mode': stageText(displayStage, 'name') || 'GUIDED',
             'drill-stage': snapshot.phase === 'countdown'
-                ? 'READY'
+                ? t('drill.ready')
                 : snapshot.phase === 'transition'
-                    ? `NEXT ${Math.min((snapshot.stageIndex || 0) + 2, snapshot.stageCount || 1)}/${snapshot.stageCount || 1}`
-                    : `STAGE ${Math.min((snapshot.stageIndex || 0) + 1, snapshot.stageCount || 1)}/${snapshot.stageCount || 1}`,
+                    ? t('drill.nextOf', { n: Math.min((snapshot.stageIndex || 0) + 2, snapshot.stageCount || 1), total: snapshot.stageCount || 1 })
+                    : t('drill.stageOf', { n: Math.min((snapshot.stageIndex || 0) + 1, snapshot.stageCount || 1), total: snapshot.stageCount || 1 }),
             'drill-timer': `00:${String(seconds).padStart(2, '0')}`,
             'drill-speed': `${Number(snapshot.speedMultiplier || 0).toFixed(2)}x`,
             'drill-hits': stats.hits || 0,
             'drill-directed': stats.directed || 0,
             'drill-perfect': stats.perfect || 0,
             'practice-hint': snapshot.phase === 'countdown'
-                ? 'Get ready. First serve incoming.'
+                ? t('drill.getReady')
                 : snapshot.phase === 'transition'
-                    ? `Next: ${displayStage.instruction || ''}`
-                    : stage.instruction || ''
+                    ? t('drill.nextHint', { instruction: stageText(displayStage, 'instruction') })
+                    : stageText(stage, 'instruction')
         };
         Object.entries(values).forEach(([id, value]) => {
             const element = document.getElementById(id);
@@ -7209,11 +7211,13 @@ updateCarousel() {
                         : stage.id === 'direction'
                             ? t('drill.onTarget', { count: stage.directed || 0 })
                             : t('drill.perfect', { count: stage.perfect || 0 });
-                    name.textContent = stage.name[0] + stage.name.slice(1).toLowerCase();
+                    // label is its own key: toLowerCase breaks Turkish dotted/dotless I.
+                    const rawName = String(stage.name || '');
+                    name.textContent = localizedName('drill.stages', `${stage.id}.label`, rawName.charAt(0) + rawName.slice(1).toLowerCase());
                     value.textContent = metric;
                     row.dataset.passed = '1';
                 } else {
-                    name.textContent = stage.name;
+                    name.textContent = localizedName('drill.stages', `${stage.id}.name`, stage.name || '');
                     value.textContent = `${stage.score} ${t(stage.passed ? 'drill.pass' : 'drill.retryCaps')}`;
                     row.dataset.passed = stage.passed ? '1' : '0';
                 }
