@@ -666,8 +666,14 @@ test('votes traverse handlers into promotion without exposing resume tokens', as
         attemptId: election.attemptId,
         rosterDigest: election.rosterDigest
     });
+    // Wait for the promotion itself (not a fixed backoff + 25 ms): under a full
+    // parallel suite the timers can run late, which failed this test once.
+    const deadline = Date.now() + migrationBackoffMs(0) + 2000;
     await new Promise(resolve =>
         setTimeout(resolve, migrationBackoffMs(0) + 25));
+    while (!(promoted.isHost && follower.hostConn === toPromoted) && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 10));
+    }
 
     assert.equal(promoted.isHost, true);
     assert.equal(follower.hostConn, toPromoted);
