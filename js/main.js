@@ -45,6 +45,7 @@ import { checkAchievements } from './achievements.js';
 import { Daily, nearestDailyNudge } from './daily.js';
 import { firstSoloMatchConfig, CELEBRATION_SKIP_KEYS } from './run-it-back.js';
 import { TEAM_MENU_KEYS } from './team-switch.js';
+import { pauseAction, resumeAction } from './pause-policy.js';
 import { getReward as getBattlepassRewardEntry } from './battlepass.js';
 import { Replay, extractReplayHighlight } from './replay.js';
 import { ReplayView } from './replay-view.js';
@@ -797,18 +798,22 @@ class App {
                 }
                 const pauseEl = document.getElementById('pause-menu');
                 if (pauseEl && !pauseEl.classList.contains('hidden')) {
-                    // ESC while paused → resume
-                    pauseEl.classList.add('hidden');
-                    this.game.setState(this._pausedFromState || STATES.PLAYING);
-                    this._pausedFromState = null;
-                    this.player.lock();
+                    // ESC while the pause menu is open → resume
+                    this._resumeFromPauseMenu();
                     return;
                 }
-                if ([STATES.PLAYING, STATES.COUNTDOWN, STATES.ROUND_END, STATES.CELEBRATION].includes(this.game.state)) {
-                    this._pausedFromState = this.game.state;
-                    this.game.setState(STATES.PAUSED);
+                // Online Esc only opens the overlay: the shared match keeps running
+                // for everyone. Solo Esc pauses, and a solo 3-2-1 stops with it.
+                const pause = pauseAction({ connected: !!this.network?.connected, state: this.game.state });
+                if (pause.overlay) {
+                    if (pause.setState === STATES.PAUSED) {
+                        this._pausedFromState = this.game.state;
+                        this.game.setState(STATES.PAUSED);
+                        if (this._pausedFromState === STATES.COUNTDOWN) this.game.suspendPreGameCountdown?.();
+                    }
                     this.ui.hideScoreboard();
                     this.player.unlock();
+                    this.player._clearInputState?.();
                     this.ui.setPlayerTarget(false);
                     pauseEl?.classList.remove('hidden');
                 }
@@ -2692,12 +2697,14 @@ class App {
         }, { signal: this._mainAbort.signal });
 
         // Pause menu
-        bind('pause-resume', () => {
-            document.getElementById('pause-menu')?.classList.add('hidden');
-            this.game.setState(this._pausedFromState || STATES.PLAYING);
-            this._pausedFromState = null;
-            this.player.lock();
-        });
+        bind('pause-resume', () => this._resumeFromPauseMenu());
+        // Online the match keeps running under the full-screen overlay: pointer
+        // input over the menu must not turn the camera, swing the knife or cycle
+        // spectate targets (all document listeners). Button clicks still fire.
+        const pauseMenu = document.getElementById('pause-menu');
+        for (const type of ['mousedown', 'mousemove', 'wheel']) {
+            pauseMenu?.addEventListener(type, e => e.stopPropagation(), { signal: this._mainAbort.signal });
+        }
         bind('pause-settings', () => {
             this.openSettingsModal();
         });
@@ -9399,6 +9406,21 @@ updateCarousel() {
         const text = input.value.trim();
         if (text) this.game.sendChat(text);
         this.closeChat();
+    }
+
+    // Esc-while-open and the Continue button share this path. resumeAction only
+    // restores the paused-from state while the game is still PAUSED: online the
+    // overlay never paused anything, and a solo state that moved on under the
+    // menu is never rewound (js/pause-policy.js).
+    _resumeFromPauseMenu() {
+        document.getElementById('pause-menu')?.classList.add('hidden');
+        const resume = resumeAction({ state: this.game.state, pausedFrom: this._pausedFromState });
+        if (resume.setState) {
+            this.game.setState(resume.setState);
+            if (resume.setState === STATES.COUNTDOWN) this.game.resumePreGameCountdown?.();
+        }
+        this._pausedFromState = null;
+        this.player.lock();
     }
 
     // ===== ALT-TAB KORUMA: RAF donunca network background timer'la çalışsın =====

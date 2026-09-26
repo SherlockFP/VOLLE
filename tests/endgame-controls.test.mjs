@@ -4,10 +4,14 @@ import { readFile } from 'node:fs/promises';
 
 test('Escape pauses and resumes endgame states without forcing PLAYING', async () => {
     const source = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
+    const policy = await readFile(new URL('../js/pause-policy.js', import.meta.url), 'utf8');
 
-    assert.match(source, /STATES\.ROUND_END, STATES\.CELEBRATION/);
+    assert.match(policy, /IN_MATCH_PAUSE_STATES = Object\.freeze\(\['PLAYING', 'COUNTDOWN', 'ROUND_END', 'CELEBRATION'\]\)/);
+    assert.match(source, /pauseAction\(\{ connected: !!this\.network\?\.connected, state: this\.game\.state \}\)/);
     assert.match(source, /this\._pausedFromState = this\.game\.state/);
-    assert.match(source, /this\.game\.setState\(this\._pausedFromState \|\| STATES\.PLAYING\)/);
+    assert.match(source, /resumeAction\(\{ state: this\.game\.state, pausedFrom: this\._pausedFromState \}\)/);
+    assert.match(policy, /if \(state !== 'PAUSED'\) return \{ setState: null \};\s*return \{ setState: pausedFrom \|\| 'PLAYING' \};/);
+    assert.doesNotMatch(source, /this\.game\.setState\(this\._pausedFromState \|\| STATES\.PLAYING\)/);
 });
 
 test('round transitions retain pointer lock and chat Enter submits before editable guards', async () => {

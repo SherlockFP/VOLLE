@@ -1221,16 +1221,18 @@ startGame(skipPreGame = false, matchId = null) {
         }
         this._cancelCountdown = () => {};
         let cancelled = false;
-        const wrap = (fn) => () => { if (!cancelled) fn(); };
+        // The wrapped GO stays on the instance so a solo pause can suspend this
+        // wall-clock countdown and resume it (suspendPreGameCountdown below).
+        const wrap = (fn) => (this._preGameGo = () => { if (!cancelled) fn(); });
+        this._preGameSuspended = false;
+        this._preGameCountdownStartedAt = performance.now();
+        this._preGameCountdownLength = this.preGameDuration;
         this.ui.showCountdown(this.preGameDuration, wrap(() => {
             this._preGameActive = false;
             this.audio.playGo();
             this.startRound();
         }));
-        const beepCount = Math.max(1, Math.ceil(this.preGameDuration));
-        for (let i = 0; i < beepCount; i++) {
-            setTimeout(() => { if (!cancelled) this.audio.playBeep(440); }, i * 1000);
-        }
+        this._schedulePreGameBeeps(this.preGameDuration);
         this._cancelCountdown = () => { cancelled = true; this._preGameActive = false; this.ui.hideMessage?.(); };
         this._notifyCountdownReady();
     }
@@ -1250,6 +1252,49 @@ startGame(skipPreGame = false, matchId = null) {
         this.ball._warmup = false;
         this.ui.cancelCountdown?.();
         this.ui.hideMatchIntro?.();
+        this._preGameSuspended = false;
+        this._preGameGo = null;
+    }
+
+    // Solo Esc during the local 3-2-1 (main.js pause handler): cancel the UI
+    // countdown chain so GO, and startRound with it, never fires under the pause
+    // menu. Keeps the whole seconds left (at least 1) for resumePreGameCountdown.
+    suspendPreGameCountdown() {
+        if (!this._preGameActive || this._preGameSuspended || typeof this._preGameGo !== 'function') return false;
+        const length = Number.isFinite(this._preGameCountdownLength) ? this._preGameCountdownLength : this.preGameDuration;
+        const elapsed = Math.max(0, (performance.now() - this._preGameCountdownStartedAt) / 1000) || 0;
+        this._preGameRemaining = Math.max(1, Math.ceil(length - elapsed));
+        this._preGameSuspended = true;
+        this._preGameBeepRun = (this._preGameBeepRun || 0) + 1;
+        this.ui.cancelCountdown?.();
+        return true;
+    }
+
+    // Resume from the pause menu: the countdown picks up where it stopped and
+    // ends in the same GO callback, so the round starts exactly once.
+    resumePreGameCountdown() {
+        if (!this._preGameSuspended) return false;
+        this._preGameSuspended = false;
+        if (!this._preGameActive) return false;
+        const remaining = this._preGameRemaining;
+        this._preGameCountdownStartedAt = performance.now();
+        this._preGameCountdownLength = remaining;
+        this.ui.showCountdown(remaining, this._preGameGo);
+        this._schedulePreGameBeeps(remaining);
+        return true;
+    }
+
+    // One beep per countdown second on the wall clock. A new schedule or a
+    // suspend starts a new run, so beeps queued before a pause never play
+    // under the pause menu or over the resumed count.
+    _schedulePreGameBeeps(seconds) {
+        const run = this._preGameBeepRun = (this._preGameBeepRun || 0) + 1;
+        const beepCount = Math.max(1, Math.ceil(seconds));
+        for (let i = 0; i < beepCount; i++) {
+            setTimeout(() => {
+                if (run === this._preGameBeepRun && this._preGameActive && this.state !== STATES.PAUSED) this.audio.playBeep(440);
+            }, i * 1000);
+        }
     }
 
     _applyBallAffix() {

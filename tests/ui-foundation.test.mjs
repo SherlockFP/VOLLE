@@ -177,7 +177,7 @@ test('conflicting chat, console, pause, settings, and screen transitions hide th
   assert.match(mainSource, /if \(e\.code === 'Backquote'\) this\.ui\.hideScoreboard\(\);/);
   assert.match(mainSource, /openChat\(\) \{\s*this\.ui\.hideScoreboard\(\);/);
   assert.match(mainSource, /openSettingsModal\(\) \{\s*this\.ui\.hideScoreboard\(\);/);
-  assert.match(mainSource, /this\.game\.setState\(STATES\.PAUSED\);\s*this\.ui\.hideScoreboard\(\);/);
+  assert.match(mainSource, /if \(pause\.overlay\) \{[\s\S]*?this\.game\.setState\(STATES\.PAUSED\);[\s\S]*?\}\s*this\.ui\.hideScoreboard\(\);/);
   assert.match(uiSource, /showScreen\(name\) \{\s*this\.hideScoreboard\(\);/);
 });
 
