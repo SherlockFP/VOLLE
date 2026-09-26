@@ -118,10 +118,13 @@ class ClanStore {
         return { status: 200, left: clan.tag };
     }
 
+    // Clans with clan matches rank by record; clans that have not played one yet
+    // follow by size, so a fresh server still shows who is around.
     top(limit = 20) {
         return Object.values(this.clans)
-            .filter(clan => clan.record.matches > 0)
-            .sort((a, b) => b.record.wins - a.record.wins || a.record.losses - b.record.losses || a.createdAt - b.createdAt)
+            .sort((a, b) => (b.record.matches > 0) - (a.record.matches > 0)
+                || b.record.wins - a.record.wins || a.record.losses - b.record.losses
+                || b.members.length - a.members.length || a.createdAt - b.createdAt)
             .slice(0, Math.max(1, Math.min(50, limit)))
             .map((clan, index) => ({ rank: index + 1, name: clan.name, tag: clan.tag, members: clan.members.length, ...clan.record }));
     }

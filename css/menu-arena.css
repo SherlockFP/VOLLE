@@ -1141,27 +1141,115 @@ body.is-new-player #main-menu :is(#btn-ranked, #btn-battlepass)::after {
 [data-mode].is-weekly-event { position: relative; box-shadow: inset 0 0 0 1px rgba(255, 176, 32, .75); }
 [data-mode].is-weekly-event::after { content: '★'; position: absolute; top: 2px; right: 5px; color: #ffc446; font-size: .72rem; line-height: 1; }
 
-/* Server clans (js/clan-client.js): my clan card, forms, top list, community summary. */
-.social-my-clan { display: grid; gap: 8px; margin: 6px 0 12px; color: var(--arena-ink); }
-.social-clan-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-.social-clan-head strong { font-size: 1.1rem; color: var(--arena-ink); }
-.social-clan-head span { color: var(--arena-gold); font-weight: 800; }
-.social-clan-members { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.social-clan-members li { padding: 3px 8px; border: 1px solid var(--arena-line); border-radius: 999px; font-size: .8rem; }
-.social-clan-recent { margin: 0; color: var(--arena-muted); font-size: .82rem; letter-spacing: .04em; }
-.social-tag-input { max-width: 90px; text-transform: uppercase; }
-.social-top-title { margin-top: 10px; }
-.social-top-clans { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; color: var(--arena-ink); font-size: .86rem; }
-.social-top-clans li { padding: 6px 10px; border: 1px solid var(--arena-line); border-radius: 8px; }
-#social-top-clans .social-empty { min-height: 0; padding: 12px; border: 0; color: var(--arena-muted); }
+/* Server clans (js/clan-client.js): the Clans screen and the Community summary.
+   A soft slate palette of its own: text about 88% white (never pure white on
+   black), recessed wells for chat and inputs, tinted chips instead of white
+   pills. Derived from the theme tokens so every theme keeps its hue; body text
+   stays above 7:1, secondary text above 4.5:1. */
+#social-screen {
+    --clan-card: color-mix(in srgb, var(--ui-surface) 62%, #1d303b);
+    --clan-well: color-mix(in srgb, var(--ui-bg-elevated) 88%, #13222b);
+    --clan-raise: rgb(255 255 255 / .05);
+    --clan-ink: color-mix(in srgb, var(--ui-text) 86%, var(--ui-surface));
+    --clan-soft: color-mix(in srgb, var(--ui-muted) 90%, var(--ui-surface));
+    --clan-line: rgb(190 225 240 / .13);
+    --clan-accent: var(--mm-accent);
+    --clan-tint: color-mix(in srgb, var(--mm-accent) 13%, transparent);
+    --clan-win: #7ad7ae;
+    --clan-loss: #f0949f;
+    --clan-gold: #f0c674;
+}
+#social-screen :is(.social-clans, .social-chat) { color: var(--clan-ink); border-color: var(--clan-line); background: var(--clan-card); box-shadow: none; }
+#social-screen :is(.social-section-title h2, .social-section-title h3) { margin: 0; color: var(--clan-ink); font-size: 1.1rem; line-height: 1.25; }
+#social-screen :is(.social-status, .social-count, .social-channel) {
+    min-height: 30px; padding: 5px 10px; color: var(--clan-soft);
+    border: 1px solid var(--clan-line); border-radius: 999px; background: var(--clan-tint);
+    font-size: .7rem; letter-spacing: .04em;
+}
+#social-screen .social-status i { background: var(--clan-win); box-shadow: 0 0 0 3px color-mix(in srgb, var(--clan-win) 18%, transparent); }
+#social-screen .social-create > label { margin: 12px 0 6px; color: var(--clan-soft); font-size: .78rem; }
+#social-screen .social-input-row input {
+    color: var(--clan-ink); border: 1px solid var(--clan-line); border-radius: 10px; background: var(--clan-well);
+}
+#social-screen .social-input-row input::placeholder { color: color-mix(in srgb, var(--clan-soft) 70%, transparent); }
+#social-screen .social-input-row input:focus { border-color: color-mix(in srgb, var(--clan-accent) 55%, transparent); outline: none; box-shadow: 0 0 0 3px var(--clan-tint); }
+#social-screen .social-input-row { align-items: center; }
+#social-screen .social-input-row input { height: 44px; min-height: 44px; padding: 8px 12px; }
+#social-screen .social-input-row .btn { flex: 0 0 auto; width: auto; min-height: 44px; }
+#social-screen .social-input-row:has(#social-clan-name) { flex-wrap: wrap; }
+#social-screen #social-clan-name { flex: 1 1 100%; }
+#social-screen #social-create-clan { flex: 1 1 auto; }
+.social-tag-input { max-width: 84px; text-transform: uppercase; }
+#social-screen .social-input-row .social-tag-input { flex: 0 0 84px; }
+#social-screen #social-join-tag { flex: 0 1 120px; max-width: 120px; }
+
+/* My clan card */
+.social-my-clan { display: grid; gap: 10px; margin: 4px 0 16px; color: var(--clan-ink, var(--arena-ink)); }
+.social-my-clan .clan-note { margin: 0; color: var(--clan-soft); font-size: .88rem; line-height: 1.5; }
+.social-my-clan > .btn { justify-self: start; }
+.social-clan-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.social-clan-head .clan-name { overflow: hidden; color: var(--clan-ink); font-size: 1.15rem; text-overflow: ellipsis; white-space: nowrap; }
+#social-screen .clan-tag {
+    flex: 0 0 auto; padding: 3px 8px; color: var(--clan-accent);
+    border: 1px solid color-mix(in srgb, var(--clan-accent) 35%, transparent); border-radius: 7px;
+    background: var(--clan-tint); font: 800 .72rem/1.2 var(--mm-display); letter-spacing: .08em;
+}
+.clan-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.clan-stat { display: grid; gap: 1px; padding: 8px 6px; text-align: center; border: 1px solid var(--clan-line); border-radius: 10px; background: var(--clan-raise); }
+.clan-stat b { color: var(--clan-ink); font: 800 1.05rem/1.1 var(--mm-display); font-variant-numeric: tabular-nums; }
+.clan-stat small { overflow: hidden; color: var(--clan-soft); font-size: .66rem; text-overflow: ellipsis; white-space: nowrap; }
+.clan-stat.is-win b { color: var(--clan-win); }
+.clan-stat.is-loss b { color: var(--clan-loss); }
+.social-my-clan .clan-sub { margin: 2px 0 -4px; color: var(--clan-soft); font-size: .7rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+.social-clan-members, .social-clan-recent { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.social-clan-members li { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; color: var(--clan-ink); border: 1px solid var(--clan-line); border-radius: 999px; background: var(--clan-raise); font-size: .8rem; }
+.social-clan-members li.is-owner::before { content: '★'; color: var(--clan-gold); font-size: .75rem; }
+.social-clan-members li.is-you { border-color: color-mix(in srgb, var(--clan-accent) 40%, transparent); }
+.social-clan-members li small { color: var(--clan-soft); font-size: .68rem; }
+.social-clan-recent li { padding: 3px 9px; border-radius: 7px; font: 700 .76rem/1.3 var(--mm-body); letter-spacing: .04em; }
+.social-clan-recent li.is-win { color: var(--clan-win); background: color-mix(in srgb, var(--clan-win) 12%, transparent); }
+.social-clan-recent li.is-loss { color: var(--clan-loss); background: color-mix(in srgb, var(--clan-loss) 12%, transparent); }
+.social-clan-recent li.is-empty { padding: 0; color: var(--clan-soft); font-weight: 500; letter-spacing: 0; }
+.social-my-clan .clan-leave { justify-self: start; margin-top: 2px; }
+
+/* Top clans */
+.social-top-title { margin-top: 12px; }
+.social-top-clans { display: grid; gap: 6px; max-height: 236px; margin: 0; padding: 0 4px 0 0; overflow-y: auto; list-style: none; color: var(--clan-ink, var(--arena-ink)); font-size: .86rem; scrollbar-width: thin; scrollbar-color: var(--clan-line) transparent; }
+.social-top-clans .clan-row {
+    display: grid; grid-template-columns: 26px auto minmax(0, 1fr) auto; align-items: center; gap: 8px;
+    padding: 7px 10px; border: 1px solid var(--clan-line); border-radius: 10px; background: var(--clan-raise);
+}
+.social-top-clans .clan-row.is-mine { border-color: color-mix(in srgb, var(--clan-accent) 45%, transparent); background: var(--clan-tint); }
+.clan-rank { color: var(--clan-soft); font: 800 .8rem/1 var(--mm-display); text-align: center; font-variant-numeric: tabular-nums; }
+.clan-row:nth-child(1) .clan-rank { color: var(--clan-gold); }
+.clan-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.clan-row-record { color: var(--clan-soft); font-size: .78rem; font-variant-numeric: tabular-nums; }
+#social-top-clans .social-empty { min-height: 0; padding: 12px 4px; border: 0; color: var(--clan-soft); font-size: .84rem; line-height: 1.5; text-align: left; align-items: flex-start; }
+
+/* Clan chat */
+#social-screen .social-chat-log {
+    display: flex; flex: 1 1 0; flex-direction: column; gap: 8px; min-height: 230px; max-height: none; padding: 12px;
+    color: var(--clan-ink); border-color: var(--clan-line); background: var(--clan-well);
+}
+#social-screen :is(.social-chat-welcome, .social-empty, .clan-chat-note) { color: var(--clan-soft); }
+#social-screen :is(.social-chat-welcome strong, .social-empty strong) { color: var(--clan-ink); }
+#social-screen .clan-chat-note { margin: auto; padding: 24px 12px; font-size: .9rem; text-align: center; }
+#social-screen .social-chat-message {
+    align-self: flex-start; max-width: min(78%, 460px); margin: 0; padding: 7px 11px 8px;
+    border: 1px solid var(--clan-line); border-radius: 4px 12px 12px 12px; background: var(--clan-card);
+}
+#social-screen .social-chat-message.is-mine { align-self: flex-end; border-radius: 12px 4px 12px 12px; border-color: color-mix(in srgb, var(--clan-accent) 30%, transparent); background: var(--clan-tint); }
+#social-screen .clan-msg-meta { display: flex; align-items: baseline; gap: 8px; margin-bottom: 2px; }
+#social-screen .clan-msg-meta b { color: var(--clan-accent); font-size: .76rem; }
+#social-screen .clan-msg-meta time { color: var(--clan-soft); font-size: .68rem; font-variant-numeric: tabular-nums; }
+#social-screen .social-chat-message p { margin: 0; color: var(--clan-ink); font-size: .9rem; line-height: 1.45; overflow-wrap: anywhere; }
 .community-clan-summary { margin: 6px 0 0; color: var(--arena-ink); }
-/* The Clans screen on the arena theme, like the Community cards: the old light
-   cards and log left the themed text white on white. */
-#social-screen :is(.social-clans, .social-chat) { color: var(--arena-ink); border-color: var(--arena-line); background: var(--arena-card); box-shadow: none; }
-#social-screen .social-chat-log { color: var(--arena-ink); border-color: var(--arena-line); background: var(--arena-base); }
-#social-screen :is(.social-chat-welcome, .social-empty) { color: var(--arena-muted); }
-#social-screen :is(.social-chat-welcome strong, .social-empty strong, .social-create > label) { color: var(--arena-ink); }
-#social-screen .social-chat-message { margin: 0; padding: 6px 12px; overflow-wrap: anywhere; }
-#social-screen .social-input-row input { color: var(--arena-ink); border-color: var(--arena-line); background: var(--arena-base); }
-#social-screen .social-input-row .btn { flex: 0 0 auto; width: auto; }
-#social-screen .social-section-title h3 { margin: 0; color: var(--arena-ink); font-size: 1.05rem; }
+/* Community: the own friend tag is a small copy chip; a guest has none, and the
+   empty default button used to show as a thin white bar. */
+.community-tag { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0; color: var(--arena-muted); font-size: .8rem; }
+#community-friend-tag {
+    padding: 4px 10px; color: var(--mm-accent); cursor: pointer;
+    border: 1px solid color-mix(in srgb, var(--mm-accent) 35%, transparent); border-radius: 8px;
+    background: color-mix(in srgb, var(--mm-accent) 12%, transparent); font: 700 .8rem/1.3 var(--mm-body);
+}
+#community-friend-tag:empty { display: none; }

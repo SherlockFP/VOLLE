@@ -62,6 +62,10 @@ test('clan matches: all winners in one clan, all losers in another; records, rec
     assert.deepEqual(store.mine(profile('a1')).record, { matches: 1, wins: 1, losses: 0 });
     assert.deepEqual(store.mine(profile('b2')).recent, [{ vs: 'ALP', won: false, at: 5000 }]);
     assert.deepEqual(store.top().map(c => [c.rank, c.tag, c.wins, c.losses]), [[1, 'ALP', 1, 0], [2, 'BRV', 0, 1]]);
+    store.create(profile('c1'), { name: 'Charlie Team', tag: 'CHR' });
+    store.create(profile('d1'), { name: 'Delta Team', tag: 'DLT' });
+    store.join(profile('d2'), { tag: 'DLT' });
+    assert.deepEqual(store.top().map(c => c.tag), ['ALP', 'BRV', 'DLT', 'CHR'], 'clans without a clan match follow, bigger first');
     assert.ok(ids.length);
 });
 
@@ -119,7 +123,10 @@ test('client: token-less calls stop early; wiring shows the clans screen from Co
     const server = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
     assert.match(html, /<button id="btn-open-clans"/);
     assert.match(main, /bind\('btn-open-clans', \(\) => \{\s+this\.ui\.showScreen\('social'\);/);
-    assert.match(main, /row\.textContent = `\$\{message\.author\}: \$\{this\._chatClean\(message\.text\)\}`;/);
+    assert.match(main, /author\.textContent = message\.author;/);
+    assert.match(main, /text\.textContent = this\._chatClean\(message\.text\);/, 'clan chat text goes through the chat filter');
+    assert.doesNotMatch(main.slice(main.indexOf('    async _renderClanChat('), main.indexOf('    _clanError(')), /innerHTML/);
+    assert.doesNotMatch(main.slice(main.indexOf('    async _renderSocial() {'), main.indexOf('    async _renderClanChat(')), /innerHTML/);
     assert.match(server, /new MatchAuthority\(profiles, \{ getLobby: code => lobbies\.get\(code\) \|\| null, clans \}\)/);
     assert.doesNotMatch(html, /Local social preview/);
 });
