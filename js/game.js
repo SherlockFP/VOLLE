@@ -1977,6 +1977,9 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         disposeObject3D(p.knifeGroup);
         p.targetOutline?.userData.dispose?.();
         p.rig?.dispose();
+        // The name pill is this player's own CanvasTexture + SpriteMaterial: free both.
+        p.labelSprite?.material?.map?.dispose?.();
+        p.labelSprite?.material?.dispose?.();
         this.renderer.scene.remove(p.group);
         this.scoreboard.removePlayer(p.name);
         this.remotePlayers.delete(playerId);
@@ -1993,6 +1996,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
     // (WARBALL_IO_PLAN.md section 3.2). group stays the scene-attached container
     // so interpolation/rotation/visibility code elsewhere is untouched.
     _createRemotePlayer(peerId, name, team, avatarDataUrl, avatarModel = 'classic') {
+        const game = this;
         const group = new THREE.Group();
         const color = team === 'red' ? 0xcc3333 : 0x3355cc;
 
@@ -2083,11 +2087,14 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
             },
             revive() { this.alive = true; this.hp = this.maxHp; this.consecutiveMisses = 0; this.skillCooldowns = {}; this.group.visible = true; },
             setTeam(nextTeam) {
+                if (nextTeam === this.team) return;
                 this.team = nextTeam;
                 this._teamColor = nextTeam === 'red' ? 0xcc3333 : 0x3355cc;
                 // ponytail: avatar colors (if any) win over team recolor — the rig
                 // itself latches this (see character-rig.js setPartColors/setTeam).
                 this.rig?.setTeam(nextTeam);
+                // The name pill was drawn once in the old team colour: redraw it.
+                game._refreshRemoteLabel(this);
             },
             // Update head texture when avatar changes (mesh sync)
             setAvatarTexture(dataUrl) {
@@ -2123,6 +2130,16 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         applyEntityCosmetics(p, null);
         group.position.copy(p.position).add(new THREE.Vector3(0, -1.2, 0));
         return p;
+    }
+
+    // Redraws a remote player's name pill in its current team colour. The pill is a
+    // canvas texture drawn once, so a team change needs a new one; the old one is freed.
+    _refreshRemoteLabel(entity) {
+        const material = entity?.labelSprite?.material;
+        if (!material) return;
+        material.map?.dispose?.();
+        material.map = this._makeNameLabelTexture(entity.name, entity.team === 'red' ? 0xff5577 : 0x55aaff);
+        material.needsUpdate = true;
     }
 
     getBodyZone(ballPos, playerPos, playerHeight = 1.7) {
@@ -6615,9 +6632,12 @@ spawnPowerUp() {
                     this.remotePlayers.set(botPeerId, p);
                     this.scoreboard.addPlayer(pl.name, pl.team, { isBot: true, peerId: botPeerId });
                 } else {
-                    p.team = pl.team || p.team;
-                    const c = p.team === 'red' ? 0xcc3333 : 0x3355cc;
-                    p.group.children.forEach(ch => { if (ch.isMesh && ch.geometry.type === 'CylinderGeometry') ch.material.color.setHex(c); });
+                    // A host rebalance moved this bot: setTeam recolours body and name pill.
+                    const nextTeam = pl.team;
+                    if (nextTeam !== p.team && isTeam(nextTeam)) {
+                        if (typeof p.setTeam === 'function') p.setTeam(nextTeam);
+                        else p.team = nextTeam;
+                    }
                 }
                 if (pl.charId && pl.charId !== p.charId) {
                     p.charId = pl.charId;
@@ -6632,7 +6652,12 @@ spawnPowerUp() {
                     playerId, pl.name, pl.team, pl.avatar || null, pl.peerId || playerId, pl.avatarModel
                 );
                 if (p) {
-                    p.team = pl.team || p.team;
+                    // A lobby team switch: setTeam recolours body and name pill.
+                    const nextTeam = pl.team;
+                    if (nextTeam !== p.team && isTeam(nextTeam)) {
+                        if (typeof p.setTeam === 'function') p.setTeam(nextTeam);
+                        else p.team = nextTeam;
+                    }
                     p.queuedForNextRound = !!pl.queuedForNextRound;
                     p.pendingTeam = pl.pendingTeam || null;
                     p.nextRoundTeam = isTeam(pl.nextRoundTeam) ? pl.nextRoundTeam : null;
@@ -6662,6 +6687,9 @@ spawnPowerUp() {
     // (mode/arena/round) otomatik başlar; top ve diğer eventler render'a gelir.
     handleLateJoin(data = {}) {
         if (this.network?.isHost) return;
+        // A welcome comes from the host we now follow, maybe a new one with its own ball
+        // counter: accept its next ballState whatever its seq.
+        this._ballSeq = undefined;
         if (data.state === STATES.SOCIAL_HUB) return;
         if (typeof data.state === 'string' && data.state !== STATES.MENU && data.state !== STATES.LOBBY) {
             // Mode ve map'i senkronize et
@@ -6806,6 +6834,8 @@ spawnPowerUp() {
             ? data.preGameRemaining
             : this.preGameDuration;
         this._awaitHostRoundStart = data.state === STATES.COUNTDOWN;
+        // A new match, maybe from a new host: accept its next ballState whatever its seq.
+        this._ballSeq = undefined;
         const started = this.startGame(false, data.matchId);
         if (started !== false) this._applyOvertimeSnapshot(data);
     }
@@ -7314,7 +7344,8 @@ spawnPowerUp() {
                 state: this.ball.state,
                 meshVisible: this.ball.mesh?.visible,
                 ballTarget: this._ballTarget,
-                ballTargetTime: this._ballTargetTime
+                ballTargetTime: this._ballTargetTime,
+                ballSeq: this._ballSeq
             } : null;
             presentationBefore = {
                 predictedLocalDeath: this._predictedLocalDeath,
@@ -7425,6 +7456,7 @@ spawnPowerUp() {
                         }
                         this._ballTarget = ballBefore.ballTarget;
                         this._ballTargetTime = ballBefore.ballTargetTime;
+                        this._ballSeq = ballBefore.ballSeq;
                     } catch (_) {}
                 });
                 const b = state.ball;
@@ -7437,6 +7469,8 @@ spawnPowerUp() {
             if (this.ball) this.ball._clientOnly = !becomingHost;
             this._ballTarget = null;
             this._ballTargetTime = 0;
+            // The new host numbers ball packets from its own counter: accept its next one.
+            this._ballSeq = undefined;
             if (localPlayer && this.player) {
                 rollbacks.push(() => {
                     restorePlayer(this.player, playerBefore);
@@ -7735,7 +7769,9 @@ spawnPowerUp() {
     applyRoundEnd(data) {
         if (this.network?.isHost) return;
         this.ball.deactivate();
-        this._ballSeq = 0; // reset seq, ignore stale ballState
+        // The ball sequence gate stays: late packets from this round are still rejected,
+        // and the host's counter keeps rising into the next round (resetting it to 0
+        // dropped every packet once that counter passed 0x8000).
         this.setState(STATES.ROUND_END);
         this.roundRestartTimer = this.roundRestartDelay;
         this.clearSplitBalls();
@@ -7839,7 +7875,11 @@ spawnPowerUp() {
             const stamp = this.network?.stampToHostTime?.(data.t, arrival);
             this._pushPosBuffer(p, bd.x, bd.y, bd.z, Number.isFinite(stamp) ? stamp : arrival,
                 0, 0, 0, Number.isFinite(bd.ry) ? bd.ry : 0, false, arrival);
-            p.team = bd.team || p.team;
+            const nextTeam = bd.team;
+            if (nextTeam !== p.team && isTeam(nextTeam)) {
+                if (typeof p.setTeam === 'function') p.setTeam(nextTeam);
+                else p.team = nextTeam;
+            }
             p.alive = bd.alive !== false;
             p.group.visible = p.alive || p._koActive === true;
             p.hp = bd.hp ?? p.hp;
