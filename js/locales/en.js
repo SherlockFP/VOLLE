@@ -249,6 +249,16 @@ export default {
         errFull: 'That clan is full.',
         errGeneric: 'Could not update the clan.'
     },
+    emotes: {
+        nice: 'Nice!', gg: 'GG', oops: 'Oops', wow: 'Wow!', fire: 'On fire!', cry: 'No!',
+        laugh: 'Haha', angry: 'Rage', clap: 'Clap', flex: 'Flex', heart: 'Love', skull: 'Dead',
+        incoming: 'Incoming!', cover: 'Cover me', go: 'Go go go!', help: 'Help!',
+        save: 'Nice save!', thanks: 'Thanks!', sorry: 'Sorry', wp: 'Well played',
+        page: { emotes: 'Emotes', callouts: 'Callouts' },
+        hint: 'Click · Enter · 1-0 · Tab: page',
+        hintHold: 'Aim, then release Z',
+        hintTouch: 'Tap to send'
+    },
     event: {
         aria: 'Weekly event',
         title: 'Weekly event: {mode}',

@@ -1754,7 +1754,7 @@ getSelectableMaps() {
         this._lastLocalEmoteAt = now;
         const emote = getEmote(emoteId);
         // First person never sees the sprite above its own head: confirm on the HUD.
-        this.ui?.showMessage?.(`${emote.emoji} ${emote.text}`, 900);
+        this.ui?.showMessage?.(`${emote.emoji} ${this.emotes?.label?.(emote) || emote.text}`, 900);
         return true;
     }
 

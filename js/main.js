@@ -65,6 +65,7 @@ import { GlobalChatMethods } from './app-global-chat.js';
 import { PlayOfTheGameMethods } from './app-play-of-game.js';
 import { LobbyBackfillMethods } from './app-lobby-backfill.js';
 import { MatchMetaMethods } from './app-match-meta.js';
+import { EmoteWheelMethods } from './app-emote-wheel.js';
 import { account } from './account.js';
 import { SOCIAL_HUB_MAPS, SOCIAL_HUB_MAP_ID, SocialLobby, getSocialLobbyMapState } from './social-lobby.js';
 import { applyUiPreferences, loadUiPreferences, normalizeTheme, normalizeUiScale } from './ui-theme.js';
@@ -299,6 +300,7 @@ class App {
         };
         this.network = new Network(null);
         this.game = new Game(this.renderer, this.player, this.arena, this.audio, this.ui, this.network);
+        this._bindEmoteWheel?.();
         this.voice = new VoiceChat(this.network);
         this.rematchVote = new RematchVote();
         this._completedMatchPlayerIds = new Set();
@@ -717,11 +719,17 @@ class App {
             }
             // Z or G → emote wheel toggle
             // (who may emote when: Game.canUseEmoteWheel - live players, social hub, spectators)
+            // Held keys auto-repeat keydown: without the repeat guard a held Z
+            // flickered the wheel open/closed.
             if ((e.code === 'KeyZ' || e.code === 'KeyG') && (this.game.emotes.wheelOpen || this.game.canUseEmoteWheel())) {
                 e.preventDefault();
+                if (e.repeat) return;
                 if (this.game.emotes.wheelOpen) {
                     this.closeEmoteWheel();
                 } else {
+                    // Event timestamps, not handling time: a slow frame between keydown
+                    // and keyup must not turn a tap into a hold.
+                    this._emoteWheelHeldSince = e.code === 'KeyZ' ? (e.timeStamp || performance.now()) : null;
                     this.openEmoteWheel();
                 }
             }
@@ -834,7 +842,7 @@ class App {
         }, { signal: this._mainAbort.signal, capture: true });
         document.addEventListener('keyup', e => {
             if (e.code === 'KeyZ') {
-                this.closeEmoteWheel();
+                this._releaseEmoteWheelKey?.(e.timeStamp);
             }
             if (e.code === 'KeyV' && this.voice) {
                 this.voice.pttUp();
@@ -5021,12 +5029,18 @@ updateCSLobbyInfo();
     openEmoteWheel() {
         if (this.game.emotes.wheelOpen) return;
         this.ui._openExclusive('emoteWheel', () => this.closeEmoteWheel());
-        this.player.unlock();
+        // Pointer lock stays on: the wheel aims with mouse movement (js/emotes.js).
+        // Releasing it put the cursor back wherever the match locked it, which
+        // pre-aimed a random slot.
         const cx = window.innerWidth / 2;
         const cy = window.innerHeight / 2;
         this.game.emotes.onWheelCancel = () => this.closeEmoteWheel();
-        this.game.emotes.showWheel({ x: cx, y: cy });
+        // Opens on the last emote sent (Z tap + Enter repeats it) and hides the round
+        // banner, which otherwise drew over the wheel's centre.
+        this.game.emotes.showWheel({ x: cx, y: cy }, { selectedId: this._lastEmoteId, hint: this._emoteWheelHint?.() });
+        document.body.classList.add('emote-wheel-open');
         this.game.emotes.onEmoteSelect = (emoteId) => {
+            this._lastEmoteId = emoteId;
             // Spectators emote from their seat; the host rate-limits and rebroadcasts.
             if (this.game.localSpectator) this.game.sendSpectatorEmote(emoteId);
             else if (this.game.sendPlayerEmote(emoteId)) this.game.showEmote(this.player, emoteId);
@@ -5038,6 +5052,8 @@ updateCSLobbyInfo();
         if (!this.game.emotes.wheelOpen) return;
         // Seçilmediyse kapat, seçildiyse showEmote çağrıldı
         this.game.emotes.hideWheel();
+        document.body.classList.remove('emote-wheel-open');
+        this._emoteWheelHeldSince = null;
         this.ui._closeExclusive('emoteWheel');
         if ([STATES.PLAYING, STATES.COUNTDOWN, STATES.ROUND_END, STATES.CELEBRATION].includes(this.game.state)) this.player.lock();
     }
@@ -10161,7 +10177,7 @@ updateCarousel() {
 }
 
 // Feature methods live in their own files (js/app-*.js) and are mixed in here.
-mixinMethods(App, ClanMethods, GlobalChatMethods, PlayOfTheGameMethods, LobbyBackfillMethods, MatchMetaMethods);
+mixinMethods(App, ClanMethods, GlobalChatMethods, PlayOfTheGameMethods, LobbyBackfillMethods, MatchMetaMethods, EmoteWheelMethods);
 
 // Menu particle background — canvas-based floating dots
 function initMenuParticles() {

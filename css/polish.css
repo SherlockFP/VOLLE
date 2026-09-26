@@ -8252,3 +8252,58 @@ body.reduced-motion .juice-flash,
 
 /* Lobby: clicking a team column joins that team (js/main.js _setupLobbyDragDrop). */
 #lobby-screen .cs-team-players { cursor: pointer; }
+
+/* Emote wheel v2 (js/emotes.js): emoji slots with 1-0 key badges, a needle
+   toward the selection, a solid centre (the round banner is hidden while the
+   wheel is open, it used to draw over the centre) and Emotes / Callouts tabs. */
+body.emote-wheel-open #round-banner { visibility: hidden; }
+.emote-wheel { width: clamp(270px, 80vmin, 360px); height: clamp(270px, 80vmin, 360px); z-index: var(--z-overlay-active); }
+.emote-wheel-center {
+    width: 128px; height: 128px; gap: 2px; border-radius: 50%;
+    border: 1px solid color-mix(in srgb, var(--ui-focus) 22%, transparent);
+    background: rgba(6, 16, 26, .97); box-shadow: inset 0 0 30px rgba(0, 0, 0, .45);
+}
+.emote-wheel-center .emote-wheel-page { color: var(--ui-focus); font-size: .56rem; font-weight: 900; letter-spacing: .16em; text-transform: uppercase; }
+.emote-wheel-center .emote-wheel-emoji { font-size: 2.1rem; font-weight: 400; line-height: 1.1; }
+.emote-wheel-center strong { max-width: 112px; overflow: hidden; color: #eef8fc; font-size: .9rem; text-overflow: ellipsis; white-space: nowrap; }
+.emote-wheel-center small { max-width: 112px; color: rgba(214, 239, 247, .66); font-size: .52rem; font-weight: 700; line-height: 1.35; }
+.emote-wheel-item { width: 60px; height: 60px; color: #d6e9f1; }
+.emote-wheel-item .emote-wheel-glyph { font-size: 1.55rem; line-height: 1; }
+.emote-wheel-item small { max-width: 64px; overflow: hidden; font-size: .5rem; text-overflow: ellipsis; }
+.emote-wheel-item.is-callout small { font-size: .46rem; }
+.emote-wheel-item kbd {
+    position: absolute; top: -4px; right: -4px; min-width: 16px; height: 16px; padding: 0 3px;
+    color: rgba(214, 239, 247, .8); border: 1px solid rgba(255, 255, 255, .14); border-radius: 5px;
+    background: rgba(6, 16, 26, .96); font: 800 .52rem/14px var(--font, sans-serif); text-align: center;
+}
+.emote-wheel-needle {
+    position: absolute; left: 50%; top: 50%; z-index: 0; width: 4px; height: 42%; margin-left: -2px;
+    border-radius: 4px; pointer-events: none; opacity: .8; transform-origin: 50% 0;
+    transform: rotate(calc(var(--emote-angle, 0deg) + 180deg));
+    background: linear-gradient(to bottom, transparent 0 36%, color-mix(in srgb, var(--ui-focus) 75%, transparent));
+    transition: transform 90ms ease;
+}
+.emote-wheel-tabs {
+    position: absolute; left: 50%; bottom: -50px; display: flex; gap: 4px; padding: 4px; translate: -50% 0;
+    border: 1px solid rgba(255, 255, 255, .1); border-radius: 999px; background: rgba(6, 16, 26, .94);
+}
+.emote-wheel-tab {
+    min-height: 32px; padding: 4px 14px; color: rgba(214, 239, 247, .72); cursor: pointer;
+    border: 0; border-radius: 999px; background: transparent;
+    font: 800 .66rem/1 var(--font, sans-serif); letter-spacing: .08em; text-transform: uppercase;
+}
+.emote-wheel-tab.is-active { color: #061318; background: var(--ui-focus); }
+@media (max-width: 720px) {
+    .emote-wheel-item { width: 50px; height: 50px; }
+    .emote-wheel-item .emote-wheel-glyph { font-size: 1.3rem; }
+    .emote-wheel-item kbd { display: none; }
+}
+@media (pointer: coarse) { .emote-wheel-item kbd { display: none; } }
+/* Landscape phones: the tabs move beside the wheel instead of off-screen. */
+@media (max-height: 480px) {
+    .emote-wheel-tabs { top: 50%; bottom: auto; left: calc(100% + 12px); flex-direction: column; translate: 0 -50%; border-radius: 16px; }
+    .emote-wheel-center { width: 112px; height: 112px; }
+    .emote-wheel-center .emote-wheel-emoji { font-size: 1.7rem; }
+}
+@media (prefers-reduced-motion: reduce) { .emote-wheel-needle { transition: none; } }
+.reduce-motion .emote-wheel-needle, body.reduced-motion .emote-wheel-needle { transition: none; }

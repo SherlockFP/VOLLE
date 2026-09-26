@@ -249,6 +249,16 @@ export default {
         errFull: 'Bu klan dolu.',
         errGeneric: 'Klan güncellenemedi.'
     },
+    emotes: {
+        nice: 'Güzel!', gg: 'GG', oops: 'Hay aksi', wow: 'Vay!', fire: 'Alev aldı!', cry: 'Olamaz!',
+        laugh: 'Haha', angry: 'Sinir', clap: 'Alkış', flex: 'Güç', heart: 'Sevgi', skull: 'Öldüm',
+        incoming: 'Geliyor!', cover: 'Koru beni', go: 'Hadi hadi!', help: 'Yardım!',
+        save: 'Güzel kurtarış!', thanks: 'Sağ ol!', sorry: 'Pardon', wp: 'İyi oyundu',
+        page: { emotes: 'İfadeler', callouts: 'Çağrılar' },
+        hint: 'Tıkla · Enter · 1-0 · Tab: sayfa',
+        hintHold: 'Nişan al, Z\'yi bırak',
+        hintTouch: 'Göndermek için dokun'
+    },
     event: {
         aria: 'Haftalık etkinlik',
         title: 'Haftalık etkinlik: {mode}',
