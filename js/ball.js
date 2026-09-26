@@ -579,6 +579,59 @@ export const PROP_GHOST_SECONDS = 0.6;
 export const PROP_PIN_WINDOW = 0.4;
 export const PROP_PIN_PROGRESS = 1.0;
 export const DEFLECT_SPIN_SCALE = Object.freeze({ normal: 0.45, great: 0.75, perfect: 1 });
+// A pinned ball first goes AROUND the prop that stopped it (or OVER low, wide
+// cover): it steers through two waypoints beside/above the prop's near and far
+// edges, then homes on its target again. Up to PROP_DETOUR_TRIES detours per
+// target, each at most PROP_DETOUR_SECONDS; the second one takes the other
+// route. Only then does it phase through (PROP_GHOST_SECONDS), so a shot still
+// always resolves. Before, the first pin went straight through the cover.
+export const PROP_DETOUR_TRIES = 2;
+export const PROP_DETOUR_SECONDS = 1.4;
+export const PROP_DETOUR_CLEARANCE = 1.4;
+export const PROP_DETOUR_OVER_MAX_TOP = 4;
+
+// Two waypoints taking a ball at `from` past `prop` (a js/arena.js collider:
+// exact box {minX..maxZ, top} or column {pos, radius, top}) towards `to`.
+// attempt 0: low wide cover is lobbed over, anything else is passed on the
+// side the ball is already on; attempt 1 takes the other option.
+export function propDetourWaypoints({ from, to, prop, radius = 0.47, attempt = 0 }) {
+    const box = Number.isFinite(prop?.minX);
+    const cx = box ? (prop.minX + prop.maxX) / 2 : prop?.pos?.x;
+    const cz = box ? (prop.minZ + prop.maxZ) / 2 : prop?.pos?.z;
+    if (!finitePoint(from) || !finitePoint(to) || !Number.isFinite(cx) || !Number.isFinite(cz)) return null;
+    const top = Number.isFinite(prop.top) ? prop.top : (prop.pos?.y || 0) + (prop.radius || 0);
+    let dx = to.x - from.x;
+    let dz = to.z - from.z;
+    if (Math.hypot(dx, dz) < 1e-6) { dx = cx - from.x; dz = cz - from.z; }
+    const length = Math.hypot(dx, dz) || 1;
+    dx /= length; dz /= length;
+    const px = -dz;
+    const pz = dx;
+    const halfX = box ? (prop.maxX - prop.minX) / 2 : (prop.radius || 0);
+    const halfZ = box ? (prop.maxZ - prop.minZ) / 2 : (prop.radius || 0);
+    const across = Math.abs(px) * halfX + Math.abs(pz) * halfZ;
+    const along = Math.abs(dx) * halfX + Math.abs(dz) * halfZ;
+    const clear = radius + PROP_DETOUR_CLEARANCE;
+    const low = top <= PROP_DETOUR_OVER_MAX_TOP;
+    const preferOver = low && across >= 2;
+    const over = attempt % 2 === 0 ? preferOver : (low && !preferOver);
+    if (over) {
+        const y = top + clear;
+        return [
+            { x: cx - dx * (along + clear), y, z: cz - dz * (along + clear) },
+            { x: cx + dx * (along + clear * 0.5), y: top + clear * 0.6, z: cz + dz * (along + clear * 0.5) }
+        ];
+    }
+    const offset = (from.x - cx) * px + (from.z - cz) * pz;
+    let side = offset >= 0 ? 1 : -1;
+    if (attempt % 2 === 1 && !low) side = -side;
+    const lateral = across + clear;
+    const y = Math.max(radius + 0.3, Math.min(from.y, top - radius));
+    return [
+        { x: cx - dx * along + px * side * lateral, y, z: cz - dz * along + pz * side * lateral },
+        { x: cx + dx * (along + clear * 0.5) + px * side * lateral, y, z: cz + dz * (along + clear * 0.5) + pz * side * lateral }
+    ];
+}
 
 export function spinFromStrafe(strafeVelocity, forward, tier = 'normal') {
     if (!finitePoint(strafeVelocity) || !finitePoint(forward)) return 0;
@@ -730,6 +783,9 @@ export class Ball {
         this._propBounceAt = -Infinity; // _propClock of the latest targeted prop bounce
         this._propBounceDist = 0; // distance to the target at that bounce
         this._propPinTarget = null; // target the two scalars above were measured against
+        this._lastPropHit = null; // collider of the latest prop bounce (detour planning)
+        this._propDetour = null; // { points, index, time } while routing around a pinning prop
+        this._propDetours = 0; // detours tried for _propPinTarget (see PROP_DETOUR_TRIES)
         this._proximityRange = 1.5;     // hitRange'den büyük ama çok da değil
         this._forceHit = false;
 
@@ -912,6 +968,8 @@ export class Ball {
         this._noHitTimer = 0.3;
         this._proximityTimer = 0;
         this._forceHit = false;
+        this._propDetour = null;
+        this._propDetours = 0;
         // Reset affix state
         this.affix = null;
         this._affixTrailColor = null;
@@ -951,6 +1009,8 @@ export class Ball {
         this._noHitTimer = 0;
         this._proximityTimer = 0;
         this._forceHit = false;
+        this._propDetour = null;
+        this._propDetours = 0;
         this._affixSplit = false;
         this._affixShrink = false;
         this._affixGrow = false;
@@ -975,6 +1035,7 @@ export class Ball {
         // ponytail: store previous position for swept sphere hit detection
         this._prevPosition = this.position.clone();
         if (this._noHitTimer > 0) this._noHitTimer -= dt;
+        if (this._propDetour) this._tickPropDetour(dt);
 
         // NaN guard — position bozulursa topu resetle
         if (!finitePoint(this.position)) {
@@ -1031,7 +1092,7 @@ export class Ball {
             let dist = 999;
             let homingDt = Math.max(0, dt - bounceRouteDt);
             if (this.targetPlayer) {
-                const targetPos = this._getTargetPos();
+                const targetPos = this._steerTargetPos();
                 const toTarget = new THREE.Vector3().subVectors(targetPos, this.position);
                 dist = toTarget.length();
                 if (dist > 0.5) {
@@ -1084,7 +1145,7 @@ export class Ball {
             let playerSteeringDt = bounceRouteDt > 0 ? Math.max(0, dt - bounceRouteDt) : null;
             const preSteerVelocity = this.velocity.clone();
             if (this.targetPlayer) {
-                const targetPos = this._getTargetPos();
+                const targetPos = this._steerTargetPos();
                 const toTarget = new THREE.Vector3().subVectors(targetPos, this.position);
                 dist = toTarget.length();
                 if (this.aimed && this._steeringActive) {
@@ -1297,6 +1358,7 @@ export class Ball {
                         }
                         bounced = true;
                         this.bounceCount++;
+                        this._lastPropHit = c;
                     }
                     break;
                 }
@@ -1328,6 +1390,7 @@ export class Ball {
                         this.velocity.y *= 0.85;
                         bounced = true;
                         this.bounceCount++;
+                        this._lastPropHit = c;
                     }
                     break;
                 }
@@ -1374,7 +1437,7 @@ export class Ball {
         }
         if (bounced && this.targetPlayer && (this.state === 'rally' || this.state === 'homing')) {
             if (!cleanBounce || !this._beginBounceRouteOwnership()) {
-                const recovered = recoverCornerHoming(this.velocity, this.position, this._getTargetPos(), this.currentSpeed);
+                const recovered = recoverCornerHoming(this.velocity, this.position, this._steerTargetPos(), this.currentSpeed);
                 this.velocity.set(recovered.x, recovered.y, recovered.z);
                 this._homingAge = Math.max(this._homingAge || 0, 0.75);
             }
@@ -1504,6 +1567,8 @@ export class Ball {
         if (this._propPinTarget !== target) {
             this._propPinTarget = target;
             this._propBounceAt = -Infinity;
+            this._propDetours = 0;
+            this._propDetour = null;
         }
         const since = this._propClock - this._propBounceAt;
         if (!bouncedOffProp && !(this._propBounceAt > -Infinity && since >= PROP_PIN_WINDOW)) return;
@@ -1512,7 +1577,7 @@ export class Ball {
         if (bouncedOffProp) {
             if (since <= PROP_PIN_WINDOW) {
                 // (i) back into a prop within the window: pinned.
-                this._propGhost = PROP_GHOST_SECONDS;
+                if (!this._tryPropDetour()) this._propGhost = PROP_GHOST_SECONDS;
                 this._propBounceAt = -Infinity;
             } else {
                 this._propBounceAt = this._propClock;
@@ -1523,8 +1588,52 @@ export class Ball {
         // (ii) the window after the bounce closed without the ball getting
         // PROP_PIN_PROGRESS closer (around the prop) or farther (flying clear,
         // it may come back and bounce again): it is hovering there, pinned.
-        if (Math.abs(this._propBounceDist - distance) < PROP_PIN_PROGRESS) this._propGhost = PROP_GHOST_SECONDS;
+        if (Math.abs(this._propBounceDist - distance) < PROP_PIN_PROGRESS && !this._tryPropDetour()) this._propGhost = PROP_GHOST_SECONDS;
         this._propBounceAt = -Infinity;
+    }
+
+    // Pinned: route around/over the prop that stopped the ball (see
+    // PROP_DETOUR_TRIES). False once the tries are used up (then it ghosts).
+    _tryPropDetour() {
+        if (this._propDetours >= PROP_DETOUR_TRIES || !this._lastPropHit || !this.targetPlayer) return false;
+        const points = propDetourWaypoints({
+            from: this.position, to: this._getTargetPos(false), prop: this._lastPropHit,
+            radius: this.radius, attempt: this._propDetours
+        });
+        if (!points) return false;
+        this._propDetours++;
+        this._propDetour = { points, index: 0, time: PROP_DETOUR_SECONDS, legX: this.position.x, legZ: this.position.z };
+        this._homingAge = 0;
+        return true;
+    }
+
+    // Advances to the next waypoint once reached (or passed); ends the detour
+    // after the last one, on timeout, or when the ball lost its target.
+    _tickPropDetour(dt) {
+        const detour = this._propDetour;
+        detour.time -= dt;
+        const point = detour.points[detour.index];
+        if (point) {
+            const dx = point.x - this.position.x;
+            const dy = point.y - this.position.y;
+            const dz = point.z - this.position.z;
+            // Passed = crossed the plane through the waypoint square to this leg.
+            const passed = dx * (point.x - detour.legX) + dz * (point.z - detour.legZ) < 0;
+            if (Math.hypot(dx, dy, dz) < Math.max(1.3, this.currentSpeed * dt * 1.5) || passed) {
+                detour.index++;
+                detour.legX = point.x;
+                detour.legZ = point.z;
+            }
+        }
+        if (detour.time <= 0 || detour.index >= detour.points.length || !this.targetPlayer
+            || (this.state !== 'homing' && this.state !== 'rally')) this._propDetour = null;
+    }
+
+    // Where steering heads: the current detour waypoint, else the target.
+    _steerTargetPos(out = null) {
+        const point = this._propDetour?.points[this._propDetour.index];
+        if (!point) return this._getTargetPos(true, out);
+        return out ? out.set(point.x, point.y, point.z) : new THREE.Vector3(point.x, point.y, point.z);
     }
 
     // Body zone vertical offsets from head position
@@ -1595,7 +1704,7 @@ export class Ball {
     }
 
     _beginBounceRouteOwnership() {
-        const target = this._getTargetPos(true, this._bounceRouteTarget);
+        const target = this._steerTargetPos(this._bounceRouteTarget);
         const dx = target.x - this.position.x;
         const dy = target.y - this.position.y;
         const dz = target.z - this.position.z;

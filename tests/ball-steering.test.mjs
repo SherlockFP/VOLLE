@@ -299,7 +299,8 @@ test('floor and wall bank shots preserve their reflected sign before converging 
         }
     }
     assert.match(source, /if \(!cleanBounce \|\| !this\._beginBounceRouteOwnership\(\)\)/);
-    assert.match(source, /this\._getTargetPos\(true, this\._bounceRouteTarget\)/);
+    assert.match(source, /this\._steerTargetPos\(this\._bounceRouteTarget\)/);
+    assert.match(source, /if \(!point\) return this\._getTargetPos\(true, out\);/, 'without a prop detour the route aims at the target as before');
     assert.match(source, /if \(shouldDirectHomingRescue\(distance, this\.currentSpeed, this\._homingAge, alignment\)\) return false;/);
 });
 

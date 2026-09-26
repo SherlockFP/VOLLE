@@ -1,10 +1,11 @@
-// prop-ghost-pinning.test.mjs — cover stops a targeted ball; only a PINNED
-// ball phases through props (js/ball.js _updatePropPin). Before: every prop
-// bounce by a targeted ball set PROP_GHOST_SECONDS of ghosting, so a parkour
-// block stopped a shot exactly once. Now: a clean bounce keeps props solid;
-// (i) two prop bounces within PROP_PIN_WINDOW or (ii) a bounce followed by a
-// window without PROP_PIN_PROGRESS of distance change starts the ghost.
-// Runs the REAL Ball.update() against a collider the real Arena helper built.
+// prop-ghost-pinning.test.mjs — cover stops a targeted ball (js/ball.js
+// _updatePropPin). A clean bounce keeps props solid; (i) two prop bounces
+// within PROP_PIN_WINDOW or (ii) a bounce followed by a window without
+// PROP_PIN_PROGRESS of distance change means the ball is PINNED. A pinned ball
+// now routes around the cover (or over low, wide cover) to its target
+// (propDetourWaypoints); it phases through only after PROP_DETOUR_TRIES
+// detours, so every shot still resolves. Runs the REAL Ball.update() against
+// colliders the real Arena helpers built.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -30,7 +31,7 @@ const { Arena } = await import('../js/arena.js');
 const { capsuleContact } = await import('../js/combat.js');
 const poolUrl = new URL('../js/objectPool.js', import.meta.url).href;
 const ballSource = await readFile(new URL('../js/ball.js', import.meta.url), 'utf8');
-const { Ball, PROP_GHOST_SECONDS, PROP_PIN_WINDOW, PROP_PIN_PROGRESS } = await import(`data:text/javascript;base64,${Buffer.from(ballSource
+const { Ball, PROP_GHOST_SECONDS, PROP_PIN_WINDOW, PROP_PIN_PROGRESS, PROP_DETOUR_TRIES, propDetourWaypoints } = await import(`data:text/javascript;base64,${Buffer.from(ballSource
     .replace("import * as THREE from 'three';", `import * as THREE from '${threeUrl}';`)
     .replace("import { ObjectPool } from './objectPool.js';", `import { ObjectPool } from '${poolUrl}';`)
     .replace(/import \{[^}]*\} from '\.\/ball-skin-fx\.js';/, 'const getBallSkinTexture = () => null; const rimPowerForSkin = () => 5; const trailIntensityMultiplier = () => 1; class BallImpactFX { spawn() {} update() {} clear() {} }')
@@ -140,32 +141,102 @@ test('a second approach into the same block within 0.6 s bounces again (the old 
     }
 });
 
-test('a ball pinned against cover ghosts within 0.45 s of the first pinned bounce and still reaches its target', () => {
-    for (const hz of [30, 60, 144]) {
-        for (const [tx, tz] of [[-2.6, 0], [-2.6, 0.8], [-3.5, -1]]) {
-            const dt = 1 / hz;
-            const ball = makeBall(ledgeArena());
-            const target = player(tx, tz);
-            launch(ball, target, 7, 1.2, tz * 0.5, -25, 0, 0);
-            let firstBounce = null;
-            let ghostAt = null;
-            let hitAt = null;
-            for (let t = 0; t < 3 && hitAt === null; t += dt) {
-                const before = ball.bounceCount;
-                ball.update(dt);
-                if (ball.bounceCount > before && firstBounce === null) firstBounce = t;
-                if (ball._propGhost > 0 && ghostAt === null) ghostAt = t;
-                const p = target.getPosition();
-                if (ball._forceHit || capsuleContact(ball.position, p.x, p.z, target.getFeetY(), 1.7, 0.45, ball.radius)) hitAt = t;
-                assert.ok(Number.isFinite(ball.position.x) && Number.isFinite(ball.velocity.x));
+// Owner: "the ball should hit objects around it and still bounce on to the
+// player it is going for". A pinned ball used to phase straight through the
+// cover within 0.45 s; now it routes around it (or over low, wide cover).
+function arenaWith(kind) {
+    const host = ledgeArena();
+    host.collidables.length = 0;
+    host.platforms.length = 0;
+    if (kind === 'ledge') Arena.prototype._addSolidBox.call(host, null, LEDGE.x, LEDGE.z, LEDGE.halfWidth, LEDGE.halfDepth, LEDGE.height, 'always', 0, 'ledge');
+    if (kind === 'wall') Arena.prototype._addSolidBox.call(host, null, 0, 0, 0.6, 7, 2.2, true);
+    if (kind === 'pillar') Arena.prototype._addSolidColumn.call(host, null, 0, 0, 1.6, 12, false);
+    if (kind === 'block') Arena.prototype._addSolidBox.call(host, null, 0, 0, 2.5, 2.5, 6, false);
+    return host;
+}
+const insideSolid = (ball, c) => ball.position.y < c.top - 0.05 && (Number.isFinite(c.minX)
+    ? ball.position.x > c.minX + 0.05 && ball.position.x < c.maxX - 0.05 && ball.position.z > c.minZ + 0.05 && ball.position.z < c.maxZ - 0.05
+    : Math.hypot(ball.position.x - c.pos.x, ball.position.z - c.pos.z) < c.radius - 0.05);
+
+test('a ball pinned against cover goes around or over it, never through, and still reaches its target', () => {
+    const cases = [];
+    for (const kind of ['ledge', 'wall', 'pillar', 'block']) {
+        for (const hz of [30, 60, 144]) {
+            for (const [tx, tz] of [[-3.5, 0], [-4, 1.5], [-8, -2], [-3.2, -0.6]]) {
+                for (const speed of [18, 25, 40]) cases.push({ kind, hz, tx, tz, speed });
             }
-            const label = `${hz} Hz, target (${tx}, ${tz})`;
-            assert.notEqual(firstBounce, null, `${label}: the cover bounced the ball first`);
-            assert.notEqual(ghostAt, null, `${label}: pinned ball started phasing`);
-            assert.ok(ghostAt - firstBounce <= 0.45 + 1e-9, `${label}: ghost ${(ghostAt - firstBounce).toFixed(3)} s after the first pinned bounce`);
-            assert.notEqual(hitAt, null, `${label}: shot resolved within 3.0 s`);
         }
     }
+    for (const { kind, hz, tx, tz, speed } of cases) {
+        const dt = 1 / hz;
+        const arena = arenaWith(kind);
+        const prop = arena.collidables[0];
+        const ball = makeBall(arena);
+        const target = player(tx, tz);
+        launch(ball, target, 9, 1.2, tz * 0.3, -speed, 0, 0);
+        let firstBounce = null;
+        let hitAt = null;
+        let detoured = false;
+        for (let t = 0; t < 3 && hitAt === null; t += dt) {
+            const before = ball.bounceCount;
+            ball.update(dt);
+            if (ball.bounceCount > before && firstBounce === null) firstBounce = t;
+            if (ball._propDetour) detoured = true;
+            const label = `${kind} ${hz} Hz ${speed} u/s target (${tx}, ${tz}) t=${t.toFixed(3)}`;
+            assert.equal(ball._propGhost, 0, `${label}: never phases through while a detour is left`);
+            assert.ok(!insideSolid(ball, prop), `${label}: never inside the cover`);
+            assert.ok(Number.isFinite(ball.position.x) && Number.isFinite(ball.velocity.x));
+            const p = target.getPosition();
+            if (ball._forceHit || capsuleContact(ball.position, p.x, p.z, target.getFeetY(), 1.7, 0.45, ball.radius)) hitAt = t;
+        }
+        const label = `${kind} ${hz} Hz ${speed} u/s target (${tx}, ${tz})`;
+        assert.notEqual(firstBounce, null, `${label}: the cover bounced the ball first`);
+        assert.ok(detoured, `${label}: the pinned ball took a detour`);
+        assert.notEqual(hitAt, null, `${label}: shot resolved within 3.0 s`);
+    }
+});
+
+test('detour planning: low wide cover is lobbed over, tall cover is passed on the side, a retry takes the other route', () => {
+    const from = { x: 3, y: 1.2, z: 0.2 };
+    const to = { x: -4, y: 1.7, z: 0 };
+    const wall = { minX: -0.6, maxX: 0.6, minZ: -7, maxZ: 7, top: 2.2 };
+    const [upNear, upFar] = propDetourWaypoints({ from, to, prop: wall, attempt: 0 });
+    assert.ok(upNear.y > wall.top && upFar.y > wall.top, 'over the top');
+    assert.ok(upNear.x > wall.maxX && upFar.x < wall.minX, 'near edge, then past the far edge');
+    const pillar = { pos: { x: 0, y: 1.7, z: 0 }, radius: 1.6, top: 12 };
+    const [sideNear, sideFar] = propDetourWaypoints({ from, to, prop: pillar, attempt: 0 });
+    assert.ok(sideNear.y < 3 && Math.abs(sideNear.z) > pillar.radius + 1 && Math.sign(sideNear.z) === Math.sign(sideFar.z), 'beside it, one side');
+    assert.equal(Math.sign(sideNear.z), Math.sign(from.z), 'the side the ball is already on');
+    const [retry] = propDetourWaypoints({ from, to, prop: pillar, attempt: 1 });
+    assert.equal(Math.sign(retry.z), -Math.sign(from.z), 'the retry goes round the other side');
+    const [lowRetry] = propDetourWaypoints({ from, to, prop: wall, attempt: 1 });
+    assert.ok(lowRetry.y < wall.top, 'low wide cover: the retry goes round instead of over');
+    assert.equal(propDetourWaypoints({ from, to: { x: NaN, y: 0, z: 0 }, prop: pillar }), null);
+});
+
+test('phasing is the last resort: only after PROP_DETOUR_TRIES detours for the same target', () => {
+    const arena = ledgeArena();
+    const ball = makeBall(arena);
+    const target = player(-3, 0);
+    ball.setTarget(target);
+    ball.position.set(2, 1.2, 0);
+    ball._lastPropHit = arena.collidables[0];
+    for (let attempt = 1; attempt <= PROP_DETOUR_TRIES; attempt++) {
+        ball._updatePropPin(true);
+        ball._propClock += PROP_PIN_WINDOW / 2;
+        ball._updatePropPin(true);
+        assert.equal(ball._propGhost, 0, `pin ${attempt}: a detour, not a ghost`);
+        assert.equal(ball._propDetours, attempt);
+        ball._propDetour = null;
+        ball._propClock += PROP_PIN_WINDOW * 2;
+    }
+    ball._updatePropPin(true);
+    ball._propClock += PROP_PIN_WINDOW / 2;
+    ball._updatePropPin(true);
+    assert.equal(ball._propGhost, PROP_GHOST_SECONDS, 'tries used up: it phases so the shot still resolves');
+    ball.setTarget(player(9, 9));
+    ball._updatePropPin(false);
+    assert.equal(ball._propDetours, 0, 'a new target gets fresh detours');
 });
 
 test('rule (ii): a ball hovering at the prop for the whole window ghosts; one flying clear does not', () => {
