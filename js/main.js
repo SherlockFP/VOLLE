@@ -301,6 +301,7 @@ class App {
         this.network = new Network(null);
         this.game = new Game(this.renderer, this.player, this.arena, this.audio, this.ui, this.network);
         this._bindEmoteWheel?.();
+        this.game.resolveAdaptiveSkill = () => this._adaptiveSkill?.();
         this.voice = new VoiceChat(this.network);
         this.rematchVote = new RematchVote();
         this._completedMatchPlayerIds = new Set();
@@ -351,6 +352,7 @@ class App {
             const personal = this._settlePersonalBests();
             // Read before awardMatchRewards() clears the practice flag.
             const balance = this._matchBalanceFacts?.() || null;
+            this._settleAdaptiveSkill?.(balance);
             this._presentPlayOfTheGame?.(this.game.matchId);
             this.awardMatchRewards();
             this.productAnalytics.track('match_complete', {
@@ -2261,11 +2263,21 @@ class App {
             soloPresetId = id;
             soloDialog?.querySelectorAll('[data-solo-preset]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.soloPreset === id)));
             const detail = document.getElementById('solo-paths-detail');
-            if (detail) detail.textContent = `${preset.maxRounds} rounds · ${preset.timeLimit / 60} minute match limit · ${preset.botDifficulty} opponent. Review your court in the lobby.`;
+            const opponent = preset.botDifficulty === 'auto'
+                ? `adaptive opponent (level ${this._adaptiveSkillPercent?.() ?? 35}%)`
+                : `${preset.botDifficulty} opponent`;
+            if (detail) detail.textContent = `${preset.maxRounds} rounds · ${preset.timeLimit / 60} minute match limit · ${opponent}. Review your court in the lobby.`;
         };
-        soloDialog?.querySelectorAll('[data-solo-preset]').forEach(button => button.addEventListener('click', () => selectSoloPreset(button.dataset.soloPreset)));
+        soloDialog?.querySelectorAll('[data-solo-preset]').forEach(button => button.addEventListener('click', () => {
+            this._soloPresetPicked = true;
+            selectSoloPreset(button.dataset.soloPreset);
+        }));
         bind('btn-menu-bots', () => {
             if (this.network?.connected) return;
+            // A returning player starts on the adaptive match; a first match stays the warm-up.
+            if (!this._soloPresetPicked && (this.store.get('stats')?.gamesPlayed || 0) > 0) soloPresetId = 'matched';
+            const matchedTag = document.getElementById('solo-matched-tag');
+            if (matchedTag) matchedTag.textContent = t('solo.matchedTag', { level: this._adaptiveSkillPercent?.() ?? 35 });
             selectSoloPreset(soloPresetId);
             soloDialog?.showModal();
         });
@@ -3754,7 +3766,7 @@ bind('carousel-next', () => {
         bindTouchSettings(document, this.store, this.touchControls);
         // Bot difficulty: the dropdown shows the stored value and the session
         // plays it (new profiles store 'medium', older saves keep theirs).
-        const storedBotDifficulty = ['easy', 'medium', 'hard'].includes(this.store.get('settings')?.botDifficulty)
+        const storedBotDifficulty = ['easy', 'medium', 'hard', 'auto'].includes(this.store.get('settings')?.botDifficulty)
             ? this.store.get('settings').botDifficulty
             : 'medium';
         hydrateSetting('setting-bot-difficulty', storedBotDifficulty);

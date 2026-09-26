@@ -21,6 +21,7 @@ import { SpectatorCrowd } from './spectator-crowd.js';
 import { computeSpectatorSeats, neighborSeat } from './spectator-seats.js';
 import { clampToCourtHalf, confinementSideFor, normalizeAllowCrossCourt, DEFAULT_ALLOW_CROSS_COURT } from './court-rules.js';
 import { AffixManager } from './affixes.js';
+import { ADAPTIVE_DIFFICULTY, normalizeSkill, tierForSkill } from './adaptive-difficulty.js';
 import { SKILLS, useSkill, tickSkillCooldowns, ULTIMATES, perfectDeflectCooldownCut } from './skills.js';
 import { isNewerSequence } from './network.js';
 import { resolveKillerName, sweptHitStepCount, scaleDedupWindowMs, scaleLethalGraceMs, decayKillConfirmEntries, capsuleContact, targetFeetY, segmentSphereEntry, segmentCapsuleEntry, deflectContactS } from './combat.js';
@@ -728,7 +729,11 @@ addBot(team, { name: preferredName = null } = {}) {
         && /^[a-zA-Z0-9 _-]{1,24}$/.test(preferredName)
         ? preferredName
         : `Bot-${this.botCounter}`;
-        const bot = new Bot(this.renderer, this.arena, name, team, this.botDifficulty);
+        // 'auto': tier + tuning from the player's adaptive skill (js/adaptive-difficulty.js).
+        const adaptive = this.botDifficulty === ADAPTIVE_DIFFICULTY;
+        const skill = adaptive ? normalizeSkill(this.resolveAdaptiveSkill?.()) : null;
+        const bot = new Bot(this.renderer, this.arena, name, team, adaptive ? tierForSkill(skill) : this.botDifficulty);
+        if (adaptive) bot.applyAdaptiveSkill(skill);
         bot._gameRef = this;
         this.bots.push(bot);
         this.scoreboard.addPlayer(name, team, { isBot: true });

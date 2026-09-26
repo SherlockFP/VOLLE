@@ -8,6 +8,7 @@ import { KNIVES } from './cosmetics.js';
 import { createCharacterRig } from './character-rig.js';
 import { createCharacterAnimator } from './character-anim.js';
 import { clampToCourtHalf } from './court-rules.js';
+import { tuningForSkill } from './adaptive-difficulty.js';
 
 // Bot body radius used against the cross-court midline.
 export const BOT_MIDLINE_MARGIN = 0.6;
@@ -445,6 +446,27 @@ export class Bot {
         this._tendencyDepthBias = profile.depthBias;
         this._tendencyShotBias = profile.shotBias;
         this._tendencyLobBias = profile.lobBias;
+        if (this._tuning) this._retuneTimes();
+    }
+
+    // Adaptive difficulty (js/adaptive-difficulty.js): the tier this bot was
+    // built with comes from the player's skill level; deflect chance, mishit
+    // rate, reaction and wind-up are interpolated inside it. Tendencies still
+    // bias the times, with the same next-tier floor as tendencyBoundedTime.
+    applyAdaptiveSkill(skill) {
+        const tuning = tuningForSkill(skill, DIFFICULTY_SETTINGS);
+        this._tuning = tuning;
+        this.adaptiveSkill = tuning.skill;
+        this.deflectChance = tuning.deflectChance;
+        this.mishitRate = tuning.mishitRate;
+        this._retuneTimes();
+        return tuning;
+    }
+
+    _retuneTimes() {
+        const profile = this.tendency ? TENDENCY_PROFILES[this.tendency] : null;
+        this.reactionTime = Math.max(this._tuning.reactionTime * (profile?.reactionMul ?? 1), tierFloor('reactionTime', this.difficulty));
+        this.windUpTime = Math.max(this._tuning.windUp * (profile?.windUpMul ?? 1), tierFloor('windUp', this.difficulty));
     }
 
     onMissDeflect() { this.consecutiveMisses++; }

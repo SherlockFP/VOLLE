@@ -7,14 +7,14 @@ import {
     getSoloPreset
 } from '../js/solo-presets.js';
 
-test('short solo presets expose a distinct, bounded warmup, duel, and pressure route', () => {
-    assert.deepEqual(SOLO_PRESETS.map(preset => preset.id), ['warmup', 'rally_duel', 'pressure']);
-    assert.deepEqual(SOLO_PRESETS.map(preset => preset.modeId), ['instagib', 'rally_duel', 'instagib']);
-    assert.deepEqual(SOLO_PRESETS.map(preset => preset.mapId), ['beach_open', 'industrial', 'esport_arena']);
+test('short solo presets expose a distinct, bounded warmup, duel, pressure and matched route', () => {
+    assert.deepEqual(SOLO_PRESETS.map(preset => preset.id), ['warmup', 'rally_duel', 'pressure', 'matched']);
+    assert.deepEqual(SOLO_PRESETS.map(preset => preset.modeId), ['instagib', 'rally_duel', 'instagib', 'classic']);
+    assert.deepEqual(SOLO_PRESETS.map(preset => preset.mapId), ['beach_open', 'industrial', 'esport_arena', 'grand_stadium']);
     for (const preset of SOLO_PRESETS) {
         assert.ok(preset.maxRounds >= 3 && preset.maxRounds <= 5);
         assert.ok(preset.timeLimit > 0 && preset.timeLimit <= 180);
-        assert.match(preset.botDifficulty, /^(easy|medium|hard)$/);
+        assert.match(preset.botDifficulty, /^(easy|medium|hard|auto)$/, 'auto = the adaptive level (js/adaptive-difficulty.js)');
         assert.ok(Object.isFrozen(preset));
     }
     assert.equal(Object.isFrozen(SOLO_PRESETS), true);

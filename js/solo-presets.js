@@ -4,6 +4,7 @@
 // not read or write Store data, lobby controls, account preferences, or RNG.
 
 export const SOLO_PRESET_IDS = Object.freeze({
+    MATCHED: 'matched',
     WARMUP: 'warmup',
     RALLY_DUEL: 'rally_duel',
     PRESSURE: 'pressure'
@@ -39,6 +40,19 @@ const PRESETS = Object.freeze({
         maxRounds: 5,
         timeLimit: 180,
         botName: 'Pressure BOT'
+    }),
+    // 'auto': the bot is built from the player's adaptive skill level
+    // (js/adaptive-difficulty.js via Game.resolveAdaptiveSkill), which each
+    // finished match of this preset nudges up or down.
+    [SOLO_PRESET_IDS.MATCHED]: Object.freeze({
+        id: SOLO_PRESET_IDS.MATCHED,
+        name: 'Matched',
+        modeId: 'classic',
+        mapId: 'grand_stadium',
+        botDifficulty: 'auto',
+        maxRounds: 5,
+        timeLimit: 180,
+        botName: 'Rival BOT'
     })
 });
 

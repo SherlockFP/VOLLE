@@ -1008,6 +1008,7 @@
                             <option value="easy" data-i18n="settings.easy">Easy</option>
                             <option value="medium" selected data-i18n="settings.medium">Medium</option>
                             <option value="hard" data-i18n="settings.hard">Hard</option>
+                            <option value="auto" data-i18n="settings.botAuto">Auto (adapts to you)</option>
                         </select>
                         <small class="settings-row-desc" data-i18n="settings.botDifficultyDesc">AI skill level for practice and filler bots.</small>
                     </div>
@@ -2072,6 +2073,7 @@
     <dialog id="solo-paths" class="solo-paths" aria-labelledby="solo-paths-title">
         <header><div><span class="solo-kicker" data-i18n="solo.kicker">YOUR NEXT MATCH</span><h2 id="solo-paths-title" data-i18n="solo.title">Find your rhythm.</h2><p data-i18n="solo.copy">Choose a short solo match. One opponent. A clear challenge.</p></div><button class="solo-close" id="solo-paths-close" type="button" aria-label="Close solo match chooser" data-i18n-attr="aria-label:solo.close">×</button></header>
         <div class="solo-path-grid" aria-label="Solo match presets" data-i18n-attr="aria-label:solo.presets">
+            <button type="button" class="solo-path-card" data-solo-preset="matched" aria-pressed="false"><span class="solo-path-icon" aria-hidden="true">⇅</span><strong data-i18n="solo.matched">Matched to you</strong><small data-i18n="solo.matchedCopy">The bot adapts after every match: win and it gets sharper, lose and it eases off.</small><span class="solo-path-tag" id="solo-matched-tag">ADAPTIVE · LEVEL 35%</span></button>
             <button type="button" class="solo-path-card" data-solo-preset="warmup" aria-pressed="true"><span class="solo-path-icon" aria-hidden="true">◎</span><strong data-i18n="solo.warmup">Warm-up</strong><small data-i18n="solo.warmupCopy">Find your timing against a forgiving opponent. One clean hit ends the round.</small><span class="solo-path-tag" data-i18n="solo.warmupTag">EASY · ONE SHOT</span></button>
             <button type="button" class="solo-path-card" data-solo-preset="rally_duel" aria-pressed="false"><span class="solo-path-icon" aria-hidden="true">↔</span><strong data-i18n="solo.rallyDuel">Rally Duel</strong><small data-i18n="solo.rallyDuelCopy">Equal stats. No powers. Win with timing, direction and movement.</small><span class="solo-path-tag" data-i18n="solo.rallyDuelTag">MEDIUM · 1 VS 1</span></button>
             <button type="button" class="solo-path-card" data-solo-preset="pressure" aria-pressed="false"><span class="solo-path-icon" aria-hidden="true">ϟ</span><strong data-i18n="solo.pressure">Under Pressure</strong><small data-i18n="solo.pressureCopy">One hit ends the round. Stay calm as the ball gets faster.</small><span class="solo-path-tag" data-i18n="solo.pressureTag">HARD · INSTAGIB</span></button>

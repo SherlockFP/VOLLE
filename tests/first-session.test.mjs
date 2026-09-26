@@ -167,7 +167,7 @@ test('new profiles default to a medium bot; existing saves keep theirs', () => {
 test('the settings dropdown shows the stored difficulty and the session plays it', () => {
     const main = readSource('js/main.js');
     assert.match(main, /hydrateSetting\('setting-bot-difficulty', storedBotDifficulty\);\s*this\.game\.setBotDifficulty\(storedBotDifficulty\);/);
-    assert.match(main, /const storedBotDifficulty = \['easy', 'medium', 'hard'\]\.includes\(this\.store\.get\('settings'\)\?\.botDifficulty\)/);
+    assert.match(main, /const storedBotDifficulty = \['easy', 'medium', 'hard', 'auto'\]\.includes\(this\.store\.get\('settings'\)\?\.botDifficulty\)/, "'auto' = adaptive (js/adaptive-difficulty.js)");
     const game = readSource('js/game.js');
     assert.match(game, /this\.botDifficulty = 'medium';/, 'the Game default matches a fresh profile');
     const store = readSource('js/store.js');

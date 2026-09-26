@@ -1,6 +1,7 @@
 // App methods around a match: drop announcements (js/drop-feed.js), the
 // weekly event entry (js/weekly-event.js), balance facts for analytics
-// (js/balance-outcome.js) and coded maps (js/map-code.js). Mixed into App by
+// (js/balance-outcome.js), coded maps (js/map-code.js) and the adaptive bot
+// level (js/adaptive-difficulty.js). Mixed into App by
 // js/main.js (js/app-mixins.js).
 import { packDrops } from './drop-feed.js';
 import { GAME_MODES } from './gamemodes.js';
@@ -10,6 +11,7 @@ import { matchOutcomeFacts } from './balance-outcome.js';
 import { decodeMapCode } from './map-code.js';
 import { isTerminalRematchState } from './rematch.js';
 import { WEEKLY_EVENT_XP_BONUS, weeklyEvent } from './weekly-event.js';
+import { ADAPTIVE_DIFFICULTY, nextSkill, normalizeSkill, skillPercent } from './adaptive-difficulty.js';
 
 export class MatchMetaMethods {
     // Shows this player's drops on the right and tells the lobby (the host relays
@@ -83,5 +85,29 @@ export class MatchMetaMethods {
         this.broadcastLobbyState();
         this.ui.showMessage?.(t('toast.mapCodeLoaded', { name: decoded.config.name }), 2200);
         return true;
+    }
+
+    // The player's adaptive bot level ("Matched to you" preset, "Auto" setting).
+    _adaptiveSkill() {
+        return normalizeSkill(this.store.get('adaptiveBotSkill'));
+    }
+
+    _adaptiveSkillPercent() {
+        return skillPercent(this._adaptiveSkill());
+    }
+
+    // A finished solo match against adaptive bots moves the level: a win up, a
+    // loss down, a bigger round margin further. The toast says which way.
+    _settleAdaptiveSkill(balance) {
+        if (!balance || this.network?.connected || this.game.botDifficulty !== ADAPTIVE_DIFFICULTY) return null;
+        const before = this._adaptiveSkill();
+        const after = nextSkill(before, { result: balance.dimensions?.result, roundsWon: balance.metrics?.roundsWon, roundsLost: balance.metrics?.roundsLost });
+        this.store.set('adaptiveBotSkill', after);
+        if (skillPercent(after) !== skillPercent(before)) {
+            // Queued: the level-up / coins toasts of the same report must not wipe it.
+            const text = t(after > before ? 'solo.adaptiveUp' : 'solo.adaptiveDown', { from: skillPercent(before), to: skillPercent(after) });
+            if (!this.ui.queueToast?.(text, 2600)) this.ui.showMessage?.(text, 2600);
+        }
+        return after;
     }
 }
