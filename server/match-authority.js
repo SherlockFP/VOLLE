@@ -44,7 +44,6 @@ class MatchAuthority {
         if (!match) {
             const snapshot = mode === 'solo' ? { members: new Set([profile.id]), expectedCount: 1 } : this._lobbySnapshot(profile, lobbyCode, mode);
             if (!snapshot) return { httpStatus: 403, error: 'authenticated lobby admission required' };
-            if (mode === 'solo' && !this.profiles.canRewardSolo(profile, now) && !this.profiles.hasRewardedMatch(profile, matchId)) return { httpStatus: 429, error: 'daily solo reward limit reached' };
             match = { key, id: matchId, mode, startedAt: now, allowed: snapshot.members, expectedCount: snapshot.expectedCount, required: new Set(), started: new Set(), reports: new Map(), readyAt: null, finalized: false };
             this.matches.set(key, match);
         }
@@ -86,8 +85,11 @@ class MatchAuthority {
         }
         if (match.started.size !== match.required.size || !match.readyAt || now - match.readyAt < this.minDurationMs) return { httpStatus: 409, error: 'match is not ready to complete' };
         if (mode === 'solo') {
-            if (!this.profiles.hasRewardedMatch(profile, matchId) && !this.profiles.claimSoloReward(profile, matchId, now)) return { httpStatus: 429, error: 'daily solo reward limit reached' };
-            const reward = this.profiles.reward(profile, { matchId, won: false, score: 0, deflections: 0, gameMode: match.gameMode }, now);
+            // Past the daily solo reward cap the match still settles, at zero
+            // payout, so the report finalizes and the play dailies keep counting.
+            const capped = !this.profiles.hasRewardedMatch(profile, matchId) && !this.profiles.claimSoloReward(profile, matchId, now);
+            const reward = capped ? this.profiles.settleCappedSolo(profile, matchId, now)
+                : this.profiles.reward(profile, { matchId, won: false, score: 0, deflections: 0, gameMode: match.gameMode }, now);
             match.completions = new Map([[profile.id, reward]]); this._finish(match);
             return { ...this._public(match, profile), httpStatus: 200, replayed: reward.replayed === true };
         }
