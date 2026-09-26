@@ -364,3 +364,33 @@ test('shipped _doApplyHit under the pause menu: a non-final kill returns the bal
     assert.equal(live.game.roundEnds, 1);
     assert.equal(live.game._pendingRoundEnd ?? false, false);
 });
+
+// Integration with js/pause-policy.js: main.js pauses and resumes through
+// pauseAction/resumeAction, so drive the shipped setState and _doApplyHit the same way.
+test('with the pause policy: a solo final kill under the menu ends the round once on Continue; online never pauses', async () => {
+    const { pauseAction, resumeAction } = await import('../js/pause-policy.js');
+    const { game, player, victim } = hitHarness({ finalKill: true });
+    victim.hp = 25;
+    const pause = pauseAction({ connected: false, state: game.state });
+    assert.equal(pause.setState, STATES.PAUSED);
+    const pausedFrom = game.state;
+    game.setState(pause.setState);
+    game._doApplyHit(victim, victim.name, 'You', player, null);
+    assert.equal(game.state, STATES.PAUSED);
+    assert.equal(game.roundEnds, 0);
+    const resume = resumeAction({ state: game.state, pausedFrom });
+    game.setState(resume.setState);
+    assert.equal(game.state, STATES.ROUND_END);
+    assert.equal(game.roundEnds, 1);
+    assert.equal(resumeAction({ state: game.state, pausedFrom }).setState, null, 'a second Continue rewinds nothing');
+
+    const online = hitHarness({ finalKill: true });
+    online.victim.hp = 25;
+    online.game.network = { connected: true, isHost: true, broadcast() {} };
+    online.game._authoritativeHitState = (target, lethal) => ({ hp: lethal ? 0 : target.hp, alive: !lethal, lethal });
+    assert.equal(pauseAction({ connected: true, state: online.game.state }).setState, null);
+    online.game._doApplyHit(online.victim, online.victim.name, 'You', online.player, null);
+    assert.equal(online.game.state, STATES.ROUND_END, 'the overlay never holds the shared round');
+    assert.equal(online.game.roundEnds, 1);
+    assert.equal(resumeAction({ state: online.game.state, pausedFrom: null }).setState, null);
+});
