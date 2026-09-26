@@ -675,6 +675,7 @@ export class Game {
         const target = this.ball.targetPlayer;
         this.ball.update(step);
         if (!this.ball.active || target.alive === false || this.ball._noHitTimer > 0) return true;
+        if (this.ball._affixGhost && this.ball.ghostSolidFor?.(target) !== true) return true;
 
         const targetPos = target.getPosition();
         const hitBonus = this.ball.effectiveHitRange
@@ -3831,11 +3832,12 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         // Ball can hit anywhere: head, chest, abdomen, legs.
         // Aimed shots fly straight, so check EVERY enemy of the thrower's team in the
         // ball's path — you damage whoever you actually hit, not just an assigned target.
-        // Ghost affix: skip player collision entirely.
+        // Ghost affix: bodies are phased through; only the ball's own target can be
+        // hit, and only in the last moment (Ball.ghostSolidFor, js/ball.js).
         let hitS = Infinity;
         let hitTarget = null;
         let candidates = null;
-        if (this.ball.active && !this._practiceMode && !this.ball._affixGhost && !this.ball._warmup && this.ball._noHitTimer <= 0) {
+        if (this.ball.active && !this._practiceMode && !this.ball._warmup && this.ball._noHitTimer <= 0) {
             const throwerTeam = this.lastDeflectorTeam;
             // Candidates: enemies of the thrower (or just the assigned target as fallback).
             candidates = this._ffa
@@ -3843,6 +3845,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 : (throwerTeam
                     ? this.getAllTargets().filter(p => p.team !== throwerTeam)
                     : (ball.targetPlayer ? [ball.targetPlayer] : []));
+            if (ball._affixGhost) candidates = candidates.filter(target => ball.ghostSolidFor?.(target) === true);
             // ponytail: actual per-frame displacement (not speed*assumed-dt) — a dt
             // spike (up to the 50ms clamp in main.js) inflates the swept gap just as
             // much as high ball speed does, so measure the real segment length.

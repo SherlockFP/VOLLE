@@ -67,7 +67,7 @@ test('practice disables bot additions and returns a bounced ball to the player',
     assert.match(game, /if \(this\._practiceMode\) return null;/);
     assert.match(main, /this\.game\._practiceMode = true;\s*document\.querySelectorAll\('#btn-add-bot-red, #btn-add-bot-blue'\)/);
     assert.match(game, /if \(this\._practiceMode && !this\.guidedDrill\.active && bounced\) \{\s*this\.ball\.setTarget\(this\.player\);\s*this\.ball\.state = 'homing';/);
-    assert.match(game, /this\.ball\.active && !this\._practiceMode && !this\.ball\._affixGhost/);
+    assert.match(game, /this\.ball\.active && !this\._practiceMode && !this\.ball\._warmup && this\.ball\._noHitTimer <= 0/);
 });
 
 test('guided practice consumes frame remainder and fully clears power-up state', async () => {

@@ -20,6 +20,23 @@ const SUBTLE_ROUTE_DOT = Math.cos(6 * Math.PI / 180);
 const finitePoint = p => p && Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z);
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
+// Ghost affix (js/affixes.js: "phases through players, no hit until last
+// second"): the ball passes through every body except its own target, and
+// turns solid for that target only inside its last GHOST_SOLID_SECONDS of
+// flight (never less than GHOST_SOLID_MIN_RANGE). Before, hits were simply
+// switched off for the whole flight, so a Ghost ball homed into its target and
+// circled inside it forever. A ball with no target is solid as usual.
+export const GHOST_SOLID_SECONDS = 0.3;
+export const GHOST_SOLID_MIN_RANGE = 3;
+export function ghostBallSolidFor(ball, target) {
+    if (!ball?._affixGhost || !ball.targetPlayer) return true;
+    if (!target || target !== ball.targetPlayer) return false;
+    const pos = target.getPosition?.();
+    if (!pos || !ball.position) return false;
+    const range = Math.max(GHOST_SOLID_MIN_RANGE, (Number(ball.currentSpeed) || 0) * GHOST_SOLID_SECONDS);
+    return ball.position.distanceTo(pos) <= range;
+}
+
 export function steeringTurnAlpha(dt, deflections = 0) {
     if (!Number.isFinite(dt) || dt <= 0) return 0;
     const tickTurn = clamp(0.30 + Math.max(0, deflections) * 0.018, 0, 0.9);
@@ -2010,6 +2027,8 @@ export class Ball {
     getChargeProfile() {
         return chargeProfile(this.chargeHeld);
     }
+    ghostSolidFor(target) { return ghostBallSolidFor(this, target); }
+
     // A-D-A-D spin — orbit ball around player (limited time, speeds up)
     startOrbit(holder) {
         this.state = 'orbiting';
