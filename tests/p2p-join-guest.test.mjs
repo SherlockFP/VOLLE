@@ -55,7 +55,8 @@ test('M menu: opens on the other side; 1 / 2 join in one press; re-clicking the 
 });
 
 test('host never takes a remote team from position packets; guests reconcile an overruled switch', () => {
-    assert.match(gameSource, /if \(!this\.network\?\.isHost\) p\.team = data\.team \|\| p\.team;/);
+    // Guests take the packet's team through setTeam (body + name pill recolour).
+    assert.match(gameSource, /if \(!this\.network\?\.isHost && data\.team !== p\.team && \(data\.team === 'red' \|\| data\.team === 'blue'\)\) \{\s+if \(typeof p\.setTeam === 'function'\) p\.setTeam\(data\.team\);\s+else p\.team = data\.team;/);
     assert.doesNotMatch(gameSource, /\n\s+p\.team = data\.team \|\| p\.team;/);
     assert.match(gameSource, /const overruled = isTeam\(pl\.team\) && pl\.team !== this\.player\.team[\s\S]{0,260}this\.player\.setTeam\(pl\.team\);\s+if \(overruled\) \{\s+this\.player\.respawn\(\);/);
 });

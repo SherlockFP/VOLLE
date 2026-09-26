@@ -87,6 +87,12 @@ function makeWorld() {
         applyEntityCosmetics() {}, normalizeWearableLoadout: loadout => loadout
     });
     game.applyBotSync = compileGameMethod('applyBotSync', { isTeam, performance: { now: () => 0 } });
+    // No isTeam global on purpose: the position path must not depend on it (other
+    // suites compile updateRemotePlayer without it).
+    game.updateRemotePlayer = compileGameMethod('updateRemotePlayer', {
+        performance: { now: () => 0 }, KNIVES: {}, clampToCourtHalf: z => z
+    });
+    game.spectators = { has: () => false };
     game._pushPosBuffer = () => {};
     // addRemotePlayer sits at column 0 in js/game.js (extractGameMethod cannot reach it):
     // the same existing-or-create contract, minus the rally-duel cap.
@@ -231,6 +237,87 @@ test('client B sees client A switch to blue: body and pill recolour through lobb
     assert.equal(counts.mapsCreated, 2);
 });
 
+// ------------------------------------------------------------------ position packet race
+
+// Client A switches to blue. A's own position packet (POS_Q with HAS_TEAM|BLUE) goes
+// straight to client B over the mesh, while the lobbyState goes A -> host -> B. Either
+// can land first; B must end with A's body and pill in blue, recoloured exactly once.
+function raceWorld() {
+    const world = makeWorld();
+    const { game } = world;
+    const roster = team => ({ players: [
+        { playerId: 'me', peerId: 'me-peer', name: 'Me', team: 'red' },
+        { playerId: 'p-a', peerId: 'peer-a', name: 'A', team }
+    ] });
+    game.applyLobbyState(roster('red'), { deferLocalPlayer: true });
+    const a = game.remotePlayers.get('p-a');
+    const position = data => game.updateRemotePlayer('p-a', { x: 0, y: 1.7, z: 10, ry: 0, name: 'A', ...data }, 'peer-a');
+    return { ...world, a, roster, position };
+}
+
+test('client B: A\'s position packet (team blue) beats the lobbyState: body and pill still recolour once', () => {
+    const { game, counts, a, roster, position } = raceWorld();
+    assert.equal(a.labelSprite.material.map.colour, RED_PILL);
+    const firstPill = a.labelSprite.material.map;
+    position({ team: 'blue' });
+    assert.equal(a.team, 'blue');
+    assert.deepEqual(counts.rigTeams, ['blue'], 'the mesh packet recolours the body');
+    assert.equal(a.labelSprite.material.map.colour, BLUE_PILL, 'and redraws the pill');
+    assert.equal(firstPill.disposed, 1);
+    game.applyLobbyState(roster('blue'), { deferLocalPlayer: true });
+    for (let i = 0; i < 30; i++) position({});
+    position({ team: 'blue' });
+    assert.equal(game.remotePlayers.get('p-a'), a);
+    assert.deepEqual(counts.rigTeams, ['blue'], 'the later lobbyState and repeats do not recolour again');
+    assert.equal(counts.mapsCreated, 2);
+    assert.equal(a.labelSprite.material.map.colour, BLUE_PILL);
+});
+
+test('client B: the lobbyState beats A\'s position packet: same result, one recolour', () => {
+    const { game, counts, a, roster, position } = raceWorld();
+    game.applyLobbyState(roster('blue'), { deferLocalPlayer: true });
+    position({ team: 'blue' });
+    for (let i = 0; i < 30; i++) position({});
+    assert.equal(a.team, 'blue');
+    assert.deepEqual(counts.rigTeams, ['blue']);
+    assert.equal(counts.mapsCreated, 2);
+    assert.equal(a.labelSprite.material.map.colour, BLUE_PILL);
+});
+
+test('position packets: setTeam only on a real change; no team or a bad team keeps the current one', () => {
+    const { game } = makeWorld();
+    const ana = spyEntity('Ana', 'red', { group: { visible: true, rotation: {} } });
+    game.remotePlayers.set('p-ana', ana);
+    const position = data => game.updateRemotePlayer('p-ana', { x: 0, y: 1.7, z: 0, ...data }, 'peer-ana');
+    position({ team: 'red' });
+    position({});
+    position({ team: 'green' });
+    assert.deepEqual(ana.calls, []);
+    assert.equal(ana.team, 'red');
+    position({ team: 'blue' });
+    for (let i = 0; i < 30; i++) position({ team: 'blue' });
+    assert.deepEqual(ana.calls, ['blue']);
+    // A stub entity without setTeam still takes the team.
+    const plain = { name: 'Plain', team: 'red', alive: true, group: { visible: true, rotation: {} } };
+    game.remotePlayers.set('p-plain', plain);
+    game.updateRemotePlayer('p-plain', { x: 0, y: 1.7, z: 0, team: 'blue' }, 'peer-plain');
+    assert.equal(plain.team, 'blue');
+});
+
+test('position packets on the host never move a remote to another team', () => {
+    const { game, counts } = makeWorld();
+    game.network = {
+        isHost: true, playerId: 'me', peer: { id: 'me-peer' },
+        broadcast() {}, relayPositionToSpectators() {}
+    };
+    game.getCourtConfinementSide = () => 0;
+    const a = game.addRemotePlayer('p-a', 'A', 'red', null, 'peer-a');
+    game.updateRemotePlayer('p-a', { x: 0, y: 1.7, z: 0, team: 'blue' }, 'peer-a');
+    assert.equal(a.team, 'red');
+    assert.deepEqual(counts.rigTeams, []);
+    assert.equal(a.labelSprite.material.map.colour, RED_PILL);
+});
+
 test('20 create/removeRemotePlayer cycles free every pill texture and SpriteMaterial', () => {
     const { game, counts, textures } = makeWorld();
     for (let i = 0; i < 20; i++) {
@@ -252,6 +339,8 @@ test('20 create/removeRemotePlayer cycles free every pill texture and SpriteMate
 test('source: no bare team writes for existing entities, no dead CylinderGeometry recolour', () => {
     assert.doesNotMatch(gameSource, /p\.team = pl\.team/);
     assert.doesNotMatch(gameSource, /p\.team = bd\.team/);
+    assert.doesNotMatch(gameSource, /p\.team = data\.team \|\| p\.team/);
+    assert.match(extractGameMethod('updateRemotePlayer'), /if \(typeof p\.setTeam === 'function'\) p\.setTeam\(data\.team\);/);
     assert.doesNotMatch(extractGameMethod('applyLobbyState'), /CylinderGeometry/);
     for (const name of ['applyLobbyState', 'applyBotSync']) {
         assert.match(extractGameMethod(name), /if \(typeof p\.setTeam === 'function'\) p\.setTeam\(nextTeam\);/, name);

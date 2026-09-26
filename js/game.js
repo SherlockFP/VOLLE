@@ -6228,7 +6228,13 @@ spawnPowerUp() {
         // The host owns team membership (teamChange / next-round queue); a packet's
         // team only updates the display on guests. Trusting it on the host let a
         // client skip the next-round rule and desync the roster at round start.
-        if (!this.network?.isHost) p.team = data.team || p.team;
+        // The switch goes through setTeam so the body and name pill recolour: this packet
+        // comes straight over the mesh and can beat the host's lobbyState, whose guard
+        // then sees no change (an inline team check: tests compile this without isTeam).
+        if (!this.network?.isHost && data.team !== p.team && (data.team === 'red' || data.team === 'blue')) {
+            if (typeof p.setTeam === 'function') p.setTeam(data.team);
+            else p.team = data.team;
+        }
         // Position packets are movement reports, not authority to heal or revive.
         // Guests still reconcile the host's snapshots; the host keeps its own life state.
         if (!this.network?.isHost) {
