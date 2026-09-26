@@ -87,7 +87,9 @@ class MatchAuthority {
         if (mode === 'solo') {
             // Past the daily solo reward cap the match still settles, at zero
             // payout, so the report finalizes and the play dailies keep counting.
-            const capped = !this.profiles.hasRewardedMatch(profile, matchId) && !this.profiles.claimSoloReward(profile, matchId, now);
+            // A capped id replayed on a later day stays capped: it never takes a paid slot.
+            const capped = !this.profiles.hasRewardedMatch(profile, matchId)
+                && (this.profiles.hasCappedSoloMatch(profile, matchId) || !this.profiles.claimSoloReward(profile, matchId, now));
             const reward = capped ? this.profiles.settleCappedSolo(profile, matchId, now)
                 : this.profiles.reward(profile, { matchId, won: false, score: 0, deflections: 0, gameMode: match.gameMode }, now);
             match.completions = new Map([[profile.id, reward]]); this._finish(match);

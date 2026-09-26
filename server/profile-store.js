@@ -74,6 +74,10 @@ const MATCH_REWARD_BONUS_CAP = 60;
 // Solo (bot) matches pay out this many times per UTC day. Later solo matches
 // still settle, at zero payout, so the report finalizes and play dailies count.
 const SOLO_REWARDED_MATCHES_PER_DAY = 3;
+// Replay receipts for those zero-payout solo matches. They live apart from
+// rewardedMatches (50 ids), so bot spam past the cap never pushes the day's
+// paid solo ids, or any multiplayer id, out of the paid replay guard.
+const SOLO_CAPPED_RECEIPT_LIMIT = 100;
 
 // House-promo "watch & earn" — no real ad SDK (zero new deps), just a
 // server-enforced daily cap + cooldown so the coin faucet stays bounded.
@@ -243,6 +247,7 @@ function defaults(id, name) {
         dailyChallenges: createDailyState(),
         rankedState: createServerRankedState(),
         soloRewards: { day: '', count: 0, matchIds: [] },
+        soloCappedMatches: [],
         cardRewardReceipts: [],
         cardTradeReceipts: [],
         rewardedMatches: [],
@@ -369,6 +374,9 @@ class ProfileStore {
         normalized.soloRewards = record.soloRewards && typeof record.soloRewards === 'object'
             ? { day: typeof record.soloRewards.day === 'string' ? record.soloRewards.day : '', count: Math.max(0, Math.min(SOLO_REWARDED_MATCHES_PER_DAY, Math.floor(Number(record.soloRewards.count) || 0))), matchIds: Array.isArray(record.soloRewards.matchIds) ? record.soloRewards.matchIds.filter(id => typeof id === 'string').slice(-SOLO_REWARDED_MATCHES_PER_DAY) : [] }
             : { day: '', count: 0, matchIds: [] };
+        normalized.soloCappedMatches = Array.isArray(record.soloCappedMatches)
+            ? record.soloCappedMatches.filter(id => typeof id === 'string' && id).map(id => id.slice(0, 64)).slice(-SOLO_CAPPED_RECEIPT_LIMIT)
+            : [];
         normalized.equippedWearables = normalizeEquippedCosmetics(
             normalized.equippedWearables,
             normalized.ownedCosmetics,
@@ -402,7 +410,7 @@ class ProfileStore {
     _public(record, now = Date.now()) {
         if (this._rolloverBattlepass(record, now)) this._save();
         if (this._ensureDailyChallenges(record, now)) this._save();
-        const { tokenHash, rewardedMatches, purchaseReceipts, premiumTransactions, gemSpendReceipts, caseReceipts, cardRewardReceipts, cardTradeReceipts, battlepassBoostReceipts, adRewards, dailyStreak, soloRewards, dailyChallenges, ...profile } = record;
+        const { tokenHash, rewardedMatches, purchaseReceipts, premiumTransactions, gemSpendReceipts, caseReceipts, cardRewardReceipts, cardTradeReceipts, battlepassBoostReceipts, adRewards, dailyStreak, soloRewards, soloCappedMatches, dailyChallenges, ...profile } = record;
         const activeBoost = normalizeBattlepassActiveBoost(record.battlepassActiveBoost);
         return {
             ...profile,
@@ -851,7 +859,10 @@ class ProfileStore {
         return state.day !== utcDateKey(now) || Math.max(0, Number(state.count) || 0) < SOLO_REWARDED_MATCHES_PER_DAY;
     }
 
-    hasRewardedMatch(record, matchId) { return Array.isArray(record?.rewardedMatches) && record.rewardedMatches.includes(matchId); }
+    // Receipts store the id cut to 64 chars (reward, settleCappedSolo), so look it up the same way.
+    hasRewardedMatch(record, matchId) { return Array.isArray(record?.rewardedMatches) && typeof matchId === 'string' && record.rewardedMatches.includes(matchId.slice(0, 64)); }
+
+    hasCappedSoloMatch(record, matchId) { return Array.isArray(record?.soloCappedMatches) && typeof matchId === 'string' && record.soloCappedMatches.includes(matchId.slice(0, 64)); }
 
     claimSoloReward(record, matchId, now = Date.now()) {
         const day = utcDateKey(now);
@@ -867,18 +878,22 @@ class ProfileStore {
     // A solo match past today's reward cap still settles, exactly once, at zero
     // payout: it only counts toward the play dailies. No coins, Battle Pass XP,
     // drops, starter track or weekly event, so bot spam cannot farm the economy.
+    // Its receipt goes to soloCappedMatches, never rewardedMatches: there it
+    // would evict paid ids, and a paid id replayed after a restart paid again.
     settleCappedSolo(record, matchId, now = Date.now()) {
         const id = typeof matchId === 'string' ? matchId.slice(0, 64) : '';
         if (!id) return { status: 400, error: 'matchId required' };
         record.rewardedMatches = Array.isArray(record.rewardedMatches) ? record.rewardedMatches : [];
         if (record.rewardedMatches.includes(id)) return this.reward(record, { matchId: id }, now);
+        const zero = { status: 200, coins: 0, base: 0, bonus: 0, firstOfDay: 0, battlepassXp: 0, battlepassBoostMultiplier: 1, cardReward: null, bonusCard: null, earnedCase: null, earnedCaseSource: null, starterCase: null, weeklyEvent: null, soloCapped: true };
+        record.soloCappedMatches = Array.isArray(record.soloCappedMatches) ? record.soloCappedMatches : [];
+        if (record.soloCappedMatches.includes(id)) return { ...zero, replayed: true, dailyProgress: null, profile: this._public(record, now) };
         const dailyProgress = this._advanceDailyChallenges(record, { won: false }, now);
-        record.rewardedMatches.push(id);
-        record.rewardedMatches = record.rewardedMatches.slice(-50);
+        record.soloCappedMatches = [...record.soloCappedMatches, id].slice(-SOLO_CAPPED_RECEIPT_LIMIT);
         record.economyRevision = Math.max(0, Number(record.economyRevision) || 0) + 1;
         record.updatedAt = now;
         this._save();
-        return { status: 200, replayed: false, coins: 0, base: 0, bonus: 0, firstOfDay: 0, battlepassXp: 0, battlepassBoostMultiplier: 1, dailyProgress, cardReward: null, bonusCard: null, earnedCase: null, earnedCaseSource: null, starterCase: null, weeklyEvent: null, soloCapped: true, profile: this._public(record, now) };
+        return { ...zero, replayed: false, dailyProgress, profile: this._public(record, now) };
     }
 
     canStartRankedPair(profileIds, now = Date.now()) {
@@ -1264,4 +1279,4 @@ class ProfileStore {
     }
 }
 
-module.exports = { CATALOG, ONBOARDING_FLAGS, ProfileStore, SOLO_REWARDED_MATCHES_PER_DAY };
+module.exports = { CATALOG, ONBOARDING_FLAGS, ProfileStore, SOLO_REWARDED_MATCHES_PER_DAY, SOLO_CAPPED_RECEIPT_LIMIT };
