@@ -20,7 +20,16 @@
 - **Denge verisi:** `match_complete` olayı zorluk, harita, karakter, takım boyutu ve raund bilgisini taşıyor; `npm run balance` rapor çıkarıyor.
 - **main.js bölündü:** 10,7k → 10,2k satır. Bu turun özellikleri `js/app-*.js` (mixin) dosyalarında; yeni App özellikleri oraya yazılmalı.
 - Puan kartı ~7,1 → ~7,3.
-- Doğrulama **2666/2667 test** (+1 skip), check 166 dosya OK. Bir zamanlama testi (mesh-security) yük altında bir kez kırıldı; ayrıntı oturum notunda. Dal main'e birleşmedi.
+- Doğrulama **2666/2667 test** (+1 skip), check 166 dosya OK.
+- **Tur 5 (2026-09-26):**
+  - Klan ekranı yumuşak ve okunur paletle yenilendi.
+  - Ghost top modifiyesi artık hedefi vuruyor; önceden oyuncunun içinde dönüyordu, "alt-tab" raporu bu hataydı.
+  - Top siperden sekip yanından/üstünden dolanarak hedefe gidiyor.
+  - Z emote çarkında basılı tut-nişan al-bırak, Çağrılar sayfası, emojiler ve kilitli fareyle nişan var.
+  - Uyarlanır botlar: "Sana göre maç" ve ayarlarda Otomatik.
+  - Telefonda yatayda PLAY görünüyor, HUD çakışmaları giderildi; mesh testi artık kararlı.
+  - Puan ~7,3 → ~7,8.
+  - Doğrulama **2682/2683 test**. Dal main'e birleşmedi.
 
 ## En yeni — Sınırlı döngü: mobil + ilk yükleme ([[sessions/2026-09-25-bounded-mobile-perf]])
 - Sözleşme önceden yazıldı (sabit hedef, kanıt, değişmezler, tur limiti, ayrı commit). main'in çevrimiçi oyun düzeltmesiyle birleştirildi.

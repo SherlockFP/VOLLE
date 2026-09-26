@@ -4,6 +4,18 @@
 > **Status:** Active Gauntlet development. Canonical cycle order and exit gates live in `docs/GAUNTLET_CYCLES.md`.
 > **Tech Stack:** Three.js + PeerJS + vanilla JS (ES modules), browser-based 3D dodgeball.
 
+## 2026-09-26 Emote wheel, cover detours, adaptive bots
+
+- Emote wheel (`js/emotes.js`, `js/app-emote-wheel.js`): hold Z, aim, release
+  sends; pointer lock stays on and the mouse aims by movement; a Callouts page;
+  teammates' callouts become a HUD line.
+- Ball (`js/ball.js`): a pinned ball detours around/over the cover
+  (`propDetourWaypoints`) and only phases after `PROP_DETOUR_TRIES`; the Ghost
+  affix is solid for its own target in its last moment (`ghostBallSolidFor`).
+- Adaptive bots (`js/adaptive-difficulty.js`): the "Matched to you" solo preset
+  and the 'auto' bot difficulty build bots from a local skill level that each
+  solo match moves.
+
 ## 2026-09-25 Fun pass: feature files, clans, balance data
 
 - `js/main.js` keeps some features in their own files: `js/app-clans.js`,
