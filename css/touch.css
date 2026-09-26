@@ -205,6 +205,17 @@ body.touch-controls-on .ftue-copy-touch { display: block; }
     body.touch-controls-on #movement-hud { bottom: 64px; min-width: 0; padding: 4px 10px; gap: 8px; font-size: .82em; }
     body.touch-controls-on .hud-speed-text { top: 8px; right: calc(12px + env(safe-area-inset-right, 0px)); min-width: 96px; padding: 5px 8px; font-size: 0.95em; }
     body.touch-controls-on #hud:not(.hidden) ~ #chat-log { width: 220px; font-size: 0.8em; }
+    /* Chat sits under the vitals and stops above the move stick (it grew into it). */
+    body.touch-controls-on #hud:not(.hidden) ~ #chat-log {
+        top: calc(118px * var(--touch-scale, 1)); max-height: 62px; overflow: hidden;
+        -webkit-mask-image: linear-gradient(to bottom, transparent, #000 16px); mask-image: linear-gradient(to bottom, transparent, #000 16px);
+    }
+    /* The incoming readout was drawn over the 96x72 minimap: one line, centred
+       under the scoreboard and the direction arrow. */
+    body.touch-controls-on #incoming-indicator::after {
+        top: calc(94px + env(safe-area-inset-top, 0px)); right: auto; bottom: auto; left: 50%; translate: -50% 0;
+        width: auto; height: auto; min-width: 0; padding: 3px 9px; font-size: 10px; letter-spacing: .08em; white-space: nowrap;
+    }
     /* Welcome card: keep Start + Skip on a ~340px-tall screen without scrolling. */
     body.touch-controls-on .ftue-card { width: min(640px, 94vw); padding-top: 14px; padding-bottom: 12px; }
     body.touch-controls-on .ftue-header { margin-bottom: 8px; }
