@@ -185,6 +185,9 @@ export function incomingSettlementSeconds(distance, speed) {
 }
 
 export const CELEBRATION_DURATION_SECONDS = 8;
+// Gap between a hit that keeps the round going and the next serve. updatePlaying
+// counts it on match time, so a pause holds the countdown instead of losing the ball.
+export const BALL_RETURN_SECONDS = 1.5;
 // Emote wheel: minimum gap between two of your own emotes, and the sprite height
 // above a player's position (players carry eye height in position.y).
 export const LOCAL_EMOTE_COOLDOWN_MS = 1400; // stays under the host's 3 per 4 s relay limit
@@ -441,7 +444,9 @@ export class Game {
         this._powerUpInterval = POWERUP_RESPAWN;
         this._maxPowerUps = 1;
         this._playerBuffs = {}; // { speed: 0, shield: 0, damage: 0 } timer
-        this._respawnTimer = null;
+        this._ballReturn = null;
+        this._pendingRoundEnd = false;
+        this._statePausedFrom = null;
         this._openingServe = null;
 
         // Lobby/menu music — rotate between tracks.
@@ -564,13 +569,30 @@ export class Game {
 
     setState(s) {
         const prev = this.state;
+        const leavingPause = prev === STATES.PAUSED && s !== STATES.PAUSED;
+        // A final kill settled under the pause menu (_doApplyHit) ends the round on
+        // resume instead, so no round-end countdown runs behind the open menu.
+        const deferredRoundEnd = leavingPause && this._pendingRoundEnd === true
+            && (s === STATES.PLAYING || s === STATES.COUNTDOWN || s === STATES.ROUND_END);
+        if (deferredRoundEnd) {
+            s = STATES.ROUND_END;
+            this.cancelIncomingSettlement();
+        }
+        if (leavingPause || s === STATES.MENU || s === STATES.LOBBY) this._pendingRoundEnd = false;
+        // Resuming the state the pause interrupted is not a new entry: its round-end
+        // and celebration entry effects already ran and must not replay or reset.
+        const resumed = leavingPause && !deferredRoundEnd && s === this._statePausedFrom;
+        if (s === STATES.PAUSED && prev !== STATES.PAUSED) this._statePausedFrom = prev;
+        else if (leavingPause) this._statePausedFrom = null;
         if (s !== STATES.PLAYING && s !== STATES.PAUSED) this._openingServe = null;
         if (s === STATES.PAUSED && prev === STATES.PLAYING) this.armIncomingSettlement();
         if (s === STATES.PLAYING && prev === STATES.PAUSED) this.cancelIncomingSettlement();
+        // A ball return resumes where it stopped; show its countdown again.
+        if (resumed && this._ballReturn) this._ballReturn.shown = null;
         RuntimeLog.auditTransition(prev, s);
         this.state = s;
-        if (s === STATES.ROUND_END && prev !== STATES.ROUND_END) this._roundEndElapsed = 0;
-        if (s === STATES.CELEBRATION && prev !== STATES.CELEBRATION) {
+        if (s === STATES.ROUND_END && prev !== STATES.ROUND_END && !resumed) this._roundEndElapsed = 0;
+        if (s === STATES.CELEBRATION && prev !== STATES.CELEBRATION && !resumed) {
             this._celebrationElapsed = 0;
             this._postGameOpenedEarly = false;
         }
@@ -586,7 +608,7 @@ export class Game {
             if (this.ui?.isTeamPopupOpen?.()) this.ui.hideTeamPopup?.();
         }
         if ((s === STATES.LOBBY || s === STATES.MENU) && prev !== s) this._settleLobbyTeams?.();
-        if (s === STATES.ROUND_END && prev !== STATES.ROUND_END) {
+        if (s === STATES.ROUND_END && prev !== STATES.ROUND_END && !resumed) {
             this.onRoundEnd?.();
             // Valorant-style round-end flourish keyed off the winning side's ball skin.
             // Optional-chained through window so the effect layer stays a drop-in: if
@@ -1412,6 +1434,8 @@ startGame(skipPreGame = false, matchId = null) {
     startRound({ fromNetwork = false } = {}) {
         this.ui.hideMatchIntro();
         this._openingServe = null;
+        this._ballReturn = null;
+        this._pendingRoundEnd = false;
         if (this._pendingLethalHit) clearTimeout(this._pendingLethalHit);
         this._pendingLethalHit = null;
         this._pendingLethalVictim = null;
@@ -2363,10 +2387,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         const ownGoal = !!this.lastDeflectorTeam && this.lastDeflectorTeam === entry.concededTeam;
         this.scoreboard.recordRoundWin(entry.scoringTeam, ownGoal ? 1 : entry.points);
         this.ball.deactivate();
-        if (this._respawnTimer) {
-            clearTimeout(this._respawnTimer);
-            this._respawnTimer = null;
-        }
+        this._ballReturn = null;
         this.announce(
             `🥅 GOAL! ${entry.scoringTeam === 'red' ? '🔴 RED' : '🔵 BLUE'} SCORES!`,
             'tf2_domination', 0.5, 2000
@@ -2798,6 +2819,7 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
 
     updatePlaying(dt) {
         if (this._openingServe) this._updateOpeningServe(dt);
+        if (this._ballReturn) this._updateBallReturn(dt);
         this._updateRemoteSkillCooldowns(dt);
         this.scoreboard.updateTimer(dt);
         if ((!this.network?.connected || this.network?.isHost) && this._updateHotPotato(dt)) return;
@@ -4817,7 +4839,10 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
                 }
 
                 if (this._checkTeamElimination()) {
-                    this.setState(STATES.ROUND_END);
+                    // A kill settled under the pause menu leaves the menu up: setState
+                    // enters ROUND_END on resume, so no round advances behind it.
+                    if (this.state === STATES.PAUSED) this._pendingRoundEnd = true;
+                    else this.setState(STATES.ROUND_END);
                     this.roundRestartTimer = this.roundRestartDelay;
                 } else {
                     this._respawnBall();
@@ -4840,33 +4865,55 @@ addRemotePlayer(playerId, name = 'Player', team, avatarDataUrl = null, peerId = 
         if (this._deflectHistory.length > 3) this._deflectHistory.shift();
     }
 
-    // ponytail: single-instance respawn timer — guards against overlapping calls
+    // Arms the ball return after a hit that keeps the round going. It runs on match
+    // time (updatePlaying ticks _updateBallReturn), never a wall-clock callback: a
+    // pause holds the countdown, and a hit settled under the pause menu (state
+    // PAUSED) still brings the ball back after the resume. A new call re-arms it.
     _respawnBall() {
-        if (this.state !== STATES.PLAYING) return;
-        if (this._respawnTimer) { clearTimeout(this._respawnTimer); this._respawnTimer = null; }
-        const countdown = (n) => {
-            this.ui.showMessage(t('match.ballReturns', { n }), 1000);
-            this._respawnTimer = setTimeout(() => {
-                this._respawnTimer = null;
-                if (this.state !== STATES.PLAYING) return;
-                if (n <= 1) {
-                    if (this.ball.active) return;
-                    this.ball.spawn();
-                    this._applyBallAffix();
-                    this.lastDeflector = null;
-                    this.lastDeflectorTeam = null;
-                    const targets = this.getAllTargets().filter(p => p.alive);
-                    if (targets.length) {
-                        const next = targets[Math.floor(Math.random() * targets.length)];
-                        this.ball.setTarget(next);
-                        this.ball.state = 'homing';
-                    }
-                } else {
-                    countdown(n - 1);
-                }
-            }, 1000);
+        if (this.state !== STATES.PLAYING && this.state !== STATES.PAUSED) return;
+        const n = Math.ceil(BALL_RETURN_SECONDS);
+        this._ballReturn = {
+            remaining: BALL_RETURN_SECONDS,
+            round: this.scoreboard.roundNum,
+            scoreboard: this.scoreboard,
+            shown: n
         };
-        countdown(3);
+        this.ui.showMessage(t('match.ballReturns', { n }), 1000);
+    }
+
+    // Host/solo only; clients follow the host's ball state. A return from another
+    // round or match, or one whose ball is already back in play, is dropped.
+    _updateBallReturn(dt) {
+        const pending = this._ballReturn;
+        if (!pending) return false;
+        if (this.network?.connected && !this.network?.isHost) return false;
+        if (pending.scoreboard !== this.scoreboard || pending.round !== this.scoreboard.roundNum
+            || this.ball.active) {
+            this._ballReturn = null;
+            return false;
+        }
+        if (this.state !== STATES.PLAYING || !Number.isFinite(dt) || dt <= 0) return false;
+        pending.remaining = Math.max(0, pending.remaining - dt);
+        if (pending.remaining > 1e-9) {
+            const n = Math.ceil(pending.remaining);
+            if (n !== pending.shown) {
+                pending.shown = n;
+                this.ui.showMessage(t('match.ballReturns', { n }), 1000);
+            }
+            return false;
+        }
+        this._ballReturn = null;
+        this.ball.spawn();
+        this._applyBallAffix();
+        this.lastDeflector = null;
+        this.lastDeflectorTeam = null;
+        const targets = this.getAllTargets().filter(p => p.alive);
+        if (targets.length) {
+            const next = targets[Math.floor(Math.random() * targets.length)];
+            this.ball.setTarget(next);
+            this.ball.state = 'homing';
+        }
+        return true;
     }
 
     // --- DEATH EXPLOSION ---
@@ -5566,6 +5613,8 @@ spawnPowerUp() {
         if (this.affixes) this.affixes.clearRound();
         this.chaosManager?.clear();
         this.currentBallAffix = null;
+        this._ballReturn = null;
+        this._pendingRoundEnd = false;
         this.audio.playSfx('tf2_domination', 0.55);
         this.audio.playScore();
 
