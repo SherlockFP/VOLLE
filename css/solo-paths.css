@@ -1,4 +1,4 @@
-.solo-paths { margin: auto; width: min(900px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 28px; overflow: auto; color: #edfaff; border: 1px solid #5dd9d477; border-radius: 22px; background: linear-gradient(125deg, #123a48, #081627 65%); box-shadow: 0 25px 90px #0009; }
+.solo-paths { margin: auto; width: min(1040px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 28px; overflow: auto; color: #edfaff; border: 1px solid #5dd9d477; border-radius: 22px; background: linear-gradient(125deg, #123a48, #081627 65%); box-shadow: 0 25px 90px #0009; }
 .solo-paths::backdrop { background: #020b16d9; backdrop-filter: blur(8px); }
 .solo-paths header { display: flex; justify-content: space-between; gap: 20px; align-items: start; }
 .solo-paths .solo-kicker { color: #72e4d4; font-size: .7rem; letter-spacing: .13em; font-weight: 800; }
@@ -6,7 +6,9 @@
 .solo-paths p { color: #a9c3d0; line-height: 1.5; font-size: .84rem; }
 .solo-paths button { font: inherit; cursor: pointer; }
 .solo-close { color: #dff; background: #ffffff0a; border: 1px solid #ffffff33; width: 42px; height: 42px; border-radius: 50%; }
-.solo-path-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 24px 0; }
+/* Four routes (Matched to you, Warm-up, Rally Duel, Under Pressure): one row on
+   wide screens, two by two below that, so the footer stays in view. */
+.solo-path-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 24px 0; }
 .solo-path-card { display: flex; flex-direction: column; gap: 10px; text-align: left; padding: 22px 18px; min-height: 240px; border: 1px solid #4d738977; border-radius: 15px; color: #e9faff; background: #081d2baa; transition: border-color .15s, background .15s; }
 .solo-path-card[aria-pressed="true"] { border-color: #65ebcd; background: linear-gradient(160deg, #164f51, #0b2437); box-shadow: inset 0 0 0 1px #65ebcd; }
 .solo-path-card:hover { border-color: #b2f8ec; }
@@ -18,6 +20,14 @@
 .solo-paths footer p { margin: 0; max-width: 400px; }
 .solo-start { min-height: 50px; padding: 12px 24px; border: 0; border-radius: 10px; color: #04242b; background: #69eed6; font-weight: 850 !important; }
 .solo-paths button:focus-visible { outline: 3px solid #ffdb94; outline-offset: 4px; }
+@media (max-width: 900px) {
+    .solo-path-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .solo-path-card { min-height: 190px; }
+}
+@media (max-height: 760px) and (min-width: 621px) {
+    .solo-path-grid { margin-block: 16px; }
+    .solo-path-card { min-height: 0; padding: 16px 14px; }
+}
 @media (max-width: 620px) {
     .solo-paths { padding: 18px; }
     .solo-path-grid { grid-template-columns: 1fr; gap: 8px; margin-block: 16px; }
