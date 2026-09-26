@@ -1003,6 +1003,14 @@ body.is-new-player #main-menu :is(#btn-ranked, #btn-battlepass)::after {
    7. Reduced motion — same composition, no movement
    (media query + the in-game toggle on body.reduced-motion / html.reduce-motion)
    ========================================================================== */
+/* Landscape phones under 761 px wide (iPhone 13/14 in Safari: 750x342) matched
+   the portrait order above, which put a 210 px showcase over PLAY and pushed it
+   below the fold. Short landscape: actions first, a smaller showcase after. */
+@media (max-width: 760px) and (max-height: 480px) and (orientation: landscape) {
+    #main-menu .ow-action-panel { order: 1; }
+    #main-menu .ow-showcase { order: 2; height: 150px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
     #main-menu *, #main-menu *::before, #main-menu *::after,
     :is(#multiplayer-menu, #join-menu, #lobby-screen, #practice-menu-screen, #character-screen, #shop-screen,

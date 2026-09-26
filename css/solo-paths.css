@@ -36,5 +36,23 @@
     .solo-path-card > :not(.solo-path-icon) { grid-column: 2; }
     .solo-path-card .solo-path-tag { padding-top: 4px; }
     .solo-paths footer { align-items: stretch; flex-direction: column; }
+    /* Four stacked cards outgrow a phone: the start button rides along. */
+    .solo-paths footer { position: sticky; bottom: -18px; z-index: 1; margin: 0 -18px -18px; padding: 12px 18px 18px; background: linear-gradient(180deg, transparent, #081627 22%); }
+    .solo-paths footer p { display: none; }
+}
+/* Landscape phones: four compact cards in a row, so the start button fits. */
+@media (max-height: 480px) and (min-width: 560px) {
+    .solo-paths { padding: 14px 18px; }
+    .solo-paths header p { display: none; }
+    .solo-paths h2 { margin: 2px 0 0; font-size: 1.25rem; }
+    .solo-path-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-block: 10px; }
+    .solo-path-card { display: flex; min-height: 0; padding: 10px; gap: 4px; }
+    .solo-path-card > small { display: none; }
+    .solo-path-card > strong { font-size: .95rem; }
+    .solo-path-icon { font-size: 1.3rem; }
+    .solo-path-card .solo-path-tag { padding-top: 4px; font-size: .56rem; }
+    .solo-paths footer { flex-direction: row; align-items: center; }
+    .solo-paths footer p { font-size: .72rem; }
+    .solo-start { min-height: 42px; padding: 8px 16px; }
 }
 @media (prefers-reduced-motion: reduce) { .solo-path-card { transition: none; } }
